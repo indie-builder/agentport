@@ -13,8 +13,8 @@ import {
 } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import { startIntervalTicker } from '../interval-ticker.js';
 import { startRedisWorker } from '../queue-worker.js';
-import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 
 const BUILD_TIMEOUT_MS = 5 * 60_000;
 const STALE_BUILDING_MS = 15 * 60_000;

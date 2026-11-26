@@ -12,7 +12,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { KnowledgeDetailPage } from '../src/pages/knowledge/detail/index.js';
+import { KnowledgeDetailPage } from '../src/pages/knowledge/detail/knowledge-detail-page.js';
 import { KnowledgePage } from '../src/pages/knowledge/index.js';
 import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';

@@ -99,7 +99,7 @@ export async function update(
   });
 }
 
-export async function deleteToolApprovalPolicy(db: Database, id: string) {
+async function deleteToolApprovalPolicy(db: Database, id: string) {
   const [row] = await db
     .delete(toolApprovalPolicies)
     .where(eq(toolApprovalPolicies.id, id))

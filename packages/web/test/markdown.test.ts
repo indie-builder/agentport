@@ -47,8 +47,8 @@ describe('Markdown', () => {
   it('inherits parent size and color instead of forcing body typography', () => {
     const html = render({ text: '小字说明\n\n## 小节\n\n### 小节三', presentation: 'inherit' });
     expect(html).not.toContain('text-base text-fg');
-    expect(html).toContain('text-lg');
-    expect(html).toContain('mt-3.5 mb-1.5 text-base font-semibold');
+    expect(html).toContain('<h3');
+    expect(html).toContain('<h4');
   });
 
   it('never lets sub-headings fall below a larger inherited body size', () => {

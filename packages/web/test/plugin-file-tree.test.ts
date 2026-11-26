@@ -2,7 +2,7 @@ import type { PluginFileInput } from '@agentport/shared';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PluginFileTree } from '../src/components/plugin/plugin-file-tree.js';
+import { PluginFileTree } from '../src/pages/plugins/plugin-file-tree.js';
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
@@ -181,18 +181,15 @@ describe('PluginFileTree', () => {
     }
   });
 
-  it('marks only the selected file and leaves expanded folders unfilled', () => {
+  it('marks only the selected file and leaves expanded folders unselected', () => {
     mount({ files, onSelect: vi.fn(), selectedPath: 'README.md' });
 
-    expect(row('README.md').className).toContain('bg-selected');
-    expect(row('zeta.md').className).not.toContain('bg-selected');
+    expect(item('README.md').getAttribute('aria-current')).toBe('page');
+    expect(item('zeta.md').getAttribute('aria-current')).toBeNull();
 
     expect(item('skills').getAttribute('aria-expanded')).toBe('true');
     for (const title of ['skills', 'skills/alpha']) {
-      const backgrounds = row(title)
-        .className.split(/\s+/)
-        .filter((name) => name.startsWith('bg-'));
-      expect(backgrounds).toEqual([]);
+      expect(item(title).getAttribute('aria-current')).toBeNull();
     }
   });
 
@@ -215,15 +212,14 @@ describe('PluginFileTree', () => {
     for (const file of files) expect(row(file.path)).not.toBeNull();
   });
 
-  it('keeps every row inside the tree width, including deep nesting', () => {
+  it('nests deeply located files inside their parent folder group', () => {
     mount({ files, onSelect: vi.fn(), selectedPath: DEEP });
 
     const referencesGroup =
       item('skills/alpha/references').querySelector(':scope > [role="group"]');
-    expect(referencesGroup?.className).toContain('ms-4');
-    expect(referencesGroup?.className).toContain('border-s border-line');
-    expect(row(DEEP).className).toContain('min-w-0');
-    expect(row(DEEP).querySelector('span.truncate')?.textContent).toBe(LONG_NAME);
+    expect(referencesGroup).not.toBeNull();
+    expect(referencesGroup?.contains(item(DEEP))).toBe(true);
+    expect(row(DEEP).textContent).toBe(LONG_NAME);
   });
 
   it('reveals every ancestor when the selected path changes', () => {

@@ -1,0 +1,49 @@
+export const INVALID_CURSOR_MESSAGE = '分页游标无效，请刷新后重试';
+
+export const AGENT_DIR_SLUG_INVALID_MESSAGE = '智能体目录名非法';
+
+export const KNOWLEDGE_DOCUMENT_MISSING_MESSAGE = '文档不存在或不属于该知识库';
+
+export const KNOWLEDGE_BASE_NOT_FOUND_MESSAGE = '知识库不存在，可能已被删除';
+
+export const KNOWLEDGE_BASE_DISABLED_MESSAGE = '知识库已禁用';
+
+export const KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE = '文档不存在，可能已被删除';
+
+export const KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE = '来源不存在，可能已被删除';
+
+export const ASR_PROFILE_INVALID_MESSAGE = 'ASR profile 不存在、类型不符或已禁用';
+
+export const DOCUMENT_VERSION_STALE_MESSAGE = '文档版本已变化，请刷新后重试';
+
+export const CONFIG_STALE_MESSAGE = '配置已被修改，请刷新';
+
+export const ORIGINAL_RUN_UNAVAILABLE_MESSAGE = '原始运行记录已不可用';
+
+export const BUILD_ENQUEUE_FAILED_MESSAGE = '构建任务入队失败，请稍后重试';
+
+export const BUILD_ABORTED_MESSAGE = '构建已中断';
+
+export const BUILD_TIMEOUT_MESSAGE = '构建超时';
+
+export const BUILD_LOG_WRITE_FAILED_MESSAGE = '构建日志写入失败';
+
+export const NOT_FOUND_MESSAGES = {
+  agent: '智能体不存在，可能已被删除；请刷新后重试',
+  conversation: '会话不存在，可能已被删除；请刷新后重试',
+  run: '运行记录不存在，可能已被清理；请刷新后重试',
+  approval: '审批记录不存在，可能已被处理或失效；请刷新后重试',
+  workflow: '工作流不存在，可能已被删除；请刷新后重试',
+  skill: '技能不存在，可能已被删除；请刷新后重试',
+  plugin: '插件不存在，可能已被删除；请刷新后重试',
+  runtimeEnvironment: '运行环境不存在，可能已被删除；请刷新后重试',
+  runtimeEnvironmentVersion: '该构建版本不存在，可能已被清理；请刷新版本列表',
+  dataDomain: '数据域不存在，可能已被删除；请刷新后重试',
+  server: 'MCP Server 不存在，可能已被删除；请刷新后重试',
+  tool: '该工具不存在，可能已被删除；请刷新后重试',
+} as const;
+export type NotFoundResource = keyof typeof NOT_FOUND_MESSAGES;
+
+export const ACCOUNT_NOT_FOUND_MESSAGE = '账户不存在';
+
+export const AGENT_SELECTION_MISSING_MESSAGE = '智能体不存在，可能已被删除；请刷新后重新选择';

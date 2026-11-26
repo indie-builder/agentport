@@ -2,12 +2,8 @@ import type { KnowledgeSourceInput } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { api } from '../api.js';
-import {
-  isTerminalKnowledgeJob,
-  knowledgeKeys,
-  knowledgeShouldPoll,
-  useCursorList,
-} from './shared.js';
+import { useCursorList } from './client.js';
+import { isTerminalKnowledgeJob, knowledgeKeys, knowledgeShouldPoll } from './knowledge-shared.js';
 
 export function useKnowledgeSources(baseId: string) {
   return useCursorList({

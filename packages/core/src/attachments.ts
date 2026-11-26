@@ -24,7 +24,8 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import * as Bun from 'bun';
-import { AGENT_DIR_SLUG_INVALID_MESSAGE, fail } from './errors.js';
+import { AGENT_DIR_SLUG_INVALID_MESSAGE } from './domain-messages.js';
+import { fail } from './errors.js';
 import { pathSegmentsProblem } from './path-segments.js';
 
 const INPUTS_DIR = 'conversation-inputs';

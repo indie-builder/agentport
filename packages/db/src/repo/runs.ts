@@ -42,7 +42,7 @@ import {
   messages,
   servers,
 } from '../schema.js';
-import { getAgentRelation, getUserAccess } from './access.js';
+import { getAgentRelation, getUserAccess, ownerScopeWhere } from './access.js';
 import { getAuthUserForPrincipal } from './accounts.js';
 import { getAgentVersion } from './agent-versions.js';
 import { getAgentsByIds, getBoundServersByAgentIds } from './agents.js';
@@ -153,12 +153,8 @@ export async function listRuns(
   },
 ): Promise<CursorPage<RunListItem> | null> {
   const filters: SQL[] = [isNull(agentRuns.channelId)];
-  if (options.access.scopes.includes('platform')) {
-  } else if (options.access.scopes.includes('own_data')) {
-    filters.push(eq(agentRuns.initiatedBy, options.access.businessId));
-  } else {
-    filters.push(sql`false`);
-  }
+  const scope = ownerScopeWhere(agentRuns.initiatedBy, options.access);
+  if (scope !== undefined) filters.push(scope);
   if (options.agentId !== undefined) filters.push(eq(agentRuns.agentId, options.agentId));
   if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
   if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
@@ -846,7 +842,11 @@ export async function supersedeMismatchedApprovals(
 
 export async function lockRunForApproval(tx: Transaction, runId: string) {
   const [run] = await tx
-    .select({ channelId: agentRuns.channelId, status: agentRuns.status })
+    .select({
+      channelId: agentRuns.channelId,
+      status: agentRuns.status,
+      initiatedBy: agentRuns.initiatedBy,
+    })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId))
     .for('update');
@@ -952,6 +952,64 @@ export type RecheckApproval = (
   input: { runId: string; serverId: string; toolName: string },
 ) => Promise<string | null>;
 
+export async function applyApprovalDecision(
+  tx: Transaction,
+  input: {
+    approvalId: string;
+    runId: string;
+    serverId: string;
+    toolName: string;
+    decisionHash: string | null;
+    supersededAt: Date | null;
+    approvedAt?: Date | null;
+    decision: 'approve' | 'deny';
+    businessId: string;
+    scopeWhere: SQL;
+  },
+  recheck: RecheckApproval,
+): Promise<
+  | { kind: 'ok'; approval: typeof approvalRequests.$inferSelect }
+  | { kind: 'already_approved' }
+  | { kind: 'decision_changed' }
+  | { kind: 'conflict' }
+> {
+  if (input.decisionHash === null || input.supersededAt !== null) {
+    return { kind: 'decision_changed' };
+  }
+  const current = await recheck(tx, {
+    runId: input.runId,
+    serverId: input.serverId,
+    toolName: input.toolName,
+  });
+  if (current !== input.decisionHash) return { kind: 'decision_changed' };
+  if (input.decision === 'approve' && input.approvedAt != null) {
+    return { kind: 'already_approved' };
+  }
+  const [decided] = await tx
+    .update(approvalRequests)
+    .set(
+      input.decision === 'approve'
+        ? { approvedAt: sql`clock_timestamp()`, approvedByBusinessId: input.businessId }
+        : { deniedAt: sql`clock_timestamp()`, deniedByBusinessId: input.businessId },
+    )
+    .where(
+      and(
+        eq(approvalRequests.id, input.approvalId),
+        input.scopeWhere,
+        eq(approvalRequests.decisionHash, current),
+        isNull(approvalRequests.supersededAt),
+        isNull(approvalRequests.approvedAt),
+        isNull(approvalRequests.deniedAt),
+        or(
+          isNull(approvalRequests.expiresAt),
+          gt(approvalRequests.expiresAt, sql`clock_timestamp()`),
+        ),
+      ),
+    )
+    .returning();
+  return decided ? { kind: 'ok', approval: decided } : { kind: 'conflict' };
+}
+
 export async function decideToolApproval(
   db: Database,
   input: { runId: string; approvalId: string; businessId: string; decision: 'approve' | 'deny' },
@@ -967,46 +1025,35 @@ export async function decideToolApproval(
       );
     if (!run || run.channelId !== null || !approval) return { kind: 'not_found' } as const;
     if (run.status !== 'running') return { kind: 'conflict' } as const;
-    if (approval.decisionHash === null || approval.supersededAt !== null)
-      return { kind: 'conflict' } as const;
-    const current = await recheck(tx, {
-      runId: input.runId,
-      serverId: approval.serverId,
-      toolName: approval.toolName,
-    });
-    if (current !== approval.decisionHash) return { kind: 'conflict' } as const;
-    if (input.decision === 'approve' && approval.approvedAt !== null) {
+    const result = await applyApprovalDecision(
+      tx,
+      {
+        approvalId: input.approvalId,
+        runId: input.runId,
+        serverId: approval.serverId,
+        toolName: approval.toolName,
+        decisionHash: approval.decisionHash,
+        supersededAt: approval.supersededAt,
+        approvedAt: approval.approvedAt,
+        decision: input.decision,
+        businessId: input.businessId,
+        scopeWhere: eq(approvalRequests.runId, input.runId),
+      },
+      recheck,
+    );
+    if (result.kind === 'already_approved') {
       return {
         kind: 'ok',
         approval,
         waiting: approval.expiresAt !== null && approval.expiresAt.getTime() > Date.now(),
       } as const;
     }
-    const [decided] = await tx
-      .update(approvalRequests)
-      .set(
-        input.decision === 'approve'
-          ? { approvedAt: sql`clock_timestamp()`, approvedByBusinessId: input.businessId }
-          : { deniedAt: sql`clock_timestamp()`, deniedByBusinessId: input.businessId },
-      )
-      .where(
-        and(
-          eq(approvalRequests.id, input.approvalId),
-          eq(approvalRequests.runId, input.runId),
-          eq(approvalRequests.decisionHash, current),
-          isNull(approvalRequests.supersededAt),
-          isNull(approvalRequests.approvedAt),
-          isNull(approvalRequests.deniedAt),
-          or(
-            isNull(approvalRequests.expiresAt),
-            gt(approvalRequests.expiresAt, sql`clock_timestamp()`),
-          ),
-        ),
-      )
-      .returning();
-    return decided
-      ? ({ kind: 'ok', approval: decided, waiting: decided.expiresAt !== null } as const)
-      : ({ kind: 'conflict' } as const);
+    if (result.kind !== 'ok') return { kind: 'conflict' } as const;
+    return {
+      kind: 'ok',
+      approval: result.approval,
+      waiting: result.approval.expiresAt !== null,
+    } as const;
   });
 }
 

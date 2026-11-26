@@ -6,7 +6,7 @@ import {
   type ConversationSearchOptions,
   type OutputShareList,
 } from '../api.js';
-import { useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
 
 export const chatKeys = {
   conversations: (...ids: [] | [string | null]) => ['conversations', ...ids] as const,

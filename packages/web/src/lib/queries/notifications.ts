@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { toastError } from '../toast.js';
-import { useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
 
 const NOTIFICATIONS_PAGE_SIZE = 20;
 

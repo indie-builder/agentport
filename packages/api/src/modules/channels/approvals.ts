@@ -4,9 +4,9 @@ import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { CHANNEL_MEMBER_MISSING_MESSAGE } from '../../http/errors.js';
 import { toIso } from '../../lib/iso.js';
 import { recheckRunApproval } from '../servers/approval-policy.js';
-import { CHANNEL_MEMBER_MISSING } from './errors.js';
 
 const approvalsRepo = repo.channelApprovals;
 function toItem(item: repo.channelApprovals.ChannelApprovalItem) {
@@ -41,7 +41,7 @@ export const channelsApprovalsRouter = {
       businessId: requireUser(context).businessId,
     });
     if (result.kind === 'not_found') {
-      return fail('NOT_FOUND', CHANNEL_MEMBER_MISSING);
+      return fail('NOT_FOUND', CHANNEL_MEMBER_MISSING_MESSAGE);
     }
     return { items: result.items.map(toItem) };
   }),

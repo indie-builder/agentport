@@ -15,8 +15,8 @@ import { RedisClient } from 'bun';
 import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { checkRunPromptPolicy } from '../content-policy.js';
+import { startIntervalTicker } from '../interval-ticker.js';
 import { checkUserAgentAccess } from '../runs/run-access.js';
-import { startIntervalTicker } from './interval-ticker.js';
 import { startSingleFlight } from './single-flight.js';
 
 const ENQUEUE_ATTEMPTS = 3;

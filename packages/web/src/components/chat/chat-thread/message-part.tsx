@@ -219,11 +219,7 @@ function renderAssistantText(
 ) {
   if (text.length > LARGE_CONTENT_CHARS) {
     return (
-      <CollapsibleText
-        text={text}
-        // Keep readable message typography when large text is forwarded to the unstyled Collapsible.
-        className="whitespace-pre-wrap break-words text-base text-fg"
-      />
+      <CollapsibleText text={text} className="whitespace-pre-wrap break-words text-base text-fg" />
     );
   }
   return (

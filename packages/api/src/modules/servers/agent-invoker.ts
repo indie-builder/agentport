@@ -1,12 +1,11 @@
 import { fail, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
-import { isActiveRunStatus, isTerminalRunStatus, runEnqueueOptions } from '@agentport/shared';
+import { isActiveRunStatus, isTerminalRunStatus } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
 import type { AppContext } from '../../http/context.js';
-import { getQueue } from '../../queue/producer.js';
 import { cancelAgentRun } from '../runs/cancel-run.js';
 import { requireRunQueueCapacity } from '../runs/capacity.js';
-import { failQueuedRunEnqueue, failRunEnqueue } from '../runs/enqueue.js';
+import { enqueueRunOrRollback } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
 import type { AgentInvoker } from './agent-tools.js';
 
@@ -100,26 +99,11 @@ export function createInvoker(app: AppContext): AgentInvoker {
           abortRun({ slug, promptLength: prompt.length }, 'agent run cancelled');
         if (signal?.aborted) await cancelled();
 
-        try {
-          await getQueue().add(
-            'run',
-            { runId: run.id, agentId: agent.id, conversationId, prompt: message },
-            runEnqueueOptions(run.id),
-          );
-        } catch (err) {
-          try {
-            const failed = await failQueuedRunEnqueue(app.db, run.id);
-            if (failed) {
-              await getQueue()
-                .getJob(run.id)
-                .then((job) => job?.remove())
-                .catch(() => undefined);
-            }
-          } catch {
-            app.log.warn({ runId: run.id }, 'MCP enqueue failure cleanup failed');
-          }
-          failRunEnqueue(err);
-        }
+        await enqueueRunOrRollback(
+          app,
+          { runId: run.id, agentId: agent.id, conversationId, prompt: message },
+          { cleanupMessage: 'MCP enqueue failure cleanup failed', removeJobOnFailure: true },
+        );
         await writeAudit(app.db, app.log, {
           actor: 'mcp',
           actorKind: 'service',

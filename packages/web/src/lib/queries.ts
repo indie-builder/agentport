@@ -3,6 +3,7 @@ export * from './queries/audit.js';
 export * from './queries/auth.js';
 export * from './queries/channels.js';
 export * from './queries/chat.js';
+export * from './queries/client.js';
 export * from './queries/data-domains.js';
 export * from './queries/eval.js';
 export * from './queries/governance.js';
@@ -11,6 +12,13 @@ export * from './queries/knowledge-documents.js';
 export * from './queries/knowledge-faq.js';
 export * from './queries/knowledge-models.js';
 export * from './queries/knowledge-search.js';
+export {
+  isMissingJob,
+  isTerminalKnowledgeJob,
+  knowledgeJobQuery,
+  knowledgeKeys,
+  knowledgeShouldPoll,
+} from './queries/knowledge-shared.js';
 export * from './queries/knowledge-sources.js';
 export * from './queries/knowledge-wiki.js';
 export * from './queries/memory.js';
@@ -21,25 +29,12 @@ export * from './queries/ops.js';
 export * from './queries/overview.js';
 export * from './queries/personal.js';
 export * from './queries/plugins.js';
+export { useRefetchWhenRunEnds, withRunQuestion } from './queries/run-questions.js';
 export * from './queries/runs.js';
 export * from './queries/runtime-environments.js';
 export * from './queries/search.js';
 export * from './queries/security.js';
 export * from './queries/servers.js';
-export {
-  clearSessionQueries,
-  isMissingJob,
-  isTerminalKnowledgeJob,
-  knowledgeJobQuery,
-  knowledgeKeys,
-  knowledgeShouldPoll,
-  logoutAccount,
-  meQuery,
-  queryClient,
-  useCursorList,
-  useDrainPages,
-  useRefetchWhenRunEnds,
-  withRunQuestion,
-} from './queries/shared.js';
+export { clearSessionQueries, logoutAccount, meQuery } from './queries/session.js';
 export * from './queries/skills.js';
 export * from './queries/workflows.js';

@@ -29,7 +29,6 @@ export function resolveReturnTo(value: unknown): string {
   return safeInternalPath(value) ?? '/';
 }
 
-/** 会话失效时把当前 pathname + search + hash 交给登录页，登录后原样回去。 */
 export function loginPath(returnTo: unknown, reason?: 'expired'): string {
   const params = new URLSearchParams({ returnTo: resolveReturnTo(returnTo) });
   if (reason !== undefined) params.set('reason', reason);

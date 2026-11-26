@@ -88,10 +88,7 @@ export function AgentDetailPage() {
     archive.isPending ||
     restore.isPending ||
     toggleEnable.isPending;
-  const [warnings, setWarnings] = useState<string[]>(() => {
-    const state = location.state as { importWarnings?: string[] } | undefined;
-    return state?.importWarnings ?? [];
-  });
+  const [warnings, setWarnings] = useState<string[]>(() => location.state?.importWarnings ?? []);
 
   const backTo = search.backTo ?? '/agents';
 

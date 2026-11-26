@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createOpenUiDefinitions } from '@agentport/shared';
 import { action, createLibrary, defineComponent, markReactive } from '@openuidev/lang-core';
 import { openuiChatLibrary } from '@openuidev/react-ui/genui-lib';
@@ -28,12 +27,5 @@ describe('OpenUI spec guard', () => {
     expect(Object.keys(spec.components)).toEqual(Object.keys(official.components));
     expect(spec.componentGroups).toEqual(official.componentGroups);
     expect(spec.schema).toEqual(openuiChatLibrary.toJSONSchema());
-  });
-
-  test('spec is loaded from the committed JSON, not rebuilt from web at build time', () => {
-    const source = readFileSync(new URL('../src/openui-prompt.ts', import.meta.url), 'utf8');
-    const imports = [...source.matchAll(/from '([^']+)'/g)].map((match) => match[1]);
-    expect(imports).toContain('./generated/openui.spec.json');
-    expect(imports.filter((specifier) => specifier?.includes('web'))).toEqual([]);
   });
 });

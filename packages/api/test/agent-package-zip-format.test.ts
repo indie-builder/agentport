@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { AppError } from '@agentport/core';
 import { zipSync } from 'fflate';
-import { decodePackage } from '../src/modules/agents/package-zip.js';
+import { decodePackage } from '../src/lib/package-zip.js';
 
 const SIGNATURE_EOCD = 0x06054b50;
 

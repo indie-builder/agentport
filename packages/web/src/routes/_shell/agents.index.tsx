@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { z } from 'zod';
-import { AgentsPage } from '../../pages/agents/index.js';
+import { AgentsPage } from '../../pages/agents/agents-page.js';
 import { agentsSearchSchema as baseAgentsSearchSchema } from '../-search.js';
 
 const agentsSearchSchema = baseAgentsSearchSchema.extend({

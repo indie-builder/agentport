@@ -128,14 +128,14 @@ export async function runSandboxProbe(
       complete: (outcome) => {
         if (!outcome.started) {
           return failure(
-            outcome.exited === '__closing__'
+            outcome.exit.kind === 'closing'
               ? 'worker 正在关停，连接测试已取消'
               : `沙盒启动超时（${timeoutMs}ms），请检查 Docker 服务与镜像后重试`,
           );
         }
         const stderrTail =
           redactSecrets(outcome.stderr.trim()).split('\n').at(-1)?.slice(0, 300) ?? '';
-        if (outcome.result) {
+        if (outcome.result !== undefined) {
           const output = outcome.result;
           if (!output.ok) {
             deps.logger.warn(
@@ -167,13 +167,13 @@ export async function runSandboxProbe(
         }
 
         const reason =
-          outcome.exited === '__closing__'
+          outcome.exit.kind === 'closing'
             ? 'worker 正在关停，连接测试已取消'
-            : outcome.exited === '__timeout__'
+            : outcome.exit.kind === 'timeout' || outcome.exit.kind === 'startup_timeout'
               ? `连接测试超时（${timeoutMs}ms），请检查 Server 是否能正常启动`
-              : outcome.exited === '__output_too_large__'
+              : outcome.exit.kind === 'output_too_large'
                 ? `沙盒输出超过 ${SANDBOX_TASK_OUTPUT_MAX_BYTES} 字节上限`
-                : `沙盒没有返回结果（${outcome.exited ?? 'unknown'}）`;
+                : `沙盒没有返回结果（${outcome.exit.detail}）`;
         deps.logger.warn(
           {
             serverId,

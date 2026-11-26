@@ -8,6 +8,7 @@ import {
   tokTypes,
 } from 'acorn';
 import { invalidInput } from './errors.js';
+import { stripBom } from './frontmatter-scan.js';
 
 const MAX_LITERAL_DEPTH = 64;
 
@@ -113,7 +114,7 @@ function readFields(node: ObjectExpression, depth: number) {
 }
 
 export function parseWorkflowMeta(content: string): { name: string; description: string } {
-  const text = content.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const text = stripBom(content).replace(/\r\n/g, '\n');
   if (text.length > AGENT_WORKFLOW_CONTENT_MAX) {
     invalidInput(`工作流脚本不能超过 ${AGENT_WORKFLOW_CONTENT_MAX} 个字符`, '/workflow');
   }

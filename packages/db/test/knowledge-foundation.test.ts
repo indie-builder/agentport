@@ -5,17 +5,14 @@ import {
   knowledgeBaseSettingsSchema,
 } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { createDb, type Transaction } from '../src/client.js';
+import type { Transaction } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
 import { schema } from '../src/schema.js';
+import { probeTestDb } from './db-probe.js';
 
-const { db, client } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
+const { db, client, ready } = await probeTestDb();
 
 const baseIds: string[] = [];
 const profileIds: string[] = [];

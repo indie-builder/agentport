@@ -65,7 +65,7 @@ import {
 } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { isPgCode, MCP_JSON_INVALID_MESSAGE } from '../../http/errors.js';
-import { decodePackage, encodePackageEntries } from './package-zip.js';
+import { decodePackage, encodePackageEntries } from '../../lib/package-zip.js';
 import { unsupportedAllowedTool } from './validation.js';
 import { toAgentConfigValues } from './write.js';
 

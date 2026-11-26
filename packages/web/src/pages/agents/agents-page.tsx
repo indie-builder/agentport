@@ -164,7 +164,7 @@ export function AgentsPage() {
         to: '/agents/$agentId',
         params: { agentId: result.agent.id },
         search: { backTo: location.href },
-        state: { importWarnings: [...new Set(result.warnings)] } as unknown as true,
+        state: { importWarnings: [...new Set(result.warnings)] },
       });
     } catch (error) {
       toastError(error);

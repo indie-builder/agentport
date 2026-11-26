@@ -56,7 +56,6 @@ const editorTheme = EditorView.theme({
     backgroundColor: 'var(--color-selected)',
   },
   '.cm-cursor': { borderLeftColor: 'var(--color-fg)' },
-  // 内置搜索面板与括号/匹配高亮默认带彩色，这里统一收回到中性令牌。
   '.cm-panels': { backgroundColor: 'var(--color-surface)', color: 'var(--color-fg)' },
   '.cm-panel.cm-search': {
     backgroundColor: 'var(--color-surface)',
@@ -91,7 +90,6 @@ const editorTheme = EditorView.theme({
   '&.cm-focused .cm-nonmatchingBracket': { backgroundColor: 'var(--color-danger-soft)' },
 });
 
-// CodeMirror 内置搜索面板默认是英文，这里给出项目内使用的中文文案。
 const phrases = EditorState.phrases.of({
   Find: '查找',
   Replace: '替换',

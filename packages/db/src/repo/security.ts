@@ -20,6 +20,7 @@ import {
   violationCases,
 } from '../schema.js';
 import { listAlertRecipientBusinessIds } from './governance/reporting.js';
+import { lockPolicyApproval } from './locks.js';
 import { createNotification } from './notifications.js';
 import { keysetPage } from './pagination.js';
 
@@ -276,8 +277,7 @@ export async function findOrCreatePolicyApproval(
   tx: Transaction,
   input: PolicyApprovalInput & { policyId: string; destination: string },
 ) {
-  const key = JSON.stringify([input.requestedBy, input.payloadHash, input.destination]);
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`);
+  await lockPolicyApproval(tx, input.requestedBy, input.payloadHash, input.destination);
   const [row] = await tx
     .select()
     .from(policyApprovals)
@@ -414,7 +414,7 @@ function approvalStatusFilter(status: PolicyApprovalStatus) {
   }
   return and(
     eq(policyApprovals.status, status),
-    status === 'pending' ? gt(policyApprovals.expiresAt, new Date()) : undefined,
+    status === 'pending' ? gt(policyApprovals.expiresAt, sql`now()`) : undefined,
   );
 }
 

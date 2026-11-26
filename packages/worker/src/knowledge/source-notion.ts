@@ -95,7 +95,6 @@ const pageSchema = z.looseObject({
   archived: z.boolean().optional(),
   in_trash: z.boolean().optional(),
   properties: z.record(z.string(), propertySchema).optional(),
-  // 数据库对象把标题放在顶层 title rich text 数组里。
   title: z.array(richTextSchema).optional(),
 });
 
@@ -390,10 +389,6 @@ const PAGINATED_PROPERTY_TYPES = new Set(['title', 'rich_text', 'people', 'relat
  */
 const ALWAYS_COMPLETE_PROPERTY_TYPES = new Set(['title', 'rich_text', 'people']);
 
-/**
- * 官方 property-item 接口从第一页返回完整数组，读取到终页后替换内联值。
- * 任何不完整（缺 cursor、cursor 重复、没有 property id）都让整页失败，不产出假完整。
- */
 async function completePaginatedProperty(
   ctx: NotionContext,
   pageId: string,
@@ -943,7 +938,6 @@ async function walkDatabase(
   const recordPrefix =
     databaseTitle === '' ? prefix : [...prefix, sanitizeSegment(databaseTitle, databaseId)];
   for (const dataSource of database.data_sources) {
-    // 一个 database 可能有多个 data_source；只取第一个会漏掉记录。
     const records = await queryDataSource(ctx, dataSource.id);
     for (const record of records) {
       if (record.archived === true || record.in_trash === true) continue;

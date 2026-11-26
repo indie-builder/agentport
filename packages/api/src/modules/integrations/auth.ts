@@ -1,9 +1,9 @@
 import { fail, sha256Hex } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { IntegrationScope, Principal } from '@agentport/shared';
+import { bearerToken } from '../../http/bearer.js';
 import type { RequestContext } from '../../http/context.js';
 import { principalOf } from '../auth/session.js';
-import { bearerToken } from '../servers/bearer.js';
 
 export type ApiTokenAuth = NonNullable<
   Awaited<ReturnType<typeof repo.integrations.getApiTokenByHash>>

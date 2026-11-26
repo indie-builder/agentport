@@ -1,13 +1,5 @@
 import type { z } from 'zod';
 
-/**
- * 组件定义的构建原语。`shared` 只依赖 zod，两端各自注入官方实现：
- * - core：只需要 spec，不含渲染器；
- * - web：`@openuidev/react-lang` 的 defineComponent / action / reactive。
- *
- * `reactive` 由官方实现标记字段并返回原 schema；这里只放宽类型，
- * 不复制它的语义。`C` 是各框架自己的渲染器类型。
- */
 export interface OpenUiKit<C> {
   defineComponent<T extends z.core.$ZodObject>(config: {
     name: string;

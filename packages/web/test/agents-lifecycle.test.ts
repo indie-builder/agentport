@@ -14,7 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
 import { useAgentSummary } from '../src/lib/queries.js';
 import { toast } from '../src/lib/toast.js';
-import { AgentDetailPage, AgentsPage } from '../src/pages/agents/index.js';
+import { AgentDetailPage } from '../src/pages/agents/agent-detail-page.js';
+import { AgentsPage } from '../src/pages/agents/agents-page.js';
 import { allAccessMe } from './me-fixture.js';
 
 const agent: Agent = {

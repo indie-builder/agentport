@@ -22,7 +22,7 @@ export type DataDomainQueryLogRow = typeof dataDomainQueryLogs.$inferSelect;
 export type DataDomainQueryApprovalRow = typeof dataDomainQueryApprovals.$inferSelect;
 export type DataDomainEnrichmentProposalRow = typeof dataDomainEnrichmentProposals.$inferSelect;
 
-export const DATA_DOMAIN_VERSION_LOG_LIMIT = 64 * 1024;
+const DATA_DOMAIN_VERSION_LOG_LIMIT = 64 * 1024;
 
 function logTailFields(
   chunk: string,

@@ -1,4 +1,4 @@
-import { waitClose } from './runs/close-wait.js';
+import { waitClose } from './close-wait.js';
 
 const SHUTDOWN_WAIT_MS = 10_000;
 const CLOSE_WAIT_MS = 5_000;

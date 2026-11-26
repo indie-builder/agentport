@@ -18,7 +18,6 @@ export const plugins = pgTable(
   (t) => [
     uniqueIndex('plugins_slug_idx').on(t.slug),
     uniqueIndex('plugins_runtime_name_idx').on(t.runtimeName),
-    // 同一市场插件只纳入一次；多个 NULL（ZIP）不受影响。
     uniqueIndex('plugins_source_id_idx').on(t.sourceId),
   ],
 );

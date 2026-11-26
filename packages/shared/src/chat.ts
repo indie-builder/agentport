@@ -4,6 +4,7 @@ import { ATTACHMENT_LIMITS, chatAttachmentInputsSchema } from './attachments.js'
 import { DEFAULT_MEMORY_POLICY, memoryPolicySchema } from './memory.js';
 import { openUiActionSchema } from './openui/protocol.js';
 import { outputRefSchema } from './outputs.js';
+import { cursorPageSchema, cursorQuerySchema } from './pagination.js';
 import { nativeQuestionsSchema, publicRunQuestionSchema } from './questions.js';
 import {
   type RunErrorKind,
@@ -235,6 +236,7 @@ export const sandboxTaskSchema = z
     userMessageUuid: z.uuid(),
     forkFromMessageUuid: z.uuid().optional(),
     memoryPolicy: memoryPolicySchema.default(DEFAULT_MEMORY_POLICY),
+    tokenAccounting: z.enum(['default', 'channel']).optional(),
   })
   .strict();
 
@@ -319,11 +321,9 @@ export const conversationDetailSchema = z.object({
 
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
 
-export const conversationSearchQuerySchema = z.object({
+export const conversationSearchQuerySchema = cursorQuerySchema({ max: 50, default: 20 }).extend({
   q: z.string().trim().max(200).default(''),
   agentId: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  cursor: z.string().min(1).optional(),
 });
 
 export const conversationSearchMatchSchema = z.object({
@@ -342,9 +342,6 @@ export const conversationSearchItemSchema = z.object({
 
 export type ConversationSearchItem = z.infer<typeof conversationSearchItemSchema>;
 
-export const conversationSearchResponseSchema = z.object({
-  items: z.array(conversationSearchItemSchema),
-  nextCursor: z.string().nullable(),
-});
+export const conversationSearchResponseSchema = cursorPageSchema(conversationSearchItemSchema);
 
 export type ConversationSearchResponse = z.infer<typeof conversationSearchResponseSchema>;

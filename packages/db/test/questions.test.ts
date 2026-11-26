@@ -1,20 +1,14 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { QUESTION_LIMITS } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/bun-sql';
-import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as chat from '../src/repo/chat.js';
 import * as questions from '../src/repo/questions.js';
-import { agents, schema } from '../src/schema.js';
+import { agents } from '../src/schema.js';
+import { probeTestDb } from './db-probe.js';
 import { waitFor } from './fixtures/wait-for.js';
 
-const { client } = createDb(process.env.DATABASE_URL ?? '');
-const db = drizzle(client, { schema });
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
+const { db, client, ready } = await probeTestDb();
 
 const agentIds: string[] = [];
 const businessId = 'questions-owner';

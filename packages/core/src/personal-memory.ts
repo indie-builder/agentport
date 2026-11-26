@@ -1,15 +1,11 @@
 import { chmod, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { PERSONAL_MEMORY_FILENAME } from '@agentport/shared';
-import * as Bun from 'bun';
-import { WORKSPACE_DIR_MODE, WORKSPACE_FILE_MODE } from './mcp-token.js';
+import { hasErrorCode, PERSONAL_MEMORY_FILENAME } from '@agentport/shared';
+import { sha256Hex } from './hash.js';
+import { WORKSPACE_DIR_MODE, WORKSPACE_FILE_MODE } from './workspace-input.js';
 
 export function personalMemoryDir(workspacesDir: string, businessId: string): string {
-  return join(
-    workspacesDir,
-    '_users',
-    new Bun.CryptoHasher('sha256').update(businessId, 'utf8').digest('hex'),
-  );
+  return join(workspacesDir, '_users', sha256Hex(businessId));
 }
 
 export function personalMemoryPath(workspacesDir: string, businessId: string): string {
@@ -39,7 +35,7 @@ async function assertReplaceableFile(file: string): Promise<void> {
       throw new Error(`Personal memory file must be a regular file without links: ${file}`);
     }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    if (!hasErrorCode(error, 'ENOENT')) throw error;
   }
 }
 

@@ -6,16 +6,48 @@ import { agents, schema } from '../schema.js';
 
 export const AGENT_BINDINGS_LOCK_KEY = 'agentport.subagent-bindings';
 
+const AUDIT_CHAIN_LOCK_KEY = 'agentport.audit-chain';
+const BOOTSTRAP_LOCK_KEY = 'agentport:bootstrap';
+const DEFAULT_ENVIRONMENT_LOCK_KEY = 'agentport.runtime-environment-default';
+
 const CONTROL_QUERY_TIMEOUT = '5s';
 
 const CONTROL_QUERY_TIMEOUT_MS = 5_000;
 
-export async function lockAgentBindings(tx: Transaction): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${AGENT_BINDINGS_LOCK_KEY}))`);
+async function lockXact(tx: Transaction, key: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`);
 }
 
-async function lockMemoryKey(tx: Transaction, key: string): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`);
+export async function lockAgentBindings(tx: Transaction): Promise<void> {
+  await lockXact(tx, AGENT_BINDINGS_LOCK_KEY);
+}
+
+export async function lockAuditChain(tx: Transaction): Promise<void> {
+  await lockXact(tx, AUDIT_CHAIN_LOCK_KEY);
+}
+
+export async function lockBootstrap(tx: Transaction): Promise<void> {
+  await lockXact(tx, BOOTSTRAP_LOCK_KEY);
+}
+
+export async function lockDefaultRuntimeEnvironment(tx: Transaction): Promise<void> {
+  await lockXact(tx, DEFAULT_ENVIRONMENT_LOCK_KEY);
+}
+
+export async function lockKnowledgeSyncSource(tx: Transaction, sourceId: string): Promise<void> {
+  await lockXact(tx, `agentport.knowledge-sync:${sourceId}`);
+}
+
+export async function lockPolicyApproval(
+  tx: Transaction,
+  requestedBy: string,
+  payloadHash: string,
+  destination: string,
+): Promise<void> {
+  await lockXact(
+    tx,
+    `agentport.policy-approval:${JSON.stringify([requestedBy, payloadHash, destination])}`,
+  );
 }
 
 export async function lockRunResources(
@@ -39,7 +71,7 @@ export async function lockRunResources(
       .orderBy(asc(agents.id))
   ).map((row) => row.id);
   const ids = [...new Set([agentId, ...children])].sort();
-  for (const id of ids) await lockMemoryKey(tx, agentMemoryLockKey(id));
+  for (const id of ids) await lockXact(tx, agentMemoryLockKey(id));
 }
 
 export function memoryTargetLockKey(
@@ -61,12 +93,24 @@ function connectionError(reason: unknown): Error {
   return reason instanceof Error ? reason : new Error(String(reason));
 }
 
+export interface AdvisoryLockOptions {
+  holdTimeoutMs?: number;
+  timeoutMessage?: string;
+}
+
 export async function withAdvisoryLock<T>(
   databaseClient: DatabaseClient,
   key: string,
   fn: (db: Database) => Promise<T>,
-  holdTimeoutMs?: number,
+  holdTimeoutOrOptions?: number | AdvisoryLockOptions,
 ): Promise<T> {
+  const holdTimeoutMs =
+    typeof holdTimeoutOrOptions === 'number'
+      ? holdTimeoutOrOptions
+      : holdTimeoutOrOptions?.holdTimeoutMs;
+  const timeoutMessage =
+    (typeof holdTimeoutOrOptions === 'object' ? holdTimeoutOrOptions.timeoutMessage : undefined) ??
+    '删除操作超过持锁时间上限，操作未完成';
   const client = await databaseClient.reserve().catch((err: unknown) => {
     throw serviceError('无法取得数据库锁，操作未执行', err);
   });
@@ -139,10 +183,7 @@ export async function withAdvisoryLock<T>(
       expireHold = reject;
     });
     holdTimer = setTimeout(() => {
-      const error = destroyControl(
-        '删除操作超过持锁时间上限，操作未完成',
-        new Error('hold deadline exceeded'),
-      );
+      const error = destroyControl(timeoutMessage, new Error('hold deadline exceeded'));
       expireHold?.(error);
     }, holdTimeoutMs);
     holdTimer.unref?.();

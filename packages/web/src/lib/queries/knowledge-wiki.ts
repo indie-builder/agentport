@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
-import { knowledgeKeys, useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
+import { knowledgeKeys } from './knowledge-shared.js';
 
 export function useKnowledgeWikiPages(baseId: string) {
   return useCursorList({

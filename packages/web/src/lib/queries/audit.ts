@@ -1,5 +1,5 @@
 import { type AuditQuery, api } from '../api.js';
-import { useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
 
 const AUDIT_PAGE_SIZE = 100;
 

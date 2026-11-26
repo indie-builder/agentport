@@ -11,6 +11,27 @@ import { Plus, Settings, Trash2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Controller, type UseFormReturn } from 'react-hook-form';
 import type { z } from 'zod';
+import { AgentAvatar } from '../../components/agent/agent-avatar.js';
+import { AgentPicker } from '../../components/agent/agent-picker.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { DialogShell } from '../../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../../components/draft-guard.js';
+import { RequiredMark } from '../../components/required-mark.js';
+import { Badge } from '../../components/ui/badge.js';
+import { Button } from '../../components/ui/button.js';
+import { Dialog } from '../../components/ui/dialog.js';
+import { Field, FieldDescription, FieldError, FieldLabel } from '../../components/ui/field.js';
+import { Input } from '../../components/ui/input.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select.js';
+import { Switch } from '../../components/ui/switch.js';
+import { Textarea } from '../../components/ui/textarea.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { shortId } from '../../lib/format.js';
 import {
@@ -27,27 +48,6 @@ import {
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
-import { AgentAvatar } from '../agent/agent-avatar.js';
-import { AgentPicker } from '../agent/agent-picker.js';
-import { ConfirmDialog } from '../confirm-dialog.js';
-import { DialogShell } from '../dialog-shell.js';
-import { DraftGuardDialogs, useDraftGuard } from '../draft-guard.js';
-import { RequiredMark } from '../required-mark.js';
-import { Badge } from '../ui/badge.js';
-import { Button } from '../ui/button.js';
-import { Dialog } from '../ui/dialog.js';
-import { Field, FieldDescription, FieldError, FieldLabel } from '../ui/field.js';
-import { Input } from '../ui/input.js';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select.js';
-import { Switch } from '../ui/switch.js';
-import { Textarea } from '../ui/textarea.js';
 
 export const ROLE_LABEL: Record<ChannelRole, string> = {
   owner: '所有者',

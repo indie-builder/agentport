@@ -17,7 +17,7 @@ import {
   AGENT_PACKAGE_SIDECAR_VERSION,
 } from '@agentport/shared';
 import { unzipSync, zipSync } from 'fflate';
-import { encodePackage } from '../src/modules/agents/package-zip.js';
+import { encodePackage } from '../src/lib/package-zip.js';
 
 export interface SkillSpec {
   slug: string;

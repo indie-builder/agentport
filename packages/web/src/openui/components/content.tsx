@@ -106,7 +106,6 @@ export function TextCallout({
   );
 }
 
-/** 代码含三反引号时，围栏要比最长连续反引号更长，否则 Streamdown 会提前闭合。 */
 function fenceFor(code: string): string {
   let longest = 0;
   for (const match of code.matchAll(/`+/g)) longest = Math.max(longest, match[0].length);
@@ -122,11 +121,6 @@ export function CodeBlock({ props }: RenderProps<{ language: string; codeString:
   return <Markdown text={`${fence}${language}\n${code}\n${fence}`} streaming={streaming} />;
 }
 
-/**
- * 官方 Image 默认 3:2（react-ui components/Image/Image.tsx 的 aspectRatioMap），
- * 先按比例占好空间，流式生成或图片加载时都不会再跳布局；失败时保留框并露出 alt。
- * 用 contain 完整容纳原图，不为了填满 3:2 裁掉主体。
- */
 function ReservedImage({ src, alt }: { src: string; alt: string }) {
   return <ReservedImageState key={src} src={src} alt={alt} />;
 }

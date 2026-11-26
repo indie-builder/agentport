@@ -4,7 +4,7 @@ import { type RuntimeEnvironmentBuildJob, runtimeBuildEnqueueOptions } from '@ag
 import type { Logger } from 'pino';
 import { RUNTIME_ENVIRONMENT_BUILD_JOB } from './build.js';
 
-export interface RuntimeEnvironmentSyncQueueLike {
+interface RuntimeEnvironmentSyncQueueLike {
   add: (
     name: string,
     data: RuntimeEnvironmentBuildJob,
@@ -12,7 +12,7 @@ export interface RuntimeEnvironmentSyncQueueLike {
   ) => Promise<unknown>;
 }
 
-export interface SyncStaleRuntimeEnvironmentsDeps {
+interface SyncStaleRuntimeEnvironmentsDeps {
   sandboxImage: string;
   resolveImageId: (image: string) => Promise<string | null>;
   listStale: (

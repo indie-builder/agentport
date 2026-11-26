@@ -7,8 +7,8 @@ import { personalMemoryDir, personalMemoryPath } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { AGENT_MEMORY_MAX_BYTES, AGENT_MEMORY_MAX_LINES } from '@agentport/shared';
 import { buildApp } from '../src/app.js';
-import { readMemoryFile, writeMemoryFile } from '../src/modules/agents/memory-files.js';
 import { memorySha256, writeMemoryJournal } from '../src/modules/memory/journal.js';
+import { readMemoryFile, writeMemoryFile } from '../src/modules/memory/memory-files.js';
 import { MEMORY_REVIEW_MAX_BYTES } from '../src/modules/memory-reviews/router.js';
 import { closeProducer, getQueue } from '../src/queue/producer.js';
 import {

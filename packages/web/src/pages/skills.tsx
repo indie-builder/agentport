@@ -66,6 +66,7 @@ import { onFilePick } from '../lib/file-pick.js';
 import { formatTokens } from '../lib/format.js';
 import {
   meQuery,
+  skillKeys,
   useApproveSkill,
   useCreateSkill,
   useDeleteSkill,
@@ -1095,8 +1096,9 @@ function SkillFilesEditor({
   onSavingChange: (saving: boolean) => void;
 }) {
   const client = useQueryClient();
+  const filesKey = skillKeys.files(skillId);
   const files = useQuery({
-    queryKey: ['skill-files', skillId],
+    queryKey: filesKey,
     queryFn: () => api.skillFiles(skillId),
     enabled: canRead,
   });
@@ -1115,7 +1117,6 @@ function SkillFilesEditor({
   useEffect(() => onDirtyChange(rhf.formState.isDirty), [rhf.formState.isDirty, onDirtyChange]);
   useEffect(() => onSavingChange(busy), [busy, onSavingChange]);
 
-  const filesKey = ['skill-files', skillId];
   const invalidate = (refetchType: 'active' | 'none' = 'active'): void =>
     void client.invalidateQueries({ queryKey: filesKey, refetchType });
   const writeToCache = (update: (current: SkillFile[]) => SkillFile[]): void => {

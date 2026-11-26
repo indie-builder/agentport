@@ -1,16 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
-import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import { getRunDetail } from '../src/repo/runs.js';
 import { agentRuns, agents, conversations } from '../src/schema.js';
+import { probeTestDb } from './db-probe.js';
 
-const url = process.env.DATABASE_URL ?? 'postgres://unreachable@127.0.0.1:1/unavailable';
-const { db, client } = createDb(url);
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
+const { db, client, ready } = await probeTestDb();
 
 describe.skipIf(!ready)('run detail runtime environment identity', () => {
   const businessId = 'runs-owner';

@@ -32,7 +32,6 @@ function toPascalCase(name: string): string {
     .join('');
 }
 
-/** 名称解析不到时按官方 category 回退，而不是空白。 */
 const CATEGORY_FALLBACKS: Record<string, string> = {
   buildings: 'Building',
   charts: 'ChartLine',
@@ -529,7 +528,6 @@ export function FollowUpBlockRenderer({ props }: RenderProps<{ items: unknown[] 
 export function SeparatorRenderer({
   props,
 }: RenderProps<{ orientation?: 'horizontal' | 'vertical'; decorative?: boolean }>) {
-  // ui-sdk 的 Separator 支持 `decorative`；默认 role="separator"，decorative=true 时为 role="none"。
   return <Separator orientation={props.orientation ?? 'horizontal'} />;
 }
 

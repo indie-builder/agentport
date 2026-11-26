@@ -11,8 +11,8 @@ import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { queueState } from '../runs/queue-state.js';
-import { startIntervalTicker } from '../scheduling/interval-ticker.js';
+import { startIntervalTicker } from '../interval-ticker.js';
+import { queueState } from '../queue-state.js';
 
 const RECONCILE_MS = 5 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;

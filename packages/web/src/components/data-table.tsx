@@ -33,7 +33,7 @@ import {
   useState,
 } from 'react';
 import { cn } from '../lib/cn.js';
-import { readStorage, writeStorage } from '../lib/storage.js';
+import { readJsonStorage, writeStorage } from '../lib/storage.js';
 import { Collapsible, CollapsibleContent } from './motion-collapsible.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
@@ -98,14 +98,12 @@ function readPrefs(
   let order = columns.map((c) => c.id);
 
   if (storageKey) {
-    try {
-      const parsed: unknown = JSON.parse(readStorage(storageKey) ?? 'null');
-      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const prefs = parsed as Partial<ColumnPrefs>;
-        hidden = Array.isArray(prefs.hidden) ? asIds(prefs.hidden) : hidden;
-        order = Array.isArray(prefs.order) ? asIds(prefs.order) : order;
-      }
-    } catch {}
+    const parsed = readJsonStorage<unknown>(storageKey, null);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const prefs = parsed as Partial<ColumnPrefs>;
+      hidden = Array.isArray(prefs.hidden) ? asIds(prefs.hidden) : hidden;
+      order = Array.isArray(prefs.order) ? asIds(prefs.order) : order;
+    }
   }
 
   return {
@@ -594,7 +592,6 @@ export function DataTable<T extends RowData>({
                         colSpan={visible.length + 1}
                         className="block p-0 whitespace-normal"
                       >
-                        {/* 收起时 Panel 不挂载内容，展开详情仍保持首次打开的懒查询。 */}
                         <Collapsible open={isOpen}>
                           <CollapsibleContent animated>
                             <div className={hasRowInteraction ? 'py-4 pl-10 pr-3' : 'px-3 py-4'}>

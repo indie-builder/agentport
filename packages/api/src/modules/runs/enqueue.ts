@@ -30,6 +30,59 @@ export async function failQueuedRunEnqueue(db: Database, runId: string): Promise
   );
 }
 
+export async function cleanupQueuedRunEnqueue(
+  db: Database,
+  log: Logger,
+  runId: string,
+  message: string,
+  extra?: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    return await failQueuedRunEnqueue(db, runId);
+  } catch (err) {
+    log.warn({ err, runId, ...extra }, message);
+    return false;
+  }
+}
+
+export async function enqueueRunOrRollback(
+  deps: { db: Database; log: Logger },
+  payload: Parameters<ReturnType<typeof getQueue>['add']>[1],
+  options?: {
+    cleanupMessage?: string;
+    removeJobOnFailure?: boolean;
+    errorMessage?: string;
+    onEnqueueError?: (err: unknown) => void;
+    onRolledBack?: (err: unknown) => Promise<void>;
+  },
+): Promise<void> {
+  const queue = getQueue();
+  try {
+    await queue.add('run', payload, runEnqueueOptions(payload.runId));
+  } catch (err) {
+    options?.onEnqueueError?.(err);
+    const failed = await cleanupQueuedRunEnqueue(
+      deps.db,
+      deps.log,
+      payload.runId,
+      options?.cleanupMessage ?? 'run enqueue failure cleanup failed',
+    );
+    if (failed) {
+      if (options?.removeJobOnFailure) {
+        await queue
+          .getJob(payload.runId)
+          .then((job) => job?.remove())
+          .catch(() => undefined);
+      }
+      await options?.onRolledBack?.(err);
+    }
+    if (options?.errorMessage !== undefined) {
+      fail('SERVICE_UNAVAILABLE', options.errorMessage, { cause: err });
+    }
+    failRunEnqueue(err);
+  }
+}
+
 export async function enqueueRunJob(
   deps: { db: Database; log: Logger; requestId: string },
   job: { runId: string; agentId: string; conversationId: string; prompt: string },

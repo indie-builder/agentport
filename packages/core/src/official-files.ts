@@ -1,5 +1,6 @@
 import { type AgentInput, agentInputSchema, effortSchema, slugSchema } from '@agentport/shared';
 import { fail } from './errors.js';
+import { stripBom } from './frontmatter-scan.js';
 import { parseMarkdownFrontmatter, splitHeading } from './markdown-frontmatter.js';
 
 export const GENERATED_SUFFIX_START = '<!-- agentport:generated:start -->';
@@ -49,7 +50,7 @@ function terminalGeneratedSuffix(text: string): { start: number; end: number } |
 }
 
 export function parseClaudeMd(content: string): { name: string; systemPrompt: string } {
-  const text = content.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const text = stripBom(content).replace(/\r\n/g, '\n');
   const firstLine = text.split('\n', 1)[0] ?? '';
   const heading = /^#[ \t]+(.+?)[ \t]*$/.exec(firstLine);
   if (!heading?.[1]) {
@@ -100,10 +101,10 @@ export function assertProjectMemory(value: unknown, label: string, path: string)
   );
 }
 
-function stringList(value: unknown, field: string, path: string): string[] {
+function stringList(value: unknown, fileLabel: string, field: string, path: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
-    fail('INVALID_INPUT', `子智能体文件的 ${field} 必须是字符串列表`, { path });
+    fail('INVALID_INPUT', `${fileLabel}的 ${field} 必须是字符串列表`, { path });
   }
   return value as string[];
 }
@@ -160,9 +161,14 @@ export function parseChildAgentMd(content: string, path: string): ParsedChildAge
     model,
     maxTurns: (maxTurns as number | undefined) ?? agentInputSchema.shape.maxTurns.parse(undefined),
     ...(effortLevel === undefined ? {} : { effort: effortLevel }),
-    skills: stringList(fields.get('skills'), 'skills', path),
-    mcpServers: stringList(fields.get('mcpServers'), 'mcpServers', path),
-    disallowedTools: stringList(fields.get('disallowedTools'), 'disallowedTools', path),
+    skills: stringList(fields.get('skills'), '子智能体文件', 'skills', path),
+    mcpServers: stringList(fields.get('mcpServers'), '子智能体文件', 'mcpServers', path),
+    disallowedTools: stringList(
+      fields.get('disallowedTools'),
+      '子智能体文件',
+      'disallowedTools',
+      path,
+    ),
     systemPrompt: prompt,
   };
 }
@@ -176,7 +182,7 @@ export function parseRuleMd(
   content: string;
   globs: string;
 } {
-  const text = content.replace(/^﻿/, '');
+  const text = stripBom(content);
   if (!/^---[ \t]*\r?\n/.test(text)) {
     return { slug, content: text.trim(), globs: '' };
   }
@@ -188,7 +194,7 @@ export function parseRuleMd(
     });
   }
   const paths = fields.get('paths');
-  const globs = stringList(paths, 'paths', path).join(', ');
+  const globs = stringList(paths, '规则文件', 'paths', path).join(', ');
   return { slug, content: body.trim(), globs };
 }
 

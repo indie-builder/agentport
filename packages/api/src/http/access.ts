@@ -15,7 +15,7 @@ import {
   type ResourceAccessLevel,
   type ResourceKind,
 } from '@agentport/shared';
-import { writeCrossUserAudit } from '../plugins/audit.js';
+import { writeCrossUserAudit } from './audit.js';
 import type { RequestContext } from './context.js';
 import { FORBIDDEN_MESSAGE, NOT_LOGGED_IN_MESSAGE, OBJECT_MISSING_MESSAGE } from './errors.js';
 
@@ -223,7 +223,7 @@ export async function authorizeObject(
   try {
     await authorize(context, permissionId, resource);
   } catch (error) {
-    if (isAppError(error) && error.code === 'FORBIDDEN')
+    if (isAppError(error) && (error.code === 'FORBIDDEN' || error.code === 'NOT_FOUND'))
       throw new AppError(
         'NOT_FOUND',
         notFoundMessage,
@@ -282,8 +282,4 @@ export async function resourceAccessFilter(
   };
 }
 
-export function actorOf(context: RequestContext): string {
-  const principal = context.principal;
-  if (principal === null) return 'anonymous';
-  return principal.kind === 'user' ? principal.businessId : principal.serviceId;
-}
+export { actorOf } from './context.js';

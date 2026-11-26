@@ -6,9 +6,9 @@ import { personalMemoryDir } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import { AGENT_MEMORY_MAX_BYTES, MEMORY_FILE_MAX_BYTES } from '@agentport/shared';
 import { buildApp } from '../src/app.js';
-import { readMemoryFile, writeMemoryFile } from '../src/modules/agents/memory-files.js';
-import { decodePackage } from '../src/modules/agents/package-zip.js';
+import { decodePackage } from '../src/lib/package-zip.js';
 import { memorySha256, writeMemoryJournal } from '../src/modules/memory/journal.js';
+import { readMemoryFile, writeMemoryFile } from '../src/modules/memory/memory-files.js';
 import {
   ADMIN_BUSINESS_ID,
   acquireMemoryLock,

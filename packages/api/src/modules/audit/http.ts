@@ -1,20 +1,13 @@
-import { auditQuerySchema } from '@agentport/contract/audit';
 import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { Hono } from 'hono';
-import { z } from 'zod';
 import { attachmentResponse } from '../../http/attachment.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
 import { INVALID_REQUEST_FALLBACK_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
+import { auditExportQuerySchema } from '../../http/native-schemas.js';
 import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
 import { auditOptions, toItem } from './router.js';
-
-export const auditExportQuerySchema = auditQuerySchema.extend({
-  limit: z.coerce.number().int().positive().max(1000).default(1000),
-  format: z.enum(['json', 'ndjson']).default('json'),
-  afterSeq: z.coerce.number().int().nonnegative().optional(),
-});
 
 export function registerAuditHttp(app: Hono<HttpEnv>): void {
   app.get(

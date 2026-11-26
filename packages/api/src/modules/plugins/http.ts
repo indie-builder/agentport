@@ -1,27 +1,18 @@
 import { fail, NOT_FOUND_MESSAGES } from '@agentport/core';
 import { repo } from '@agentport/db';
-import { idParams, PLUGIN_ZIP_MAX_BYTES, slugSchema } from '@agentport/shared';
+import { idParams } from '@agentport/shared';
 import type { Hono } from 'hono';
-import { z } from 'zod';
 import { actorOf, authorizeResourceAccess, requireUser } from '../../http/access.js';
 import { attachmentResponse } from '../../http/attachment.js';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
-import { isPgCode, ZIP_CONTENT_TYPE_MESSAGE } from '../../http/errors.js';
+import { isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import {
-  decodePackageEntries,
-  encodePackageEntries,
-  type PackageEntry,
-} from '../agents/package-zip.js';
-import { requireTrustedOrigin } from '../auth/origin.js';
+import { PLUGIN_ZIP_MAX_BYTES, pluginImportQuerySchema } from '../../http/native-schemas.js';
+import { encodePackageEntries, readZipUpload } from '../../lib/package-zip.js';
 import { toApi, toPluginWrite } from './api.js';
 import { parsePluginFiles } from './parse.js';
-
-export { PLUGIN_ZIP_MAX_BYTES };
-
-export const pluginImportQuerySchema = z.object({ slug: slugSchema }).strict();
 
 export function registerPluginsHttp(app: Hono<HttpEnv>): void {
   app.post(
@@ -30,16 +21,8 @@ export function registerPluginsHttp(app: Hono<HttpEnv>): void {
     requestBodyLimit(PLUGIN_ZIP_MAX_BYTES),
     async (c) => {
       const context = requestContext(c);
-      requireTrustedOrigin(context);
-      if (c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/zip')
-        fail('UNSUPPORTED_MEDIA_TYPE', ZIP_CONTENT_TYPE_MESSAGE);
+      const entries = await readZipUpload(c.req.raw, '插件包无法解析');
       const query = pluginImportQuerySchema.parse(c.req.query());
-      let entries: Map<string, PackageEntry>;
-      try {
-        entries = await decodePackageEntries(Buffer.from(await c.req.arrayBuffer()));
-      } catch (error) {
-        fail('INVALID_INPUT', error instanceof Error ? error.message : '插件包无法解析');
-      }
       const parsed = parsePluginFiles({
         files: [...entries.entries()].map(([path, file]) => ({
           path,

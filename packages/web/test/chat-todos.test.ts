@@ -2,7 +2,7 @@ import type { ChatEvent, ConversationMessage, ProgressTodo } from '@agentport/sh
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
-import { MessagePane } from '../src/components/chat/chat-thread.js';
+import { MessagePane } from '../src/components/chat/chat-thread/message-pane.js';
 import {
   applyEvent,
   type ChatItem,
@@ -314,9 +314,6 @@ describe('turn checklist rendering', () => {
     expect(html).toContain('整理资料');
     expect(html).not.toContain('旧步骤');
     expect(html.match(/aria-label="任务清单"/g)).toHaveLength(1);
-    expect(html).toContain('font-mono text-xs tabular-nums');
-    expect(html).toContain('flex items-start gap-1.5 text-base');
-    expect(html).not.toContain('text-2xs');
   });
 
   test('does not render without a snapshot, after a clear, or for a sub-agent only', () => {

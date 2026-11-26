@@ -79,6 +79,15 @@ export type MenuItem = {
   label: string;
   icon: typeof Cable;
   permissionIds: readonly PermissionId[];
+  navGroup?: 'resources';
+};
+
+export type RouteMeta = MenuItem & {
+  immersive?: boolean;
+  selfService?: boolean;
+  personal?: boolean;
+  notifications?: boolean;
+  accountProfile?: boolean;
 };
 
 const pages = {
@@ -240,6 +249,7 @@ export const BUILD_MENU: readonly MenuItem[] = [
     label: '资源',
     icon: Cable,
     permissionIds: RESOURCE_MENU.flatMap((item) => [...item.permissionIds]),
+    navGroup: 'resources',
   },
   pages.eval,
 ];
@@ -274,22 +284,32 @@ export function homePath(me: AuthMe | undefined): string | null {
   return HOME_ORDER.find((item) => canAny(me, item.permissionIds))?.to ?? null;
 }
 
-export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
+export const ROUTE_META: Readonly<Record<string, RouteMeta>> = {
   '/_shell/agents/': pages.agents,
   '/_shell/agents/$agentId': pages.agents,
-  '/_shell/chat': pages.chat,
-  '/_shell/notifications': pages.notifications,
+  '/_shell/chat': { ...pages.chat, immersive: true },
+  '/_shell/notifications': { ...pages.notifications, selfService: true, notifications: true },
   '/_shell/search': pages.search,
   '/_shell/channels/': pages.channels,
-  '/_shell/channels/$channelId': pages.channels,
-  '/_shell/personal/': pages.profile,
-  '/_shell/personal/profile': pages.profile,
-  '/_shell/personal/work': pages.work,
-  '/_shell/personal/memory': pages.memory,
-  '/_shell/personal/reviews': pages.reviews,
-  '/_shell/personal/security': pages.security,
-  '/_shell/personal/shares': pages.shares,
-  '/_shell/personal/usage': pages.usage,
+  '/_shell/channels/$channelId': { ...pages.channels, immersive: true },
+  '/_shell/personal/': {
+    ...pages.profile,
+    personal: true,
+    selfService: true,
+    accountProfile: true,
+  },
+  '/_shell/personal/profile': {
+    ...pages.profile,
+    personal: true,
+    selfService: true,
+    accountProfile: true,
+  },
+  '/_shell/personal/work': { ...pages.work, personal: true, selfService: true },
+  '/_shell/personal/memory': { ...pages.memory, personal: true, selfService: true },
+  '/_shell/personal/reviews': { ...pages.reviews, personal: true, selfService: true },
+  '/_shell/personal/security': { ...pages.security, personal: true, selfService: true },
+  '/_shell/personal/shares': { ...pages.shares, personal: true, selfService: true },
+  '/_shell/personal/usage': { ...pages.usage, personal: true, selfService: true },
   '/_shell/schedules': pages.schedules,
   '/_shell/skills': { ...pages.skills, label: '资源' },
   '/_shell/servers': pages.servers,

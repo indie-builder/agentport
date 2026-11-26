@@ -106,7 +106,6 @@ export async function runNativePluginAction(
       totalMs: timeoutMs,
       stderrMaxBytes: STDERR_TAIL_BYTES,
       stderrKeep: 'tail',
-      killChildOnDestroy: true,
       logContext: { action: action.action },
       cleanupLog: 'native plugin sandbox cleanup failed',
       lateCleanupLog: 'native plugin sandbox cleanup failed after timeout',
@@ -117,13 +116,13 @@ export async function runNativePluginAction(
           return {
             ok: false,
             error:
-              outcome.exited === '__closing__'
+              outcome.exit.kind === 'closing'
                 ? 'worker 正在关停，安装已取消'
                 : `沙盒启动超时（${timeoutMs}ms），请检查 Docker 服务与镜像后重试`,
           };
         }
         const tail = redactSecrets(outcome.stderr.trim()).split('\n').at(-1)?.slice(0, 300) ?? '';
-        if (outcome.result) {
+        if (outcome.result !== undefined) {
           if (!outcome.result.ok) {
             deps.logger.warn(
               {
@@ -139,13 +138,13 @@ export async function runNativePluginAction(
         }
 
         const reason =
-          outcome.exited === '__closing__'
+          outcome.exit.kind === 'closing'
             ? 'worker 正在关停，安装已取消'
-            : outcome.exited === '__timeout__'
+            : outcome.exit.kind === 'timeout' || outcome.exit.kind === 'startup_timeout'
               ? `沙盒动作超时（${timeoutMs}ms）`
-              : outcome.exited === '__output_too_large__'
+              : outcome.exit.kind === 'output_too_large'
                 ? `沙盒输出超过 ${SANDBOX_TASK_OUTPUT_MAX_BYTES} 字节上限`
-                : `沙盒没有返回结果（${outcome.exited ?? 'unknown'}）`;
+                : `沙盒没有返回结果（${outcome.exit.detail}）`;
         deps.logger.warn(
           {
             action: action.action,

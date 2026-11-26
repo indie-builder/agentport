@@ -5,9 +5,12 @@ import { type OutputFile, outputContentSchema, publicRunQuestion } from '@agentp
 import { implement } from '@orpc/server';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { isAppError, RUN_NOT_FOUND_MESSAGE } from '../../http/errors.js';
+import {
+  isAppError,
+  RUN_NOT_FOUND_MESSAGE,
+  RUN_NOT_IN_CHANNEL_MESSAGE,
+} from '../../http/errors.js';
 import { invalidCursor } from '../../http/pagination.js';
-import { agentSlug } from '../../lib/agent-slug.js';
 import {
   listWorkspaceOutputs,
   OUTPUT_MISSING_MESSAGE,
@@ -16,7 +19,8 @@ import {
 } from '../../lib/outputs.js';
 import { toRunDetail } from '../runs/events.js';
 import { answerRunQuestion } from '../runs/questions.js';
-import { ANSWER_FORBIDDEN, RUN_NOT_IN_CHANNEL } from './errors.js';
+
+const ANSWER_FORBIDDEN = '当前频道角色无权回答该提问';
 
 const runsRepo = repo.runs;
 const questionsRepo = repo.questions;
@@ -29,7 +33,7 @@ async function memberRun(context: RequestContext, channelId: string, runId: stri
     channelId,
     runId,
   );
-  if (!access) return fail('NOT_FOUND', RUN_NOT_IN_CHANNEL);
+  if (!access) return fail('NOT_FOUND', RUN_NOT_IN_CHANNEL_MESSAGE);
   return access;
 }
 
@@ -46,7 +50,7 @@ async function readOutput(
   runId: string,
   path: string,
 ): Promise<{ file: OutputFile; data: Buffer }> {
-  const slug = await agentSlug(context.db, agentId);
+  const slug = await repo.agents.findAgentSlug(context.db, agentId);
   if (slug === null) return fail('NOT_FOUND', OUTPUT_MISSING_MESSAGE);
   try {
     return await readWorkspaceOutput(context, {
@@ -106,7 +110,7 @@ export const channelsRunsRouter = {
     const { id, runId } = input.params;
     await memberRun(context, id, runId);
     const detail = await runConversation(context, runId);
-    const slug = await agentSlug(context.db, detail.conversation.agentId);
+    const slug = await repo.agents.findAgentSlug(context.db, detail.conversation.agentId);
     const { limit, cursor } = input.query;
     if (slug === null) {
       if (cursor !== undefined) invalidCursor();

@@ -3,6 +3,8 @@ import { chatEventSchema, sandboxTaskSchema } from './chat.js';
 import { sandboxInputCommandSchema } from './questions.js';
 
 export const SUPERVISOR_INPUT_MAX_BYTES = 8 * 1024 * 1024;
+export const SUPERVISOR_CANCEL_GRACE_MS = 5_000;
+export const APPROVAL_RUN_ID_HEADER = 'x-agentport-run-id';
 
 const runIdSchema = z.string().min(1);
 
@@ -51,7 +53,7 @@ export const supervisorOutputSchema = z.discriminatedUnion('type', [
 export type SupervisorOutput = z.infer<typeof supervisorOutputSchema>;
 
 export const SESSION_CLEANUP_REQUEST_CHANNEL = 'session-cleanup:requests';
-export const SESSION_CLEANUP_ACK_PREFIX = 'session-cleanup:ack:';
+const SESSION_CLEANUP_ACK_PREFIX = 'session-cleanup:ack:';
 export const SESSION_CLEANUP_TIMEOUT_MS = 10_000;
 
 export function sessionCleanupAckChannel(requestId: string): string {

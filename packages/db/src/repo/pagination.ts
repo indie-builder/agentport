@@ -1,5 +1,5 @@
 import type { CursorPage } from '@agentport/shared';
-import { and, eq, gt, lt, type SQL, sql } from 'drizzle-orm';
+import { and, eq, gt, lt, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
 import type { AnyPgColumn, AnyPgTable } from 'drizzle-orm/pg-core';
 import type { DbHandle } from '../client.js';
 
@@ -9,8 +9,10 @@ export type KeysetTable = AnyPgTable & { id: AnyPgColumn };
 
 export type CursorKind = 'timestamp' | 'text';
 
-export function cursorValueSql(column: AnyPgColumn): SQL<string> {
-  return sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+export function cursorValueSql(column: SQLWrapper): SQL<string>;
+export function cursorValueSql<T extends string | null>(column: SQLWrapper): SQL<T>;
+export function cursorValueSql(column: SQLWrapper): SQL<string | null> {
+  return sql<string | null>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 }
 
 const TIMESTAMP_CURSOR = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{6})Z$/;
@@ -40,11 +42,11 @@ export function isCanonicalTimestamp(value: string): boolean {
   );
 }
 
-function encodeValueCursor(value: string, id: string): string {
-  return Buffer.from(JSON.stringify({ v: value, id }), 'utf8').toString('base64url');
+export function encodeJsonCursor(payload: Record<string, string>): string {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
-function decodeValueCursor(raw: string, kind: CursorKind): { v: string; id: string } | null {
+export function decodeJsonCursor(raw: string): Record<string, unknown> | null {
   const text = Buffer.from(raw, 'base64url').toString('utf8');
   if (Buffer.from(text, 'utf8').toString('base64url') !== raw) return null;
   let parsed: unknown;
@@ -53,8 +55,18 @@ function decodeValueCursor(raw: string, kind: CursorKind): { v: string; id: stri
   } catch {
     return null;
   }
-  if (typeof parsed !== 'object' || parsed === null) return null;
-  const { v, id } = parsed as { v?: unknown; id?: unknown };
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
+}
+
+function encodeValueCursor(value: string, id: string): string {
+  return encodeJsonCursor({ v: value, id });
+}
+
+function decodeValueCursor(raw: string, kind: CursorKind): { v: string; id: string } | null {
+  const parsed = decodeJsonCursor(raw);
+  if (parsed === null) return null;
+  const { v, id } = parsed;
   if (
     typeof v !== 'string' ||
     typeof id !== 'string' ||
@@ -94,14 +106,6 @@ export function keysetBound(
     select cursor.${sql.identifier(column.name)}, cursor.${sql.identifier(id.name)} from ${table} cursor
     where cursor.${sql.identifier(id.name)} = ${cursorId}
   )`;
-}
-
-export function keysetBefore(
-  table: KeysetTable,
-  cursorId: string,
-  column: AnyPgColumn = (table as unknown as { createdAt: AnyPgColumn }).createdAt,
-): SQL {
-  return keysetBound(table, cursorId, column, 'desc');
 }
 
 export function paginate<T extends { id: string }>(

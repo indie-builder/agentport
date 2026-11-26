@@ -62,8 +62,9 @@ import {
   retryOnVersionConflict,
 } from './agent-versions.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
-import { lockAgentBindings } from './locks.js';
-import type { CursorPage } from './pagination.js';
+import { resourceTables } from './governance/resources.js';
+import { lockAgentBindings, lockBootstrap } from './locks.js';
+import { type CursorPage, cursorValueSql } from './pagination.js';
 import { isPgCode } from './pg-errors.js';
 import { getPluginFilesByPluginIds, listAgentPluginBindingInputs } from './plugins.js';
 import { getSkillFilesBySkillIds } from './skill-files.js';
@@ -322,9 +323,7 @@ export async function listAgents(
   if (cursor !== undefined) {
     if (cursorSort !== sort) return null;
     const time = sort === 'recent' ? lastUsedAt : agents.createdAt;
-    const anchorTime = sql<
-      string | null
-    >`to_char(${time} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+    const anchorTime = cursorValueSql<string | null>(time);
     const [anchor] = await db
       .select({ id: agents.id, name: agents.name, time: anchorTime })
       .from(agents)
@@ -518,7 +517,7 @@ export async function ensureDefaultAgent(
 
 export async function publishDefaultAgentIfNeeded(db: Database): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport:bootstrap'))`);
+    await lockBootstrap(tx);
     const agent = await getDefaultAgent(tx);
     if (agent === null) return;
     const live = await loadLiveDefinition(tx, agent.id);
@@ -1099,31 +1098,11 @@ export async function getResourceOwners(
   ids: string[],
 ): Promise<Array<{ id: string; ownerBusinessId: string | null }>> {
   if (ids.length === 0) return [];
-  switch (kind) {
-    case 'skill':
-      return db
-        .select({ id: skills.id, ownerBusinessId: skills.ownerBusinessId })
-        .from(skills)
-        .where(inArray(skills.id, ids));
-    case 'server':
-      return db
-        .select({ id: servers.id, ownerBusinessId: servers.ownerBusinessId })
-        .from(servers)
-        .where(inArray(servers.id, ids));
-    case 'plugin':
-      return db
-        .select({ id: plugins.id, ownerBusinessId: plugins.ownerBusinessId })
-        .from(plugins)
-        .where(inArray(plugins.id, ids));
-    case 'runtime_environment':
-      return db
-        .select({
-          id: runtimeEnvironments.id,
-          ownerBusinessId: runtimeEnvironments.ownerBusinessId,
-        })
-        .from(runtimeEnvironments)
-        .where(inArray(runtimeEnvironments.id, ids));
-  }
+  const table = resourceTables[kind];
+  return db
+    .select({ id: table.id, ownerBusinessId: table.ownerBusinessId })
+    .from(table)
+    .where(inArray(table.id, ids));
 }
 
 export async function getBoundServersByAgentIds(

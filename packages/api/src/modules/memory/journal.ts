@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fail, sha256Hex } from '@agentport/core';
 import { hasErrorCode, type MemoryReviewTarget, memoryFileNameSchema } from '@agentport/shared';
 import { z } from 'zod';
-import { withMemoryJournalDir } from '../agents/memory-files.js';
+import { withMemoryJournalDir } from './memory-files.js';
 
 export type AgentMemoryTarget = Extract<MemoryReviewTarget, { kind: 'agent_memory' }>;
 

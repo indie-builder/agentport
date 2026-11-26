@@ -454,7 +454,6 @@ export function createOpenUiDefinitions<C>(
         header: entityRow.optional(),
         footer: entityRow.optional(),
       })
-      // 官方语义约束：small 不支持 header/footer。
       .refine(({ size, header, footer }) => size === 'default' || (!header && !footer), {
         message: 'EntityList size="small" does not support header or footer.',
         path: ['size'],
@@ -727,7 +726,6 @@ export function createOpenUiDefinitions<C>(
     }),
   );
 
-  // 官方注册顺序是线格式的一部分：提示词、$defs 与 spec 都按它排列。
   const byName = new Map(registry.map((component) => [component.name, component]));
 
   const missing = OPENUI_COMPONENT_NAMES.filter((name) => !byName.has(name));

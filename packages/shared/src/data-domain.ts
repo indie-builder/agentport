@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cursorPageSchema, pageQuerySchema } from './pagination.js';
 import { slugSchema } from './params.js';
 import { DEFAULT_JOB_RETENTION } from './run-stream.js';
 
@@ -44,10 +45,7 @@ const connectionSchema = z.record(z.string().min(1).max(128), z.string().max(409
 
 const dataDomainSlugSchema = slugSchema.max(61);
 
-export const dataDomainListQuerySchema = z.object({
-  cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-});
+export const dataDomainListQuerySchema = pageQuerySchema;
 
 export const dataDomainInputSchema = z.object({
   name: z.string().trim().min(1).max(64),
@@ -97,10 +95,7 @@ export const dataDomainSchema = z.object({
 });
 export type DataDomain = z.infer<typeof dataDomainSchema>;
 
-export const dataDomainListSchema = z.object({
-  items: z.array(dataDomainSchema),
-  nextCursor: z.string().nullable(),
-});
+export const dataDomainListSchema = cursorPageSchema(dataDomainSchema);
 export type DataDomainList = z.infer<typeof dataDomainListSchema>;
 
 export const dataDomainVersionStatusSchema = z.enum(['queued', 'building', 'ready', 'failed']);
@@ -175,18 +170,13 @@ const dataDomainQueryLogSchema = z.object({
   createdAt: z.string(),
 });
 
-export const dataDomainQueryLogListQuerySchema = z.object({
-  cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+export const dataDomainQueryLogListQuerySchema = pageQuerySchema.extend({
   status: dataDomainQueryLogStatusSchema.optional(),
   runId: z.string().min(1).max(128).optional(),
 });
 export type DataDomainQueryLogListQuery = z.infer<typeof dataDomainQueryLogListQuerySchema>;
 
-export const dataDomainQueryLogListSchema = z.object({
-  items: z.array(dataDomainQueryLogSchema),
-  nextCursor: z.string().nullable(),
-});
+export const dataDomainQueryLogListSchema = cursorPageSchema(dataDomainQueryLogSchema);
 export type DataDomainQueryLogList = z.infer<typeof dataDomainQueryLogListSchema>;
 
 export const dataDomainQueryApprovalSchema = z.object({
@@ -205,19 +195,14 @@ export const dataDomainQueryApprovalSchema = z.object({
 });
 export type DataDomainQueryApproval = z.infer<typeof dataDomainQueryApprovalSchema>;
 
-export const dataDomainQueryApprovalListQuerySchema = z.object({
-  cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+export const dataDomainQueryApprovalListQuerySchema = pageQuerySchema.extend({
   status: dataDomainQueryApprovalStatusSchema.optional(),
 });
 export type DataDomainQueryApprovalListQuery = z.infer<
   typeof dataDomainQueryApprovalListQuerySchema
 >;
 
-export const dataDomainQueryApprovalListSchema = z.object({
-  items: z.array(dataDomainQueryApprovalSchema),
-  nextCursor: z.string().nullable(),
-});
+export const dataDomainQueryApprovalListSchema = cursorPageSchema(dataDomainQueryApprovalSchema);
 export type DataDomainQueryApprovalList = z.infer<typeof dataDomainQueryApprovalListSchema>;
 
 export const dataDomainApprovalDecisionSchema = z.object({

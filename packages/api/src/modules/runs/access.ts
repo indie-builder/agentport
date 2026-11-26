@@ -1,4 +1,4 @@
-import { fail, isAppError, notFound } from '@agentport/core';
+import { fail, notFound } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { ChannelRole } from '@agentport/shared';
 import { authorizeObject, requireUser } from '../../http/access.js';
@@ -19,17 +19,13 @@ export async function authorizeRun(
 ) {
   const run = await repo.chat.getRun(context.db, runId);
   if (!run || run.channelId !== null) notFound('run');
-  try {
-    await authorizeObject(
-      context,
-      permissionId,
-      { objectId: run.id, createdBy: run.initiatedBy, privateContent: true },
-      RUN_MISSING,
-    );
-  } catch (error) {
-    if (isAppError(error) && error.code === 'NOT_FOUND') notFound('run');
-    throw error;
-  }
+  await authorizeObject(
+    context,
+    permissionId,
+    { objectId: run.id, createdBy: run.initiatedBy, privateContent: true },
+    RUN_MISSING,
+    'run',
+  );
   return run;
 }
 
@@ -44,17 +40,13 @@ export async function authorizeRunFeedback(
   const run = await repo.chat.getRun(context.db, runId);
   if (!run) notFound('run', RUN_MISSING);
   if (run.channelId === null) {
-    try {
-      await authorizeObject(
-        context,
-        permissionId,
-        { objectId: run.id, createdBy: run.initiatedBy, privateContent: true },
-        RUN_MISSING,
-      );
-    } catch (error) {
-      if (isAppError(error) && error.code === 'NOT_FOUND') notFound('run');
-      throw error;
-    }
+    await authorizeObject(
+      context,
+      permissionId,
+      { objectId: run.id, createdBy: run.initiatedBy, privateContent: true },
+      RUN_MISSING,
+      'run',
+    );
     return { run, channelRole: null };
   }
   const access = await repo.channelControl.getChannelRunForMember(

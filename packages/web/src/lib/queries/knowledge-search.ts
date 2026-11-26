@@ -5,7 +5,7 @@ import {
   type KnowledgeSearchOptions,
   type KnowledgeSearchResponse,
 } from '../api.js';
-import { knowledgeKeys } from './shared.js';
+import { knowledgeKeys } from './knowledge-shared.js';
 
 export function useKnowledgeSearch(baseId: string, options: KnowledgeSearchOptions) {
   const term = options.q.trim();

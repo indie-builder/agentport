@@ -4,11 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Composer } from '../src/components/chat/chat-thread.js';
+import { Composer } from '../src/components/chat/chat-thread/composer.js';
 import { MemoryPanel } from '../src/components/memory/memory-panel.js';
 import { api } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
-import { AgentDetailPage, AgentsPage } from '../src/pages/agents/index.js';
+import { AgentDetailPage } from '../src/pages/agents/agent-detail-page.js';
+import { AgentsPage } from '../src/pages/agents/agents-page.js';
 import { PluginsPage } from '../src/pages/plugins/index.js';
 import { RuntimeEnvironmentDetailPage } from '../src/pages/runtime-environments/runtime-environment-detail.js';
 

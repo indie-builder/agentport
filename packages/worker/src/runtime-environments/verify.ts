@@ -1,4 +1,5 @@
-import { CONFIG_CONTAINER_DIR, errorText } from '@agentport/shared';
+import { errorText } from '@agentport/shared';
+import { dockerHardeningArgs } from '../sandbox/docker-cli.js';
 import { runDocker, type SpawnFn, spawnDocker } from './command.js';
 
 const VERIFY_SCRIPT = `
@@ -169,19 +170,7 @@ export async function verifyRuntimeEnvironmentImage(
         '--rm',
         '--network',
         'none',
-        '--read-only',
-        '--tmpfs',
-        '/tmp:rw,noexec,nosuid,size=64m',
-        '--tmpfs',
-        `${CONFIG_CONTAINER_DIR}:rw,noexec,nosuid,size=64m,uid=1000,gid=1000`,
-        '--cap-drop',
-        'ALL',
-        '--security-opt',
-        'no-new-privileges',
-        '--user',
-        '1000:1000',
-        '--workdir',
-        '/app',
+        ...dockerHardeningArgs({ mountConfigTmpfs: true }),
         '--entrypoint',
         'bun',
         input.imageId,

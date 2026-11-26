@@ -147,13 +147,6 @@ export function utcMonthStart(now = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
 
-export function recentUtcDays(days: number, now = new Date()): string[] {
-  const start = utcWindowStart(days, now).getTime();
-  return Array.from({ length: days }, (_, index) =>
-    new Date(start + index * DAY_MS).toISOString().slice(0, 10),
-  );
-}
-
 export const RETENTION_DEFAULTS = { runDays: 90, messageDays: 30, agentVersions: 50 } as const;
 
 export const retentionSettingsSchema = z.object({

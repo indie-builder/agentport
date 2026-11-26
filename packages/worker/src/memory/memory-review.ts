@@ -38,7 +38,9 @@ import {
   hermeticQueryOptions,
   ONE_SHOT_NO_RESULT_MESSAGE,
   ONE_SHOT_NO_STRUCTURED_OUTPUT_MESSAGE,
+  runOneShotSdkQuery,
 } from '../one-shot-sdk.js';
+import { resolveAgentVersionSnapshot } from '../runs/agent-snapshot.js';
 import { claimRunTerminal, notifyRunTerminal } from '../runs/run-finish.js';
 import { modelProxyUpstream, sdkEnv } from '../upstream.js';
 
@@ -331,7 +333,6 @@ export async function executeMemoryReview(
   if (input.signal.aborted) onShutdown();
 
   let cwd: string | undefined;
-  let messages: AsyncGenerator<SDKMessage, void> | undefined;
   let unwatch: (() => Promise<void>) | undefined;
   let spend: Spend | null = null;
   let status: 'succeeded' | 'failed' | 'cancelled' = 'succeeded';
@@ -358,12 +359,7 @@ export async function executeMemoryReview(
         throw new Error('记忆审核来源会话的审批目的地不一致');
       }
 
-      const definition =
-        run.definitionSnapshot ??
-        (run.agentVersion === null
-          ? null
-          : ((await repo.agentVersions.getAgentVersion(db, run.agentId, run.agentVersion))
-              ?.definition ?? null));
+      const definition = await resolveAgentVersionSnapshot(db, run);
       let model: string;
       let maxTurns: number;
       let maxBudgetUsd: number;
@@ -458,43 +454,40 @@ export async function executeMemoryReview(
       }
       if (controller.signal.aborted) throw new MemoryReviewCancelled();
       const outboundPrompt: string = JSON.parse(outboundText);
-      messages = (deps.queryFn ?? query)({
-        prompt: outboundPrompt,
-        options: hermeticQueryOptions({
-          model,
-          maxTurns,
-          maxBudgetUsd,
-          cwd,
-          anthropicBaseUrl: config.ANTHROPIC_BASE_URL,
-          abortController: controller,
-          ...(envOverrides === undefined
-            ? {}
-            : { env: { ...sdkEnv(cwd, config.ANTHROPIC_BASE_URL), ...envOverrides } }),
-          outputFormat: {
-            type: 'json_schema',
-            schema: z.toJSONSchema(memoryReviewProposalSchema, { target: 'draft-7' }),
-          },
-        }),
-      });
-
+      const reviewCwd = cwd;
       let success: SDKResultSuccess | undefined;
-      let failure: string | null = null;
-      let sawResult = false;
-      for await (const message of messages) {
-        if (message.type !== 'result') continue;
-        sawResult = true;
-        spend = spendOf(message);
-        if (message.subtype !== 'success') {
-          failure = [message.subtype, ...message.errors].filter(Boolean).join(': ');
-        } else if (message.is_error) {
-          failure = `success: ${message.result}`;
-        } else {
+      const outcome = await runOneShotSdkQuery({
+        signal: controller.signal,
+        cwd: reviewCwd,
+        create: (queryController) =>
+          (deps.queryFn ?? query)({
+            prompt: outboundPrompt,
+            options: hermeticQueryOptions({
+              model,
+              maxTurns,
+              maxBudgetUsd,
+              cwd: reviewCwd,
+              anthropicBaseUrl: config.ANTHROPIC_BASE_URL,
+              abortController: queryController,
+              ...(envOverrides === undefined
+                ? {}
+                : { env: { ...sdkEnv(reviewCwd, config.ANTHROPIC_BASE_URL), ...envOverrides } }),
+              outputFormat: {
+                type: 'json_schema',
+                schema: z.toJSONSchema(memoryReviewProposalSchema, { target: 'draft-7' }),
+              },
+            }),
+          }),
+        onResultFrame: (message) => {
+          spend = spendOf(message);
+        },
+        onSuccessFrame: (message) => {
           success = message;
-        }
-      }
-      if (controller.signal.aborted) throw new MemoryReviewCancelled();
-      if (!sawResult) throw new Error(ONE_SHOT_NO_RESULT_MESSAGE);
-      if (failure !== null) throw new Error(failure);
+        },
+      });
+      if (outcome.status === 'aborted') throw new MemoryReviewCancelled();
+      if (outcome.status === 'no_result') throw new Error(ONE_SHOT_NO_RESULT_MESSAGE);
+      if (outcome.status === 'failure') throw new Error(outcome.message);
       if (success === undefined) throw new Error('SDK 没有返回成功结果');
       if (success.structured_output === undefined || success.structured_output === null) {
         throw new Error(ONE_SHOT_NO_STRUCTURED_OUTPUT_MESSAGE);
@@ -531,9 +524,7 @@ export async function executeMemoryReview(
     if (timeout !== undefined) clearTimeout(timeout);
     deps.modelProxy?.revokeToken(input.runId);
     await repo.runs.setRunModelTokenHash(db, input.runId, null).catch(() => undefined);
-    // 与 Wiki/图片处理一致：return() 才等 CLI cleanup 完成，再删临时目录。
     controller.abort();
-    await messages?.return(undefined).catch(() => undefined);
     if (cwd !== undefined) {
       await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
     }
