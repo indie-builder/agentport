@@ -6,7 +6,6 @@ import type {
   KnowledgeSearchResponse,
 } from '../../lib/api.js';
 import { useKnowledgeFolders, useKnowledgeSearch, useKnowledgeTags } from '../../lib/queries.js';
-import { BusinessIllustration } from '../business-illustration.js';
 import { PageNote } from '../page.js';
 import { SearchInput } from '../search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../states.js';
@@ -460,9 +459,10 @@ export function KnowledgeSearchResults({
       ) : null}
       {result.hits.length === 0 ? (
         <EmptyState
-          illustration={<BusinessIllustration name="search" size="compact" />}
+          variant="filter"
+          scale="section"
           title={emptyTitle}
-          description="换一个关键词或扩大筛选范围。"
+          description="尝试减少关键词、调整筛选条件或检查文档是否已完成解析。"
         />
       ) : (
         <ul className="flex flex-col">
@@ -517,9 +517,11 @@ export function SearchTab({
 
   if (!canExecute) {
     return (
-      <PageNote
-        title="没有检索权限"
-        description="可以查看知识库内容，但检索与处理需要「执行检索与处理」权限。"
+      <EmptyState
+        variant="permission"
+        scale="section"
+        title="没有检索与处理权限"
+        description="当前账号仅可查看内容，检索需要 knowledge.execute 权限。"
       />
     );
   }
@@ -618,8 +620,11 @@ export function SearchTab({
 
       {terms === '' ? (
         <EmptyState
-          illustration={<BusinessIllustration name="search" />}
-          title="输入关键词后开始检索"
+          variant="idle"
+          scale="section"
+          icon={<Search aria-hidden="true" />}
+          title="输入问题测试知识库召回"
+          description="将按当前分块与向量配置返回匹配片段与得分。"
         />
       ) : null}
       {terms !== '' && result.isPending ? <LoadingState rows={3} /> : null}

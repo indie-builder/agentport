@@ -1,9 +1,9 @@
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { ChevronDown, Download } from 'lucide-react';
+import { ChevronDown, Download, Play } from 'lucide-react';
 import { useState } from 'react';
 import { CodeBlock } from '../../components/code-block.js';
 import { PageNote } from '../../components/page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import {
@@ -289,16 +289,30 @@ export function EvalRunResults({
       ) : null}
       {results.length === 0 ? (
         evalRun.status !== 'failed' ? (
-          <p className="text-sm text-muted-foreground">
-            {running
-              ? '正在逐个执行用例…'
-              : evalRun.status === 'cancelled'
-                ? '后续用例已停止，没有结果记录。'
-                : '评估已完成，没有结果记录。'}
-          </p>
+          <EmptyState
+            variant="idle"
+            scale="inline"
+            icon={<Play aria-hidden="true" />}
+            title={
+              running
+                ? '正在逐个执行用例…'
+                : evalRun.status === 'cancelled'
+                  ? '后续用例已停止，没有结果记录'
+                  : '评估已完成，没有结果记录'
+            }
+          />
         ) : null
       ) : onlyFailed && visibleResults.length === 0 ? (
-        <p className="text-sm text-muted-foreground">本次评估没有未通过的用例。</p>
+        <EmptyState
+          variant="clear"
+          scale="inline"
+          title="本次评估全部用例均已通过"
+          action={
+            <Button variant="outline" size="sm" onClick={toggleFailed}>
+              显示全部
+            </Button>
+          }
+        />
       ) : (
         <ul>
           {visibleResults.map((result) => (

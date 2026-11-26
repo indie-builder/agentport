@@ -12,8 +12,11 @@ export function NotFoundPage() {
       </PageTopbar>
       <PageBody>
         <EmptyState
+          variant="stage"
+          scale="page"
           illustration={<BusinessIllustration name="not-found" size="error" />}
-          title="请检查地址"
+          title="页面不存在"
+          description="请检查访问地址，或返回工作台继续工作。"
           action={
             <Link to="/" className={buttonVariants({ variant: 'outline' })}>
               返回工作台

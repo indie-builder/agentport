@@ -353,8 +353,8 @@ describe('conversation outputs list', () => {
     vi.mocked(api.outputs).mockResolvedValueOnce({ items: [], nextCursor: null });
     await mount();
     await openWorkspace();
-    expect(workspace().textContent).toContain('当前会话没有成果文件');
-    expect(workspace().textContent).not.toContain('会话产生的成果会显示在这里');
+    expect(workspace().textContent).toContain('会话成果会汇集在这里');
+    expect(workspace().querySelector('ul')).toBeNull();
 
     vi.mocked(api.outputs).mockRejectedValueOnce(new Error('outputs unavailable'));
     await act(async () => {
@@ -362,7 +362,7 @@ describe('conversation outputs list', () => {
     });
     await flush();
     expect(workspace().textContent).toContain('刷新失败，已保留加载的内容');
-    expect(workspace().textContent).toContain('当前会话没有成果文件');
+    expect(workspace().textContent).toContain('会话成果会汇集在这里');
 
     vi.mocked(api.outputs).mockResolvedValue(list);
     const retry = [...workspace().querySelectorAll('button')].find(
@@ -634,7 +634,8 @@ describe('output preview and versions', () => {
     await openWorkspace();
     await selectFile(file.path);
     expect(api.outputContent).not.toHaveBeenCalled();
-    expect(workspace().textContent).toContain('请下载后查看');
+    expect(workspace().textContent).toContain('此格式不支持在线预览');
+    expect(workspace().textContent).toContain('下载原件');
     expect(workspace().querySelector('pre')).toBeNull();
     const download = workspace().querySelector<HTMLAnchorElement>(
       'a[aria-label="下载 files/original file"]',
@@ -2112,7 +2113,7 @@ describe('default expert selection', () => {
     const panel = host.querySelector<HTMLElement>('aside[aria-label="会话历史"]');
     if (!panel) throw new Error('Missing history panel');
     expect(panel.querySelector('[aria-busy="true"]')).toBeNull();
-    expect(panel.textContent).toContain('开始对话后，记录会出现在这里。');
+    expect(panel.textContent).toContain('发出第一条消息后，会话会自动保存在这里。');
     expect(api.conversations).toHaveBeenCalledWith(
       { agentId: assistant.id },
       expect.any(AbortSignal),
@@ -2252,7 +2253,7 @@ describe('output refresh and conversation isolation', () => {
     await act(async () => create.click());
     await flush();
     expect(router.state.location.search).toEqual({ agent: 'agent-a' });
-    expect(workspace().textContent).toContain('会话产生的成果会显示在这里');
+    expect(workspace().textContent).toContain('会话成果会汇集在这里');
     expect(workspace().querySelector('pre')).toBeNull();
   });
 
@@ -2278,7 +2279,7 @@ describe('output refresh and conversation isolation', () => {
     await act(async () => option.click());
     await flush();
     expect(router.state.location.search).toEqual({ agent: 'agent-b' });
-    expect(workspace().textContent).toContain('会话产生的成果会显示在这里');
+    expect(workspace().textContent).toContain('会话成果会汇集在这里');
     expect(workspace().querySelector('pre')).toBeNull();
   });
 

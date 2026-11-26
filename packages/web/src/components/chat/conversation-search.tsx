@@ -9,14 +9,14 @@ import {
   CommandItem,
   CommandList,
 } from '@ui-sdk/react/command';
-import { Search, X } from 'lucide-react';
+import { MessageSquare, Search, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { formatRelative } from '../../lib/format.js';
 import { chatKeys, useCursorList } from '../../lib/queries.js';
 import { useDebouncedValue } from '../../lib/use-debounced-value.js';
-import { ErrorState, LoadingState } from '../states.js';
+import { EmptyState, ErrorState, LoadingState } from '../states.js';
 import { Button } from '../ui/button.js';
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog.js';
 import {
@@ -172,16 +172,27 @@ export function ConversationSearch({
             ) : null}
             <CommandEmpty>
               {!firstLoad && !search.isError ? (
-                <div className="flex flex-col items-center gap-2 py-8 text-center">
-                  <p className="text-xs text-muted-foreground">
-                    {q ? '没有匹配的会话' : '还没有会话'}
-                  </p>
-                  {q ? (
-                    <Button variant="outline" size="sm" onClick={clear}>
-                      清除搜索
-                    </Button>
-                  ) : null}
-                </div>
+                q ? (
+                  <EmptyState
+                    variant="filter"
+                    scale="inline"
+                    title={`未找到包含「${q}」的会话`}
+                    description="支持按会话标题、消息正文或会话 ID 检索。"
+                    action={
+                      <Button variant="outline" size="sm" onClick={clear}>
+                        清除搜索
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <EmptyState
+                    variant="idle"
+                    scale="inline"
+                    icon={<MessageSquare className="size-4" aria-hidden="true" />}
+                    title="还没有可搜索的会话"
+                    description="与专家发起对话后，标题与正文都会自动纳入检索。"
+                  />
+                )
               ) : null}
             </CommandEmpty>
             <CommandList className="flex flex-col gap-0.5 p-0">

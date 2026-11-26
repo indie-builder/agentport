@@ -149,7 +149,7 @@ async function mount(editing = false, options: MountOptions = {}) {
   });
   if (options.openDialog !== false) {
     await vi.waitFor(() =>
-      expect(container.textContent).toContain(editing ? 'Original case' : '用例为空'),
+      expect(container.textContent).toContain(editing ? 'Original case' : '添加第一条评估用例'),
     );
     await click(editing ? '编辑 Original case' : '新建用例');
   } else {

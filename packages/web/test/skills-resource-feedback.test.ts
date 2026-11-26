@@ -2,9 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PageNote } from '../src/components/page.js';
 import { ResourcePage } from '../src/components/resource-page.js';
-import { ErrorState, LoadingState } from '../src/components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../src/components/states.js';
 import { Button } from '../src/components/ui/button.js';
 import { SkillsPage } from '../src/pages/skills.js';
 import { allAccessMe } from './me-fixture.js';
@@ -163,12 +162,12 @@ describe('internal skill library empty state', () => {
       await inspect(SkillsPage, (tree) => {
         const note = required(
           tree,
-          (node) => node.type === PageNote && node.props.title === '未添加技能',
+          (node) => node.type === EmptyState && node.props.title === '为专家装配可复用技能',
         );
         expect(String(note.props.title)).not.toContain('暂无');
         const action = required(
           elements(note.props.action as ReactNode),
-          (node) => node.type === Button && node.props.children === '前往市场',
+          (node) => node.type === Button && node.props.children === '浏览技能市场',
         );
         (action.props.onClick as () => void)();
       });
@@ -202,11 +201,13 @@ describe('internal skill library empty state', () => {
     };
     state.search = { q: 'nomatch', usage: 'bound' };
     await inspect(SkillsPage, (tree) => {
-      expect(tree.some((node) => node.type === PageNote && node.props.title === '未添加技能')).toBe(
-        false,
-      );
       expect(
-        tree.some((node) => node.type === PageNote && node.props.title === '没有匹配的技能'),
+        tree.some(
+          (node) => node.type === EmptyState && node.props.title === '为专家装配可复用技能',
+        ),
+      ).toBe(false);
+      expect(
+        tree.some((node) => node.type === EmptyState && node.props.title === '没有匹配的技能'),
       ).toBe(true);
     });
   });
@@ -259,9 +260,9 @@ describe('market readiness', () => {
     await inspectMarket((tree) => {
       expect(tree.some((node) => node.type === LoadingState)).toBe(true);
       expect(installButtons(tree)).toHaveLength(0);
-      expect(tree.some((node) => node.type === PageNote && node.props.title === '榜单为空')).toBe(
-        false,
-      );
+      expect(
+        tree.some((node) => node.type === EmptyState && node.props.title === '市场榜单暂时为空'),
+      ).toBe(false);
     });
   });
 
@@ -286,9 +287,9 @@ describe('market readiness', () => {
     await inspectMarket((tree) => {
       expect(tree.some((node) => node.type === LoadingState)).toBe(true);
       expect(installButtons(tree)).toHaveLength(0);
-      expect(
-        tree.some((node) => node.type === PageNote && node.props.title === '没有匹配的技能'),
-      ).toBe(false);
+      expect(tree.some((node) => node.type === EmptyState && node.props.variant === 'filter')).toBe(
+        false,
+      );
     });
   });
 
@@ -340,7 +341,7 @@ describe('market readiness', () => {
     await inspectMarket((tree) => {
       const note = required(
         tree,
-        (node) => node.type === PageNote && node.props.title === '榜单为空',
+        (node) => node.type === EmptyState && node.props.title === '市场榜单暂时为空',
       );
       const action = required(
         elements(note.props.action as ReactNode),

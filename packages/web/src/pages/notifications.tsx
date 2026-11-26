@@ -9,7 +9,7 @@ import {
   PageToolbar,
   PageTopbar,
 } from '../components/page.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { SegmentedToggle } from '../components/view-toggle.js';
@@ -185,16 +185,25 @@ export function NotificationsPage() {
           <LoadingState rows={5} />
         ) : empty ? (
           unreadOnly ? (
-            <PageNote
-              title="没有待办"
-              action={
+            <EmptyState
+              variant="clear"
+              scale="section"
+              title="待办已全部清空"
+              description="没有需要立即处理的未读通知。"
+              secondaryAction={
                 <Button variant="outline" size="sm" onClick={() => setFilter('all')}>
-                  查看全部
+                  查看全部通知
                 </Button>
               }
             />
           ) : (
-            <PageNote icon={<Bell aria-hidden="true" />} title="还没有通知" />
+            <EmptyState
+              variant="clear"
+              scale="page"
+              icon={<Bell className="size-5" aria-hidden="true" />}
+              title="还没有收到通知"
+              description="审批提醒、任务结果与系统公告会实时推送到这里。"
+            />
           )
         ) : (
           <>

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { BookOpen, GitCompare, Link2, Network, Plus } from 'lucide-react';
+import { BookOpen, FileText, GitCompare, History, Link2, Network, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -38,7 +38,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../motion-c
 import { PageNote, PageSection } from '../page.js';
 import { ReaderToolbar } from '../reader-toolbar.js';
 import { RequiredMark } from '../required-mark.js';
-import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../states.js';
+import { EmptyState, ErrorState, LoadingState } from '../states.js';
 import { StatusBadge } from '../status-badge.js';
 import { Button } from '../ui/button.js';
 import { Dialog } from '../ui/dialog.js';
@@ -169,7 +169,14 @@ export function WikiTab({
             重试加载其余页面
           </Button>
         ) : null}
-        {pages.data && pageItems.length === 0 ? <InlineEmpty>还没有 Wiki 页面</InlineEmpty> : null}
+        {pages.data && pageItems.length === 0 ? (
+          <EmptyState
+            variant="idle"
+            scale="inline"
+            icon={<BookOpen aria-hidden="true" />}
+            title="还没有 Wiki 页面"
+          />
+        ) : null}
         {pageItems.length > 0 ? (
           <ul ref={pageListRef} className="flex flex-col">
             {wikiTreePages(pageItems).map(({ page, depth }) => (
@@ -216,6 +223,7 @@ export function WikiTab({
                 onSelect(id);
                 setFocusPageId(id);
               }}
+              onCreatePage={caps.content ? () => setCreating(true) : undefined}
             />
           ) : null
         ) : pageId ? (
@@ -229,8 +237,10 @@ export function WikiTab({
           />
         ) : (
           <EmptyState
-            icon={<BookOpen className="size-5" />}
-            title="选择一个页面开始编辑"
+            variant="idle"
+            scale="panel"
+            icon={<BookOpen aria-hidden="true" />}
+            title={pageItems.length === 0 ? '创建第一篇 Wiki 页面' : '选择左侧页面开始编辑'}
             action={
               caps.content ? (
                 <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
@@ -463,11 +473,23 @@ function WikiPageEditor({
       ) : hasCurrent ? (
         <ErrorText>当前发布版本已不可读。</ErrorText>
       ) : (
-        <InlineEmpty>还没有正文</InlineEmpty>
+        <EmptyState
+          variant="idle"
+          scale="inline"
+          icon={<FileText aria-hidden="true" />}
+          title="还没有正文"
+        />
       )}
       <WikiLinks pageId={pageId} pages={pages} onSelect={onSelect} />
       <PageSection title="版本" divided>
-        {versions.length === 0 && !hasCurrent ? <InlineEmpty>还没有版本</InlineEmpty> : null}
+        {versions.length === 0 && !hasCurrent ? (
+          <EmptyState
+            variant="idle"
+            scale="inline"
+            icon={<History aria-hidden="true" />}
+            title="还没有版本"
+          />
+        ) : null}
         <ul className="flex flex-col">
           {versions.map((version, index) => {
             const older = versions[index + 1];

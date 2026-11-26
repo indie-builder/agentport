@@ -1,6 +1,6 @@
 import type { OutputFile, OutputList, OutputRef } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { History, Pencil } from 'lucide-react';
+import { Download, FileArchive, History, Pencil } from 'lucide-react';
 import { useMemo } from 'react';
 import { can } from '../../lib/access.js';
 import { api, errorMessage } from '../../lib/api.js';
@@ -14,7 +14,6 @@ import {
   useOutputContent,
   useOutputFile,
 } from '../../lib/queries.js';
-import { BusinessIllustration } from '../business-illustration.js';
 import { CodeBlock } from '../code-block.js';
 import { Markdown } from '../markdown.js';
 import { BlobImage } from '../media/blob-image.js';
@@ -23,7 +22,7 @@ import { PageNote } from '../page.js';
 import { ReaderToolbar } from '../reader-toolbar.js';
 import { ShareDialog } from '../share-dialog.js';
 import { EmptyState, ErrorState, LoadingState } from '../states.js';
-import { Button } from '../ui/button.js';
+import { Button, buttonVariants } from '../ui/button.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -135,8 +134,11 @@ export function ConversationOutputs({
         ) : null}
         {conversationId === null ? (
           <EmptyState
-            illustration={<BusinessIllustration name="outputs" size="compact" />}
-            title="会话产生的成果会显示在这里"
+            variant="stage"
+            scale="panel"
+            specimen="outputs"
+            title="会话成果会汇集在这里"
+            description="专家生成的报告、代码与文件将自动归档，支持预览、换版与分享。"
           />
         ) : outputs.isPending ? (
           <LoadingState rows={4} />
@@ -144,9 +146,11 @@ export function ConversationOutputs({
           <ErrorState error={outputs.error} onRetry={() => void outputs.refetch()} />
         ) : files.length === 0 ? (
           <EmptyState
-            illustration={<BusinessIllustration name="outputs" size="compact" />}
-            title="当前会话没有成果文件"
-            description="此处用于查看报告等会话成果。"
+            variant="stage"
+            scale="panel"
+            specimen="outputs"
+            title="会话成果会汇集在这里"
+            description="专家生成的报告、代码与文件将自动归档，支持预览、换版与分享。"
           />
         ) : (
           <div className="grid min-w-0 gap-4">
@@ -293,9 +297,27 @@ export function ConversationOutputs({
                     <LoadingState rows={3} />
                   )
                 ) : shownKind === 'binary' ? (
-                  <p className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-sm text-muted-foreground">
-                    二进制文件，请下载后查看。
-                  </p>
+                  <EmptyState
+                    variant="idle"
+                    scale="panel"
+                    icon={<FileArchive className="size-5" aria-hidden="true" />}
+                    title="此格式不支持在线预览"
+                    description="可下载原件到本地查看。"
+                    action={
+                      <a
+                        href={api.outputDownloadUrl(
+                          conversationId ?? '',
+                          selection.runId,
+                          selection.path,
+                        )}
+                        download={selection.path.split('/').at(-1) ?? selection.path}
+                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                      >
+                        <Download data-icon="inline-start" aria-hidden="true" />
+                        下载原件
+                      </a>
+                    }
+                  />
                 ) : shownKind === 'image' || shownKind === 'pdf' ? (
                   blob.isError ? (
                     <ErrorState

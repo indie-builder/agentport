@@ -404,7 +404,7 @@ describe('server test environment identity', () => {
     await openServerMenuItem(stdioServer.name, '工具与测试');
     const tools = dialog(`工具与试连「${stdioServer.name}」`);
     expect(tools.textContent).toContain(`环境 ${namedEnvironment.name} · 1234abcd`);
-    expect(tools.textContent).toContain('重新测试后查看工具目录。');
+    expect(tools.textContent).toContain('重新测试后查看工具目录');
 
     await click(button('重新测试', tools));
     const environmentDialog = dialog(`测试 ${stdioServer.name}`);

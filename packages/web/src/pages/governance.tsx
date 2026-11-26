@@ -21,7 +21,7 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { ArrowRightLeft, Coins, Plus, ShieldCheck, Trash2, UsersRound } from 'lucide-react';
+import { ArrowRightLeft, Coins, KeyRound, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { type ComponentProps, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -33,14 +33,13 @@ import {
   Page,
   PageBody,
   PageHeader,
-  PageNote,
   PageSection,
   PageToolbar,
   PageTopbar,
 } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { Card, CardContent } from '../components/ui/card.js';
@@ -290,10 +289,12 @@ function CostSection() {
         <ErrorState error={summary.error} onRetry={() => void summary.refetch()} />
       ) : null}
       {summary.data && groups.length === 0 ? (
-        <PageNote
-          icon={<Coins aria-hidden="true" />}
-          title="窗口内无运行成本"
-          description="运行产生成本后会按所选维度汇总。"
+        <EmptyState
+          variant="idle"
+          scale="section"
+          icon={<Coins className="size-5" aria-hidden="true" />}
+          title="当前窗口内没有产生运行成本"
+          description="专家运行后将按所选维度自动汇总。"
         />
       ) : null}
       {groups.length > 0 ? (
@@ -366,10 +367,12 @@ function BudgetsSection({ canManage }: { canManage: boolean }) {
         <ErrorState error={budgets.error} onRetry={() => void budgets.refetch()} />
       ) : null}
       {budgets.data && rows.length === 0 ? (
-        <PageNote
-          icon={<Coins aria-hidden="true" />}
-          title="无预算"
-          description="为个人、部门、专家、知识库或数据域设置上限后，达到阈值会发送提醒。"
+        <EmptyState
+          variant="stage"
+          scale="section"
+          specimen="governance"
+          title="设置成本预算与提醒"
+          description="为个人、部门、专家或知识库配置上限，接近阈值时自动通知。"
           action={
             canManage ? (
               <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
@@ -819,9 +822,11 @@ function DepartmentsSection({ canManage }: { canManage: boolean }) {
         <ErrorState error={departments.error} onRetry={() => void departments.refetch()} />
       ) : null}
       {departments.data && rows.length === 0 ? (
-        <PageNote
-          icon={<UsersRound aria-hidden="true" />}
-          title="无部门"
+        <EmptyState
+          variant="stage"
+          scale="section"
+          specimen="governance"
+          title="创建组织部门"
           description="部门用于按组织汇总成本与设置预算。"
           action={
             canManage ? (
@@ -1147,7 +1152,7 @@ function DepartmentMembersDialog({
             ) : null}
             <div className="flex max-h-96 flex-col divide-y divide-line overflow-y-auto border-y">
               {allRows.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">没有匹配的账户</p>
+                <EmptyState variant="filter" scale="inline" title="没有匹配的账户" />
               ) : (
                 allRows.map((row) => {
                   const selected = selectedIds.has(row.businessId);
@@ -1338,10 +1343,12 @@ function GrantsSection({ canManage }: { canManage: boolean }) {
         <ErrorState error={resources.error} onRetry={() => void resources.refetch()} />
       ) : null}
       {resourceId.length === 0 ? (
-        <PageNote
-          icon={<ShieldCheck aria-hidden="true" />}
-          title="选择一个资源"
-          description="选择后查看和调整账户对该资源的使用与管理权限。"
+        <EmptyState
+          variant="idle"
+          scale="section"
+          icon={<KeyRound className="size-5" aria-hidden="true" />}
+          title="先选择一个资源"
+          description="选择具体专家、知识库或连接器后，可查看并分配细粒度权限。"
         />
       ) : null}
       {resourceId.length > 0 && grants.isPending ? <LoadingState rows={3} /> : null}
@@ -1349,9 +1356,12 @@ function GrantsSection({ canManage }: { canManage: boolean }) {
         <ErrorState error={grants.error} onRetry={() => void grants.refetch()} />
       ) : null}
       {resourceId.length > 0 && grants.data && grantRows.length === 0 ? (
-        <PageNote
-          title="无额外授权"
-          description="资源所有者与平台管理员始终可访问。"
+        <EmptyState
+          variant="clear"
+          scale="section"
+          icon={<ShieldCheck className="size-5" aria-hidden="true" />}
+          title="暂未配置额外授权"
+          description="当前仅资源所有者与平台管理员可访问。"
           action={
             canManage ? (
               <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
@@ -1743,10 +1753,12 @@ function HandoverSection({ canManage }: { canManage: boolean }) {
       </div>
 
       {businessId.length === 0 ? (
-        <PageNote
-          icon={<ArrowRightLeft aria-hidden="true" />}
-          title="选择离职账户"
-          description="查看该账户拥有的资源与定时任务，再整体转交给接收人。"
+        <EmptyState
+          variant="idle"
+          scale="section"
+          icon={<ArrowRightLeft className="size-5" aria-hidden="true" />}
+          title="选择需要交接的账户"
+          description="将汇总其名下的专家、资源与定时任务，支持一键整体转交。"
         />
       ) : null}
       {businessId.length > 0 && checklist.isPending ? <LoadingState rows={4} /> : null}

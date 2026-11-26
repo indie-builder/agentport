@@ -1,9 +1,6 @@
-import { Link } from '@tanstack/react-router';
-import { ArrowRight } from 'lucide-react';
-import { BusinessIllustration } from '../../components/business-illustration.js';
+import { ArrowRight, GitCompare } from 'lucide-react';
 import { FilterSelect } from '../../components/filter-select.js';
-import { PageNote } from '../../components/page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
@@ -21,13 +18,6 @@ import { CompareSide } from './compare-side.js';
 import type { EvalDiffFilter, EvalSearchPatch } from './shared.js';
 
 export function EvalCompareTab({
-  agentsPending,
-  agentsError,
-  agentsErrorValue,
-  onRetryAgents,
-  missingAgent,
-  onClearAgent,
-  effectiveAgentId,
   runsPending,
   runsError,
   runsErrorValue,
@@ -40,13 +30,6 @@ export function EvalCompareTab({
   onChangeSearch,
   onBackToRuns,
 }: {
-  agentsPending: boolean;
-  agentsError: boolean;
-  agentsErrorValue: unknown;
-  onRetryAgents: () => void;
-  missingAgent: boolean;
-  onClearAgent: () => void;
-  effectiveAgentId: string | null;
   runsPending: boolean;
   runsError: boolean;
   runsErrorValue: unknown;
@@ -63,42 +46,11 @@ export function EvalCompareTab({
   const effectiveHeadId = headId ?? runs[0]?.id ?? '';
   const hasValidPair =
     effectiveBaseId !== '' && effectiveHeadId !== '' && effectiveBaseId !== effectiveHeadId;
-  const canCompare =
-    !agentsPending && !agentsError && !missingAgent && effectiveAgentId !== null && hasValidPair;
 
   const comparison = useEvalComparison(
-    canCompare ? effectiveBaseId : '',
-    canCompare ? effectiveHeadId : '',
+    hasValidPair ? effectiveBaseId : '',
+    hasValidPair ? effectiveHeadId : '',
   );
-
-  if (agentsPending) return <LoadingState rows={3} />;
-  if (agentsError) return <ErrorState error={agentsErrorValue} onRetry={onRetryAgents} />;
-  if (missingAgent) {
-    return (
-      <PageNote
-        title="所选专家不存在"
-        description="链接中的专家可能已删除，请清除筛选或重新选择专家。"
-        action={
-          <Button variant="outline" size="sm" onClick={onClearAgent}>
-            清除专家筛选
-          </Button>
-        }
-      />
-    );
-  }
-  if (!effectiveAgentId) {
-    return (
-      <PageNote
-        icon={<BusinessIllustration name="agents" size="compact" />}
-        title="专家列表为空"
-        action={
-          <Link to="/agents" className="text-sm text-fg underline underline-offset-4">
-            前往创建专家
-          </Link>
-        }
-      />
-    );
-  }
 
   if (!hasValidPair) {
     if (runsPending) return <LoadingState rows={3} />;
@@ -106,7 +58,10 @@ export function EvalCompareTab({
       return <ErrorState error={runsErrorValue} onRetry={onRetryRuns} />;
     }
     return (
-      <PageNote
+      <EmptyState
+        variant="idle"
+        scale="section"
+        icon={<GitCompare aria-hidden="true" />}
         title="至少需要两次已结束的运行才能比较"
         description="完成至少两次评估运行后，可在此逐条对比结果变化。"
         action={
@@ -256,11 +211,19 @@ export function EvalCompareTab({
       ) : null}
 
       {comparison.isSuccess && rows.length === 0 ? (
-        <PageNote title="两次运行都没有结果记录" description="无法比较。" />
+        <EmptyState
+          variant="idle"
+          scale="inline"
+          icon={<GitCompare aria-hidden="true" />}
+          title="两次运行都没有结果记录"
+          description="无法比较。"
+        />
       ) : null}
 
       {comparison.isSuccess && rows.length > 0 && visibleRows.length === 0 ? (
-        <PageNote
+        <EmptyState
+          variant="clear"
+          scale="inline"
           title="当前筛选下无变化项"
           description="可切换至「全部」查看两次运行的所有用例。"
           action={

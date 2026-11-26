@@ -34,6 +34,7 @@ import {
 } from 'react';
 import { cn } from '../lib/cn.js';
 import { readJsonStorage, writeStorage } from '../lib/storage.js';
+import { EmptyState } from './empty-state.js';
 import { Collapsible, CollapsibleContent } from './motion-collapsible.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
@@ -483,9 +484,13 @@ export function DataTable<T extends RowData>({
               <TableCell
                 role="cell"
                 colSpan={visible.length + 1}
-                className="block py-16 text-center text-sm whitespace-normal text-muted-foreground"
+                className="block p-0 whitespace-normal"
               >
-                {empty ?? '暂无数据'}
+                {empty === undefined || typeof empty === 'string' ? (
+                  <EmptyState variant="idle" scale="inline" title={empty ?? '暂无数据'} />
+                ) : (
+                  empty
+                )}
               </TableCell>
             </TableRow>
           ) : (

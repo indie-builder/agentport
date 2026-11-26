@@ -42,6 +42,7 @@ describe('EmptyState illustration', () => {
     const onClick = vi.fn();
     mount(
       createElement(EmptyState, {
+        variant: 'filter',
         title: '还没有插件',
         action: createElement('button', { type: 'button', onClick }, '导入插件'),
       }),

@@ -520,7 +520,7 @@ describe('plugin detail', () => {
   it('keeps empty files readable', () => {
     state.search = { tab: 'content', file: 'assets/empty.txt' };
     mount();
-    expect(scroller().textContent).toContain('该文件是空的。');
+    expect(scroller().textContent).toContain('文件内容为空');
   });
 
   it('keeps the files tab available when the plugin has no README', async () => {
@@ -533,7 +533,7 @@ describe('plugin detail', () => {
     });
     mount();
     expect(panel('intro').textContent).not.toContain('说明');
-    expect(panel('intro').textContent).toContain('未检测到技能、命令、代理、钩子或 MCP 服务。');
+    expect(panel('intro').textContent).toContain('未在此插件中检测到能力');
     expect(body().querySelectorAll('h1')).toHaveLength(1);
     const next = tab('content');
     expect(next.tagName).toBe('BUTTON');
@@ -726,7 +726,7 @@ describe('plugin detail', () => {
     setQuery({ isError: true, error: new ApiError(404, '插件不存在，可能已被删除', {}) });
     mount();
     expect(body().querySelector('h1')?.textContent).toBe('插件不存在');
-    expect(body().textContent).toContain('它可能已被删除');
+    expect(body().textContent).toContain('它可能已被卸载或删除。');
     expect(body().querySelector('a[href="/plugins"]')).not.toBeNull();
   });
 

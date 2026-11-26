@@ -5,6 +5,7 @@ import {
   knowledgeModelProfileKindSchema,
 } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Cpu } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -26,7 +27,7 @@ import { ConfirmDialog } from '../confirm-dialog.js';
 import { DialogShell } from '../dialog-shell.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../motion-collapsible.js';
 import { RequiredMark } from '../required-mark.js';
-import { ErrorState, LoadingState } from '../states.js';
+import { EmptyState, ErrorState, LoadingState } from '../states.js';
 import { Button } from '../ui/button.js';
 import { Checkbox } from '../ui/checkbox.js';
 import { Dialog } from '../ui/dialog.js';
@@ -824,9 +825,13 @@ export function KnowledgeProfilesDialog({
               />
             ) : null}
             {profiles.isSuccess && (profiles.data ?? []).length === 0 ? (
-              <FieldDescription>
-                还没有模型 profile；先新增一个 embedding 或 ASR profile。
-              </FieldDescription>
+              <EmptyState
+                variant="idle"
+                scale="inline"
+                icon={<Cpu aria-hidden="true" />}
+                title="还没有模型 Profile"
+                description="新增 Embedding、重排或 ASR Profile 后可供知识库使用。"
+              />
             ) : null}
             <ul className="flex flex-col gap-2">
               {(profiles.data ?? []).map((profile) => (

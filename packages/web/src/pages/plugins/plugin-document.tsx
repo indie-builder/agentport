@@ -1,10 +1,11 @@
 import { readPluginMarkdown } from '@agentport/core/plugin-display';
 import type { PluginFileInput } from '@agentport/shared';
+import { FileCode } from 'lucide-react';
 import { useMemo } from 'react';
 import { CodeBlock } from '../../components/code-block.js';
 import { Markdown, type MarkdownFileLinks } from '../../components/markdown.js';
 import { PageNote } from '../../components/page.js';
-import { InlineEmpty } from '../../components/states.js';
+import { EmptyState } from '../../components/states.js';
 
 export function pluginFileTitle(path: string): string {
   const skill = /^skills\/([^/]+)\/SKILL\.md$/i.exec(path);
@@ -39,7 +40,12 @@ export function PluginDocument({
 
   if (!isPluginMarkdown(file.path) || mode === 'source') {
     return file.content.length === 0 ? (
-      <InlineEmpty>该文件是空的。</InlineEmpty>
+      <EmptyState
+        variant="idle"
+        scale="inline"
+        icon={<FileCode aria-hidden="true" />}
+        title="文件内容为空"
+      />
     ) : (
       <CodeBlock key={file.path} code={file.content} lineNumbers maxHeight="65vh" />
     );
@@ -54,7 +60,12 @@ export function PluginDocument({
       {parsed.issue !== undefined ? (
         <CodeBlock key={`${file.path}-raw`} code={file.content} lineNumbers maxHeight="65vh" />
       ) : parsed.body.trim() === '' ? (
-        <InlineEmpty>该文件没有正文。</InlineEmpty>
+        <EmptyState
+          variant="idle"
+          scale="inline"
+          icon={<FileCode aria-hidden="true" />}
+          title="Markdown 正文为空"
+        />
       ) : (
         <Markdown
           text={parsed.body}

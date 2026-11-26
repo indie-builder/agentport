@@ -1,5 +1,5 @@
 import type { Agent, AgentDefinition } from '@agentport/shared';
-import { ChevronRight, Play, RotateCcw } from 'lucide-react';
+import { ChevronRight, History, Play, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import {
@@ -7,7 +7,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../../components/motion-collapsible.js';
-import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import type { AgentVersionSummary } from '../../lib/api.js';
@@ -162,7 +162,13 @@ export function VersionHistory({
         <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
       ) : null}
       {versions.data && versions.data.length === 0 ? (
-        <InlineEmpty>还没有版本记录。修改配置并保存后，这里会留下第一份快照。</InlineEmpty>
+        <EmptyState
+          variant="idle"
+          scale="panel"
+          icon={<History className="size-5" aria-hidden="true" />}
+          title="还没有配置快照"
+          description="保存配置更改后会自动生成历史版本，支持对比与回滚。"
+        />
       ) : null}
       {versions.data && versions.data.length > 0 ? (
         <ul className="divide-y divide-line border-y">

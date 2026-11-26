@@ -1,9 +1,18 @@
-import { CircleAlert, Inbox, RefreshCw } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { CircleAlert, RefreshCw } from 'lucide-react';
 import { errorMessage } from '../lib/api.js';
-import { cn } from '../lib/cn.js';
 import { Button } from './ui/button.js';
 import { Skeleton } from './ui/skeleton.js';
+
+export {
+  type EmptyChecklistStep,
+  type EmptyFilterChip,
+  type EmptySpecimenName,
+  type EmptyStarter,
+  EmptyState,
+  type EmptyStateProps,
+  type EmptyStateScale,
+  type EmptyStateVariant,
+} from './empty-state.js';
 
 export function LoadingState({
   rows = 3,
@@ -78,44 +87,4 @@ export function ErrorState({
       ) : null}
     </div>
   );
-}
-
-export function EmptyState({
-  title,
-  description,
-  action,
-  icon,
-  illustration,
-  className,
-}: {
-  title: string;
-  description?: string;
-  action?: ReactNode;
-  icon?: ReactNode;
-  illustration?: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        'flex flex-col items-center justify-center gap-2 rounded-card px-6 py-14 text-center',
-        className,
-      )}
-    >
-      {illustration ?? (
-        <div className="flex size-10 items-center justify-center rounded-full bg-sunken text-subtle">
-          {icon ?? <Inbox className="size-5" />}
-        </div>
-      )}
-      <div className="mt-1 text-sm font-medium text-fg">{title}</div>
-      {description ? (
-        <div className="max-w-sm text-sm text-muted-foreground">{description}</div>
-      ) : null}
-      {action ? <div className="mt-2">{action}</div> : null}
-    </div>
-  );
-}
-
-export function InlineEmpty({ children }: { children: ReactNode }) {
-  return <div className="px-3 py-6 text-center text-xs text-muted-foreground">{children}</div>;
 }

@@ -1,7 +1,7 @@
 import { type ModelProvider, modelProviderCreateSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Cpu, Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -15,7 +15,6 @@ import {
   Page,
   PageBody,
   PageHeader,
-  PageNote,
   PageSection,
   PageToolbar,
   PageTopbar,
@@ -23,7 +22,12 @@ import {
 import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import {
@@ -402,29 +406,68 @@ export function ModelsPage() {
             />
           ) : null}
           {providers.data && rows.length === 0 ? (
-            <PageNote
-              icon={<Cpu aria-hidden="true" />}
-              title="无模型供应商"
-              description="添加供应商后，专家运行才能按配置调用模型。"
+            <EmptyState
+              variant="stage"
+              scale="page"
+              specimen="models"
+              title="配置模型供应商"
+              description="接入 LLM 与向量模型端点后，专家运行与知识库检索即可生效。"
               action={
                 canManage ? (
-                  <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                    新建供应商
+                  <Button onClick={() => setCreating(true)}>
+                    <Plus data-icon="inline-start" aria-hidden="true" /> 新建供应商
                   </Button>
                 ) : undefined
               }
+              footer={canManage ? undefined : '当前账户没有管理模型供应商的权限。'}
             />
           ) : null}
           {rows.length > 0 && filtered.length === 0 ? (
-            <PageNote
-              title="没有符合筛选条件的供应商"
+            <EmptyState
+              variant="filter"
+              scale="section"
+              title="没有匹配的模型供应商"
+              activeFilters={
+                [
+                  ...(search.q?.trim()
+                    ? [
+                        {
+                          key: 'q',
+                          label: '关键词',
+                          value: search.q.trim(),
+                          onRemove: () =>
+                            void navigate({
+                              to: '/models',
+                              search: { ...search, q: undefined },
+                              replace: true,
+                            }),
+                        },
+                      ]
+                    : []),
+                  ...(status !== 'all'
+                    ? [
+                        {
+                          key: 'status',
+                          label: '状态',
+                          value: status === 'enabled' ? '已启用' : '已停用',
+                          onRemove: () =>
+                            void navigate({
+                              to: '/models',
+                              search: { ...search, status: undefined },
+                              replace: true,
+                            }),
+                        },
+                      ]
+                    : []),
+                ] satisfies EmptyFilterChip[]
+              }
               action={
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => void navigate({ to: '/models', search: {} })}
                 >
-                  清除筛选
+                  清除全部筛选
                 </Button>
               }
             />

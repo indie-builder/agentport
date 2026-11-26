@@ -1,11 +1,16 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import { PageSection, PageToolbar } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import {
@@ -207,12 +212,35 @@ export function DataDomainApprovals({
         <ErrorState error={approvals.error} onRetry={() => void approvals.refetch()} />
       ) : null}
       {filtered && !approvals.isPending && rows.length === 0 ? (
-        <p className="border-y py-5 text-sm text-muted-foreground">
-          没有符合当前筛选条件的审批记录。
-        </p>
+        <EmptyState
+          variant="filter"
+          scale="section"
+          title="没有符合条件的记录"
+          activeFilters={
+            [
+              {
+                key: 'status',
+                label: '状态',
+                value: statusOptions.find((option) => option.value === status)?.label ?? status,
+                onRemove: () => setStatus('pending'),
+              },
+            ] satisfies EmptyFilterChip[]
+          }
+          action={
+            <Button variant="outline" size="sm" onClick={() => setStatus('pending')}>
+              清除筛选
+            </Button>
+          }
+        />
       ) : null}
       {!filtered && approvals.data && rows.length === 0 ? (
-        <p className="border-y py-5 text-sm text-muted-foreground">没有待审批的查询。</p>
+        <EmptyState
+          variant="clear"
+          scale="section"
+          icon={<ShieldCheck aria-hidden="true" />}
+          title="没有待审批的查询"
+          description="命中高危或越权策略的查询会在此排队。"
+        />
       ) : null}
       {rows.length > 0 ? (
         <ul aria-label="查询审批记录" className="grid grid-cols-1 gap-4 pt-2 xl:grid-cols-2">

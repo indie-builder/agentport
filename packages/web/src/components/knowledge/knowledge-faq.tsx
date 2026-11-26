@@ -1,7 +1,16 @@
 import { knowledgeFaqImportMetadataSchema } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
-import { Download, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react';
+import {
+  Download,
+  History,
+  MessageCircleQuestion,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import type {
@@ -50,7 +59,7 @@ import { FilterSelect } from '../filter-select.js';
 import { PageSection, PageToolbar } from '../page.js';
 import { RequiredMark } from '../required-mark.js';
 import { SearchInput } from '../search-input.js';
-import { EmptyState, ErrorState, LoadingState } from '../states.js';
+import { type EmptyFilterChip, EmptyState, ErrorState, LoadingState } from '../states.js';
 import { StatusBadge } from '../status-badge.js';
 import { Button, buttonVariants } from '../ui/button.js';
 import { Checkbox } from '../ui/checkbox.js';
@@ -1713,25 +1722,44 @@ export function FaqTab({
       {faqs.isPending ? <LoadingState rows={4} /> : null}
       {faqs.isError ? <ErrorState error={faqs.error} onRetry={() => void faqs.refetch()} /> : null}
       {faqs.isSuccess && items.length === 0 ? (
-        <EmptyState
-          title={settledQuery === '' ? '还没有 FAQ' : '没有匹配的 FAQ'}
-          {...(settledQuery === '' && caps.content
-            ? { description: '新建或导入 FAQ，发布后可被专家召回。' }
-            : {})}
-          action={
-            settledQuery === '' ? (
+        settledQuery === '' ? (
+          <EmptyState
+            variant="stage"
+            scale="section"
+            icon={<MessageCircleQuestion aria-hidden="true" />}
+            title="整理高频问答 FAQ"
+            description="新建或导入 FAQ，发布后可被专家精准召回。"
+            action={
               caps.content ? (
-                <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                  新建 FAQ
+                <Button onClick={() => setCreating(true)}>
+                  <Plus data-icon="inline-start" aria-hidden="true" /> 新建 FAQ
                 </Button>
               ) : undefined
-            ) : (
+            }
+            footer={caps.content ? undefined : '当前账户没有维护 FAQ 的权限。'}
+          />
+        ) : (
+          <EmptyState
+            variant="filter"
+            scale="section"
+            title="没有匹配的 FAQ"
+            activeFilters={
+              [
+                {
+                  key: 'q',
+                  label: '关键词',
+                  value: settledQuery,
+                  onRemove: () => setQuery(''),
+                },
+              ] satisfies EmptyFilterChip[]
+            }
+            action={
               <Button variant="outline" size="sm" onClick={() => setQuery('')}>
                 清除搜索
               </Button>
-            )
-          }
-        />
+            }
+          />
+        )
       ) : null}
       {items.length > 0 ? (
         <ul className="flex flex-col">
@@ -1975,7 +2003,12 @@ function FaqHistoryDialog({
         {versions.isSuccess ? (
           <div className="flex flex-col gap-3">
             {versions.versions.length === 0 ? (
-              <EmptyState title="还没有历史版本" />
+              <EmptyState
+                variant="idle"
+                scale="inline"
+                icon={<History aria-hidden="true" />}
+                title="还没有历史版本"
+              />
             ) : (
               <ul className="flex max-h-[50vh] flex-col overflow-auto">
                 {versions.versions.map((version) => (

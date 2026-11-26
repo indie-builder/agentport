@@ -2,7 +2,6 @@ import type { KnowledgeJob } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { BusinessIllustration } from '../../../components/business-illustration.js';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
 import {
   jobStatusLabel,
@@ -154,15 +153,19 @@ export function SourcesTab({
       ) : null}
       {sources.data && sources.data.length === 0 ? (
         <EmptyState
-          illustration={<BusinessIllustration name="knowledge" />}
-          title="还没有外部来源"
+          variant="stage"
+          scale="section"
+          specimen="connectors"
+          title="接入外部数据源"
+          description="定时同步外部文档库或站点内容，保持知识库持续更新。"
           action={
             caps.sources ? (
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                新建来源
+              <Button onClick={() => setCreating(true)}>
+                <Plus data-icon="inline-start" aria-hidden="true" /> 新建来源
               </Button>
             ) : undefined
           }
+          footer={caps.sources ? undefined : '当前账户没有管理外部来源的权限。'}
         />
       ) : null}
       {sources.data && sources.data.length > 0 ? (

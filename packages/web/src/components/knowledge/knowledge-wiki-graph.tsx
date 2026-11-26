@@ -1,8 +1,10 @@
+import { Network } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { KnowledgeWikiGraph as WikiGraph } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { SearchInput } from '../search-input.js';
-import { InlineEmpty } from '../states.js';
+import { type EmptyFilterChip, EmptyState } from '../states.js';
+import { Button } from '../ui/button.js';
 
 const WIDTH = 760;
 const HEIGHT = 520;
@@ -55,9 +57,11 @@ function graphLayout(count: number): {
 export function KnowledgeWikiGraph({
   graph,
   onSelectPage,
+  onCreatePage,
 }: {
   graph: WikiGraph;
   onSelectPage: (pageId: string) => void;
+  onCreatePage?: (() => void) | undefined;
 }) {
   const [filter, setFilter] = useState('');
   const [hovered, setHovered] = useState<string | null>(null);
@@ -104,9 +108,41 @@ export function KnowledgeWikiGraph({
         <p className="text-xs text-muted-foreground">仅显示前 300 个页面</p>
       ) : null}
       {graph.nodes.length === 0 ? (
-        <InlineEmpty>还没有 Wiki 页面</InlineEmpty>
+        <EmptyState
+          variant="idle"
+          scale="panel"
+          icon={<Network aria-hidden="true" />}
+          title="图谱暂无节点"
+          description="创建 Wiki 页面并建立引用后，页面关系会展示在这里。"
+          action={
+            onCreatePage ? (
+              <Button variant="outline" size="sm" onClick={onCreatePage}>
+                新建页面
+              </Button>
+            ) : undefined
+          }
+        />
       ) : visibleNodes.length === 0 ? (
-        <InlineEmpty>没有匹配的页面</InlineEmpty>
+        <EmptyState
+          variant="filter"
+          scale="inline"
+          title="没有匹配的页面"
+          activeFilters={
+            [
+              {
+                key: 'q',
+                label: '关键词',
+                value: filter.trim(),
+                onRemove: () => setFilter(''),
+              },
+            ] satisfies EmptyFilterChip[]
+          }
+          action={
+            <Button variant="outline" size="sm" onClick={() => setFilter('')}>
+              清除筛选
+            </Button>
+          }
+        />
       ) : (
         // biome-ignore lint/a11y/useSemanticElements: SVG 图谱没有等价语义元素，group 保留子节点按钮语义
         <svg

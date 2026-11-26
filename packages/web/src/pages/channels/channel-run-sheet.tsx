@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleAlert, Download, FileText } from 'lucide-react';
+import { Activity, CircleAlert, Download, FileArchive, FileOutput, FileText } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { CodeBlock } from '../../components/code-block.js';
 import { CopyButton } from '../../components/copy-button.js';
@@ -220,7 +220,12 @@ function ChannelRunSheetContent({
             <section className="flex min-w-0 flex-col gap-2" aria-label="过程">
               <h2 className="text-sm font-medium text-fg">过程</h2>
               {steps.length === 0 ? (
-                <EmptyState title="还没有事件" />
+                <EmptyState
+                  variant="idle"
+                  scale="panel"
+                  icon={<Activity className="size-5" aria-hidden="true" />}
+                  title="本次运行尚未产生步骤事件"
+                />
               ) : (
                 <Accordion>
                   {steps.map((step, index) => (
@@ -273,7 +278,12 @@ function ChannelRunSheetContent({
                   onRetry={() => void outputs.refetch()}
                 />
               ) : files.length === 0 ? (
-                <EmptyState title="本轮没有成果文件" />
+                <EmptyState
+                  variant="idle"
+                  scale="panel"
+                  icon={<FileOutput className="size-5" aria-hidden="true" />}
+                  title="本轮未产出成果文件"
+                />
               ) : (
                 <>
                   <ul className="flex min-w-0 flex-col">
@@ -322,9 +332,27 @@ function ChannelRunSheetContent({
                   {selectedFile === undefined ? null : (
                     <div className="min-w-0">
                       {kind === 'binary' ? (
-                        <p className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-sm text-muted-foreground">
-                          该文件不能直接预览，请下载原件。
-                        </p>
+                        <EmptyState
+                          variant="idle"
+                          scale="panel"
+                          icon={<FileArchive className="size-5" aria-hidden="true" />}
+                          title="此格式不支持在线预览"
+                          description="可下载原件到本地查看。"
+                          action={
+                            <a
+                              href={api.channelRunOutputDownloadUrl(
+                                channelId,
+                                runId,
+                                selectedFile.path,
+                              )}
+                              download={selectedFile.path.split('/').at(-1) ?? selectedFile.path}
+                              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                            >
+                              <Download data-icon="inline-start" aria-hidden="true" />
+                              下载原件
+                            </a>
+                          }
+                        />
                       ) : kind === 'image' || kind === 'pdf' ? (
                         blob.isError ? (
                           <ErrorState

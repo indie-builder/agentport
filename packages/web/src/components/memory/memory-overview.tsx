@@ -1,6 +1,6 @@
 import type { AgentMemoryAssembly, AgentMemoryOverview, MemoryHealth } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Gauge, UserRound } from 'lucide-react';
+import { FileText, Gauge, History, UserRound } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { formatBytes, formatDateTime } from '../../lib/format.js';
 import { agentMemoryAssemblyQuery, agentMemoryOverviewQuery } from '../../lib/queries.js';
@@ -160,7 +160,13 @@ function RecentChanges({
         ) : null}
       </div>
       {changesTotal === 0 ? (
-        <EmptyState title="尚无记忆变更" description="保存记忆或采纳记忆提案后会写入版本账本。" />
+        <EmptyState
+          variant="idle"
+          scale="section"
+          icon={<History className="size-5" aria-hidden="true" />}
+          title="尚无记忆变更"
+          description="保存记忆或采纳记忆提案后会写入版本账本。"
+        />
       ) : (
         <>
           <ul className="divide-y border-y">

@@ -1294,7 +1294,7 @@ describe('chat shell layout', () => {
     const workspace = host.querySelector('aside[aria-label="会话成果"]');
     expect(workspace).not.toBeNull();
     expect(workspace?.querySelector('h2')?.textContent).toBe('会话成果');
-    expect(workspace?.textContent).toContain('会话产生的成果会显示在这里');
+    expect(workspace?.textContent).toContain('会话成果会汇集在这里');
     expect(workspace?.textContent).not.toContain('当前会话没有成果文件');
     expect(workspace?.textContent).not.toMatch(/\.mcp\.json|CLAUDE\.md/);
     const page = message().closest<HTMLElement>('[data-slot="page"]');

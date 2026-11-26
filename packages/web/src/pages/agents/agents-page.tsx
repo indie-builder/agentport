@@ -22,21 +22,18 @@ import {
 import { useMemo, useRef, useState } from 'react';
 import digitalTwinPortrait from '../../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../../components/agent/agent-avatar.js';
-import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterPopover } from '../../components/filter-popover.js';
 import { FilterSelect } from '../../components/filter-select.js';
-import {
-  Page,
-  PageBody,
-  PageHeader,
-  PageNote,
-  PageToolbar,
-  PageTopbar,
-} from '../../components/page.js';
+import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../../components/page.js';
 import { SearchInput } from '../../components/search-input.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import {
@@ -198,6 +195,74 @@ export function AgentsPage() {
   const badgeAgent = badgeId
     ? ((agents.data ?? []).find((agent) => agent.id === badgeId) ?? null)
     : null;
+
+  const activeFilters: EmptyFilterChip[] = [
+    ...(query.trim()
+      ? [
+          {
+            key: 'q',
+            label: '关键词',
+            value: query.trim(),
+            onRemove: () =>
+              void navigate({ to: '/agents', search: { ...search, q: undefined }, replace: true }),
+          },
+        ]
+      : []),
+    ...(lifecycle !== 'active'
+      ? [
+          {
+            key: 'lifecycle',
+            label: '生命周期',
+            value: lifecycle === 'archived' ? '已归档' : '已删除',
+            onRemove: () =>
+              void navigate({ to: '/agents', search: { ...search, lifecycle: undefined } }),
+          },
+        ]
+      : []),
+    ...(lifecycle === 'active' && status !== 'enabled'
+      ? [
+          {
+            key: 'status',
+            label: '状态',
+            value: status === 'all' ? '全部' : '已停用',
+            onRemove: () =>
+              void navigate({ to: '/agents', search: { ...search, status: undefined } }),
+          },
+        ]
+      : []),
+    ...(role
+      ? [
+          {
+            key: 'role',
+            label: '角色',
+            value: role,
+            onRemove: () =>
+              void navigate({ to: '/agents', search: { ...search, role: undefined } }),
+          },
+        ]
+      : []),
+    ...(tag
+      ? [
+          {
+            key: 'tag',
+            label: '标签',
+            value: tag,
+            onRemove: () => void navigate({ to: '/agents', search: { ...search, tag: undefined } }),
+          },
+        ]
+      : []),
+    ...(favoriteOnly
+      ? [
+          {
+            key: 'favorite',
+            label: '收藏',
+            value: '仅看收藏',
+            onRemove: () =>
+              void navigate({ to: '/agents', search: { ...search, favorite: undefined } }),
+          },
+        ]
+      : []),
+  ];
 
   return (
     <Page>
@@ -412,17 +477,45 @@ export function AgentsPage() {
             <LoadingState rows={4} layout="cards" />
           ) : me.isError ? (
             <ErrorState error={me.error} onRetry={() => void me.refetch()} />
-          ) : canCreate && lifecycle === 'active' ? null : (
-            <PageNote
-              icon={<BusinessIllustration name="agents" size="compact" />}
-              title={
-                lifecycle === 'archived'
-                  ? '没有归档的专家'
-                  : lifecycle === 'deleted'
-                    ? '没有已删除的专家'
-                    : '无可用专家'
+          ) : canCreate && lifecycle === 'active' ? null : lifecycle === 'active' ? (
+            <EmptyState
+              variant="permission"
+              scale="page"
+              title="还没有可用的专家"
+              description="管理员为你分配专家或开启创建权限后，会显示在这里。"
+              secondaryAction={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void queryClient.invalidateQueries({ queryKey: meQuery.queryKey })}
+                >
+                  刷新权限
+                </Button>
               }
-              description={lifecycle === 'active' ? '请联系管理员分配。' : undefined}
+            />
+          ) : (
+            <EmptyState
+              variant="clear"
+              scale="section"
+              icon={
+                lifecycle === 'archived' ? (
+                  <Archive className="size-5" aria-hidden="true" />
+                ) : (
+                  <Trash2 className="size-5" aria-hidden="true" />
+                )
+              }
+              title={lifecycle === 'archived' ? '没有已归档的专家' : '回收站为空'}
+              secondaryAction={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void navigate({ to: '/agents', search: { ...search, lifecycle: undefined } })
+                  }
+                >
+                  返回使用中的专家
+                </Button>
+              }
             />
           )
         ) : null}
@@ -430,33 +523,33 @@ export function AgentsPage() {
         !agents.hasNextPage &&
         filtered.length === 0 &&
         (agents.data.length > 0 || query.trim() || tag || favoriteOnly) ? (
-          <PageNote
-            icon={<BusinessIllustration name="search" size="compact" />}
+          <EmptyState
+            variant="filter"
+            scale="section"
             title="没有匹配的专家"
+            activeFilters={activeFilters}
             action={
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    void navigate({
-                      to: '/agents',
-                      search: {
-                        ...search,
-                        q: undefined,
-                        role: undefined,
-                        tag: undefined,
-                        favorite: undefined,
-                        lifecycle: undefined,
-                        order: undefined,
-                        status: undefined,
-                      },
-                    })
-                  }
-                >
-                  清除筛选
-                </Button>
-              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void navigate({
+                    to: '/agents',
+                    search: {
+                      ...search,
+                      q: undefined,
+                      role: undefined,
+                      tag: undefined,
+                      favorite: undefined,
+                      lifecycle: undefined,
+                      order: undefined,
+                      status: undefined,
+                    },
+                  })
+                }
+              >
+                清除全部筛选
+              </Button>
             }
           />
         ) : null}

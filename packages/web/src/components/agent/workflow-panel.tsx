@@ -150,9 +150,11 @@ export function WorkflowsPanel({
   if (workflows.data.length === 0 && !creating) {
     return (
       <EmptyState
+        variant="stage"
+        scale="section"
         icon={<FileCode className="size-5" aria-hidden="true" />}
-        title="还没有工作流"
-        description="工作流把一段脚本保存为 .claude/workflows/<slug>.js，专家可在运行时按需触发。"
+        title="编写工作流脚本"
+        description="工作流把脚本保存为 .claude/workflows/<slug>.js，专家可在运行时按需触发。"
         action={
           canWrite ? (
             <Button disabled={pending} onClick={() => guard({ type: 'create' })}>
@@ -160,6 +162,7 @@ export function WorkflowsPanel({
             </Button>
           ) : undefined
         }
+        footer={!canWrite ? '当前账户只有只读权限，无法新建或编辑工作流。' : undefined}
       />
     );
   }
@@ -289,7 +292,24 @@ export function WorkflowsPanel({
             ) : null}
           </>
         ) : (
-          <EmptyState title="选择或新建工作流" />
+          <EmptyState
+            variant="idle"
+            scale="panel"
+            icon={<FileCode className="size-5" aria-hidden="true" />}
+            title="选择左侧工作流查看或编辑"
+            action={
+              canWrite ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => guard({ type: 'create' })}
+                >
+                  <Plus data-icon="inline-start" /> 新建工作流
+                </Button>
+              ) : undefined
+            }
+          />
         )}
       </div>
 

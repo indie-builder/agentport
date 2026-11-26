@@ -646,6 +646,27 @@
   .message-fade-up {
     animation: message-fade-up .4s var(--ease-overshoot) both;
   }
+
+  .empty-stage-dots {
+    position: relative;
+  }
+
+  .empty-stage-dots::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background-image: radial-gradient(rgb(0 0 0 / 0.085) 1px, transparent 1px);
+    background-size: 20px 20px;
+    -webkit-mask-image: radial-gradient(ellipse 68% 65% at 50% 45%, rgb(0 0 0) 35%, transparent 100%);
+    mask-image: radial-gradient(ellipse 68% 65% at 50% 45%, rgb(0 0 0) 35%, transparent 100%);
+  }
+
+  .empty-stage-dots > * {
+    position: relative;
+    z-index: 1;
+  }
 }
 
 @keyframes shimmer {

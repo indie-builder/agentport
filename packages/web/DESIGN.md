@@ -334,7 +334,7 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 
 对话阅读轴线 832px，含左右 24px 的外容器最大 880px；聊天没有横跨三栏的外顶栏，历史、消息列与成果栏从工作区顶部并排开始。消息列自带 56px 头部（`px-6`，左右 24px）：历史关闭时显示历史开关、搜索、唯一 `AgentPicker`、标题操作与成果开关，无论是否已选专家，专家选择都在原有的 `ChatTopBar` 内。历史打开时，唯一 `AgentPicker` 位于 `HistoryHeader`，与「新建会话」同排，搜索位于历史面板内；消息列头部只留历史开关、标题操作与成果开关。历史头部同为 56px（`px-3`、`gap-1`）：左侧显示专家选择，右侧 32px ghost「新建会话」；侧栏不再有新建会话入口。成果面板 400px 从顶部开始；Composer 在消息列之后距底 24px、始终同一位置。会话历史默认收起 0，首次展开 240px，可在 200–360px 间调整并记忆。历史关闭指桌面 `historyCollapsed` 或窄桌面 Sheet 关闭；历史打开指桌面历史展开或窄桌面 Sheet 打开。
 
-资源中心工具区固定两行：首行类型导航与管理操作（最小高 48px），次行来源/搜索/筛选/排序/数量（紧随 12px，`PageToolbar` 自身 gap 8px）；内资源默认为卡片视图并统一带「卡片 / 表格」切换（`view=cards|table` 进 URL，缺省 `cards`；用共享 `ViewToggle`，卡片在前）——技能、插件、知识库、连接器均默认卡片，卡片等量呈现对应表格字段；连接器保留 `DataTable` 表格视图（名称/来源/地址/连通状态/工具/专家/操作，明细进详情弹层，`hideRowCount` 避免与工具栏「共 N 个」重复）；专家卡以独立操作行收尾，不设底带或分隔线。列表空态用无框 `PageNote`（仅上下发丝线，按首次无数据 / 筛选无结果 / 无权限给一句事实与一个动作），`EmptyState` 默认无外框。个人模块使用标准 Page / PageHeader / PageSection 骨架，默认个人资料，各分区可直达并提供返回工作区；入口在侧栏底部用户信息，仅在展开态与窄桌面 Sheet 渲染；进入后由同一主侧栏承载七项个人导航，具体几何见下方 Personal。
+资源中心工具区固定两行：首行类型导航与管理操作（最小高 48px），次行来源/搜索/筛选/排序/数量（紧随 12px，`PageToolbar` 自身 gap 8px）；内资源默认为卡片视图并统一带「卡片 / 表格」切换（`view=cards|table` 进 URL，缺省 `cards`；用共享 `ViewToggle`，卡片在前）——技能、插件、知识库、连接器均默认卡片，卡片等量呈现对应表格字段；连接器保留 `DataTable` 表格视图（名称/来源/地址/连通状态/工具/专家/操作，明细进详情弹层，`hideRowCount` 避免与工具栏「共 N 个」重复）；专家卡以独立操作行收尾，不设底带或分隔线。全站空态统一由 `EmptyState` 承载（5 原型 × 4 尺度，首次无数据采用方案 A 矢量微型界面剪影 + 微点阵画布）；`PageNote` 仅用于页面已有内容时的内联提示或告警，不承担列表空态职责。个人模块使用标准 Page / PageHeader / PageSection 骨架，默认个人资料，各分区可直达并提供返回工作区；入口在侧栏底部用户信息，仅在展开态与窄桌面 Sheet 渲染；进入后由同一主侧栏承载七项个人导航，具体几何见下方 Personal。
 
 间距节奏取 4 / 8 / 12 / 16 / 20 / 24px。所有尺寸、宽高、图标 16px / `strokeWidth 1.75`（尺寸档 12/14/16/20/24，默认 16；见 docs/DESIGN-SYSTEM.md §5）、边框 1px、页签指示线与焦点 2px 以当前实现值为准；几何调整只按已批准布局契约进入，不通过新增 border 或页面级 padding 临时改变。
 
@@ -478,8 +478,15 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 
 ### Empty states
 
-- 页头已有同一主操作时，空态里的重复入口使用 `outline sm`；没有同动作页头入口时，空态的主要任务使用 `default`。保留动作与权限条件。
-- 空态沿用 `EmptyState` / `PageNote`：列表空态用无框 `PageNote`（仅上下发丝线，按首次无数据 / 筛选无结果 / 无权限给一句事实与一个动作），`EmptyState` 默认无外框；传 `illustration` 时替换原 40px 圆底图标，未传保持默认图标与动作；行内 `PageNote` 复用 `icon` 槽。业务插画只经 `BusinessIllustration` 取 `standard` 96px / `compact` 64px / `error` 144px 三档，固定宽高、`alt=""`、`aria-hidden="true"`，纯装饰、无文字、无动画；`public/brand/scenarios/` 六张场景图仍只服务品牌 Logo 切换。
+- **统一收口与职责边界**：全站空状态统一由 `components/empty-state.tsx` 的 `EmptyState`（经 `states.tsx` 重新导出）承载，采用 **5 原型 × 4 尺度** 体系；`PageNote` 退回唯一语义——**页面已有内容时的内联提示、降级说明或刷新失败横幅**，不再用作空数据横条。
+- **五大原型（`variant`）**：
+  - `stage`（工作台蓝图舞台 · 首次无数据）：整页尺度铺 `.empty-stage-dots` 微点阵画布（`rgb(0 0 0 / 0.085)` 1px 点阵、20px 间距、径向淡出遮罩），中央渲染方案 A 矢量微型界面剪影（`specimen`，低对比双层 `cds-card-surface` 卡片/时间线/表格/趋势线框 + 对应业务图标 + 等宽语义 tag），配动词/结果导向标题、一句价值说明、主/次动作与可选快速起点卡（`starters`，复用 `.cds-card-surface` + `data-hover="lift"`）。
+  - `checklist`（分步启动板 · 多前置依赖冷启动）：居中单张 `cds-card-surface` 引导板（最大宽 520px），按真实状态展示已完成（`success-soft` 绿勾）、当前步（深墨序号 + 动作）与后续步。
+  - `filter`（动态筛选归零 · 搜索/筛选无结果）：轻量居中，`sunken` 圆底 `SearchX`，直接回显当前生效条件为可逐个移除的 `bg-chip` chips，并提供一键清除。
+  - `clear`（静默归零 · 正向清空）：轻量居中，`success-soft` 圆底 `Check`（`text-success`），用于待办、审批、合规与无失败用例等正向空态。
+  - `permission`（权限门禁）与 `idle`（待命态）：`permission` 使用居中 `cds-card-surface` 卡片（最大宽 420px）+ `Lock` 明确说明缺失能力与出口，不冒充空数据；`idle` 用于双栏未选中、搜索待命与空子区，不默认兜底无意义的 `Inbox` 图标。
+- **四级空间尺度（`scale`）**：`page`（`min-h-[420px] flex-1`，用于整页主体）、`section`（`min-h-[260px] py-12`，用于分区/Tab 主体）、`panel`（`py-12 px-5`，用于双栏右侧/侧栏/抽屉）、`inline`（`py-8 px-4`，用于 `DataTable` 表体、弹层列表与折叠子区）。
+- **动作权重与插画边界**：页头已有同一主操作时，空态里的重复入口使用 `outline sm`；没有同动作页头入口时，空态的主要任务使用 `default`。保留动作与权限条件。`BusinessIllustration`（`standard` 96px / `compact` 64px / `error` 144px）仅保留给品牌温度或异常态（如 404、无效分享链接），`public/brand/scenarios/` 六张场景图仍只服务品牌 Logo 切换。
 
 ### Messages / Code / Charts
 

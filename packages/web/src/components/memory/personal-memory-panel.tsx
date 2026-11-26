@@ -1,6 +1,6 @@
 import { type MemoryChange, PERSONAL_MEMORY_MAX_CHARS } from '@agentport/shared';
 import { Link } from '@tanstack/react-router';
-import { ChevronRight, Download, Pencil, RotateCcw } from 'lucide-react';
+import { ChevronRight, Download, History, Pencil, RotateCcw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, api, errorMessage } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
@@ -18,7 +18,7 @@ import { Markdown } from '../markdown.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../motion-collapsible.js';
 import { PageSection } from '../page.js';
 import { SourceEditor } from '../source-editor.js';
-import { ErrorState, LoadingState } from '../states.js';
+import { EmptyState, ErrorState, LoadingState } from '../states.js';
 import { Button, buttonVariants } from '../ui/button.js';
 import { Field, FieldError, FieldLabel } from '../ui/field.js';
 
@@ -303,18 +303,21 @@ export function PersonalMemoryPanel({
             </div>
           </>
         ) : content.trim() === '' ? (
-          <div className="flex flex-col items-start gap-2">
-            <p className="text-base font-medium text-fg">个人记忆为空</p>
-            <p className="max-w-[60ch] text-sm text-muted-foreground">
-              记录长期信息，或审核从对话整理的提案。
-            </p>
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              {canWrite ? (
+          <EmptyState
+            variant="stage"
+            scale="section"
+            specimen="memory"
+            title="建立你的个人记忆"
+            description="记录偏好、背景与长期上下文，后续每轮对话都会自动带入。"
+            action={
+              canWrite ? (
                 <Button ref={editTrigger} onClick={beginEditing}>
                   自己填写
                 </Button>
-              ) : null}
-              {canReview ? (
+              ) : undefined
+            }
+            secondaryAction={
+              canReview ? (
                 <Link
                   to="/personal/reviews"
                   search={{ create: true }}
@@ -322,9 +325,9 @@ export function PersonalMemoryPanel({
                 >
                   从对话整理
                 </Link>
-              ) : null}
-            </div>
-          </div>
+              ) : undefined
+            }
+          />
         ) : (
           <>
             <div className="min-w-0 max-w-[75ch]">
@@ -364,7 +367,12 @@ export function PersonalMemoryPanel({
               ) : null}
               {versions.data ? (
                 versions.data.items.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">保存后会记录版本。</p>
+                  <EmptyState
+                    variant="idle"
+                    scale="inline"
+                    icon={<History className="size-4" aria-hidden="true" />}
+                    title="保存修改后会自动记录版本历史"
+                  />
                 ) : (
                   <ul className="divide-y border-y">
                     {versions.data.items.map((change) => {

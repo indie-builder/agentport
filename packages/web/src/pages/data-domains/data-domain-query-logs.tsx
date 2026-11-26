@@ -1,8 +1,14 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import { ScrollText } from 'lucide-react';
 import { FilterSelect } from '../../components/filter-select.js';
 import { PageSection, PageToolbar } from '../../components/page.js';
 import { SearchInput } from '../../components/search-input.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import {
@@ -76,12 +82,53 @@ export function DataDomainQueryLogs({ dataDomainId }: { dataDomainId: string }) 
         <ErrorState error={logs.error} onRetry={() => void logs.refetch()} />
       ) : null}
       {filtered && !logs.isPending && rows.length === 0 ? (
-        <p className="border-y py-5 text-sm text-muted-foreground">
-          没有符合当前筛选条件的查询记录。
-        </p>
+        <EmptyState
+          variant="filter"
+          scale="section"
+          title="没有符合条件的记录"
+          activeFilters={
+            [
+              ...(status !== 'all'
+                ? [
+                    {
+                      key: 'status',
+                      label: '状态',
+                      value: status === 'ok' ? '成功' : '失败',
+                      onRemove: () => updateSearch({ queryStatus: undefined }),
+                    },
+                  ]
+                : []),
+              ...(settledRun
+                ? [
+                    {
+                      key: 'run',
+                      label: '运行 ID',
+                      value: settledRun,
+                      onRemove: () => updateSearch({ run: undefined }),
+                    },
+                  ]
+                : []),
+            ] satisfies EmptyFilterChip[]
+          }
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => updateSearch({ queryStatus: undefined, run: undefined })}
+            >
+              清除筛选
+            </Button>
+          }
+        />
       ) : null}
       {!filtered && logs.data && rows.length === 0 ? (
-        <p className="border-y py-5 text-sm text-muted-foreground">还没有查询记录。</p>
+        <EmptyState
+          variant="stage"
+          scale="section"
+          icon={<ScrollText aria-hidden="true" />}
+          title="等待首次查询记录"
+          description="每次经连接器执行的查询都会自动记录摘要、耗时与发起人。"
+        />
       ) : null}
       {rows.length > 0 ? (
         <Table aria-label="查询日志">

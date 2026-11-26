@@ -1,20 +1,13 @@
 import { auditStatusSchema, utcWindowStart } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Download, EllipsisVertical, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Download, EllipsisVertical, RefreshCw, ScrollText, ShieldCheck } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterPopover } from '../components/filter-popover.js';
 import { FilterSelect } from '../components/filter-select.js';
-import {
-  Page,
-  PageBody,
-  PageHeader,
-  PageNote,
-  PageToolbar,
-  PageTopbar,
-} from '../components/page.js';
+import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../components/page.js';
 import { SearchInput } from '../components/search-input.js';
-import { ErrorState } from '../components/states.js';
+import { type EmptyFilterChip, EmptyState, ErrorState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import {
@@ -230,6 +223,99 @@ export function AuditPage() {
     (actorKind !== 'all' ? 1 : 0) +
     (status !== 'all' ? 1 : 0) +
     (range !== 'all' ? 1 : 0);
+
+  const activeFilters: EmptyFilterChip[] = [
+    ...(settledAction
+      ? [
+          {
+            key: 'action',
+            label: '动作前缀',
+            value: settledAction,
+            onRemove: () =>
+              void navigate({
+                to: '/audit',
+                search: { ...search, action: undefined },
+                replace: true,
+              }),
+          },
+        ]
+      : []),
+    ...(settledTarget
+      ? [
+          {
+            key: 'target',
+            label: '目标',
+            value: settledTarget,
+            onRemove: () =>
+              void navigate({
+                to: '/audit',
+                search: { ...search, target: undefined },
+                replace: true,
+              }),
+          },
+        ]
+      : []),
+    ...(settledActor
+      ? [
+          {
+            key: 'actor',
+            label: '操作者',
+            value: settledActor,
+            onRemove: () =>
+              void navigate({
+                to: '/audit',
+                search: { ...search, actor: undefined },
+                replace: true,
+              }),
+          },
+        ]
+      : []),
+    ...(actorKind !== 'all'
+      ? [
+          {
+            key: 'actorKind',
+            label: '主体类型',
+            value: actorKindLabel[actorKind],
+            onRemove: () =>
+              void navigate({
+                to: '/audit',
+                search: { ...search, actorKind: undefined },
+                replace: true,
+              }),
+          },
+        ]
+      : []),
+    ...(status !== 'all'
+      ? [
+          {
+            key: 'status',
+            label: '状态',
+            value: auditStatusLabel[status],
+            onRemove: () =>
+              void navigate({
+                to: '/audit',
+                search: { ...search, status: undefined },
+                replace: true,
+              }),
+          },
+        ]
+      : []),
+    ...(range !== 'all'
+      ? [
+          {
+            key: 'range',
+            label: '时间范围',
+            value: timeRangeOptions.find((option) => option.value === range)?.label ?? range,
+            onRemove: () =>
+              void navigate({
+                to: '/audit',
+                search: { ...search, range: undefined },
+                replace: true,
+              }),
+          },
+        ]
+      : []),
+  ];
 
   const exportAudit = async (): Promise<void> => {
     setExporting(true);
@@ -476,15 +562,18 @@ export function AuditPage() {
               />
             ) : null}
             {filtered && !audit.isPending && !searchPending && rows.length === 0 ? (
-              <PageNote
-                title="没有符合当前筛选条件的审计记录"
+              <EmptyState
+                variant="filter"
+                scale="section"
+                title="没有符合条件的审计记录"
+                activeFilters={activeFilters}
                 action={
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => void navigate({ to: '/audit', search: {} })}
                   >
-                    清除筛选
+                    清除全部筛选
                   </Button>
                 }
               />
@@ -498,7 +587,15 @@ export function AuditPage() {
                 }
                 label="审计事件"
                 loading={audit.isPending || searchPending}
-                empty="登录或修改配置后会自动记录对应事件。"
+                empty={
+                  <EmptyState
+                    variant="idle"
+                    scale="section"
+                    icon={<ScrollText className="size-5" aria-hidden="true" />}
+                    title="还没有审计日志"
+                    description="账户登录、权限变更与关键配置修改会自动记录在这里。"
+                  />
+                }
                 renderExpanded={auditDetails}
               />
             )}

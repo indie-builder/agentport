@@ -439,7 +439,7 @@ describe('runtime environments page', () => {
     expect(html).toContain('数据分析');
     expect(html).toContain('线上');
     expect(html).toContain('aaaaaaaa');
-    expect(html).not.toContain('新建第一个运行环境');
+    expect(html).not.toContain('定义沙盒运行环境');
   });
 
   it('shows the create action for an empty list', () => {
@@ -447,7 +447,7 @@ describe('runtime environments page', () => {
     state.search = {};
     const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
     expect(html.match(/<h1/g)).toHaveLength(1);
-    expect(html).toContain('新建第一个运行环境');
+    expect(html).toContain('定义沙盒运行环境');
     expect(html).toContain('新建环境');
   });
 

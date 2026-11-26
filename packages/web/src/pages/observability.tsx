@@ -32,7 +32,7 @@ import {
   PageSection,
   PageTopbar,
 } from '../components/page.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { Card, CardContent } from '../components/ui/card.js';
@@ -403,15 +403,26 @@ export function ObservabilityPage() {
                     />
                   ) : null}
                   {!data.sloEnabled ? (
-                    <PageNote
-                      icon={<Gauge aria-hidden="true" />}
+                    <EmptyState
+                      variant="idle"
+                      scale="section"
+                      icon={<Gauge className="size-5" aria-hidden="true" />}
                       title="SLO 告警已停用"
-                      description="停用后不再发送未达标告警，因此这里不展示达标评估；可在 SLO 设置中重新启用。"
+                      description="启用后将按窗口评估达标率并触发告警。"
+                      action={
+                        canManage && slo.data ? (
+                          <Button variant="outline" size="sm" onClick={() => setEditingSlo(true)}>
+                            前往 SLO 设置
+                          </Button>
+                        ) : undefined
+                      }
                     />
                   ) : data.slo.length === 0 ? (
-                    <PageNote
-                      icon={<Gauge aria-hidden="true" />}
-                      title="无 SLO 读数"
+                    <EmptyState
+                      variant="idle"
+                      scale="section"
+                      icon={<Gauge className="size-5" aria-hidden="true" />}
+                      title="当前窗口内没有样本读数"
                       description="窗口内没有样本时，SLO 会显示无数据而不是达标。"
                     />
                   ) : (
@@ -465,7 +476,12 @@ export function ObservabilityPage() {
 
               {tab === 'queues' ? (
                 data.queues.length === 0 ? (
-                  <PageNote title="当前没有队列读数" />
+                  <EmptyState
+                    variant="idle"
+                    scale="section"
+                    icon={<Clock className="size-5" aria-hidden="true" />}
+                    title="当前没有活跃队列读数"
+                  />
                 ) : (
                   <DataTable
                     rows={data.queues}
@@ -479,7 +495,12 @@ export function ObservabilityPage() {
 
               {tab === 'providers' ? (
                 data.providers.length === 0 ? (
-                  <PageNote icon={<Coins aria-hidden="true" />} title="窗口内没有供应商请求" />
+                  <EmptyState
+                    variant="idle"
+                    scale="section"
+                    icon={<Coins className="size-5" aria-hidden="true" />}
+                    title="窗口内没有供应商请求"
+                  />
                 ) : (
                   <DataTable
                     rows={data.providers}

@@ -11,15 +11,8 @@ import { BackLink } from '../../components/back-link.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterSelect } from '../../components/filter-select.js';
-import {
-  Page,
-  PageBody,
-  PageHeader,
-  PageNote,
-  PageSection,
-  PageTopbar,
-} from '../../components/page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { BuildStatusLabel } from '../../components/status-badge.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
@@ -349,9 +342,12 @@ export function RuntimeEnvironmentDetailPage() {
             <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
           ) : null}
           {versions.data && versions.data.length === 0 ? (
-            <PageNote
-              icon={<Hammer className="size-4" aria-hidden="true" />}
-              title="还没有构建版本"
+            <EmptyState
+              variant="stage"
+              scale="section"
+              icon={<Hammer className="size-5" aria-hidden="true" />}
+              title="构建第一个镜像版本"
+              description="保存 Dockerfile 配置后触发构建，就绪版本可设为线上环境。"
               action={
                 canBuild ? (
                   <Button
@@ -367,8 +363,24 @@ export function RuntimeEnvironmentDetailPage() {
             />
           ) : null}
           {versions.data && versions.data.length > 0 && shownVersions.length === 0 ? (
-            <PageNote
+            <EmptyState
+              variant="filter"
+              scale="section"
               title="该状态下没有构建版本"
+              activeFilters={
+                search.status
+                  ? [
+                      {
+                        key: 'status',
+                        label: '状态',
+                        value:
+                          statusOptions.find((option) => option.value === search.status)?.label ??
+                          search.status,
+                        onRemove: () => updateSearch({ status: undefined }),
+                      },
+                    ]
+                  : undefined
+              }
               action={
                 <Button
                   variant="outline"

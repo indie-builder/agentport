@@ -1,8 +1,5 @@
-import { Link } from '@tanstack/react-router';
-import { GitCompare, Plus, Shuffle } from 'lucide-react';
-import { BusinessIllustration } from '../../components/business-illustration.js';
-import { PageNote } from '../../components/page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { GitCompare, Play, Plus, Shuffle } from 'lucide-react';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Card, CardContent } from '../../components/ui/card.js';
@@ -19,13 +16,6 @@ import { buildEvalPassRatePoints, EvalPassRateChart } from './pass-rate-chart.js
 import { EvalRunResults } from './run-results.js';
 
 export function EvalRunsTab({
-  agentsPending,
-  agentsError,
-  agentsErrorValue,
-  onRetryAgents,
-  missingAgent,
-  onClearAgent,
-  effectiveAgentId,
   runsPending,
   runsError,
   runsErrorValue,
@@ -50,13 +40,6 @@ export function EvalRunsTab({
   onOpenCreateCase,
   onOpenSampleRuns,
 }: {
-  agentsPending: boolean;
-  agentsError: boolean;
-  agentsErrorValue: unknown;
-  onRetryAgents: () => void;
-  missingAgent: boolean;
-  onClearAgent: () => void;
-  effectiveAgentId: string | null;
   runsPending: boolean;
   runsError: boolean;
   runsErrorValue: unknown;
@@ -81,34 +64,6 @@ export function EvalRunsTab({
   onOpenCreateCase: (trigger: HTMLElement) => void;
   onOpenSampleRuns: (trigger: HTMLElement) => void;
 }) {
-  if (agentsPending) return <LoadingState rows={3} />;
-  if (agentsError) return <ErrorState error={agentsErrorValue} onRetry={onRetryAgents} />;
-  if (missingAgent) {
-    return (
-      <PageNote
-        title="所选专家不存在"
-        description="链接中的专家可能已删除，请清除筛选或重新选择专家。"
-        action={
-          <Button variant="outline" size="sm" onClick={onClearAgent}>
-            清除专家筛选
-          </Button>
-        }
-      />
-    );
-  }
-  if (!effectiveAgentId) {
-    return (
-      <PageNote
-        icon={<BusinessIllustration name="agents" size="compact" />}
-        title="专家列表为空"
-        action={
-          <Link to="/agents" className="text-sm text-fg underline underline-offset-4">
-            前往创建专家
-          </Link>
-        }
-      />
-    );
-  }
   if (runsPending) return <LoadingState rows={3} />;
   if (runsError && !runsIsFetchNextPageError) {
     return <ErrorState error={runsErrorValue} onRetry={onRetryRuns} />;
@@ -116,40 +71,42 @@ export function EvalRunsTab({
 
   if (runsSuccess && runItems.length === 0 && !selectedRunId) {
     return (
-      <PageNote
-        icon={<BusinessIllustration name="runs" size="compact" />}
-        title="评估尚未运行"
+      <EmptyState
+        variant="idle"
+        scale="section"
+        icon={<Play aria-hidden="true" />}
+        title="尚未执行过评估"
         description={
           casesSuccess && casesEmpty
             ? '先添加用例后再运行评估。'
             : casesSuccess && !casesEmpty && canExecuteEval
-              ? '点击右上角「运行评估」开始。'
+              ? '准备好用例后，点击右上角「运行评估」生成基线报告。'
               : !canExecuteEval
                 ? '当前账户没有执行该专家评估的权限。'
                 : undefined
         }
         action={
           casesSuccess && casesEmpty && canManageEval ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={(event) => onOpenCreateCase(event.currentTarget)}
-              >
-                <Plus data-icon="inline-start" aria-hidden="true" />
-                新建用例
-              </Button>
-              {canReadRuns ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(event) => onOpenSampleRuns(event.currentTarget)}
-                >
-                  <Shuffle data-icon="inline-start" aria-hidden="true" />
-                  从运行抽样
-                </Button>
-              ) : null}
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(event) => onOpenCreateCase(event.currentTarget)}
+            >
+              <Plus data-icon="inline-start" aria-hidden="true" />
+              新建用例
+            </Button>
+          ) : undefined
+        }
+        secondaryAction={
+          casesSuccess && casesEmpty && canManageEval && canReadRuns ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(event) => onOpenSampleRuns(event.currentTarget)}
+            >
+              <Shuffle data-icon="inline-start" aria-hidden="true" />
+              从运行抽样
+            </Button>
           ) : undefined
         }
       />

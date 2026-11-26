@@ -251,7 +251,7 @@ describe('knowledge detail business line', () => {
     await click(button('关闭'));
 
     await click(button('检索测试'));
-    expect(document.body.textContent).toContain('没有检索权限');
+    expect(document.body.textContent).toContain('没有检索与处理权限');
     expect(calls.some((item) => item.path.includes('/search'))).toBe(false);
   });
 
@@ -471,10 +471,11 @@ describe('knowledge expert usage', () => {
       'a[href="/agents/agent_a?tab=config&section=capability"]',
     );
     expect(link?.textContent).toContain('文档专家');
-    expect(document.body.textContent).not.toContain('没有被任何专家使用');
-    expect(document.querySelector<HTMLAnchorElement>('a[href="/agents"]')?.textContent).toContain(
-      '选择其他专家',
-    );
+    expect(document.body.textContent).not.toContain('还没有专家绑定此知识库');
+    expect(
+      document.querySelector<HTMLAnchorElement>('#knowledge-expert-usage a[href="/agents"]')
+        ?.textContent,
+    ).toContain('选择其他专家');
     expect(
       calls.filter(
         (item) => item.path.startsWith('/api/agents/') && item.path !== '/api/agents/reference',
@@ -494,10 +495,12 @@ describe('knowledge expert usage', () => {
     );
     await mount('/knowledge/kb_1');
     await click(button('概览'));
-    await waitFor(() => document.body.textContent?.includes('没有被任何专家使用') === true);
+    await waitFor(() => document.body.textContent?.includes('还没有专家绑定此知识库') === true);
 
-    const next = document.querySelector<HTMLAnchorElement>('a[href="/agents"]');
-    expect(next?.textContent).toContain('选择专家');
+    const next = document.querySelector<HTMLAnchorElement>(
+      '#knowledge-expert-usage a[href="/agents"]',
+    );
+    expect(next?.textContent).toContain('前往找专家');
     expect(document.body.textContent).toContain('能力配置');
   });
 
@@ -617,7 +620,7 @@ describe('knowledge jobs pagination', () => {
 
     expect(document.body.textContent).toContain('该文档还没有处理记录');
     expect(document.body.textContent).not.toContain('重新解析');
-    expect(findButton('清除筛选')).toBeDefined();
+    expect(findButton('查看全部处理记录')).toBeDefined();
     await click(button('重新上传文档'));
     await waitFor(() => router.state.location.search.panel === undefined);
     expect(router.state.location.search.document).toBeUndefined();

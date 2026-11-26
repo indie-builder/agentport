@@ -13,7 +13,6 @@ import {
   CircleStop,
   Hash,
   Megaphone,
-  MessageSquare,
   ShieldAlert,
   SquareArrowOutUpRight,
 } from 'lucide-react';
@@ -697,7 +696,13 @@ function ChannelWorkspace({
           loadingOlder={loadingOlder}
           olderDisabled={loadingOlder}
           welcome={
-            <EmptyState icon={<MessageSquare className="size-5" />} title="从第一条消息开始" />
+            <EmptyState
+              variant="stage"
+              scale="section"
+              icon={<Hash className="size-5" aria-hidden="true" />}
+              title={`欢迎来到 #${channel.name}`}
+              description="发送第一条消息，或输入 @ 召唤已绑定的专家参与协作。"
+            />
           }
           approvalItems={[]}
           liveRunId={null}

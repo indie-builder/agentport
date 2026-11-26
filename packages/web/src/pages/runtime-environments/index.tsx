@@ -6,23 +6,16 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { Box, Plus, SearchX } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
-import {
-  Page,
-  PageBody,
-  PageHeader,
-  PageNote,
-  PageToolbar,
-  PageTopbar,
-} from '../../components/page.js';
+import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { SearchInput } from '../../components/search-input.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
@@ -127,26 +120,45 @@ export function RuntimeEnvironmentsPage() {
         ) : null}
 
         {fullyLoaded && environments.data && environments.data.length === 0 ? (
-          <PageNote
-            icon={<Box className="size-4" aria-hidden="true" />}
-            title="新建第一个运行环境"
-            {...(canCreate ? {} : { description: '当前账户没有创建运行环境的权限。' })}
-            {...(canCreate
-              ? {
-                  action: (
-                    <Button ref={createTriggerRef} onClick={openCreate}>
-                      新建环境
-                    </Button>
-                  ),
-                }
-              : {})}
+          <EmptyState
+            variant="stage"
+            scale="page"
+            specimen="environments"
+            title="定义沙盒运行环境"
+            description={
+              canCreate
+                ? '自定义依赖与系统工具，为专家代码执行提供隔离镜像。'
+                : '当前账户没有创建运行环境的权限。'
+            }
+            action={
+              canCreate ? (
+                <Button ref={createTriggerRef} onClick={openCreate}>
+                  <Plus data-icon="inline-start" aria-hidden="true" /> 新建环境
+                </Button>
+              ) : undefined
+            }
           />
         ) : null}
 
         {fullyLoaded && environments.data && environments.data.length > 0 && shown.length === 0 ? (
-          <PageNote
-            icon={<SearchX className="size-4" aria-hidden="true" />}
+          <EmptyState
+            variant="filter"
+            scale="section"
             title="没有匹配的运行环境"
+            activeFilters={[
+              {
+                key: 'q',
+                label: '关键词',
+                value: query.trim(),
+                onRemove: () => {
+                  void navigate({
+                    to: '/runtime-environments',
+                    search: (current) => ({ ...current, q: undefined }),
+                    replace: true,
+                  });
+                },
+              },
+            ]}
             action={
               <Button
                 variant="outline"
@@ -159,7 +171,7 @@ export function RuntimeEnvironmentsPage() {
                   });
                 }}
               >
-                清除筛选
+                清除全部筛选
               </Button>
             }
           />

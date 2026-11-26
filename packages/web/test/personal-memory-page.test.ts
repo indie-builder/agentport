@@ -382,7 +382,7 @@ describe('个人记忆页', () => {
       updatedAt: null,
     });
     await mount();
-    expect(host.textContent).toContain('个人记忆为空');
+    expect(host.textContent).toContain('建立你的个人记忆');
     expect(host.textContent).not.toContain('每轮对话会带入这些长期信息。');
     expect(
       [...host.querySelectorAll('a')].filter((item) => item.textContent?.trim() === '从对话整理'),

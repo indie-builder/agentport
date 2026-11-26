@@ -16,7 +16,6 @@ import {
   Upload,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { BusinessIllustration } from '../../../components/business-illustration.js';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
 import { FilterSelect } from '../../../components/filter-select.js';
 import { BatchActionDialog } from '../../../components/knowledge/knowledge-documents.js';
@@ -30,7 +29,12 @@ import {
 } from '../../../components/knowledge/knowledge-shared.js';
 import { PageNote, PageToolbar } from '../../../components/page.js';
 import { SearchInput } from '../../../components/search-input.js';
-import { ErrorState, LoadingState } from '../../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../../components/states.js';
 import { StatusBadge } from '../../../components/status-badge.js';
 import { Button, buttonVariants } from '../../../components/ui/button.js';
 import { Checkbox } from '../../../components/ui/checkbox.js';
@@ -559,36 +563,87 @@ export function DocumentsTab({
           <ErrorState error={documents.error} onRetry={() => void documents.refetch()} />
         ) : null}
         {documents.isSuccess && documentItems.length === 0 ? (
-          <PageNote
-            icon={
-              <BusinessIllustration name={filtersActive ? 'search' : 'documents'} size="compact" />
-            }
-            title={filtersActive ? '没有匹配的文档' : '还没有文档'}
-            {...(!filtersActive && !caps.content
-              ? { description: '当前账户没有上传文档的权限。' }
-              : {})}
-            {...(filtersActive
-              ? {
-                  action: (
-                    <Button variant="outline" size="sm" onClick={clearFilters}>
-                      清除筛选
-                    </Button>
-                  ),
-                }
-              : caps.content
-                ? {
-                    action: (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => uploadInput.current?.click()}
-                      >
-                        <Upload data-icon="inline-start" aria-hidden="true" /> 上传文件
-                      </Button>
-                    ),
-                  }
-                : {})}
-          />
+          filtersActive ? (
+            <EmptyState
+              variant="filter"
+              scale="section"
+              title="没有匹配的文档"
+              activeFilters={
+                [
+                  ...(folderId !== undefined
+                    ? [
+                        {
+                          key: 'folder',
+                          label: '文件夹',
+                          value:
+                            folderOptions.find((option) => option.id === folderId)?.label ??
+                            (folderId === 'null' ? '未分类' : folderId),
+                          onRemove: () => onFolderChange(undefined),
+                        },
+                      ]
+                    : []),
+                  ...(status !== 'all'
+                    ? [
+                        {
+                          key: 'status',
+                          label: '状态',
+                          value: documentStatusLabel[status],
+                          onRemove: () => setStatus('all'),
+                        },
+                      ]
+                    : []),
+                  ...(tag !== 'all'
+                    ? [
+                        {
+                          key: 'tag',
+                          label: '标签',
+                          value: tag,
+                          onRemove: () => setTag('all'),
+                        },
+                      ]
+                    : []),
+                  ...(settledQuery !== ''
+                    ? [
+                        {
+                          key: 'q',
+                          label: '关键词',
+                          value: settledQuery,
+                          onRemove: () => setQuery(''),
+                        },
+                      ]
+                    : []),
+                ] satisfies EmptyFilterChip[]
+              }
+              action={
+                <Button variant="outline" size="sm" onClick={clearFilters}>
+                  清除全部筛选
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              variant="stage"
+              scale="section"
+              specimen="documents"
+              title="上传你的第一份文档"
+              description="支持文件上传、文件夹导入、手写文档或抓取网页。"
+              action={
+                caps.content ? (
+                  <Button onClick={() => uploadInput.current?.click()}>
+                    <Upload data-icon="inline-start" aria-hidden="true" /> 上传文件
+                  </Button>
+                ) : undefined
+              }
+              secondaryAction={
+                caps.content ? (
+                  <Button variant="outline" onClick={() => setManualOpen(true)}>
+                    手写文档
+                  </Button>
+                ) : undefined
+              }
+              footer={caps.content ? undefined : '当前账户没有上传文档的权限。'}
+            />
+          )
         ) : null}
         {documentItems.length > 0 ? (
           <Table aria-label="文档列表">

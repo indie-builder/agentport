@@ -9,16 +9,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../../components/motion-collapsible.js';
-import {
-  Page,
-  PageBody,
-  PageHeader,
-  PageNote,
-  PageSection,
-  PageTopbar,
-} from '../../components/page.js';
+import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
@@ -318,14 +311,13 @@ function SessionSection({
     body = <LoadingState rows={3} layout={view === 'cards' ? 'cards' : 'rows'} />;
   } else if (freshness) {
     body = (
-      <PageNote
-        title="请重新登录后管理登录会话"
-        description="当前登录状态早于安全操作要求的时限，会话列表暂不可用。"
-        action={
-          <Button variant="outline" size="sm" onClick={() => void onRelogin()}>
-            重新登录
-          </Button>
-        }
+      <EmptyState
+        variant="permission"
+        scale="section"
+        icon={<KeyRound className="size-5" aria-hidden="true" />}
+        title="需要重新验证身份"
+        description="当前登录状态已超过安全操作时限，重新登录后即可管理全部会话。"
+        action={<Button onClick={() => void onRelogin()}>重新登录</Button>}
       />
     );
   } else if (sessions.isError || sessions.data === undefined) {

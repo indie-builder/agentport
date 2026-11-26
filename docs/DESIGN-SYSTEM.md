@@ -147,7 +147,7 @@
 
 登录页及展开侧栏的品牌 Logo 点击切换 `public/brand/scenarios/` 中下一张小狗图：采用用户选定的「轻推接力」：先解码图片，旧图向左轻退并淡出，新图同时从右侧淡入到位，全程 300ms、缓出曲线；位移随展示尺寸等比缩放（96px 展示时为 8px）。两个图层叠放在同一固定占位中，不旋转、不弹跳。品牌区固定正方形占位，Logo 按钮使用 plain 透明变体，悬停和按压不添加底色；保留键盘焦点提示。点击不导航、不自动轮播，刷新恢复原 Logo；转场期间连点不重复触发。遵循系统减少动态效果设置，减少动态效果时直接换图。业务页面不插入这些场景图。
 
-- **业务空态插画。** 业务页面的空态使用 `public/brand/business/<name>.webp` 的统一插画（`knowledge`、`documents`、`tools`、`search`、`schedule`、`runs`、`memory`、`outputs`、`agents`、`review`、`sharing`、`not-found`），统一经 `BusinessIllustration` 渲染。尺寸只有 `standard` 96px、`compact` 64px、`error` 144px 三档，固定 `width`/`height`、`shrink-0 object-contain`，`alt=""`、`aria-hidden="true"`；全部是纯装饰图、画面无文字，无动画与交互，不接受任意 `className`。`EmptyState` 传 `illustration` 时替换原 40px 圆底图标，未传保持原样；行内 `PageNote` 复用 `icon` 槽。有真实下一步动作的空态仍保留原按钮与无障碍语义。列表空态使用无框 `PageNote`（仅上下发丝线），`EmptyState` 默认不再画外框；空态按首次无数据、筛选无结果、无权限三类原因分别写「一句事实 + 一个动作」。`public/brand/scenarios/` 的六张场景图仍只用于品牌 Logo 切换，不进入业务空态。
+- **空态图形与业务插画。** 全站空态统一由 `EmptyState`（5 原型 × 4 尺度，见 [DESIGN.md Empty states](../packages/web/DESIGN.md#empty-states)）承载：核心业务首次无数据采用方案 A 矢量微型界面剪影（`specimen`）配 `.empty-stage-dots` 微点阵工作台画布，直接呈现填充后的界面预期；`PageNote` 仅用于页面已有内容时的内联提示或告警，不承担列表空态。`public/brand/business/<name>.webp` 经 `BusinessIllustration`（`standard` 96px、`compact` 64px、`error` 144px，固定宽高、`alt=""`、`aria-hidden="true"`，纯装饰、无文字、无动画）仅保留给品牌温度与异常态（如 404、无效分享链接）；`public/brand/scenarios/` 的六张场景图仍只用于品牌 Logo 切换，不进入业务空态。
 
 ## 6. 对话页（核心）
 
@@ -349,7 +349,7 @@
 2. **不重复解释。** 页面标题、分区标题、字段标签、占位符、徽章、计数、可见控件已经表达的信息，不得再用副标题、行内说明或第二次标签重复一遍。
 3. **文字只为「新信息」存在。** 一段可见文案必须二选一：给出布局无法表达的新信息，或指导下一步操作。两者都不满足就删掉。
 4. **信息层级 = 层级信号，不是满屏小字。** 用少量强信号（容器边界、一级标题字号/字重、两列对齐）分层；不要给每个字段都挂一行灰色小字，那会把层级摊平成噪音。
-5. **空态/错误/加载也遵守。** 空态按首次无数据、筛选无结果、无权限三类原因，分别写「一句事实 + 一个动作」，不复述「暂无/还没有」，也不用口号；列表空态用无框 `PageNote`，`EmptyState` 默认无外框；错误给可恢复动作；加载给共享骨架。不写承诺式废话。
+5. **空态/错误/加载也遵守。** 空态统一由 `EmptyState` 的 5 原型（`stage` / `checklist` / `filter` / `clear` / `permission` & `idle`）× 4 尺度（`page` / `section` / `panel` / `inline`）按场景分流，首次无数据采用方案 A 矢量微型界面剪影 + 微点阵画布，不以「暂无/还没有」开头作为整页标题，也不用口号；`PageNote` 仅用于已有内容时的内联提示/告警；错误给可恢复动作；加载给共享骨架。不写承诺式废话。
 6. **删词不等于删信息。** 实现细节类信息（落盘路径、字段映射到哪个文件）**一次讲清即可**——放进「文件与版本」页签、展开区或 tooltip，不在主界面逐项重复。
 
 ### 10.2 允许保留的文字（不可为"精简"而删除）

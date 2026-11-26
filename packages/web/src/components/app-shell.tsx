@@ -32,7 +32,8 @@ import { readStorage, writeStorage } from '../lib/storage.js';
 import { animateBrand, Brand } from './brand.js';
 import { CommandPalette, CommandPaletteTrigger } from './command-palette.js';
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog.js';
-import { Page, PageBody, PageHeader, PageNote, PageTopbar } from './page.js';
+import { Page, PageBody, PageHeader, PageTopbar } from './page.js';
+import { EmptyState } from './states.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
@@ -180,32 +181,35 @@ export function AccessDenied({
         <PageHeader title={noPermissions ? '没有可用权限' : '无权访问'} />
       </PageTopbar>
       <PageBody>
-        <PageNote
-          title={
-            noPermissions ? '当前账户还没有分配任何业务权限。' : '当前账户没有访问这个页面的权限。'
-          }
+        <EmptyState
+          variant="permission"
+          scale="page"
+          title={noPermissions ? '当前账户还没有分配任何业务权限' : '没有访问此页面的权限'}
           description={
             noPermissions
-              ? '请联系管理员分配角色，然后点「刷新权限」即可生效。'
-              : '如果这是刚调整过的权限，点「刷新权限」即可生效。'
+              ? '请联系管理员分配角色，然后点击「刷新权限」即可生效。'
+              : '若管理员刚为你调整过角色，点击「刷新权限」即可生效。'
           }
           action={
-            <div className="flex flex-wrap items-center gap-2">
+            home ? (
+              <Link to={home} className={buttonVariants({ variant: 'default' })}>
+                返回可用页面
+              </Link>
+            ) : (
+              <Button onClick={refresh}>刷新权限</Button>
+            )
+          }
+          secondaryAction={
+            <>
               {home ? (
-                <Link
-                  to={home}
-                  className={cn(buttonVariants({ variant: 'link', size: 'sm' }), 'underline')}
-                >
-                  返回可用页面
-                </Link>
+                <Button variant="outline" onClick={refresh}>
+                  刷新权限
+                </Button>
               ) : null}
-              <Button variant="outline" size="sm" onClick={refresh}>
-                刷新权限
-              </Button>
-              <Button variant="outline" size="sm" onClick={onLogout}>
+              <Button variant="outline" onClick={onLogout}>
                 退出登录
               </Button>
-            </div>
+            </>
           }
         />
       </PageBody>

@@ -1,11 +1,18 @@
 import { dataDomainEnrichInputSchema } from '@agentport/shared';
-import { CircleAlert, CircleCheck, Eye, LoaderCircle, Sparkles, XCircle } from 'lucide-react';
+import {
+  CircleAlert,
+  CircleCheck,
+  Eye,
+  FileDiff,
+  LoaderCircle,
+  Sparkles,
+  XCircle,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useController } from 'react-hook-form';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
-import { PageNote } from '../../components/page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
@@ -227,7 +234,13 @@ export function DataDomainEnrichment({
         <ErrorState error={proposals.error} onRetry={() => void proposals.refetch()} />
       ) : null}
       {proposals.data?.length === 0 ? (
-        <PageNote icon={<Sparkles className="size-4" aria-hidden="true" />} title="还没有提案" />
+        <EmptyState
+          variant="stage"
+          scale="section"
+          icon={<Sparkles aria-hidden="true" />}
+          title="还没有语义补全提案"
+          description="选择就绪版本并输入生成指令后，系统会生成可审核的语义变更提案。"
+        />
       ) : null}
       {proposals.data && proposals.data.length > 0 ? (
         <ul aria-label="语义补全提案" className="border-t">
@@ -317,7 +330,12 @@ export function DataDomainEnrichment({
                   </span>
                 </div>
                 {detail.data.changedFiles.length === 0 ? (
-                  <PageNote title="没有文件变更" />
+                  <EmptyState
+                    variant="idle"
+                    scale="inline"
+                    icon={<FileDiff aria-hidden="true" />}
+                    title="本次提案无文件变更"
+                  />
                 ) : (
                   <div className="flex min-w-0 flex-col gap-4">
                     {detail.data.changedFiles.map((change) => {

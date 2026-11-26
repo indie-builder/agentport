@@ -7,9 +7,9 @@ import {
   TreeItemIndicator,
   TreeItemLabel,
 } from '@ui-sdk/react/tree';
-import { ChevronRight, FileText, Folder, FolderOpen } from 'lucide-react';
+import { ChevronRight, FileCode, FileText, Folder, FolderOpen } from 'lucide-react';
 import { useMemo } from 'react';
-import { InlineEmpty } from '../../components/states.js';
+import { EmptyState } from '../../components/states.js';
 import { cn } from '../../lib/cn.js';
 
 interface FolderNode {
@@ -170,7 +170,16 @@ export function PluginFileTree({
     };
   }, [files]);
 
-  if (files.length === 0) return <InlineEmpty>没有可查看的文件。</InlineEmpty>;
+  if (files.length === 0) {
+    return (
+      <EmptyState
+        variant="idle"
+        scale="inline"
+        icon={<FileCode aria-hidden="true" />}
+        title="此插件没有可预览文件"
+      />
+    );
+  }
 
   return (
     <Tree

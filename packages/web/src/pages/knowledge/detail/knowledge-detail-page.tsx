@@ -208,6 +208,7 @@ export function KnowledgeDetailPage() {
                   canReadAgents={canReadAgents}
                   onOpenJobs={() => go({ panel: 'jobs', document: undefined })}
                   onOpenDocuments={() => go({ panel: 'documents' })}
+                  onOpenSearch={() => go({ panel: 'search' })}
                   onDuplicated={(nextBaseId) =>
                     void navigate({
                       to: '/knowledge/$baseId',

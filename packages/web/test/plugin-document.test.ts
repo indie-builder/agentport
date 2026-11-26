@@ -215,7 +215,7 @@ describe('PluginDocument', () => {
       file: { path: 'commands/empty.md', content: '---\nname: empty\n---\n', executable: false },
     });
 
-    expect(body().textContent).toContain('该文件没有正文。');
+    expect(body().textContent).toContain('Markdown 正文为空');
   });
 
   it('shows non-Markdown files as raw code without a read/source switch', () => {
@@ -230,6 +230,6 @@ describe('PluginDocument', () => {
   it('shows empty files explicitly', () => {
     mount({ file: { path: 'scripts/empty.sh', content: '', executable: true } });
 
-    expect(body().textContent).toContain('该文件是空的。');
+    expect(body().textContent).toContain('文件内容为空');
   });
 });

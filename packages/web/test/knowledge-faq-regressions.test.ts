@@ -522,7 +522,7 @@ describe('FAQ 叶权限入口', () => {
       faqListHandler([]),
     );
     await mount('/knowledge/kb_1', { panel: 'faqs' });
-    await waitFor(() => document.body.textContent?.includes('还没有 FAQ') === true);
+    await waitFor(() => document.body.textContent?.includes('整理高频问答 FAQ') === true);
     expect(maybeButton('新建 FAQ')).toBeUndefined();
   });
 });

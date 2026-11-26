@@ -252,6 +252,6 @@ describe('PluginFileTree', () => {
     mount({ files: [], onSelect: vi.fn() });
 
     expect(body().querySelector('[role="tree"]')).toBeNull();
-    expect(body().textContent).toContain('没有可查看的文件');
+    expect(body().textContent).toContain('此插件没有可预览文件');
   });
 });

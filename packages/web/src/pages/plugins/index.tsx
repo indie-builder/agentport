@@ -12,21 +12,25 @@ import {
   EllipsisVertical,
   PackagePlus,
   Pencil,
+  Puzzle,
   RefreshCw,
   Trash2,
   Upload,
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
-import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../../components/draft-guard.js';
-import { PageNote } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { ResourcePage } from '../../components/resource-page.js';
-import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
@@ -235,9 +239,27 @@ export function PluginsPage() {
         <ErrorState error={plugins.error} onRetry={() => void plugins.refetch()} />
       ) : null}
       {plugins.data && plugins.data.length > 0 && visiblePlugins.length === 0 ? (
-        <PageNote
-          icon={<BusinessIllustration name="search" size="compact" />}
+        <EmptyState
+          variant="filter"
+          scale="section"
           title="没有匹配的插件"
+          activeFilters={
+            query.trim()
+              ? ([
+                  {
+                    key: 'q',
+                    label: '关键词',
+                    value: query.trim(),
+                    onRemove: () =>
+                      void navigate({
+                        to: '/plugins',
+                        search: { ...search, q: undefined },
+                        replace: true,
+                      }),
+                  },
+                ] satisfies EmptyFilterChip[])
+              : undefined
+          }
           action={
             <Button
               variant="outline"
@@ -249,35 +271,43 @@ export function PluginsPage() {
                 })
               }
             >
-              清除筛选
+              清除全部筛选
             </Button>
           }
         />
       ) : null}
       {plugins.data && plugins.data.length === 0 ? (
-        <PageNote
-          icon={<BusinessIllustration name="tools" size="compact" />}
-          title="未安装插件"
-          description={canImport || canInstall ? undefined : '当前账号没有导入或安装插件的权限。'}
+        <EmptyState
+          variant="stage"
+          scale="page"
+          specimen="plugins"
+          title="导入或安装扩展插件"
+          description="插件可一次性打包技能、子智能体、钩子与 MCP 配置。"
           action={
-            canImport ? (
-              <Button variant="outline" size="sm" onClick={() => importInputRef.current?.click()}>
-                导入 ZIP
-              </Button>
-            ) : canInstall ? (
+            canInstall ? (
               <Button
-                variant="outline"
-                size="sm"
                 aria-haspopup="dialog"
                 onClick={(event) => {
                   actionTriggerRef.current = event.currentTarget;
                   setInstalling(true);
                 }}
               >
-                安装插件
+                <PackagePlus data-icon="inline-start" aria-hidden="true" /> 安装插件
+              </Button>
+            ) : canImport ? (
+              <Button onClick={() => importInputRef.current?.click()}>
+                <Upload data-icon="inline-start" aria-hidden="true" /> 导入 ZIP
               </Button>
             ) : undefined
           }
+          secondaryAction={
+            canInstall && canImport ? (
+              <Button variant="outline" onClick={() => importInputRef.current?.click()}>
+                <Upload data-icon="inline-start" aria-hidden="true" /> 导入 ZIP
+              </Button>
+            ) : undefined
+          }
+          footer={canImport || canInstall ? undefined : '当前账号没有导入或安装插件的权限。'}
         />
       ) : null}
 
@@ -682,17 +712,17 @@ function InstallPluginDialog({
                 <ErrorState error={native.error} onRetry={() => void native.refetch()} />
               ) : null}
               {native.data?.installed.length === 0 ? (
-                <InlineEmpty>
-                  <span className="block">没有已安装的插件</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-2"
-                    onClick={() => setTab('market')}
-                  >
-                    从市场安装
-                  </Button>
-                </InlineEmpty>
+                <EmptyState
+                  variant="idle"
+                  scale="inline"
+                  icon={<Puzzle aria-hidden="true" />}
+                  title="还没有已安装的插件"
+                  action={
+                    <Button variant="outline" size="sm" onClick={() => setTab('market')}>
+                      去市场浏览
+                    </Button>
+                  }
+                />
               ) : null}
               {native.data && native.data.installed.length > 0 ? (
                 <ul aria-label="已安装的插件" className="divide-y divide-line border-y">

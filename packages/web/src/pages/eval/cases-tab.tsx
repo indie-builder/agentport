@@ -1,10 +1,13 @@
-import { Link } from '@tanstack/react-router';
 import { Download, EllipsisVertical, Plus, Shuffle, Upload } from 'lucide-react';
 import { type RefObject, useState } from 'react';
-import { BusinessIllustration } from '../../components/business-illustration.js';
-import { PageNote, PageToolbar } from '../../components/page.js';
+import { PageToolbar } from '../../components/page.js';
 import { SearchInput } from '../../components/search-input.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
@@ -30,13 +33,6 @@ const filterOptions: readonly { value: CaseFilter; label: string }[] = [
 ];
 
 export function EvalCasesTab({
-  agentsPending,
-  agentsError,
-  agentsErrorValue,
-  onRetryAgents,
-  missingAgent,
-  onClearAgent,
-  effectiveAgentId,
   casesPending,
   casesError,
   casesErrorValue,
@@ -63,13 +59,6 @@ export function EvalCasesTab({
   onEditCase,
   onDeleteCase,
 }: {
-  agentsPending: boolean;
-  agentsError: boolean;
-  agentsErrorValue: unknown;
-  onRetryAgents: () => void;
-  missingAgent: boolean;
-  onClearAgent: () => void;
-  effectiveAgentId: string | null;
   casesPending: boolean;
   casesError: boolean;
   casesErrorValue: unknown;
@@ -99,36 +88,22 @@ export function EvalCasesTab({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<CaseFilter>('all');
 
-  if (agentsPending) return <LoadingState rows={3} />;
-  if (agentsError) return <ErrorState error={agentsErrorValue} onRetry={onRetryAgents} />;
-  if (missingAgent) {
-    return (
-      <PageNote
-        title="所选专家不存在"
-        description="链接中的专家可能已删除，请清除筛选或重新选择专家。"
-        action={
-          <Button variant="outline" size="sm" onClick={onClearAgent}>
-            清除专家筛选
-          </Button>
-        }
-      />
-    );
-  }
-  if (!effectiveAgentId) {
-    return (
-      <PageNote
-        icon={<BusinessIllustration name="agents" size="compact" />}
-        title="专家列表为空"
-        action={
-          <Link to="/agents" className="text-sm text-fg underline underline-offset-4">
-            前往创建专家
-          </Link>
-        }
-      />
-    );
-  }
-
   const normalizedQuery = query.trim().toLowerCase();
+  const activeFilters: EmptyFilterChip[] = [
+    ...(query.trim()
+      ? [{ key: 'query', label: '搜索', value: query.trim(), onRemove: () => setQuery('') }]
+      : []),
+    ...(filter !== 'all'
+      ? [
+          {
+            key: 'filter',
+            label: '类型',
+            value: filterOptions.find((option) => option.value === filter)?.label ?? filter,
+            onRemove: () => setFilter('all'),
+          },
+        ]
+      : []),
+  ];
   const filteredCases = caseItems.filter((item) => {
     if (filter === 'llm' && item.judgeMode !== 'llm') return false;
     if (filter === 'contains' && item.judgeMode !== 'contains') return false;
@@ -191,7 +166,7 @@ export function EvalCasesTab({
           ))}
         </fieldset>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {canManageEval ? (
+          {canManageEval && !casesEmpty ? (
             <Button
               variant="outline"
               size="sm"
@@ -260,17 +235,36 @@ export function EvalCasesTab({
         <ErrorState error={casesErrorValue} onRetry={onRetryCases} />
       ) : null}
       {casesEmpty ? (
-        <PageNote
-          icon={<BusinessIllustration name="review" size="compact" />}
-          title="用例为空"
-          description={canManageEval ? undefined : '当前账户没有维护该专家用例的权限。'}
+        <EmptyState
+          variant="stage"
+          scale="section"
+          specimen="eval"
+          title="添加第一条评估用例"
+          description="用固定输入与预期标准持续回归验证专家表现。"
+          action={
+            canManageEval ? (
+              <Button
+                variant="outline"
+                size="sm"
+                ref={createButtonRef}
+                onClick={(event) => onOpenCreateCase(event.currentTarget)}
+              >
+                <Plus data-icon="inline-start" aria-hidden="true" />
+                新建用例
+              </Button>
+            ) : undefined
+          }
+          footer={canManageEval ? undefined : '当前账户没有维护该专家用例的权限。'}
         />
       ) : null}
 
       {caseItems.length > 0 && filteredCases.length === 0 ? (
-        <PageNote
+        <EmptyState
+          variant="filter"
+          scale="section"
           title="没有匹配的用例"
           description="尝试调整搜索词或筛选条件。"
+          activeFilters={activeFilters}
           action={
             <Button
               variant="outline"

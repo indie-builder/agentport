@@ -1,5 +1,6 @@
 import type { KnowledgeBaseActivityItem } from '@agentport/contract/knowledge';
 import type { KnowledgeBase } from '@agentport/shared';
+import { Link } from '@tanstack/react-router';
 import { Copy } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { formatDateTime, formatRelative } from '../../lib/format.js';
@@ -9,9 +10,9 @@ import {
   useKnowledgeModelProfileSelections,
 } from '../../lib/queries.js';
 import { PageSection } from '../page.js';
-import { ErrorState, LoadingState } from '../states.js';
+import { type EmptyChecklistStep, EmptyState, ErrorState, LoadingState } from '../states.js';
 import { StatusBadge } from '../status-badge.js';
-import { Button } from '../ui/button.js';
+import { Button, buttonVariants } from '../ui/button.js';
 import { DuplicateBaseDialog } from './knowledge-duplicate-dialog.js';
 import { ExpertUsage } from './knowledge-expert-usage.js';
 import { jobStatusLabel, jobStatusTone, jobTypeLabel } from './knowledge-shared.js';
@@ -95,6 +96,7 @@ export function KnowledgeOverview({
   canReadAgents,
   onOpenJobs,
   onOpenDocuments,
+  onOpenSearch,
   onDuplicated,
 }: {
   base: KnowledgeBase;
@@ -103,6 +105,7 @@ export function KnowledgeOverview({
   canReadAgents: boolean;
   onOpenJobs: () => void;
   onOpenDocuments: () => void;
+  onOpenSearch?: () => void;
   onDuplicated: (baseId: string) => void;
 }) {
   const summary = useKnowledgeBaseSummary(base.id);
@@ -225,13 +228,61 @@ export function KnowledgeOverview({
               <CountItem label="文件夹" count={summary.data.folders} />
               <CountItem label="标签" count={summary.data.tags} />
             </dl>
-            {emptyContent && canUpload ? (
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-sm text-fg">这个库还没有内容</span>
-                <Button variant="outline" size="sm" onClick={onOpenDocuments}>
-                  上传文档
-                </Button>
-              </div>
+            {emptyContent ? (
+              <EmptyState
+                variant="checklist"
+                scale="section"
+                title="这个知识库还是空的"
+                description="完成以下步骤，让专家能够检索并引用此库内容。"
+                steps={
+                  [
+                    {
+                      id: 'upload',
+                      title: '上传文档',
+                      description: '支持文件上传、文件夹导入、手写文档或网页抓取。',
+                      status: 'current',
+                      ...(canUpload
+                        ? {
+                            action: (
+                              <Button size="sm" onClick={onOpenDocuments}>
+                                上传文档
+                              </Button>
+                            ),
+                          }
+                        : {}),
+                    },
+                    {
+                      id: 'search',
+                      title: '检索测试',
+                      description: '验证分块切分与向量召回效果。',
+                      status: 'upcoming',
+                      ...(onOpenSearch
+                        ? {
+                            action: (
+                              <Button variant="outline" size="sm" onClick={onOpenSearch}>
+                                前往检索
+                              </Button>
+                            ),
+                          }
+                        : {}),
+                    },
+                    {
+                      id: 'bind',
+                      title: '绑定专家',
+                      description: '在专家的能力配置中勾选此知识库即可启用检索。',
+                      status: 'upcoming',
+                      action: (
+                        <Link
+                          to="/agents"
+                          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                        >
+                          前往找专家
+                        </Link>
+                      ),
+                    },
+                  ] satisfies EmptyChecklistStep[]
+                }
+              />
             ) : null}
             {lastJob ? (
               <div className="flex flex-wrap items-center gap-3">

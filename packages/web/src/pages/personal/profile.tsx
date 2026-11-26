@@ -1,10 +1,11 @@
 import { updatePersonalProfileInputSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, ShieldAlert } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { Page, PageBody, PageHeader, PageTopbar } from '../../components/page.js';
+import { EmptyState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Card, CardContent } from '../../components/ui/card.js';
@@ -186,7 +187,13 @@ export function PersonalProfilePage() {
                     </span>
                   </p>
                 ) : (
-                  <p className="text-sm text-muted-foreground">暂时无法获取当前登录会话。</p>
+                  <EmptyState
+                    variant="idle"
+                    scale="inline"
+                    icon={<ShieldAlert className="size-4" aria-hidden="true" />}
+                    title="暂时无法获取当前登录会话"
+                    className="py-4"
+                  />
                 )}
                 <Link
                   to="/personal/security"

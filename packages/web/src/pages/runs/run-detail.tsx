@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Download,
   EllipsisVertical,
+  ListTree,
   LoaderCircle,
   RotateCcw,
   Sparkles,
@@ -508,8 +509,15 @@ export function RunDetailPage() {
             </div>
             {steps.length === 0 ? (
               <EmptyState
-                title="还没有事件"
-                {...(isActiveRunStatus(detail.status) ? { description: '稍后自动刷新。' } : {})}
+                variant="idle"
+                scale="section"
+                icon={<ListTree className="size-5" aria-hidden="true" />}
+                title="还没有产生执行步骤"
+                description={
+                  isActiveRunStatus(detail.status)
+                    ? '正在等待事件流入，稍后自动刷新。'
+                    : '本次运行未记录到步骤事件。'
+                }
               />
             ) : (
               <ol className="flex flex-col">
@@ -560,14 +568,14 @@ export function RunDetailPage() {
             className="min-w-0 border-t pt-5 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-4"
             aria-label="步骤详情"
           >
-            {activeStep ? (
-              <StepInspector
-                step={activeStep}
-                index={activeIndex}
-                question={questionForStep(activeStep, liveQuestions, cancellable)}
-                live={cancellable && canAnswer}
-              />
-            ) : null}
+            <StepInspector
+              step={activeStep}
+              index={activeIndex}
+              question={
+                activeStep ? questionForStep(activeStep, liveQuestions, cancellable) : undefined
+              }
+              live={cancellable && canAnswer}
+            />
           </section>
         </div>
 

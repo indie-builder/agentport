@@ -16,7 +16,16 @@ import {
   tableFeatures,
   useTable,
 } from '@tanstack/react-table';
-import { ChevronDown, ChevronRight, Plus, RotateCcw, Save, Settings, Trash2 } from 'lucide-react';
+import {
+  CheckSquare,
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  RotateCcw,
+  Save,
+  Settings,
+  Trash2,
+} from 'lucide-react';
 import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type Control,
@@ -39,7 +48,7 @@ import {
   PageTopbar,
 } from '../components/page.js';
 import { SearchInput } from '../components/search-input.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
@@ -631,8 +640,18 @@ export function RolesPage() {
           </p>
         ) : null}
         {searching && visibleTree.length === 0 ? (
-          <PageNote
-            title="没有匹配的权限"
+          <EmptyState
+            variant="filter"
+            scale="section"
+            title="没有匹配的权限项"
+            activeFilters={[
+              {
+                key: 'q',
+                label: '关键词',
+                value: query.trim(),
+                onRemove: () => setQuery(''),
+              },
+            ]}
             action={
               <Button variant="outline" size="sm" onClick={() => setQuery('')}>
                 清除搜索
@@ -1194,9 +1213,13 @@ function RoleSettings({
         <div className="flex flex-col gap-3">
           <h2 className="text-base font-medium text-fg">授权范围</h2>
           {granted.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              在矩阵中勾选功能后，可在这里调整授权范围。
-            </p>
+            <EmptyState
+              variant="idle"
+              scale="inline"
+              icon={<CheckSquare className="size-4" aria-hidden="true" />}
+              title="尚未为该角色勾选功能权限"
+              description="在左侧矩阵中勾选功能后，可在此配置授权范围。"
+            />
           ) : (
             granted.map((leaf) => (
               <div key={leaf.id} className="flex flex-wrap items-center gap-2">

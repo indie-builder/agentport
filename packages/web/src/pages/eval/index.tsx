@@ -1,13 +1,19 @@
 import { evalDatasetSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleStop, Play } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { FilterSelect } from '../../components/filter-select.js';
 import { Page, PageBody, PageHeader, PageTopbar } from '../../components/page.js';
 import { EvalFromRunDialog } from '../../components/run/eval-from-run-dialog.js';
-import { ErrorState } from '../../components/states.js';
-import { Button } from '../../components/ui/button.js';
+import {
+  type EmptyChecklistStep,
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { can, hasAnyGrant } from '../../lib/access.js';
 import { api, type EvalCase, type EvalSampleCandidate, type EvalTarget } from '../../lib/api.js';
@@ -368,109 +374,146 @@ export function EvalPage() {
           />
         ) : null}
 
-        {activeTab === 'runs' ? (
-          <EvalRunsTab
-            agentsPending={agents.isPending}
-            agentsError={agents.isError}
-            agentsErrorValue={agents.error}
-            onRetryAgents={() => void agents.refetch()}
-            missingAgent={missingAgent}
-            onClearAgent={() => setAgentId('')}
-            effectiveAgentId={effectiveAgentId}
-            runsPending={runs.isPending}
-            runsError={runs.isError}
-            runsErrorValue={runs.error}
-            runsIsFetchNextPageError={runs.isFetchNextPageError}
-            runsSuccess={runs.isSuccess}
-            runsHasNextPage={runs.hasNextPage}
-            runsFetchingNextPage={runs.isFetchingNextPage}
-            onRetryRuns={() => void runs.refetch()}
-            onFetchNextRuns={() => void runs.fetchNextPage()}
-            runItems={runItems}
-            caseItems={caseItems}
-            casesSuccess={cases.isSuccess}
-            casesEmpty={casesEmpty}
-            casesHasNextPage={cases.hasNextPage}
-            canManageEval={canManageEval}
-            canExecuteEval={canExecuteEval}
-            canReadRuns={canReadRuns}
-            selectedRunId={selectedRunId}
-            onSelectRun={selectRun}
-            onClearRunSelection={clearRunSelection}
-            onCompareLatest={openCompareLatest}
-            onOpenCreateCase={openCreateCase}
-            onOpenSampleRuns={openSampleRuns}
+        {agents.isPending ? (
+          <LoadingState rows={3} />
+        ) : agents.isError ? (
+          <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+        ) : missingAgent ? (
+          <EmptyState
+            variant="filter"
+            scale="section"
+            title="所选专家不存在"
+            description="链接中的专家可能已被删除，请清除筛选或重新选择专家。"
+            activeFilters={
+              [
+                {
+                  key: 'agent',
+                  label: '专家',
+                  value: agentId,
+                  onRemove: () => setAgentId(''),
+                },
+              ] satisfies EmptyFilterChip[]
+            }
+            action={
+              <Button variant="outline" size="sm" onClick={() => setAgentId('')}>
+                清除专家筛选
+              </Button>
+            }
           />
-        ) : null}
+        ) : !effectiveAgentId ? (
+          <EmptyState
+            variant="checklist"
+            scale="page"
+            title="评估需要关联一位专家"
+            description="完成以下步骤后，即可持续回归验证专家表现。"
+            steps={
+              [
+                {
+                  id: 'agent',
+                  title: '创建专家',
+                  description: '配置提示词、模型与所需能力。',
+                  status: 'current',
+                  action: (
+                    <Link to="/agents" className={buttonVariants({ size: 'sm' })}>
+                      前往创建专家
+                    </Link>
+                  ),
+                },
+                {
+                  id: 'cases',
+                  title: '添加评估用例并运行',
+                  description: '用固定输入与预期标准生成基线报告。',
+                  status: 'upcoming',
+                },
+              ] satisfies EmptyChecklistStep[]
+            }
+          />
+        ) : (
+          <>
+            {activeTab === 'runs' ? (
+              <EvalRunsTab
+                runsPending={runs.isPending}
+                runsError={runs.isError}
+                runsErrorValue={runs.error}
+                runsIsFetchNextPageError={runs.isFetchNextPageError}
+                runsSuccess={runs.isSuccess}
+                runsHasNextPage={runs.hasNextPage}
+                runsFetchingNextPage={runs.isFetchingNextPage}
+                onRetryRuns={() => void runs.refetch()}
+                onFetchNextRuns={() => void runs.fetchNextPage()}
+                runItems={runItems}
+                caseItems={caseItems}
+                casesSuccess={cases.isSuccess}
+                casesEmpty={casesEmpty}
+                casesHasNextPage={cases.hasNextPage}
+                canManageEval={canManageEval}
+                canExecuteEval={canExecuteEval}
+                canReadRuns={canReadRuns}
+                selectedRunId={selectedRunId}
+                onSelectRun={selectRun}
+                onClearRunSelection={clearRunSelection}
+                onCompareLatest={openCompareLatest}
+                onOpenCreateCase={openCreateCase}
+                onOpenSampleRuns={openSampleRuns}
+              />
+            ) : null}
 
-        {activeTab === 'cases' ? (
-          <EvalCasesTab
-            agentsPending={agents.isPending}
-            agentsError={agents.isError}
-            agentsErrorValue={agents.error}
-            onRetryAgents={() => void agents.refetch()}
-            missingAgent={missingAgent}
-            onClearAgent={() => setAgentId('')}
-            effectiveAgentId={effectiveAgentId}
-            casesPending={cases.isPending}
-            casesError={cases.isError}
-            casesErrorValue={cases.error}
-            casesIsFetchNextPageError={cases.isFetchNextPageError}
-            casesEmpty={casesEmpty}
-            casesHasNextPage={cases.hasNextPage}
-            casesFetchingNextPage={cases.isFetchingNextPage}
-            onRetryCases={() => void cases.refetch()}
-            onFetchNextCases={() => void cases.fetchNextPage()}
-            caseItems={caseItems}
-            selectedCaseId={selectedCaseId}
-            onSelectCase={selectCase}
-            canManageEval={canManageEval}
-            canReadEval={canReadEval}
-            canReadRuns={canReadRuns}
-            createButtonRef={createButtonRef}
-            importInputRef={importInputRef}
-            importPending={importDataset.isPending}
-            exporting={exporting}
-            onImportFile={(file) => {
-              if (!effectiveAgentId || !selectedAgent) return;
-              void importJson(effectiveAgentId, selectedAgent.name, file);
-            }}
-            onExportJson={() => void exportJson()}
-            onOpenCreateCase={openCreateCase}
-            onOpenSampleRuns={openSampleRuns}
-            onEditCase={(testCase, trigger) => {
-              dialogTriggerRef.current = trigger;
-              setEditing(testCase);
-            }}
-            onDeleteCase={(testCase, trigger) => {
-              dialogTriggerRef.current = trigger;
-              setDeleting(testCase);
-            }}
-          />
-        ) : null}
+            {activeTab === 'cases' ? (
+              <EvalCasesTab
+                casesPending={cases.isPending}
+                casesError={cases.isError}
+                casesErrorValue={cases.error}
+                casesIsFetchNextPageError={cases.isFetchNextPageError}
+                casesEmpty={casesEmpty}
+                casesHasNextPage={cases.hasNextPage}
+                casesFetchingNextPage={cases.isFetchingNextPage}
+                onRetryCases={() => void cases.refetch()}
+                onFetchNextCases={() => void cases.fetchNextPage()}
+                caseItems={caseItems}
+                selectedCaseId={selectedCaseId}
+                onSelectCase={selectCase}
+                canManageEval={canManageEval}
+                canReadEval={canReadEval}
+                canReadRuns={canReadRuns}
+                createButtonRef={createButtonRef}
+                importInputRef={importInputRef}
+                importPending={importDataset.isPending}
+                exporting={exporting}
+                onImportFile={(file) => {
+                  if (!selectedAgent) return;
+                  void importJson(effectiveAgentId, selectedAgent.name, file);
+                }}
+                onExportJson={() => void exportJson()}
+                onOpenCreateCase={openCreateCase}
+                onOpenSampleRuns={openSampleRuns}
+                onEditCase={(testCase, trigger) => {
+                  dialogTriggerRef.current = trigger;
+                  setEditing(testCase);
+                }}
+                onDeleteCase={(testCase, trigger) => {
+                  dialogTriggerRef.current = trigger;
+                  setDeleting(testCase);
+                }}
+              />
+            ) : null}
 
-        {activeTab === 'compare' ? (
-          <EvalCompareTab
-            agentsPending={agents.isPending}
-            agentsError={agents.isError}
-            agentsErrorValue={agents.error}
-            onRetryAgents={() => void agents.refetch()}
-            missingAgent={missingAgent}
-            onClearAgent={() => setAgentId('')}
-            effectiveAgentId={effectiveAgentId}
-            runsPending={runs.isPending}
-            runsError={runs.isError}
-            runsErrorValue={runs.error}
-            runsIsFetchNextPageError={runs.isFetchNextPageError}
-            onRetryRuns={() => void runs.refetch()}
-            baseId={baseId}
-            headId={headId}
-            diff={diffFilter}
-            runs={terminalRuns}
-            onChangeSearch={setSearch}
-            onBackToRuns={backToRuns}
-          />
-        ) : null}
+            {activeTab === 'compare' ? (
+              <EvalCompareTab
+                runsPending={runs.isPending}
+                runsError={runs.isError}
+                runsErrorValue={runs.error}
+                runsIsFetchNextPageError={runs.isFetchNextPageError}
+                onRetryRuns={() => void runs.refetch()}
+                baseId={baseId}
+                headId={headId}
+                diff={diffFilter}
+                runs={terminalRuns}
+                onChangeSearch={setSearch}
+                onBackToRuns={backToRuns}
+              />
+            ) : null}
+          </>
+        )}
       </PageBody>
 
       {creatingAgentId ? (

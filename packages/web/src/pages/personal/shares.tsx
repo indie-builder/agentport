@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { FileText, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
-import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { CopyButton } from '../../components/copy-button.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
@@ -15,7 +14,7 @@ import {
   PageToolbar,
   PageTopbar,
 } from '../../components/page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Card, CardContent } from '../../components/ui/card.js';
 import { FieldError } from '../../components/ui/field.js';
@@ -271,10 +270,12 @@ export function PersonalSharesPage() {
         {shares.isError && shares.data === undefined ? (
           <ErrorState error={shares.error} onRetry={() => void shares.refetch()} />
         ) : shares.data && shares.data.items.length === 0 ? (
-          <PageNote
-            icon={<BusinessIllustration name="sharing" size="compact" />}
-            title="没有分享链接"
-            description="从会话成果中分享文件。"
+          <EmptyState
+            variant="stage"
+            scale="page"
+            specimen="shares"
+            title="还没有分享过成果"
+            description="在对话右侧的会话成果面板中，可为任意版本生成只读分享链接。"
             action={
               <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
                 去对话

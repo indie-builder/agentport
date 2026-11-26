@@ -1,6 +1,13 @@
-import { EllipsisVertical, GitBranch, LoaderCircle, Pencil, Search } from 'lucide-react';
+import {
+  EllipsisVertical,
+  GitBranch,
+  LoaderCircle,
+  MessageSquare,
+  Pencil,
+  Search,
+} from 'lucide-react';
 import { useRef } from 'react';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
 import {
   DropdownMenu,
@@ -64,7 +71,13 @@ export function HistoryPanel({
         {pending ? <LoadingState rows={4} /> : null}
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
         {history.length === 0 && !pending && !error ? (
-          <p className="px-2 py-5 text-sm text-muted-foreground">开始对话后，记录会出现在这里。</p>
+          <EmptyState
+            variant="idle"
+            scale="panel"
+            icon={<MessageSquare className="size-5" aria-hidden="true" />}
+            title="还没有历史对话"
+            description="发出第一条消息后，会话会自动保存在这里。"
+          />
         ) : null}
         <ul className="flex flex-col gap-0.5">
           {history.map((conversation) => (

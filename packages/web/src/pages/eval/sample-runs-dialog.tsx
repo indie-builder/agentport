@@ -1,6 +1,7 @@
+import { History } from 'lucide-react';
 import { type ComponentProps, useState } from 'react';
 import { DialogShell } from '../../components/dialog-shell.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import type { EvalSampleCandidate } from '../../lib/api.js';
@@ -42,7 +43,12 @@ export function SampleRunsDialog({
           <ErrorState error={candidates.error} onRetry={() => void candidates.refetch()} />
         ) : null}
         {candidates.isSuccess && visible.length === 0 ? (
-          <p className="text-sm text-muted-foreground">近期没有可抽样的运行</p>
+          <EmptyState
+            variant="idle"
+            scale="inline"
+            icon={<History aria-hidden="true" />}
+            title="近期没有可抽样的运行"
+          />
         ) : null}
         {visible.length > 0 ? (
           <ul>

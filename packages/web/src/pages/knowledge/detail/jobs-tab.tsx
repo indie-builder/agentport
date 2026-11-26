@@ -1,12 +1,16 @@
 import type { KnowledgeJob } from '@agentport/shared';
-import { BusinessIllustration } from '../../../components/business-illustration.js';
 import {
   jobStatusLabel,
   jobStatusTone,
   jobTypeLabel,
 } from '../../../components/knowledge/knowledge-shared.js';
 import { PageNote } from '../../../components/page.js';
-import { EmptyState, ErrorState, LoadingState } from '../../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../../components/states.js';
 import { StatusBadge } from '../../../components/status-badge.js';
 import { Button } from '../../../components/ui/button.js';
 import {
@@ -92,29 +96,44 @@ export function JobsTab({
         <ErrorState error={jobs.error} onRetry={() => void jobs.refetch()} />
       ) : null}
       {jobs.data && jobs.data.length === 0 ? (
-        <EmptyState
-          illustration={<BusinessIllustration name={documentId ? 'search' : 'runs'} />}
-          title={documentId ? '该文档还没有处理记录' : '还没有任务'}
-          description={
-            documentId
-              ? '它可能尚未上传成功，或任务已被清理。重新上传文档后会生成新的处理记录。'
-              : '上传文档或同步来源后，任务会出现在这里。'
-          }
-          action={
-            documentId ? (
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <Button variant="outline" size="sm" onClick={onClearDocument}>
-                  清除筛选
+        documentId ? (
+          <EmptyState
+            variant="filter"
+            scale="section"
+            title="该文档还没有处理记录"
+            description="它可能尚未上传成功，或任务已被清理。重新上传文档后会生成新的处理记录。"
+            activeFilters={
+              [
+                {
+                  key: 'document',
+                  label: '文档',
+                  value: documentId,
+                  onRemove: onClearDocument,
+                },
+              ] satisfies EmptyFilterChip[]
+            }
+            action={
+              <Button variant="outline" size="sm" onClick={onClearDocument}>
+                查看全部处理记录
+              </Button>
+            }
+            secondaryAction={
+              canUpload ? (
+                <Button variant="outline" size="sm" onClick={onGoDocuments}>
+                  重新上传文档
                 </Button>
-                {canUpload ? (
-                  <Button variant="outline" size="sm" onClick={onGoDocuments}>
-                    重新上传文档
-                  </Button>
-                ) : null}
-              </div>
-            ) : undefined
-          }
-        />
+              ) : undefined
+            }
+          />
+        ) : (
+          <EmptyState
+            variant="stage"
+            scale="section"
+            specimen="runs"
+            title="还没有后台处理任务"
+            description="上传文档或同步来源后，处理任务会出现在这里。"
+          />
+        )
       ) : null}
       {jobs.data && jobs.data.length > 0 ? (
         <Table aria-label="知识库任务" className="min-w-5xl">

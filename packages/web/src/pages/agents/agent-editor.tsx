@@ -38,7 +38,7 @@ import { DialogShell } from '../../components/dialog-shell.js';
 import { MemoryPanel } from '../../components/memory/memory-panel.js';
 import { PageBody, PageTopbar } from '../../components/page.js';
 import { RequiredMark } from '../../components/required-mark.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Checkbox } from '../../components/ui/checkbox.js';
@@ -1359,15 +1359,20 @@ export function AgentEditor({
                             ) : null,
                           )}
                           {!serversState.isPending && serverOptions.length === 0 ? (
-                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                              <span>还没有可绑定的连接器。</span>
-                              <Link
-                                to="/servers"
-                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                              >
-                                去连接器创建
-                              </Link>
-                            </div>
+                            <EmptyState
+                              variant="idle"
+                              scale="inline"
+                              icon={<Plug className="size-4" aria-hidden="true" />}
+                              title="尚无可绑定的连接器"
+                              action={
+                                <Link
+                                  to="/servers"
+                                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                                >
+                                  去连接器创建
+                                </Link>
+                              }
+                            />
                           ) : null}
                           {serverOptions.length > 0 ? (
                             <Combobox
@@ -1452,15 +1457,20 @@ export function AgentEditor({
                             />
                           ) : null}
                           {!knowledgeState.isPending && knowledgeOptions.length === 0 ? (
-                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                              <span>还没有可绑定的知识库。</span>
-                              <Link
-                                to="/knowledge"
-                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                              >
-                                去知识库创建
-                              </Link>
-                            </div>
+                            <EmptyState
+                              variant="idle"
+                              scale="inline"
+                              icon={<LibraryBig className="size-4" aria-hidden="true" />}
+                              title="尚无可绑定的知识库"
+                              action={
+                                <Link
+                                  to="/knowledge"
+                                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                                >
+                                  去知识库创建
+                                </Link>
+                              }
+                            />
                           ) : null}
                           {knowledgeOptions.length > 0 ? (
                             <Combobox
@@ -1538,15 +1548,20 @@ export function AgentEditor({
                             />
                           ) : null}
                           {!skillsState.isPending && skillOptions.length === 0 ? (
-                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                              <span>还没有可绑定的技能。</span>
-                              <Link
-                                to="/skills"
-                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                              >
-                                去技能页创建或安装
-                              </Link>
-                            </div>
+                            <EmptyState
+                              variant="idle"
+                              scale="inline"
+                              icon={<Sparkles className="size-4" aria-hidden="true" />}
+                              title="尚无可绑定的技能"
+                              action={
+                                <Link
+                                  to="/skills"
+                                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                                >
+                                  去技能页创建或安装
+                                </Link>
+                              }
+                            />
                           ) : null}
                           {skillOptions.length > 0 ? (
                             <Combobox
@@ -1625,12 +1640,20 @@ export function AgentEditor({
                               onRetry={() => void pluginsState.refetch()}
                             />
                           ) : pluginOptions.length === 0 ? (
-                            <Link
-                              to="/plugins"
-                              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                            >
-                              导入插件
-                            </Link>
+                            <EmptyState
+                              variant="idle"
+                              scale="inline"
+                              icon={<Puzzle className="size-4" aria-hidden="true" />}
+                              title="尚无可绑定的插件"
+                              action={
+                                <Link
+                                  to="/plugins"
+                                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                                >
+                                  导入插件
+                                </Link>
+                              }
+                            />
                           ) : (
                             <>
                               <Combobox
@@ -1774,19 +1797,28 @@ export function AgentEditor({
                             />
                           ) : subAgentOptions.length === 0 ? (
                             agents.data?.length === 0 ? (
-                              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                                <span>还没有可委派的专家。</span>
-                                <Link
-                                  to="/agents"
-                                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                                >
-                                  新建专家
-                                </Link>
-                              </div>
+                              <EmptyState
+                                variant="idle"
+                                scale="inline"
+                                icon={<Bot className="size-4" aria-hidden="true" />}
+                                title="尚无可委派的专家"
+                                action={
+                                  <Link
+                                    to="/agents"
+                                    className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                                  >
+                                    新建专家
+                                  </Link>
+                                }
+                              />
                             ) : (
-                              <p className="text-sm text-muted-foreground">
-                                没有可选的主智能体。只有「没有父级」的智能体才能被委派。
-                              </p>
+                              <EmptyState
+                                variant="idle"
+                                scale="inline"
+                                icon={<Bot className="size-4" aria-hidden="true" />}
+                                title="没有可选的主智能体"
+                                description="只有未设父级的智能体才能被委派。"
+                              />
                             )
                           ) : (
                             <Combobox

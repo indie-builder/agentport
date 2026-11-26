@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterSelect } from '../../components/filter-select.js';
@@ -38,7 +37,12 @@ import { PageNote } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { ResourcePage } from '../../components/resource-page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
@@ -648,16 +652,20 @@ export function KnowledgePage() {
         />
       ) : null}
       {emptyNoFilter ? (
-        <PageNote
-          icon={<BusinessIllustration name="knowledge" size="compact" />}
-          title="未创建知识库"
+        <EmptyState
+          variant="stage"
+          scale="page"
+          specimen="knowledge"
+          title="构建你的专属知识库"
+          description="上传文档、同步外部数据源或沉淀 FAQ，让专家回答有据可依。"
           action={
             canCreate ? (
-              <Button ref={createButtonRef} variant="default" onClick={() => setCreating(true)}>
+              <Button ref={createButtonRef} onClick={() => setCreating(true)}>
                 <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
               </Button>
             ) : undefined
           }
+          footer={canCreate ? undefined : '当前账户没有创建知识库的权限。'}
         />
       ) : null}
       {visible.length > 0 && view !== 'cards' ? (
@@ -684,15 +692,41 @@ export function KnowledgePage() {
         </div>
       ) : null}
       {filteredEmpty ? (
-        <PageNote
+        <EmptyState
+          variant="filter"
+          scale="section"
           title="没有匹配的知识库"
+          activeFilters={
+            [
+              ...(query.trim()
+                ? [
+                    {
+                      key: 'q',
+                      label: '关键词',
+                      value: query.trim(),
+                      onRemove: () => setSearch({ q: undefined }, true),
+                    },
+                  ]
+                : []),
+              ...(status
+                ? [
+                    {
+                      key: 'status',
+                      label: '状态',
+                      value: status === 'active' ? '启用' : '停用',
+                      onRemove: () => setSearch({ status: undefined }),
+                    },
+                  ]
+                : []),
+            ] satisfies EmptyFilterChip[]
+          }
           action={
             <Button
               variant="outline"
               size="sm"
               onClick={() => setSearch({ q: undefined, status: undefined })}
             >
-              清除筛选
+              清除全部筛选
             </Button>
           }
         />

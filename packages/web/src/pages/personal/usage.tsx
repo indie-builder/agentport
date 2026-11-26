@@ -18,7 +18,12 @@ import {
 } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
 import { RunStatusBadge } from '../../components/run/run-status-badge.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import {
   Card,
@@ -181,6 +186,40 @@ export function PersonalUsagePage() {
   const agentOptions = [
     { value: '', label: '全部专家' },
     ...(agents.data?.items ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
+  ];
+
+  const activeFilters: EmptyFilterChip[] = [
+    ...(search.agent
+      ? [
+          {
+            key: 'agent',
+            label: '专家',
+            value:
+              agents.data?.items.find((agent) => agent.id === search.agent)?.name ?? search.agent,
+            onRemove: () => patchSearch({ agent: undefined, cursor: undefined }),
+          },
+        ]
+      : []),
+    ...(search.status
+      ? [
+          {
+            key: 'status',
+            label: '状态',
+            value: runStatusLabel[search.status],
+            onRemove: () => patchSearch({ status: undefined, cursor: undefined }),
+          },
+        ]
+      : []),
+    ...(search.trigger
+      ? [
+          {
+            key: 'trigger',
+            label: '来源',
+            value: runTriggerLabel[search.trigger],
+            onRemove: () => patchSearch({ trigger: undefined, cursor: undefined }),
+          },
+        ]
+      : []),
   ];
 
   const actionLinkClass = buttonVariants({ variant: 'link', size: 'sm' });
@@ -494,11 +533,13 @@ export function PersonalUsagePage() {
             {runs.isError && runs.data === undefined ? (
               <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
             ) : runs.data && runs.data.items.length === 0 ? (
-              <PageNote
-                icon={<Activity className="size-4" aria-hidden="true" />}
-                title={hasActiveFilter ? '没有匹配的运行记录' : '这个窗口还没有运行记录'}
-                action={
-                  hasActiveFilter ? (
+              hasActiveFilter ? (
+                <EmptyState
+                  variant="filter"
+                  scale="section"
+                  title="没有匹配的运行记录"
+                  activeFilters={activeFilters}
+                  action={
                     <Button
                       variant="outline"
                       size="sm"
@@ -511,15 +552,24 @@ export function PersonalUsagePage() {
                         })
                       }
                     >
-                      清除筛选
+                      清除全部筛选
                     </Button>
-                  ) : (
+                  }
+                />
+              ) : (
+                <EmptyState
+                  variant="stage"
+                  scale="section"
+                  specimen="runs"
+                  title="当前时间窗口还没有运行记录"
+                  description="与专家发起对话或运行任务后，每次执行的耗时与成本会汇总在这里。"
+                  action={
                     <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
                       新建对话
                     </Link>
-                  )
-                }
-              />
+                  }
+                />
+              )
             ) : view === 'cards' ? (
               runs.isPending ? (
                 <LoadingState rows={3} layout="cards" />
