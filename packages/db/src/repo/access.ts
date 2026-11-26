@@ -15,7 +15,18 @@ import {
   type RoleSummary,
   validateGrants,
 } from '@agentport/shared';
-import { and, asc, count, eq, inArray, ne, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
+import {
+  type AnyColumn,
+  and,
+  asc,
+  count,
+  eq,
+  inArray,
+  ne,
+  type SQL,
+  type SQLWrapper,
+  sql,
+} from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -556,6 +567,12 @@ export async function transferAgent(
     .returning({ id: agents.id });
   if (rows.length === 0) return false;
   return true;
+}
+
+export function ownerScopeWhere(column: AnyColumn, access: AccessFilter): SQL | undefined {
+  if (access.scopes.includes('platform')) return undefined;
+  if (access.scopes.includes('own_data')) return eq(column, access.businessId);
+  return sql`false`;
 }
 
 export function maintainedAgentScopeWhere(

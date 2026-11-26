@@ -6,6 +6,7 @@ import {
   hashMcpToken,
   RunFailure,
   toOutputStyleSelection,
+  unionById,
 } from '@agentport/core';
 import { runScopedLogger } from '@agentport/core/logger';
 import { resolveWorkspaceMemoryPolicy } from '@agentport/core/workspace-input';
@@ -30,7 +31,6 @@ import {
 import type { Job } from 'bullmq';
 import { and, asc, eq, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { publishChannelEventSafely } from '../channels/channel-events.js';
 import type { Config } from '../config.js';
 import { executeMemoryReview } from '../memory/memory-review.js';
 import {
@@ -47,19 +47,20 @@ import type { ModelProxy } from '../model-proxy.js';
 import {
   acquireSessionSandbox,
   isRetryable,
+  publishChannelEventSafely,
   publishRun,
   runInSandbox,
   type SandboxRunOutcome,
 } from '../runner-client.js';
 import type { SessionSandboxes, SessionSandboxLease } from '../sandbox/sessions.js';
 import { memoryMountFor } from '../sandbox/sessions.js';
-import { loadRunServerBindings } from '../server-bindings.js';
 import {
   ensureSessionWorkspace,
   refreshSessionDirectory,
   runWorkspaceDir,
   toHostWorkspacePath,
 } from '../session-workspace.js';
+import { resolveAgentVersionSnapshot } from './agent-snapshot.js';
 import { promptWithAttachments } from './attachments.js';
 import { readForkUuidMap } from './fork-uuids.js';
 import { promptWithOpenUiAction } from './openui-action.js';
@@ -129,6 +130,60 @@ function applyAgentDefinition(definition: AgentDefinition): AgentRow {
   };
 }
 
+async function claimRunForExecution(
+  db: Db,
+  runId: string,
+  trigger: typeof schema.agentRuns.$inferSelect.trigger,
+): Promise<'claimed' | 'review_rejected' | 'not_claimable'> {
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({
+        status: schema.agentRuns.status,
+        errorKind: schema.agentRuns.errorKind,
+        startedAt: schema.agentRuns.startedAt,
+      })
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, runId))
+      .limit(1)
+      .for('update');
+    if (
+      current === undefined ||
+      (current.status !== 'queued' && !repo.runPredicates.isNeverStartedFailure(current))
+    ) {
+      return 'not_claimable';
+    }
+    if (trigger === 'review') {
+      const [review] = await tx
+        .select({ decision: schema.memoryReviews.decision })
+        .from(schema.memoryReviews)
+        .where(eq(schema.memoryReviews.runId, runId))
+        .limit(1)
+        .for('update');
+      if (review?.decision !== 'pending') return 'review_rejected';
+    }
+    if (current.status === 'failed') {
+      await repo.integrations.cancelPendingRunFailedWebhooks(tx, runId);
+    }
+    const updated = await tx
+      .update(schema.agentRuns)
+      .set({
+        status: 'running',
+        startedAt: new Date(),
+        endedAt: null,
+        error: null,
+        errorKind: null,
+      })
+      .where(
+        and(
+          eq(schema.agentRuns.id, runId),
+          or(eq(schema.agentRuns.status, 'queued'), repo.runPredicates.neverStartedFailureFilter()),
+        ),
+      )
+      .returning({ id: schema.agentRuns.id });
+    return updated.length > 0 ? 'claimed' : 'not_claimable';
+  });
+}
+
 export async function runAgentJob(
   job: Job,
   {
@@ -158,7 +213,7 @@ export async function runAgentJob(
     sandboxApiUrl: string;
     sandboxClosing: AbortController;
     sessionSandboxes: SessionSandboxes;
-    modelProxy: ModelProxy | null;
+    modelProxy: ModelProxy;
     loadAgentPlugins: (
       agent: AgentRow,
       bindings: Agent['pluginBindings'],
@@ -251,55 +306,8 @@ export async function runAgentJob(
     agentId,
     conversationId,
   });
-  // 只认领 queued 或入队失败且从未启动的 infra 行：BullMQ 在 Redis 抖动后会重投递仍在 running 的任务，
-  // 若这里也接受 running，同一 run 会被两个 worker 各跑一遍（重复计费、消息互相覆盖）。
-  const claimed = await db.transaction(async (tx) => {
-    const [current] = await tx
-      .select({
-        status: schema.agentRuns.status,
-        errorKind: schema.agentRuns.errorKind,
-        startedAt: schema.agentRuns.startedAt,
-      })
-      .from(schema.agentRuns)
-      .where(eq(schema.agentRuns.id, runId))
-      .limit(1)
-      .for('update');
-    if (
-      current === undefined ||
-      (current.status !== 'queued' && !repo.runPredicates.isNeverStartedFailure(current))
-    ) {
-      return [];
-    }
-    if (run.trigger === 'review') {
-      const [review] = await tx
-        .select({ decision: schema.memoryReviews.decision })
-        .from(schema.memoryReviews)
-        .where(eq(schema.memoryReviews.runId, runId))
-        .limit(1)
-        .for('update');
-      if (review?.decision !== 'pending') return null;
-    }
-    if (current.status === 'failed') {
-      await repo.integrations.cancelPendingRunFailedWebhooks(tx, runId);
-    }
-    return tx
-      .update(schema.agentRuns)
-      .set({
-        status: 'running',
-        startedAt: new Date(),
-        endedAt: null,
-        error: null,
-        errorKind: null,
-      })
-      .where(
-        and(
-          eq(schema.agentRuns.id, runId),
-          or(eq(schema.agentRuns.status, 'queued'), repo.runPredicates.neverStartedFailureFilter()),
-        ),
-      )
-      .returning({ id: schema.agentRuns.id });
-  });
-  if (claimed === null) {
+  const claim = await claimRunForExecution(db, runId, run.trigger);
+  if (claim === 'review_rejected') {
     if (run.status === 'queued') {
       await denyQueuedRun(db, logger, runId, {
         reason: 'permission_denied',
@@ -308,7 +316,7 @@ export async function runAgentJob(
     }
     return;
   }
-  if (claimed.length === 0) {
+  if (claim === 'not_claimable') {
     runLog.info('run externally terminated before claim, skipping');
     return;
   }
@@ -320,7 +328,7 @@ export async function runAgentJob(
         redisUrl: config.REDIS_URL,
         signal: sandboxClosing.signal,
       },
-      { config, logger: runLog, ...(modelProxy === null ? {} : { modelProxy }) },
+      { config, logger: runLog, modelProxy },
     );
     return;
   }
@@ -377,21 +385,15 @@ export async function runAgentJob(
         .limit(1);
       if (!agent) throw new Error(`agent ${agentId} not found`);
       const definitionSnapshot = run.definitionSnapshot ?? null;
-      const pinnedVersion = run.agentVersion ?? null;
-      let definition: AgentDefinition | null = definitionSnapshot;
-      if (definitionSnapshot === null && pinnedVersion !== null) {
-        const version = await repo.agentVersions.getAgentVersion(db, agentId, pinnedVersion);
-        if (!version) {
-          throw new Error(`agent ${agentId} version ${pinnedVersion} not found`);
-        }
-        definition = version.definition;
-        if (definition === null) {
-          runLog.warn(
-            { agentVersion: pinnedVersion },
-            'legacy agent version has no definition snapshot',
-          );
-        }
-      }
+      const definition = await resolveAgentVersionSnapshot(
+        db,
+        {
+          agentId,
+          agentVersion: run.agentVersion ?? null,
+          definitionSnapshot,
+        },
+        { requireVersion: true, logger: runLog },
+      );
       const effectiveAgent = definition === null ? agent : applyAgentDefinition(definition);
       agentSlugForRun = effectiveAgent.slug;
       const resolvedMemoryPolicy = resolveWorkspaceMemoryPolicy(
@@ -598,7 +600,10 @@ export async function runAgentJob(
             : def.resources.servers,
         ]),
       );
-      const { serverNamesByAgent, serverRows } = loadRunServerBindings(bindingsByAgent);
+      const serverNamesByAgent = new Map(
+        [...bindingsByAgent].map(([owner, rows]) => [owner, rows.map((row) => row.name)] as const),
+      );
+      const serverRows = unionById([...bindingsByAgent.values()]);
       const runToken = crypto
         .getRandomValues(new Uint8Array(32))
         .toBase64({ alphabet: 'base64url', omitPadding: true });
@@ -607,7 +612,7 @@ export async function runAgentJob(
         runId,
         hashMcpToken(runToken),
         new Date(Date.now() + timeoutMs + 5 * 60_000),
-        modelProxy ? hashMcpToken(runId) : null,
+        hashMcpToken(runId),
         serverRows.map((server) => server.id),
       );
       const parentServerNames = serverNamesByAgent.get(agentId) ?? [];
@@ -801,6 +806,7 @@ export async function runAgentJob(
         })),
         userMessageUuid,
         memoryPolicy: runMemoryPolicy,
+        ...(run.channelId === null ? {} : { tokenAccounting: 'channel' as const }),
         ...(resumeSessionId === null ? {} : { resumeSessionId }),
         ...(forkFromMessageUuid === undefined ? {} : { forkFromMessageUuid }),
       };
@@ -810,10 +816,7 @@ export async function runAgentJob(
         task,
         lease,
         signal: sandboxClosing.signal,
-        env:
-          run.channelId === null
-            ? sandboxEnv(sandboxApiUrl, runId)
-            : { ...sandboxEnv(sandboxApiUrl, runId), PACE_RUN_TRIGGER: 'channel' },
+        env: sandboxEnv(sandboxApiUrl, runId),
         logger: runLog,
         questions: {
           request: async (event, expiresAt) => {
@@ -914,7 +917,7 @@ export async function runAgentJob(
     await repo.runs.clearRunTokens(db, runId).catch((err: unknown) => {
       runLog.warn({ err }, 'failed to clear run tokens');
     });
-    modelProxy?.revokeToken(runId);
+    modelProxy.revokeToken(runId);
 
     let outputSettlementError: string | undefined;
     if (outputsHostPath !== null) {

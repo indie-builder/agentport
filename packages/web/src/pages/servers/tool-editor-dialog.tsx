@@ -4,8 +4,6 @@ import { Globe, Pencil, Play, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
-import { ImportOpenApiDialog } from '../../components/server/import-openapi-dialog.js';
-import { TestInvokeDialog } from '../../components/server/test-invoke-dialog.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Checkbox } from '../../components/ui/checkbox.js';
@@ -34,7 +32,9 @@ import {
   useTools,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
+import { ImportOpenApiDialog } from './import-openapi-dialog.js';
 import { approvalOptions } from './shared.js';
+import { TestInvokeDialog } from './test-invoke-dialog.js';
 import { ToolForm } from './tool-form.js';
 
 export function ToolEditorDialog({

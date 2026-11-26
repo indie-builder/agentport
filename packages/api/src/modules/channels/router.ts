@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { actorOf, authorize, authorizeObject, requireUser } from '../../http/access.js';
 import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
+import { CHANNEL_MEMBER_MISSING_MESSAGE, CHANNEL_NOT_FOUND_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { beginSse } from '../../http/sse.js';
@@ -33,18 +34,13 @@ import { getQueue, type RunSubscription, subscribeChannel } from '../../queue/pr
 import { requireRunQueueCapacity } from '../runs/capacity.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
-import {
-  AGENT_BINDING_FORBIDDEN,
-  CHANNEL_MEMBER_MISSING,
-  conflict,
-  forbidden,
-  MEMBER_FORBIDDEN,
-  notFound,
-} from './errors.js';
 import { channelsHandoffRouter } from './handoff.js';
 import { publishChannelMessageSafely } from './publish.js';
 import { channelsRunsRouter } from './runs.js';
 import { dispatchChannelWakes } from './wakes.js';
+
+const AGENT_BINDING_FORBIDDEN = '当前频道角色无权管理智能体绑定';
+const MEMBER_FORBIDDEN = '当前频道角色无权管理成员';
 
 const channelRepo = repo.channels;
 const SSE_BATCH = 200;
@@ -202,7 +198,7 @@ const channelsMainRouter = {
       subjectFor(context),
       input.params.id,
     );
-    if ('kind' in result) return notFound();
+    if ('kind' in result) return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
     await auditRead(context, result.channel);
     return toDetail(result);
   }),
@@ -215,9 +211,9 @@ const channelsMainRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return notFound();
+        return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
       case 'forbidden':
-        return forbidden('当前频道角色无权管理该频道');
+        return fail('FORBIDDEN', '当前频道角色无权管理该频道');
       case 'ok':
         await auditWrite(context, {
           action: 'channel.updated',
@@ -236,13 +232,16 @@ const channelsMainRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return result.target === 'account' ? notFound(ACCOUNT_NOT_FOUND_MESSAGE) : notFound();
+        return fail(
+          'NOT_FOUND',
+          result.target === 'account' ? ACCOUNT_NOT_FOUND_MESSAGE : CHANNEL_NOT_FOUND_MESSAGE,
+        );
       case 'forbidden':
-        if (result.reason === 'account_disabled') return conflict('账户已停用');
-        if (result.reason === 'owner_only') return forbidden('仅频道 owner 可以授予 owner');
-        return forbidden(MEMBER_FORBIDDEN);
+        if (result.reason === 'account_disabled') return fail('CONFLICT', '账户已停用');
+        if (result.reason === 'owner_only') return fail('FORBIDDEN', '仅频道 owner 可以授予 owner');
+        return fail('FORBIDDEN', MEMBER_FORBIDDEN);
       case 'conflict':
-        return conflict('该账户已是频道成员');
+        return fail('CONFLICT', '该账户已是频道成员');
       case 'ok':
         await auditWrite(context, {
           action: 'channel.member.added',
@@ -263,13 +262,17 @@ const channelsMainRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return result.target === 'member' ? notFound('成员不存在') : notFound();
+        return fail(
+          'NOT_FOUND',
+          result.target === 'member' ? '成员不存在' : CHANNEL_NOT_FOUND_MESSAGE,
+        );
       case 'forbidden':
-        return result.reason === 'owner_only'
-          ? forbidden('仅频道 owner 可以授予或修改 owner')
-          : forbidden(MEMBER_FORBIDDEN);
+        return fail(
+          'FORBIDDEN',
+          result.reason === 'owner_only' ? '仅频道 owner 可以授予或修改 owner' : MEMBER_FORBIDDEN,
+        );
       case 'conflict':
-        return conflict('最后一个 owner 不能降级');
+        return fail('CONFLICT', '最后一个 owner 不能降级');
       case 'ok':
         await auditWrite(context, {
           action: 'channel.member.role_updated',
@@ -289,13 +292,17 @@ const channelsMainRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return result.target === 'member' ? notFound('成员不存在') : notFound();
+        return fail(
+          'NOT_FOUND',
+          result.target === 'member' ? '成员不存在' : CHANNEL_NOT_FOUND_MESSAGE,
+        );
       case 'forbidden':
-        return result.reason === 'owner_only'
-          ? forbidden('仅频道 owner 可以移除 owner')
-          : forbidden(MEMBER_FORBIDDEN);
+        return fail(
+          'FORBIDDEN',
+          result.reason === 'owner_only' ? '仅频道 owner 可以移除 owner' : MEMBER_FORBIDDEN,
+        );
       case 'conflict':
-        return conflict('最后一个 owner 不能移除');
+        return fail('CONFLICT', '最后一个 owner 不能移除');
       case 'ok': {
         const cancel = await cancelRunBatch(context, input.params.id, result.runs);
         if (cancel.failedRunIds.length > 0) {
@@ -321,9 +328,9 @@ const channelsMainRouter = {
       subjectFor(context),
       input.params.id,
     );
-    if (access.kind === 'not_found') return notFound();
+    if (access.kind === 'not_found') return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
     if (access.kind === 'forbidden') {
-      return forbidden(AGENT_BINDING_FORBIDDEN);
+      return fail('FORBIDDEN', AGENT_BINDING_FORBIDDEN);
     }
     await authorizeObject(context, 'agents.use', { agentId }, '智能体不存在，可能已被删除');
     const result = await channelRepo.addAgentBinding(
@@ -334,11 +341,14 @@ const channelsMainRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return result.target === 'agent' ? notFound('智能体不存在，可能已被删除') : notFound();
+        return fail(
+          'NOT_FOUND',
+          result.target === 'agent' ? '智能体不存在，可能已被删除' : CHANNEL_NOT_FOUND_MESSAGE,
+        );
       case 'forbidden':
-        return forbidden(AGENT_BINDING_FORBIDDEN);
+        return fail('FORBIDDEN', AGENT_BINDING_FORBIDDEN);
       case 'conflict':
-        return conflict('该智能体已绑定此频道');
+        return fail('CONFLICT', '该智能体已绑定此频道');
       case 'ok':
         await auditWrite(context, {
           action: 'channel.agent.bound',
@@ -354,9 +364,9 @@ const channelsMainRouter = {
       subjectFor(context),
       input.params.id,
     );
-    if (access.kind === 'not_found') return notFound();
+    if (access.kind === 'not_found') return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
     if (access.kind === 'forbidden') {
-      return forbidden(AGENT_BINDING_FORBIDDEN);
+      return fail('FORBIDDEN', AGENT_BINDING_FORBIDDEN);
     }
     const result = await channelRepo.updateAgentBinding(
       context.db,
@@ -367,9 +377,12 @@ const channelsMainRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return result.target === 'agent' ? notFound('智能体绑定不存在') : notFound();
+        return fail(
+          'NOT_FOUND',
+          result.target === 'agent' ? '智能体绑定不存在' : CHANNEL_NOT_FOUND_MESSAGE,
+        );
       case 'forbidden':
-        return forbidden(AGENT_BINDING_FORBIDDEN);
+        return fail('FORBIDDEN', AGENT_BINDING_FORBIDDEN);
       case 'ok':
         await auditWrite(context, {
           action: 'channel.agent.updated',
@@ -388,9 +401,12 @@ const channelsMainRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return result.target === 'agent' ? notFound('智能体绑定不存在') : notFound();
+        return fail(
+          'NOT_FOUND',
+          result.target === 'agent' ? '智能体绑定不存在' : CHANNEL_NOT_FOUND_MESSAGE,
+        );
       case 'forbidden':
-        return forbidden(AGENT_BINDING_FORBIDDEN);
+        return fail('FORBIDDEN', AGENT_BINDING_FORBIDDEN);
       case 'ok': {
         const cancel = await cancelRunBatch(context, input.params.id, result.runs);
         if (cancel.failedRunIds.length > 0) {
@@ -419,7 +435,7 @@ const channelsMainRouter = {
         ...(input.query.before === undefined ? {} : { before: input.query.before }),
       },
     );
-    if (result.kind === 'not_found') return notFound();
+    if (result.kind === 'not_found') return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
     await auditRead(context, { id: input.params.id, createdBy: result.createdBy });
     return result.items.map(repo.channels.toChannelMessage);
   }),
@@ -431,8 +447,8 @@ const channelsMainRouter = {
     const wakes = mentions.length > 0 || mentionAll;
     if (wakes) {
       const role = await channelRepo.channelMemberRole(context.db, id, principal.businessId);
-      if (role === null) return notFound();
-      if (role === 'viewer') return forbidden('viewer 不能发言');
+      if (role === null) return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
+      if (role === 'viewer') return fail('FORBIDDEN', 'viewer 不能发言');
     }
     if (wakes) await requireRunQueueCapacity();
     const messageId = newId('channelMessage');
@@ -475,9 +491,9 @@ const channelsMainRouter = {
     }
     switch (result.kind) {
       case 'not_found':
-        return notFound();
+        return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
       case 'forbidden':
-        return forbidden('viewer 不能发言');
+        return fail('FORBIDDEN', 'viewer 不能发言');
       case 'invalid_mentions':
         return fail('INVALID_INPUT', '只能 @ 已绑定且状态正常的智能体');
       case 'too_many_wakes':
@@ -516,7 +532,7 @@ const channelsMainRouter = {
       input.params.id,
       input.body.seq,
     );
-    if (result.kind === 'not_found') return notFound(CHANNEL_MEMBER_MISSING);
+    if (result.kind === 'not_found') return fail('NOT_FOUND', CHANNEL_MEMBER_MISSING_MESSAGE);
     return { lastReadSeq: result.lastReadSeq };
   }),
 };
@@ -527,7 +543,7 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
     const { id } = input.params;
     const subject = subjectFor(context);
     const readAccess = await channelRepo.getChannelReadAccess(context.db, subject, id);
-    if (!readAccess) return notFound();
+    if (!readAccess) return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
     if (input.query.after > readAccess.maxSeq) {
       return fail('INVALID_INPUT', '事件游标超过频道当前消息序号');
     }
@@ -540,7 +556,7 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
       after: initialCursor,
       limit: SSE_BATCH,
     });
-    if (initial.kind === 'not_found') return notFound();
+    if (initial.kind === 'not_found') return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
     await auditRead(context, { id, createdBy: initial.createdBy });
     beginSse(c, deps.timeout);
     let cursor = initialCursor;

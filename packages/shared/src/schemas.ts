@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { agentResourceVersionsSchema } from './agent-definition.js';
 import { runTriggerSchema } from './ops.js';
+import { cursorPageSchema, pageQuerySchema } from './pagination.js';
 import { publicRunQuestionSchema } from './questions.js';
 import { runErrorKindSchema, runStatusSchema } from './run-state.js';
 import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
@@ -153,11 +154,14 @@ export const evalDatasetSchema = z.object({
 });
 
 export type EvalDataset = z.infer<typeof evalDatasetSchema>;
-export interface EvalDatasetImportResult {
-  imported: number;
-  skipped: number;
-  warnings: string[];
-}
+
+export const evalDatasetImportResultSchema = z.object({
+  imported: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  warnings: z.array(z.string()),
+});
+
+export type EvalDatasetImportResult = z.infer<typeof evalDatasetImportResultSchema>;
 
 export const evalRunSchema = z.object({
   id: z.string(),
@@ -174,17 +178,12 @@ export const evalRunSchema = z.object({
 
 export type EvalRun = z.infer<typeof evalRunSchema>;
 
-export const evalRunPageSchema = z.object({
-  items: z.array(evalRunSchema),
-  nextCursor: z.string().nullable(),
-});
+export const evalRunPageSchema = cursorPageSchema(evalRunSchema);
 
 export type EvalRunPage = z.infer<typeof evalRunPageSchema>;
 
-export const evalRunListQuerySchema = z.object({
+export const evalRunListQuerySchema = pageQuerySchema.extend({
   agentId: z.string().min(1).optional(),
-  cursor: z.string().min(1).max(200).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 export const evalResultSchema = z.object({

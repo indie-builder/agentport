@@ -28,14 +28,12 @@ import {
   type Principal,
   REGENERATE_MISSING_MESSAGE,
   RUNS_QUEUE,
-  runEnqueueOptions,
 } from '@agentport/shared';
 import type { SQL } from 'bun';
 import type { Logger } from 'pino';
 import type { Config } from '../../config.js';
-import { getQueue } from '../../queue/producer.js';
 import { requireRunQueueCapacity } from '../runs/capacity.js';
-import { enqueueRunJob, failQueuedRunEnqueue, failRunEnqueue } from '../runs/enqueue.js';
+import { enqueueRunJob, enqueueRunOrRollback, failRunEnqueue } from '../runs/enqueue.js';
 import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
 import { enforceContentPolicy, failContentApprovalRequired } from '../security/policy-gate.js';
 import { CONVERSATION_MISSING } from './access.js';
@@ -561,33 +559,24 @@ export async function regenerateLastRun(
   });
   const { run, regenerate } = admitted;
   if (regenerate === undefined) return fail('CONFLICT', REGENERATE_MISSING_MESSAGE);
-  try {
-    await getQueue().add(
-      'run',
-      {
-        runId: run.id,
-        agentId,
-        conversationId,
-        prompt: regenerate.prompt,
-        requestId: deps.requestId,
-        replacesRunId: regenerate.replacesRunId,
-        regenerateContent: {
-          openuiAction: policyDecision.payload.openuiAction,
-        },
-        ...(regenerate.forkFromMessageUuid === undefined
-          ? {}
-          : { forkFromMessageUuid: regenerate.forkFromMessageUuid }),
+  await enqueueRunOrRollback(
+    deps,
+    {
+      runId: run.id,
+      agentId,
+      conversationId,
+      prompt: regenerate.prompt,
+      requestId: deps.requestId,
+      replacesRunId: regenerate.replacesRunId,
+      regenerateContent: {
+        openuiAction: policyDecision.payload.openuiAction,
       },
-      runEnqueueOptions(run.id),
-    );
-  } catch {
-    try {
-      await failQueuedRunEnqueue(deps.db, run.id);
-    } catch {
-      deps.log.warn({ runId: run.id }, 'regenerate enqueue failure cleanup failed');
-    }
-    failRunEnqueue();
-  }
+      ...(regenerate.forkFromMessageUuid === undefined
+        ? {}
+        : { forkFromMessageUuid: regenerate.forkFromMessageUuid }),
+    },
+    { cleanupMessage: 'regenerate enqueue failure cleanup failed' },
+  );
   deps.log.info(
     { runId: run.id, replacesRunId: regenerate.replacesRunId },
     'regenerate run enqueued',

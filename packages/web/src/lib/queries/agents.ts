@@ -25,9 +25,9 @@ import {
   type AgentWriteResult,
   api,
 } from '../api.js';
+import { useCursorList } from './client.js';
 import { OVERVIEW_QUERY_KEY } from './overview.js';
 import { runKeys } from './runs.js';
-import { useCursorList, useInvalidate } from './shared.js';
 
 export const AGENTS_QUERY_KEY = ['agents'] as const;
 export const AGENT_OPTIONS_QUERY_KEY = ['agent-options'] as const;
@@ -361,13 +361,13 @@ export function useTrialAgent() {
 }
 
 export function useCreateAgent() {
-  const invalidate = useInvalidate();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (input: AgentInput) => api.createAgent(input),
     onSuccess: () => {
-      invalidate(agentKeys.all[0]);
-      invalidate(agentKeys.tags[0]);
-      invalidate(OVERVIEW_QUERY_KEY[0]);
+      void client.invalidateQueries({ queryKey: agentKeys.all });
+      void client.invalidateQueries({ queryKey: agentKeys.tags });
+      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
     },
   });
 }

@@ -17,8 +17,7 @@ import {
   type SDKResultSuccess,
 } from '@anthropic-ai/claude-agent-sdk';
 import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
-import { KnowledgeCancelled } from './ingestion.js';
-import { requireOneShotSuccess } from './one-shot-result.js';
+import { KnowledgeCancelled, requireOneShotSuccess } from './ingestion.js';
 
 type JobRow = typeof schema.knowledgeJobs.$inferSelect;
 type TagPayload = Extract<KnowledgeJobPayload, { type: 'tag_generate' }>;

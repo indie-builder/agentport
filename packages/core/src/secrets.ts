@@ -1,3 +1,5 @@
+import { isRecord } from './record.js';
+
 const IV_LEN = 12;
 const TAG_LEN = 16;
 const INFO = new TextEncoder().encode('agentport:secrets:v1');
@@ -56,7 +58,7 @@ export async function decryptSecrets(
   data.set(tag, ciphertext.length);
   const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv, tagLength: 128 }, key, data);
   const parsed: unknown = JSON.parse(new TextDecoder().decode(plain));
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     throw new Error('secrets payload is not an object');
   }
   const out: Record<string, string> = {};

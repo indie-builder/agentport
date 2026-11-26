@@ -154,7 +154,6 @@ describe('CardBlock grid layout', () => {
     const grid = wrapper?.firstElementChild as HTMLElement;
     expect(grid.className).toContain('grid-cols-1');
     expect(grid.className).toContain('@min-[481px]:grid-cols-2');
-    expect(grid.className).toContain('gap-3');
     expect(grid.className).not.toContain('sm:grid-cols-2');
   });
 

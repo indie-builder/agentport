@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import {
+  APPROVAL_RUN_ID_HEADER,
   httpServerSchema,
   MCP_APPROVAL_WAIT_MS,
   mcpEndpointPath,
@@ -53,7 +54,7 @@ export function createApprovalHook(
     const connection = httpServerSchema.parse({ ...entry, name: tool.server, kind: 'http' });
     const serverId = task.mcpServerIds[tool.server];
     const headers = new Headers(connection.headers);
-    const runId = headers.get('x-agentport-run-id');
+    const runId = headers.get(APPROVAL_RUN_ID_HEADER);
     const url = new URL(connection.url);
     if (serverId === undefined) return decision('deny', '平台工具审批凭证缺失。');
     const suffix = mcpEndpointPath(serverId);

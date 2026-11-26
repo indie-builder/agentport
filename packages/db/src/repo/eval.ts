@@ -11,7 +11,7 @@ import {
   messages,
   runFeedback,
 } from '../schema.js';
-import { maintainedAgentScopeWhere } from './access.js';
+import { maintainedAgentScopeWhere, ownerScopeWhere } from './access.js';
 import { messageText } from './chat/messages.js';
 import { type CursorPage, keysetPage } from './pagination.js';
 
@@ -144,12 +144,8 @@ export async function sampleProductionRuns(
     sql`${agentRuns.id} not in (${linkedCaseRuns})`,
     sql`${agentRuns.id} not in (${linkedFeedbackRuns})`,
   ];
-  if (options.access.scopes.includes('platform')) {
-  } else if (options.access.scopes.includes('own_data')) {
-    filters.push(eq(agentRuns.initiatedBy, options.access.businessId));
-  } else {
-    filters.push(sql`false`);
-  }
+  const scope = ownerScopeWhere(agentRuns.initiatedBy, options.access);
+  if (scope !== undefined) filters.push(scope);
   const rows = await db
     .select({
       runId: agentRuns.id,
@@ -290,13 +286,6 @@ export async function failEvalRun(db: Database, id: string, error: string): Prom
     .where(and(eq(evalRuns.id, id), eq(evalRuns.status, 'running')))
     .returning({ id: evalRuns.id });
   return rows.length > 0;
-}
-
-export async function updateProgress(db: Database, id: string, passed: number): Promise<void> {
-  await db
-    .update(evalRuns)
-    .set({ passed })
-    .where(and(eq(evalRuns.id, id), eq(evalRuns.status, 'running')));
 }
 
 export async function listRuns(

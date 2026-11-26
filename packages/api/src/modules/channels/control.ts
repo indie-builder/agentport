@@ -1,4 +1,5 @@
 import { channelsContract } from '@agentport/contract/channels';
+import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { channelRunFinishedEvent, isActiveRunStatus } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -8,14 +9,18 @@ import { z } from 'zod';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
-import { AppError } from '../../http/errors.js';
+import {
+  AppError,
+  CHANNEL_MEMBER_MISSING_MESSAGE,
+  RUN_NOT_IN_CHANNEL_MESSAGE,
+} from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
+import { publishChannelEventSafely } from '../../queue/producer.js';
 import { cancelAgentRun } from '../runs/cancel-run.js';
 import { writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
-import { CHANNEL_MEMBER_MISSING, forbidden, notFound, RUN_NOT_IN_CHANNEL } from './errors.js';
-import { publishChannelEventSafely, publishChannelMessageSafely } from './publish.js';
+import { publishChannelMessageSafely } from './publish.js';
 
 const channelControl = repo.channelControl;
 type ControlRun = repo.channelControl.ControlRun;
@@ -109,7 +114,7 @@ export const channelsControlRouter = {
       requireUser(context).businessId,
       input.params.id,
     );
-    if (result.kind === 'not_found') return notFound(CHANNEL_MEMBER_MISSING);
+    if (result.kind === 'not_found') return fail('NOT_FOUND', CHANNEL_MEMBER_MISSING_MESSAGE);
     return { items: result.runs.map(toActiveRun) };
   }),
   stopRun: os.stopRun.handler(async ({ input, context }) => {
@@ -123,10 +128,11 @@ export const channelsControlRouter = {
     switch (result.kind) {
       case 'not_found':
         return result.target === 'run'
-          ? notFound(RUN_NOT_IN_CHANNEL)
-          : notFound(CHANNEL_MEMBER_MISSING);
+          ? fail('NOT_FOUND', RUN_NOT_IN_CHANNEL_MESSAGE)
+          : fail('NOT_FOUND', CHANNEL_MEMBER_MISSING_MESSAGE);
       case 'forbidden':
-        return forbidden(
+        return fail(
+          'FORBIDDEN',
           result.reason === 'run_owner'
             ? '只有触发该运行的成员或频道管理员可以停止'
             : 'viewer 不能停止运行',
@@ -157,10 +163,10 @@ export const channelsControlRouter = {
     switch (result.kind) {
       case 'not_found':
         return result.target === 'agent'
-          ? notFound('智能体未加入该频道')
-          : notFound(CHANNEL_MEMBER_MISSING);
+          ? fail('NOT_FOUND', '智能体未加入该频道')
+          : fail('NOT_FOUND', CHANNEL_MEMBER_MISSING_MESSAGE);
       case 'forbidden':
-        return forbidden('仅频道 owner 或 admin 可以断开智能体');
+        return fail('FORBIDDEN', '仅频道 owner 或 admin 可以断开智能体');
       case 'ok': {
         const cancel = await cancelRunBatch(context, id, result.runs);
         if (cancel.failedRunIds.length > 0) {
@@ -205,9 +211,9 @@ export const channelsControlRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return notFound(CHANNEL_MEMBER_MISSING);
+        return fail('NOT_FOUND', CHANNEL_MEMBER_MISSING_MESSAGE);
       case 'forbidden':
-        return forbidden('仅频道 owner 可以关闭频道');
+        return fail('FORBIDDEN', '仅频道 owner 可以关闭频道');
       case 'ok': {
         const cancel = await cancelRunBatch(context, id, result.runs);
         if (cancel.failedRunIds.length > 0) {
@@ -253,7 +259,7 @@ export function registerChannelRunEventsHttp(
     const { id, runId } = input.params;
     const businessId = requireUser(context).businessId;
     const access = await channelControl.getChannelRunForMember(context.db, businessId, id, runId);
-    if (!access) return notFound(RUN_NOT_IN_CHANNEL);
+    if (!access) return fail('NOT_FOUND', RUN_NOT_IN_CHANNEL_MESSAGE);
     const run = access.run;
     beginSse(c, deps.timeout);
     return streamSSE(c, async (stream) => {

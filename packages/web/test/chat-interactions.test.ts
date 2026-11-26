@@ -11,7 +11,8 @@ import {
 import { act, type ComponentProps, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApprovalCard, Composer } from '../src/components/chat/chat-thread.js';
+import { ApprovalCard } from '../src/components/chat/chat-thread/approval.js';
+import { Composer } from '../src/components/chat/chat-thread/composer.js';
 import { type ApprovalRequest, api } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
 import { meQuery } from '../src/lib/queries.js';

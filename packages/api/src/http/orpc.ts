@@ -6,7 +6,6 @@ import { problemSchema } from '@agentport/shared';
 import { ORPCError } from '@orpc/contract';
 import { OpenAPIHandler } from '@orpc/openapi/fetch';
 import { type AnyRouter, traverseContractProcedures } from '@orpc/server';
-import { requireTrustedOrigin } from '../modules/auth/origin.js';
 import type { RequestContext } from './context.js';
 import { errorProblem, toAppError } from './errors.js';
 import { enforceAccess } from './middleware.js';
@@ -30,12 +29,6 @@ export function createOpenAPIHandler(router: AnyRouter) {
           if (metadata.rateLimit !== undefined)
             await context.limit(metadata.rateLimit, context.route ?? 'orpc');
           await enforceAccess(context, access);
-          if (
-            (access.kind === 'authenticated' || access.kind === 'permission') &&
-            !['GET', 'HEAD', 'OPTIONS'].includes(context.request.method)
-          ) {
-            requireTrustedOrigin(context);
-          }
           return await next();
         } catch (error) {
           if (error instanceof ORPCError) throw error;

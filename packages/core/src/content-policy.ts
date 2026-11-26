@@ -1,5 +1,5 @@
 import type { ContentPolicy, ContentPolicyDirection } from '@agentport/shared';
-import * as Bun from 'bun';
+import { sha256Hex } from './hash.js';
 
 type ContentPolicyRule = Pick<
   ContentPolicy,
@@ -28,16 +28,18 @@ interface Span {
   start: number;
   end: number;
   replacement: string;
+  priority: number;
 }
 
 export const ACTION_RANK = { allow: 0, redact: 1, require_approval: 2, block: 3 } as const;
 export const CONTENT_BLOCKED_MESSAGE = '内容命中安全策略，已阻止外发';
 const SNIPPET_LENGTH = 160;
+const DEFAULT_REPLACEMENT_PRIORITY = 1;
 
-const SECRET_PATTERNS: ReadonlyArray<{ pattern: RegExp; replacement: string }> = [
-  { pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, replacement: 'Bearer ***' },
-  { pattern: /\bsk-[A-Za-z0-9_-]{10,}\b/g, replacement: '[REDACTED]' },
-  { pattern: /\bghp_[A-Za-z0-9]{20,}\b/g, replacement: '[REDACTED]' },
+const SECRET_PATTERNS: ReadonlyArray<{ pattern: RegExp; replacement: string; priority: number }> = [
+  { pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, replacement: 'Bearer ***', priority: 0 },
+  { pattern: /\bsk-[A-Za-z0-9_-]{10,}\b/g, replacement: '[REDACTED]', priority: 1 },
+  { pattern: /\bghp_[A-Za-z0-9]{20,}\b/g, replacement: '[REDACTED]', priority: 1 },
 ];
 
 const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})?/g;
@@ -52,12 +54,17 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function patternSpans(pattern: RegExp, text: string, replacement: string): Span[] {
+function patternSpans(
+  pattern: RegExp,
+  text: string,
+  replacement: string,
+  priority = DEFAULT_REPLACEMENT_PRIORITY,
+): Span[] {
   const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
   return [...text.matchAll(new RegExp(pattern.source, flags))].flatMap((match) =>
     match[0].length === 0 || match.index === undefined
       ? []
-      : [{ start: match.index, end: match.index + match[0].length, replacement }],
+      : [{ start: match.index, end: match.index + match[0].length, replacement, priority }],
   );
 }
 
@@ -75,8 +82,8 @@ function policySpans(policy: ContentPolicyRule, text: string): Span[] {
         '[REDACTED]',
       );
     case 'secret':
-      return SECRET_PATTERNS.flatMap(({ pattern, replacement }) =>
-        patternSpans(pattern, text, replacement),
+      return SECRET_PATTERNS.flatMap(({ pattern, replacement, priority }) =>
+        patternSpans(pattern, text, replacement, priority),
       );
     case 'pii': {
       const spans = PII_PATTERNS.flatMap((pattern) => patternSpans(pattern, text, '[REDACTED]'));
@@ -86,6 +93,7 @@ function policySpans(policy: ContentPolicyRule, text: string): Span[] {
             start: match.index,
             end: match.index + match[0].length,
             replacement: '[REDACTED]',
+            priority: DEFAULT_REPLACEMENT_PRIORITY,
           });
         }
       }
@@ -100,7 +108,10 @@ function applySpans(text: string, spans: Span[]): string {
     const last = merged[merged.length - 1];
     if (last !== undefined && span.start < last.end) {
       last.end = Math.max(last.end, span.end);
-      if (span.replacement !== 'Bearer ***') last.replacement = span.replacement;
+      if (span.priority >= last.priority) {
+        last.replacement = span.replacement;
+        last.priority = span.priority;
+      }
     } else {
       merged.push({ ...span });
     }
@@ -116,24 +127,7 @@ function applySpans(text: string, spans: Span[]): string {
 
 function digestOf(spans: Span[], text: string): string {
   const matched = spans.map((span) => text.slice(span.start, span.end)).sort();
-  return new Bun.CryptoHasher('sha256').update(matched.join('\n')).digest('hex').slice(0, 32);
-}
-
-type ProviderRoute = { id: string; baseUrl: string };
-
-export const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com';
-
-export function envProviderDestination(baseUrl?: string) {
-  return { id: 'env' as const, baseUrl: baseUrl || ANTHROPIC_DEFAULT_BASE_URL };
-}
-
-export function providerRouteDestination(provider: ProviderRoute): string {
-  const digest = new Bun.CryptoHasher('sha256').update(provider.baseUrl).digest('hex').slice(0, 16);
-  return `provider:${provider.id}:${digest}`;
-}
-
-export function providerRouteMatches(destination: string, provider: ProviderRoute): boolean {
-  return destination === providerRouteDestination(provider);
+  return sha256Hex(matched.join('\n')).slice(0, 32);
 }
 
 export function evaluateContentPolicy(input: {

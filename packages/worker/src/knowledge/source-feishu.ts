@@ -483,7 +483,6 @@ function waitForExportPoll(signal: AbortSignal | undefined): Promise<void> {
   });
 }
 
-/** 下载响应里的真实文件名；`filename*=`（RFC 5987）优先于普通 `filename=`。 */
 function dispositionFilename(disposition: string | null): string | undefined {
   if (!disposition) return undefined;
   const extended = /filename\*\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(disposition);
@@ -533,10 +532,6 @@ function withFormatExtension(title: string, extension: string): string {
   return `${current ? title.slice(0, -current.length) : title}.${extension}`;
 }
 
-/**
- * Lark 在线文档导出：POST 建任务拿 ticket，轮询 ticket 拿 file_token，再按 file_token 下载。
- * ticket 与 file_token 是不同标识，不能拿其中一个当另一个。
- */
 async function exportFeishuFile(
   auth: FeishuAuth,
   objToken: string,

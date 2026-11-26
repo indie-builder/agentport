@@ -1,14 +1,10 @@
 import { channelHandoffInputSchema } from '@agentport/shared';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
-import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
-import { useChannelHandoff } from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
-import { useZodForm } from '../../lib/use-zod-form.js';
-import { DialogShell } from '../dialog-shell.js';
-import { Button } from '../ui/button.js';
-import { Dialog } from '../ui/dialog.js';
-import { Field, FieldError, FieldLabel } from '../ui/field.js';
+import { DialogShell } from '../../components/dialog-shell.js';
+import { Button } from '../../components/ui/button.js';
+import { Dialog } from '../../components/ui/dialog.js';
+import { Field, FieldError, FieldLabel } from '../../components/ui/field.js';
 import {
   Select,
   SelectContent,
@@ -16,8 +12,12 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../ui/select.js';
-import { Textarea } from '../ui/textarea.js';
+} from '../../components/ui/select.js';
+import { Textarea } from '../../components/ui/textarea.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
+import { useChannelHandoff } from '../../lib/queries.js';
+import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useZodForm } from '../../lib/use-zod-form.js';
 
 const handoffSchema = z.object({
   targetAgentId: z.string().min(1, '请选择目标智能体'),

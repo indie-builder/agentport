@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { fail, notFound } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   DEFAULT_MEMORY_POLICY,
@@ -20,14 +20,6 @@ import {
 } from '@agentport/shared';
 import type { SQL } from 'bun';
 import { and, eq } from 'drizzle-orm';
-import { requireAgentSlug } from '../../lib/agent-slug.js';
-import {
-  deleteMemoryFile,
-  readMemoryFile,
-  readMemoryFileBytes,
-  restoreMemoryFile,
-  writeMemoryFile,
-} from '../agents/memory-files.js';
 import {
   type AgentMemoryTarget,
   bufferSha256,
@@ -38,12 +30,25 @@ import {
   writeMemoryJournal,
 } from './journal.js';
 import { recordMemoryChange } from './ledger.js';
+import {
+  deleteMemoryFile,
+  readMemoryFile,
+  readMemoryFileBytes,
+  restoreMemoryFile,
+  writeMemoryFile,
+} from './memory-files.js';
 import { countMemoryTopics } from './overview.js';
 import {
   type MemoryWriteLogger,
   readPersonalMemory,
   writePersonalMemoryLocked,
 } from './personal.js';
+
+async function requireAgentSlug(db: Database, agentId: string): Promise<string> {
+  const slug = await repo.agents.findAgentSlug(db, agentId);
+  if (slug === null) notFound('agent');
+  return slug;
+}
 
 async function assertNoActiveRun(db: Database, agentId: string): Promise<void> {
   const [target] = await db

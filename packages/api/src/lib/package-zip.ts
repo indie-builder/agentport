@@ -44,6 +44,7 @@ export function invalid(message: string, path?: string): never {
 
 export const PACKAGE_PATH_SEGMENT_MESSAGE = '包内路径不能包含空段、. 或 ..';
 export const ZIP_CORRUPT_MESSAGE = 'ZIP 内容损坏，无法解压';
+export const ZIP_CONTENT_TYPE_MESSAGE = '不支持的 Content-Type，请使用 application/zip';
 
 export function assertPackagePath(path: string): void {
   if (path.length === 0 || path.length > MAX_PATH_LENGTH) {
@@ -496,4 +497,20 @@ export async function decodePackage(data: Buffer): Promise<Map<string, string>> 
   return new Map(
     [...(await decodePackageEntries(data))].map(([path, entry]) => [path, entry.content]),
   );
+}
+
+export async function readZipUpload(
+  request: Request,
+  fallbackMessage: string,
+): Promise<Map<string, PackageEntry>> {
+  if (
+    request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/zip'
+  ) {
+    fail('UNSUPPORTED_MEDIA_TYPE', ZIP_CONTENT_TYPE_MESSAGE);
+  }
+  try {
+    return await decodePackageEntries(Buffer.from(await request.arrayBuffer()));
+  } catch (error) {
+    fail('INVALID_INPUT', error instanceof Error ? error.message : fallbackMessage);
+  }
 }

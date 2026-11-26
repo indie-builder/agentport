@@ -16,7 +16,6 @@ import { testAccess } from './fixtures/access.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const { TEST_BUSINESS_ID } = testAccess(import.meta.url);
-let caseSequence = 0;
 
 const mocks = (() => ({
   sdkFailure: 'throw' as 'throw' | 'abort',
@@ -200,6 +199,13 @@ describe.skipIf(isolated === null)('run runtime environment identity persistence
   const logger = pino({ level: 'silent' });
   const sandboxClosing = new AbortController();
   const sessionSandboxes = {} as SessionSandboxes;
+  const stubModelProxy = {
+    url: 'http://host.docker.internal:0',
+    localUrl: 'http://127.0.0.1:0',
+    issueToken: (runId: string) => runId,
+    revokeToken: () => undefined,
+    close: async () => undefined,
+  };
 
   async function runJob(job: {
     data: { runId: string; agentId: string; conversationId: string; prompt: string };
@@ -216,7 +222,7 @@ describe.skipIf(isolated === null)('run runtime environment identity persistence
       sandboxApiUrl: config.SANDBOX_API_URL,
       sandboxClosing,
       sessionSandboxes,
-      modelProxy: null,
+      modelProxy: stubModelProxy,
       denyQueuedRun,
       loadAgentPlugins,
       writeWorkspace,
@@ -237,7 +243,7 @@ describe.skipIf(isolated === null)('run runtime environment identity persistence
     });
     loadAgentPlugins = createLoadAgentPlugins(db, logger);
     writeWorkspace = createWorkspaceAssembly({ db, workspacesDir: workdir, logger });
-    sandboxEnv = createSandboxEnvFactory(config, null);
+    sandboxEnv = createSandboxEnvFactory(config, stubModelProxy);
   });
 
   beforeEach(() => {
@@ -1100,7 +1106,8 @@ describe.skipIf(isolated === null)('run runtime environment identity persistence
                     return true;
                   });
                   try {
-                    await import(`../../sandbox/src/runner.js?case=${caseSequence++}`);
+                    const { runRunner } = await import('../../sandbox/src/runner.js');
+                    await runRunner();
                   } finally {
                     stdout.mockRestore();
                     for (const key of Object.keys(env)) {

@@ -154,7 +154,6 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 
 const USER_UUID = '11111111-2222-4333-8444-555555555555';
-let caseSequence = 0;
 
 interface Event {
   type: string;
@@ -195,6 +194,7 @@ async function run(
       maxTurns: 2,
       maxBudgetUsd: 1,
       userMessageUuid: USER_UUID,
+      ...(init.channel === true ? { tokenAccounting: 'channel' } : {}),
       ...task,
     }),
   );
@@ -209,9 +209,6 @@ async function run(
   io.abortWithResult = init.abortWithResult ?? false;
   io.throwAfterMessages = init.throwAfterMessages ?? false;
   io.closed = false;
-  const previousTrigger = process.env.PACE_RUN_TRIGGER;
-  if (init.channel === true) process.env.PACE_RUN_TRIGGER = 'channel';
-  else delete process.env.PACE_RUN_TRIGGER;
   const events: Event[] = [];
   let stderr = '';
   const stdout = spyOn(process.stdout, 'write').mockImplementation((chunk) => {
@@ -223,12 +220,11 @@ async function run(
     return true;
   });
   try {
-    await import(`../src/runner.js?case=${caseSequence++}`);
+    const { runRunner } = await import('../src/runner.js');
+    await runRunner();
   } finally {
     stdout.mockRestore();
     stderrSpy.mockRestore();
-    if (previousTrigger === undefined) delete process.env.PACE_RUN_TRIGGER;
-    else process.env.PACE_RUN_TRIGGER = previousTrigger;
   }
   return { events, stderr };
 }

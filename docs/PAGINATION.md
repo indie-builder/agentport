@@ -115,7 +115,7 @@ requireCursorPage(page)    // page 为 null 时调用 invalidCursor()
 
 ## 6. Web 规则
 
-- 无限列表统一用 `packages/web/src/lib/queries/shared.ts` 的 `useCursorList`；它把 `nextCursor` 映射为 `getNextPageParam`，`null` 表示结束。
+- 无限列表统一用 `packages/web/src/lib/queries/client.ts` 的 `useCursorList`；它把 `nextCursor` 映射为 `getNextPageParam`，`null` 表示结束。
 - query key 必须包含全部筛选条件与页大小；切换筛选就是新的列表，不能复用旧游标。
 - 列表尾部提供「加载更多」；需要连续消费时用 `useDrainPages`。禁止在前端 `.slice()` 静默截断。
 - 接口返回 `truncated` 时必须在界面显示说明（如 `PageNote` 或 toast），不能当作完整结果。

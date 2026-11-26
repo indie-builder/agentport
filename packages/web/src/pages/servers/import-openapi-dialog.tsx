@@ -1,18 +1,25 @@
 import type { Server } from '@agentport/shared';
 import { CircleAlert, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
+import { DialogShell } from '../../components/dialog-shell.js';
+import { Badge } from '../../components/ui/badge.js';
+import { Button } from '../../components/ui/button.js';
+import { Checkbox } from '../../components/ui/checkbox.js';
+import { Dialog } from '../../components/ui/dialog.js';
+import { Field, FieldDescription, FieldLabel } from '../../components/ui/field.js';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table.js';
+import { Textarea } from '../../components/ui/textarea.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { errorMessage } from '../../lib/orpc.js';
 import { useImportOpenApi, usePreviewOpenApi } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
-import { DialogShell } from '../dialog-shell.js';
-import { Badge } from '../ui/badge.js';
-import { Button } from '../ui/button.js';
-import { Checkbox } from '../ui/checkbox.js';
-import { Dialog } from '../ui/dialog.js';
-import { Field, FieldDescription, FieldLabel } from '../ui/field.js';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.js';
-import { Textarea } from '../ui/textarea.js';
 
 export function ImportOpenApiDialog({
   server,

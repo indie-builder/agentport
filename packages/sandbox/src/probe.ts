@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type { Readable } from 'node:stream';
 import {
   errorText,
@@ -57,14 +58,26 @@ async function probe(task: { command: string; args: string[]; env: Record<string
   }
 }
 
-try {
-  const parsed = sandboxProbeTaskSchema.safeParse(await readTask('probe task'));
-  if (!parsed.success) throw new Error('试连任务格式无效');
-  const { version, listed } = await probe(parsed.data);
-  const tools = limitToolCatalog(listed.tools);
-  emit({ ok: true, ...(version ? { serverInfo: version } : {}), tools });
-} catch (err) {
-  const message = errorText(err);
-  log(`probe failed: ${message}`);
-  emit({ ok: false, tools: [], error: message });
+export async function runProbe(): Promise<void> {
+  try {
+    const parsed = sandboxProbeTaskSchema.safeParse(await readTask('probe task'));
+    if (!parsed.success) throw new Error('试连任务格式无效');
+    const { version, listed } = await probe(parsed.data);
+    const tools = limitToolCatalog(listed.tools);
+    emit({ ok: true, ...(version ? { serverInfo: version } : {}), tools });
+  } catch (err) {
+    const message = errorText(err);
+    log(`probe failed: ${message}`);
+    emit({ ok: false, tools: [], error: message });
+  }
+}
+
+function isEntryPoint(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  return resolve(entry) === Bun.fileURLToPath(import.meta.url);
+}
+
+if (isEntryPoint()) {
+  await runProbe();
 }

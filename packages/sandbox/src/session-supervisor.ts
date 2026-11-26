@@ -3,9 +3,12 @@ import { resolve } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import {
   chatEventSchema,
+  createNdjsonReader,
   type ExecutionSettlement,
   errorText,
+  type NdjsonReader as LineReader,
   type SandboxInputCommand,
+  SUPERVISOR_CANCEL_GRACE_MS,
   SUPERVISOR_INPUT_MAX_BYTES,
   type SupervisorInput,
   type SupervisorOutput,
@@ -21,7 +24,7 @@ interface SupervisorOptions {
   signal?: AbortSignal;
 }
 
-const DEFAULT_GRACE_MS = 5_000;
+const DEFAULT_GRACE_MS = SUPERVISOR_CANCEL_GRACE_MS;
 const START_DECISION_MS = 1_000;
 const POLL_MS = 50;
 
@@ -65,14 +68,10 @@ interface NdjsonReaderOptions {
 
 class NdjsonReader {
   private readonly lines: string[] = [];
-  private pending = '';
-  private pendingBytes = 0;
-  private discarding = false;
+  private readonly parser: LineReader;
   private ended = false;
   private closed = false;
   private waiter: (() => void) | undefined;
-  private readonly maxBytes: number;
-  private readonly onOverflow: ((maxBytes: number) => void) | undefined;
   private readonly cancel: (() => void) | undefined;
 
   constructor(
@@ -80,9 +79,22 @@ class NdjsonReader {
     maxBytes: number,
     options: NdjsonReaderOptions = {},
   ) {
-    this.maxBytes = maxBytes;
-    this.onOverflow = options.onOverflow;
     this.cancel = options.cancel;
+    this.parser = createNdjsonReader({
+      maxBytes,
+      onLine: (line) => {
+        if (this.closed) return;
+        this.lines.push(line);
+        this.wake();
+      },
+      ...(options.onOverflow === undefined
+        ? {}
+        : {
+            onOversize: (limit) => {
+              if (!this.closed) options.onOverflow?.(limit);
+            },
+          }),
+    });
     void this.pump(input);
     const signal = options.signal;
     if (signal !== undefined) {
@@ -96,9 +108,11 @@ class NdjsonReader {
     try {
       for await (const chunk of input) {
         if (this.closed) continue;
-        this.push(typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }));
+        this.parser.push(
+          typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }),
+        );
       }
-      if (!this.closed) this.push(decoder.decode());
+      if (!this.closed) this.parser.push(decoder.decode());
     } catch {}
     this.finish();
   }
@@ -118,58 +132,8 @@ class NdjsonReader {
     if (this.closed) return;
     this.closed = true;
     this.lines.length = 0;
-    this.pending = '';
-    this.pendingBytes = 0;
     this.cancel?.();
     this.finish();
-  }
-
-  private push(chunk: string): void {
-    if (this.closed) return;
-    let start = 0;
-    while (start < chunk.length && !this.closed) {
-      const newline = chunk.indexOf('\n', start);
-      if (newline === -1) {
-        this.append(chunk.slice(start));
-        return;
-      }
-      const piece = chunk.slice(start, newline);
-      start = newline + 1;
-      if (this.discarding) {
-        this.discarding = false;
-        this.pending = '';
-        this.pendingBytes = 0;
-        continue;
-      }
-      const line = this.pending + piece;
-      this.pending = '';
-      this.pendingBytes = 0;
-      if (Buffer.byteLength(line) > this.maxBytes) {
-        this.overflow();
-        continue;
-      }
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      this.lines.push(trimmed);
-      this.wake();
-    }
-  }
-
-  private append(piece: string): void {
-    if (this.discarding) return;
-    this.pendingBytes += Buffer.byteLength(piece);
-    if (this.pendingBytes > this.maxBytes) {
-      this.discarding = true;
-      this.pending = '';
-      this.pendingBytes = 0;
-      this.overflow();
-      return;
-    }
-    this.pending += piece;
-  }
-
-  private overflow(): void {
-    this.onOverflow?.(this.maxBytes);
   }
 
   private finish(): void {

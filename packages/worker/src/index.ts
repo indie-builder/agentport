@@ -160,14 +160,9 @@ const modelProxy = await startModelProxy({
     repo.modelProviders.markRunServedProvider(db, runId, providerId),
   recordProviderResult: (result) => repo.modelProviders.recordProviderRequest(db, result),
 });
+if (!modelProxy) throw new Error('model proxy failed to start');
 const sandboxEnv = createSandboxEnvFactory(config, modelProxy);
-if (modelProxy) {
-  logger.info('model credentials stay in the worker; sandbox gets a per-run proxy token');
-} else {
-  logger.warn(
-    'model proxy disabled (no credential configured); sandbox receives the real model credential',
-  );
-}
+logger.info('model credentials stay in the worker; sandbox gets a per-run proxy token');
 
 async function sweepStaleWorkspaces(): Promise<number> {
   const liveRuns = await db
@@ -547,7 +542,7 @@ const shutdown = async (): Promise<void> => {
     ],
     finalSteps: [
       { label: 'eval queue', close: () => closeEvalRunQueue() },
-      { label: 'model proxy', close: () => modelProxy?.close() ?? Promise.resolve() },
+      { label: 'model proxy', close: () => modelProxy.close() },
       { label: 'runner client', close: () => closeRunnerClient() },
     ],
     database: {

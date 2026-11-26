@@ -9,10 +9,10 @@ import { ZodToJsonSchemaConverter } from '@orpc/zod/zod4';
 import { Scalar } from '@scalar/hono-api-reference';
 import type { Hono } from 'hono';
 import { z } from 'zod';
-import { type HttpEnv, requestContext } from '../http/context.js';
-import { access } from '../http/middleware.js';
-import { nativeOpenAPISchemas } from '../http/native-openapi.js';
 import { AUTH_COOKIE } from '../modules/auth/types.js';
+import { type HttpEnv, requestContext } from './context.js';
+import { access } from './middleware.js';
+import { nativeOpenAPISchemas } from './native-openapi.js';
 
 const { version }: { version: string } = await Bun.file(
   new URL('../../../../package.json', import.meta.url),

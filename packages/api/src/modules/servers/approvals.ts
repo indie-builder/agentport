@@ -1,8 +1,7 @@
 import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { AppContext } from '../../http/context.js';
-import { isRunCancelRequested } from '../../queue/producer.js';
-import { publishChannelEventSafely } from '../channels/publish.js';
+import { isRunCancelRequested, publishChannelEventSafely } from '../../queue/producer.js';
 import { evaluateLockedApproval, getRunApprovalTool } from './approval-policy.js';
 import { summarizeToolArguments } from './tool-arguments.js';
 

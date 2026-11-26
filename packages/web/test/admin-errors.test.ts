@@ -87,7 +87,7 @@ beforeEach(() => {
         name: 'Completed case',
         prompt: 'Say hello',
         expectation: 'Hello',
-        passed: true,
+        passed: false,
         output: 'Hello from completed case',
         runId: null,
       },

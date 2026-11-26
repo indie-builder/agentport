@@ -81,6 +81,7 @@ test('eval dataset export downloads the seeded golden file', { session: 'admin' 
     await createCase(browser, agent.id, 'golden beta');
 
     await openEval(browser, agent.id);
+    await screen.getByRole('tab', '用例集').tap();
     await expect(screen.getByText('golden alpha', { exact: true }).first()).toBeVisible();
     await expect(screen.getByText('golden beta', { exact: true }).first()).toBeVisible();
 

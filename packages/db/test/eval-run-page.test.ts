@@ -1,18 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { AccessFilter } from '@agentport/shared';
 import { inArray } from 'drizzle-orm';
-import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as evalRepo from '../src/repo/eval.js';
 import { agents } from '../src/schema.js';
+import { probeTestDb } from './db-probe.js';
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error('请通过 bun run test 注入隔离的 DATABASE_URL');
-const { db, client } = createDb(url);
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
+const { db, client, ready } = await probeTestDb();
 const businessId = 'eval-page-owner';
 const access: AccessFilter = { businessId, scopes: ['owned_agents'] };
 

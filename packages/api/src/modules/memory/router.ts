@@ -1,5 +1,5 @@
 import { memoryContract } from '@agentport/contract/memory';
-import { AGENT_SELECTION_MISSING_MESSAGE, fail } from '@agentport/core';
+import { AGENT_SELECTION_MISSING_MESSAGE, fail, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import {
   INDEX_FILE_NAME,
@@ -13,10 +13,15 @@ import { and, eq } from 'drizzle-orm';
 import { authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
-import { requireAgentSlug } from '../../lib/agent-slug.js';
 import { writeMemoryTarget } from './changes.js';
 import { buildMemoryAssembly, buildMemoryOverview, countMemoryTopics } from './overview.js';
 import { listPersonalMemoryVersions, readPersonalMemory, writePersonalMemory } from './personal.js';
+
+async function requireAgentSlug(db: RequestContext['db'], agentId: string): Promise<string> {
+  const slug = await repo.agents.findAgentSlug(db, agentId);
+  if (slug === null) notFound('agent');
+  return slug;
+}
 
 const os = implement(memoryContract).$context<RequestContext>();
 

@@ -276,7 +276,6 @@ export function AgentEditor({
   const pluginCapabilities = new Map(
     (plugins.data ?? []).map((plugin) => [plugin.id, plugin.capabilities]),
   );
-  // 绑定来源路由后，navigate 的 current 只含本路由 search，不会被其他路由的联合类型污染。
   const navigate = useNavigate({ from: '/agents/$agentId' });
   const search = useSearch({ from: '/_shell/agents/$agentId' });
   const [serverAnchor, setServerAnchor] = useState<HTMLDivElement | null>(null);

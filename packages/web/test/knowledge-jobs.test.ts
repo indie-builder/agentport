@@ -166,6 +166,7 @@ describe('knowledge batch actions', () => {
       if (!item) throw new Error(`Missing selection: ${label}`);
       return item;
     };
+    await waitFor(() => document.querySelector('[aria-label="选择 上线流程"]') !== null);
     await click(selectRow('选择 上线流程'));
     await click(selectRow('选择 部署流程'));
     expect(document.body.textContent).toContain('已选 2 个');

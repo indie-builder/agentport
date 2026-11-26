@@ -1,7 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import { publishCurrent } from '../src/repo/agent-definitions.js';
 import * as agentVersionsRepo from '../src/repo/agent-versions.js';
@@ -14,13 +13,9 @@ import {
 } from '../src/repo/agents.js';
 import * as repo from '../src/repo/runtime-environments.js';
 import { agents, runtimeEnvironments, runtimeEnvironmentVersions } from '../src/schema.js';
+import { probeTestDb } from './db-probe.js';
 
-const url = process.env.DATABASE_URL ?? 'postgres://unreachable@127.0.0.1:1/unavailable';
-const { db, client } = createDb(url);
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
+const { db, client, ready } = await probeTestDb();
 
 describe.skipIf(!ready)('runtime environment repo', () => {
   const environmentIds: string[] = [];

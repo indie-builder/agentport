@@ -283,7 +283,7 @@ describe('evaluation run detail refresh feedback', () => {
       expect(container.textContent).not.toContain('本次评估没有未通过的用例。');
     });
     expect(new URLSearchParams(window.location.search).has('failedOnly')).toBe(false);
-    expect(container.querySelector('[aria-pressed="true"]')).toBeNull();
+    expect(container.textContent).not.toContain('显示全部');
 
     await openRun(finishedRun.id);
     await actWaitFor(() => {
@@ -325,6 +325,7 @@ describe('evaluation run detail refresh feedback', () => {
     expect(summary()).toContain('无记录 1');
     expect(summary()).toContain('通过 1');
     expect(container.textContent).toContain('当前用例可能继续执行；停止后不再开始后续用例。');
+    await click('通过Result One');
     await click('内容过大，点击查看');
     expect((container.querySelector('pre')?.textContent ?? '').length).toBeGreaterThan(64 * 1024);
 
@@ -348,6 +349,8 @@ describe('evaluation run detail refresh feedback', () => {
     );
     await flush();
 
+    await actWaitFor(() => expect(container.textContent).toContain('Result Two'));
+    await click('通过Result Two');
     await actWaitFor(() => expect(container.textContent).toContain('新输出'));
     expect(container.textContent).not.toContain('刷新失败，内容仍是上次结果');
     expect(button('导出结果').disabled).toBe(false);
@@ -373,6 +376,8 @@ describe('evaluation run detail refresh feedback', () => {
 
     failing = false;
     await click('重试');
+    await actWaitFor(() => expect(container.textContent).toContain('Result One'));
+    await click('通过Result One');
     await actWaitFor(() => expect(container.textContent).toContain('恢复输出'));
     expect(container.textContent).not.toContain('内容没有加载出来');
   });
@@ -424,6 +429,7 @@ describe('evaluation run detail refresh feedback', () => {
     expect(summary).toContain('无记录 1');
     expect(container.textContent).toContain('评估失败');
     expect(container.textContent).toContain('Surviving Case');
+    await click('通过Surviving Case');
     expect(container.textContent).toContain('保留输出');
   });
 });

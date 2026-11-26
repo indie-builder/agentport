@@ -6,7 +6,7 @@ import { requestBodyLimit } from '../../http/body-limit.js';
 import type { HttpEnv } from '../../http/context.js';
 import { ACCOUNT_DISABLED_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { requireTrustedOrigin } from './origin.js';
+import { requireTrustedOrigin } from '../../http/origin.js';
 import {
   forwardSetCookie,
   issuedCookie,

@@ -10,12 +10,8 @@ import {
   type RunQuery,
   type SubmitRunFeedback,
 } from '../api.js';
-import {
-  mergeRunQuestions,
-  useCursorList,
-  useRefetchWhenRunEnds,
-  withRunQuestion,
-} from './shared.js';
+import { useCursorList } from './client.js';
+import { mergeRunQuestions, useRefetchWhenRunEnds, withRunQuestion } from './run-questions.js';
 
 export const runKeys = {
   all: ['runs'] as const,

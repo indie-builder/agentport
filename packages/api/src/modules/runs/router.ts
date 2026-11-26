@@ -1,7 +1,6 @@
 import { runsContract } from '@agentport/contract/runs';
 import { buildSkillDraft, fail, isAppError, notFound } from '@agentport/core';
 import { repo } from '@agentport/db';
-import { runStatusSchema, runTriggerSchema } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
 import { z } from 'zod';
@@ -11,8 +10,8 @@ import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { isPgCode, RUN_NOT_FOUND_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
+import { runExportQuerySchema } from '../../http/native-schemas.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
-import { agentSlug } from '../../lib/agent-slug.js';
 import { toIso } from '../../lib/iso.js';
 import { readWorkspaceOutput } from '../../lib/outputs.js';
 import { recheckRunApproval } from '../servers/approval-policy.js';
@@ -102,7 +101,7 @@ const runsMainRouter = {
     const outputPath = input.body.outputPath ?? null;
     let outputSha256: string | null = null;
     if (outputPath !== null) {
-      const slug = await agentSlug(context.db, run.agentId);
+      const slug = await repo.agents.findAgentSlug(context.db, run.agentId);
       if (slug === null) return fail('INVALID_INPUT', '验收成果不存在或不属于该运行');
       try {
         const { file } = await readWorkspaceOutput(context, {
@@ -230,13 +229,6 @@ const runsMainRouter = {
     }
   }),
 };
-export const runExportQuerySchema = z.object({
-  agentId: z.string().min(1).optional(),
-  status: runStatusSchema.optional(),
-  trigger: runTriggerSchema.optional(),
-  since: z.iso.datetime().optional(),
-  limit: z.coerce.number().int().min(1).max(1000).default(1000),
-});
 
 export function registerRunExportHttp(app: Hono<HttpEnv>): void {
   app.get(

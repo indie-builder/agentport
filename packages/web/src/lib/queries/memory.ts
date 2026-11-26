@@ -13,7 +13,7 @@ import type {
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { agentKeys } from './agents.js';
-import { useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
 
 export const agentMemoryKeys = {
   list: (...ids: [] | [string]) => ['agent-memory', ...ids] as const,

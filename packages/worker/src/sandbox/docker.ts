@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { CONFIG_CONTAINER_DIR, WORKSPACE_CONTAINER_DIR } from '@agentport/shared';
+import { dockerHardeningArgs, readChunks, runDockerProcess } from './docker-cli.js';
 import {
   type Sandbox,
   SandboxCleanupError,
@@ -51,63 +52,15 @@ interface CommandResult {
 
 const OUTPUT_TAIL = 4_000;
 
-function readChunks(
-  stream: ReadableStream<Uint8Array>,
-  onChunk: (chunk: string) => void,
-): Promise<void> {
-  const decoder = new TextDecoder();
-  return (async () => {
-    for await (const chunk of stream) {
-      const text = decoder.decode(chunk, { stream: true });
-      if (text !== '') onChunk(text);
-    }
-    const rest = decoder.decode();
-    if (rest !== '') onChunk(rest);
-  })();
-}
-
-function runDockerCommand(args: string[], timeoutMs?: number): Promise<CommandResult> {
-  return new Promise<CommandResult>((resolveCommand, reject) => {
-    const proc = Bun.spawn(['docker', ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    const timer =
-      timeoutMs === undefined
-        ? undefined
-        : setTimeout(() => {
-            proc.kill('SIGKILL');
-            reject(new Error(`docker ${args[0] ?? 'command'} timed out after ${timeoutMs}ms`));
-          }, timeoutMs);
-    const clear = (): void => {
-      if (timer !== undefined) clearTimeout(timer);
-    };
-    Promise.all([
-      readChunks(proc.stdout, (chunk) => {
-        stdout = (stdout + chunk).slice(-OUTPUT_TAIL);
-      }),
-      readChunks(proc.stderr, (chunk) => {
-        stderr = (stderr + chunk).slice(-OUTPUT_TAIL);
-      }),
-      proc.exited,
-    ]).then(
-      ([, , exitCode]) => {
-        clear();
-        const code = proc.signalCode === null ? exitCode : null;
-        const ok = code === 0;
-        // Docker CLI 对不存在的容器/对象/镜像固定报 "No such ..."；其他非 0 不能当成已清理。
-        resolveCommand({
-          ok,
-          missing: !ok && /no such (container|object|image)/i.test(stderr),
-          stdout,
-          stderr,
-        });
-      },
-      (err) => {
-        clear();
-        reject(err);
-      },
-    );
-  });
+async function runDockerCommand(args: string[], timeoutMs?: number): Promise<CommandResult> {
+  const result = await runDockerProcess({ args, tailLimit: OUTPUT_TAIL, timeoutMs });
+  const ok = result.code === 0;
+  return {
+    ok,
+    missing: !ok && /no such (container|object|image)/i.test(result.stderr),
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
 }
 
 /**
@@ -131,27 +84,11 @@ export async function resolveLocalImageId(image: string): Promise<string | null>
   throw new Error(`docker image inspect ${image} failed${errorDetail(inspected.stderr)}`);
 }
 
-/**
- * 只读根文件系统 + tmpfs：Agent SDK 会写 /tmp 与 ~/.claude 的缓存。
- * `/home/node/.claude` 只有在调用方没有挂持久目录时才用 tmpfs：
- * Docker 不允许同一容器路径同时挂 tmpfs 与 bind mount（Duplicate mount point）。
- */
 function readOnlyArgs(extraMounts: SandboxCreateOptions['extraMounts']): string[] {
   const configDirMounted = (extraMounts ?? []).some(
     (mount) => resolve(mount.containerPath) === CONFIG_CONTAINER_DIR,
   );
-  return [
-    '--read-only',
-    '--tmpfs',
-    '/tmp:rw,noexec,nosuid,size=64m',
-    ...(configDirMounted
-      ? []
-      : ['--tmpfs', `${CONFIG_CONTAINER_DIR}:rw,noexec,nosuid,size=64m,uid=1000,gid=1000`]),
-    '--cap-drop',
-    'ALL',
-    '--security-opt',
-    'no-new-privileges',
-  ];
+  return dockerHardeningArgs({ mountConfigTmpfs: !configDirMounted });
 }
 
 export class DockerSandboxProvider implements SandboxProvider {
@@ -210,10 +147,6 @@ export class DockerSandboxProvider implements SandboxProvider {
       String(this.options.cpus),
       '--pids-limit',
       String(this.options.pids),
-      '--user',
-      '1000:1000',
-      '--workdir',
-      '/app',
       ...readOnlyArgs(options.extraMounts),
       ...(options.init === true ? ['--init'] : []),
       '-v',

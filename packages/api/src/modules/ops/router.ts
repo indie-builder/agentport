@@ -1,12 +1,7 @@
 import { opsContract } from '@agentport/contract/ops';
 import { fail, notFound } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
-import {
-  describeScheduleCron,
-  RETENTION_DEFAULTS,
-  runEnqueueOptions,
-  utcWindowStart,
-} from '@agentport/shared';
+import { describeScheduleCron, RETENTION_DEFAULTS, utcWindowStart } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
@@ -14,9 +9,8 @@ import type { RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
 import { toIso } from '../../lib/iso.js';
-import { getQueue } from '../../queue/producer.js';
 import { getScheduleQueue } from '../../queue/schedule.js';
-import { failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { enqueueRunOrRollback } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
 import { schedulerNextRun, upsertScheduler } from './schedule-sync.js';
 
@@ -323,46 +317,48 @@ export const opsRouter = os.router({
       if (claimed === 'agent_disabled') fail('CONFLICT', '智能体已停用，无法重试');
       if (claimed === 'budget_exceeded') fail('CONFLICT', '智能体本月预算已用尽，无法重试');
       if (claimed === 'duplicate') fail('CONFLICT', '任务已触发或已停用，请刷新后重试');
-      try {
-        await getQueue().add(
-          'run',
-          {
-            runId,
-            agentId: schedule.agentId,
-            conversationId,
-            prompt: policyDecision.payload,
+      await enqueueRunOrRollback(
+        context,
+        {
+          runId,
+          agentId: schedule.agentId,
+          conversationId,
+          prompt: policyDecision.payload,
+        },
+        {
+          errorMessage: '重试入队失败，请稍后重试',
+          onEnqueueError: (err) => {
+            context.log.warn(
+              { err, runId, scheduleId: schedule.id },
+              'schedule retry enqueue failed',
+            );
           },
-          runEnqueueOptions(runId),
-        );
-      } catch (err) {
-        context.log.warn({ err, runId, scheduleId: schedule.id }, 'schedule retry enqueue failed');
-        const failed = await failQueuedRunEnqueue(context.db, runId);
-        if (failed) {
-          await repo.notifications
-            .createScheduleFailedNotification(context.db, {
-              businessId: schedule.createdBy,
-              scheduleId: schedule.id,
-              runId,
-              title: '定时任务重试失败',
-              body: `定时任务「${schedule.name}」重试入队失败，请稍后重试`,
-            })
-            .catch((notifyErr: unknown) => {
-              context.log.warn(
-                { err: notifyErr, scheduleId: schedule.id, runId },
-                'schedule notification failed',
-              );
+          onRolledBack: async () => {
+            await repo.notifications
+              .createScheduleFailedNotification(context.db, {
+                businessId: schedule.createdBy,
+                scheduleId: schedule.id,
+                runId,
+                title: '定时任务重试失败',
+                body: `定时任务「${schedule.name}」重试入队失败，请稍后重试`,
+              })
+              .catch((notifyErr: unknown) => {
+                context.log.warn(
+                  { err: notifyErr, scheduleId: schedule.id, runId },
+                  'schedule notification failed',
+                );
+              });
+            await repo.audit.writeAudit(context.db, context.log, {
+              actor: actorOf(context),
+              action: 'schedule.retry_failed',
+              target: schedule.id,
+              input: { runId, previousRunId: previous.id },
+              status: 'error',
+              requestId: context.requestId,
             });
-          await repo.audit.writeAudit(context.db, context.log, {
-            actor: actorOf(context),
-            action: 'schedule.retry_failed',
-            target: schedule.id,
-            input: { runId, previousRunId: previous.id },
-            status: 'error',
-            requestId: context.requestId,
-          });
-        }
-        fail('SERVICE_UNAVAILABLE', '重试入队失败，请稍后重试');
-      }
+          },
+        },
+      );
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'schedule.retried',

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, type SQL } from 'drizzle-orm';
 import type { Database } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -7,6 +7,7 @@ import {
   knowledgeSyncItems,
   knowledgeSyncRuns,
 } from '../../schema.js';
+import { lockKnowledgeSyncSource } from '../locks.js';
 import { keysetPage } from '../pagination.js';
 import {
   type KnowledgeJobRow,
@@ -25,7 +26,7 @@ export type CreateSyncJobResult =
 
 export async function createSyncJob(db: Database, sourceId: string): Promise<CreateSyncJobResult> {
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${sourceId}))`);
+    await lockKnowledgeSyncSource(tx, sourceId);
     const [source] = await tx
       .select()
       .from(knowledgeSources)

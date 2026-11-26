@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cursorPageSchema } from './pagination.js';
 import { terminalRunStatusSchema } from './run-state.js';
 
 export const outputStatusSchema = terminalRunStatusSchema;
@@ -67,10 +68,7 @@ export const outputFileSchema = z.object({
 
 export type OutputFile = z.infer<typeof outputFileSchema>;
 
-export const outputListSchema = z.object({
-  items: z.array(outputFileSchema),
-  nextCursor: z.string().nullable(),
-});
+export const outputListSchema = cursorPageSchema(outputFileSchema);
 
 export type OutputList = z.infer<typeof outputListSchema>;
 

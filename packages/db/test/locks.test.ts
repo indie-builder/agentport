@@ -4,13 +4,10 @@ import { sql } from 'drizzle-orm';
 import type { DatabaseClient, DbHandle } from '../src/client.js';
 import { createDb } from '../src/client.js';
 import { withAdvisoryLock } from '../src/repo/locks.js';
+import { probeTestDb } from './db-probe.js';
 
-const { client } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
-const observer = createDb(process.env.DATABASE_URL ?? '');
+const { client, ready, url } = await probeTestDb();
+const observer = createDb(url);
 const testKey = `runtimeB-locks-${crypto.randomUUID()}`;
 
 afterAll(async () => {

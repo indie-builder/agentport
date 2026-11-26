@@ -11,7 +11,7 @@ import {
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AgentsPage } from '../src/pages/agents/index.js';
+import { AgentsPage } from '../src/pages/agents/agents-page.js';
 import { ChatPage } from '../src/pages/chat/index.js';
 import { agentsSearchSchema, chatSearchSchema } from '../src/routes/-search.js';
 

@@ -19,9 +19,10 @@ import {
   platformSettings,
 } from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
+import { isAgentInactive } from './agent-lifecycle.js';
 import { getAgentVersion } from './agent-versions.js';
 import { getAgentServerIds } from './agents.js';
-import { notStale } from './freshness.js';
+import { notStale, touchUpdatedAt } from './freshness.js';
 import { assertRunBudget, getDepartmentIdForBusinessId } from './governance.js';
 import { lockRunResources } from './locks.js';
 import { keysetPage } from './pagination.js';
@@ -94,7 +95,7 @@ export async function updateSchedule(
       ...(patch.missedPolicy === undefined ? {} : { missedPolicy: patch.missedPolicy }),
       ...(patch.prompt === undefined ? {} : { prompt: patch.prompt }),
       ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
-      updatedAt: new Date(),
+      updatedAt: touchUpdatedAt(agentSchedules.updatedAt),
     })
     .where(
       and(
@@ -169,17 +170,24 @@ export interface ScheduleTriggerWrite {
   recordedAt?: number;
 }
 
-export async function claimScheduleTrigger(
+type ScheduleClaimResult = 'claimed' | 'duplicate' | 'agent_disabled' | 'budget_exceeded';
+
+async function admitScheduleRun(
   db: Database,
-  input: ScheduleTriggerWrite,
-): Promise<'claimed' | 'duplicate' | 'agent_disabled' | 'budget_exceeded'> {
+  input: ({ mode: 'trigger' } & ScheduleTriggerWrite) | ({ mode: 'retry' } & ScheduleRetryWrite),
+): Promise<ScheduleClaimResult> {
   return db.transaction(async (tx) => {
     const [owner] = await tx
       .select({ agentId: agentSchedules.agentId })
       .from(agentSchedules)
-      .where(eq(agentSchedules.id, input.scheduleId))
+      .where(
+        input.mode === 'retry'
+          ? and(eq(agentSchedules.id, input.scheduleId), eq(agentSchedules.enabled, true))
+          : eq(agentSchedules.id, input.scheduleId),
+      )
       .limit(1);
     if (!owner) return 'duplicate';
+
     const [pre] = await tx
       .select({ publishedVersion: agents.publishedVersion })
       .from(agents)
@@ -194,34 +202,65 @@ export async function claimScheduleTrigger(
     const [agent] = await tx
       .select({
         enabled: agents.enabled,
+        archivedAt: agents.archivedAt,
+        deletedAt: agents.deletedAt,
         model: agents.model,
+        publishedVersion: agents.publishedVersion,
       })
       .from(agents)
       .where(eq(agents.id, owner.agentId))
       .limit(1);
-    if (!agent?.enabled) return 'agent_disabled';
 
-    const claimedAt = new Date(input.triggerAt);
-    const claimedAtIso = claimedAt.toISOString();
-    const claimed = await tx
-      .update(agentSchedules)
-      .set({ lastRunAt: new Date(input.recordedAt ?? input.triggerAt) })
-      .where(
-        and(
-          eq(agentSchedules.id, input.scheduleId),
-          eq(agentSchedules.enabled, true),
-          sql`(${agentSchedules.lastRunAt} is null or ${agentSchedules.lastRunAt} < ${claimedAtIso})`,
-        ),
-      )
-      .returning();
-    const schedule = claimed[0];
-    if (!schedule) return 'duplicate';
+    let schedule: { agentId: string; name: string; executeAsBusinessId: string };
+    if (input.mode === 'retry') {
+      const [lockedSchedule] = await tx
+        .select({
+          agentId: agentSchedules.agentId,
+          name: agentSchedules.name,
+          executeAsBusinessId: agentSchedules.executeAsBusinessId,
+        })
+        .from(agentSchedules)
+        .where(and(eq(agentSchedules.id, input.scheduleId), eq(agentSchedules.enabled, true)))
+        .limit(1)
+        .for('share');
+      if (!lockedSchedule) return 'duplicate';
+      if (!agent || isAgentInactive(agent) || !agent.enabled) return 'agent_disabled';
+      schedule = lockedSchedule;
+    } else {
+      if (!agent || isAgentInactive(agent) || !agent.enabled) return 'agent_disabled';
+      const claimedAtIso = new Date(input.triggerAt).toISOString();
+      const [claimed] = await tx
+        .update(agentSchedules)
+        .set({ lastRunAt: new Date(input.recordedAt ?? input.triggerAt) })
+        .where(
+          and(
+            eq(agentSchedules.id, input.scheduleId),
+            eq(agentSchedules.enabled, true),
+            sql`(${agentSchedules.lastRunAt} is null or ${agentSchedules.lastRunAt} < ${claimedAtIso})`,
+          ),
+        )
+        .returning({
+          agentId: agentSchedules.agentId,
+          name: agentSchedules.name,
+          executeAsBusinessId: agentSchedules.executeAsBusinessId,
+        });
+      if (!claimed) return 'duplicate';
+      schedule = claimed;
+    }
+
+    const definition =
+      agent.publishedVersion === pre?.publishedVersion
+        ? preDefinition
+        : agent.publishedVersion === null
+          ? null
+          : ((await getAgentVersion(tx, owner.agentId, agent.publishedVersion))?.definition ??
+            null);
 
     try {
       await assertRunBudget(tx, {
         agentId: schedule.agentId,
         initiatedBy: schedule.executeAsBusinessId,
-        definition: preDefinition,
+        definition,
       });
     } catch (error) {
       if (isAppError(error) && error.code === 'BUDGET_EXCEEDED') return 'budget_exceeded';
@@ -234,23 +273,42 @@ export async function claimScheduleTrigger(
       title: `定时: ${schedule.name}`.slice(0, 80),
       createdBy: schedule.executeAsBusinessId,
     });
-    await tx.insert(agentRuns).values({
+    const runValues = {
       id: input.runId,
       conversationId: input.conversationId,
       agentId: schedule.agentId,
       scheduleId: input.scheduleId,
-      status: 'queued',
-      trigger: 'schedule',
-      subjectKind: 'user',
+      status: 'queued' as const,
+      trigger: 'schedule' as const,
+      subjectKind: 'user' as const,
       initiatedBy: schedule.executeAsBusinessId,
-      agentVersion: pre?.publishedVersion ?? null,
-      model: preDefinition?.agent.model ?? agent.model,
+      agentVersion: agent.publishedVersion,
+      model: definition?.agent.model ?? agent.model,
       departmentId: await getDepartmentIdForBusinessId(tx, schedule.executeAsBusinessId),
       serverIds:
-        preDefinition === null
+        definition === null
           ? await getAgentServerIds(tx, schedule.agentId)
-          : preDefinition.agent.serverIds,
-    });
+          : definition.agent.serverIds,
+      ...(input.mode === 'retry' ? { retryOfRunId: input.previousRunId } : {}),
+    };
+    if (input.mode === 'retry') {
+      const inserted = await tx
+        .insert(agentRuns)
+        .values(runValues)
+        .onConflictDoNothing()
+        .returning({ id: agentRuns.id });
+      if (inserted.length === 0) {
+        await tx.delete(conversations).where(eq(conversations.id, input.conversationId));
+        return 'duplicate';
+      }
+      if (input.consumePolicyApprovalId !== undefined) {
+        const consumed = await consumePolicyApproval(tx, input.consumePolicyApprovalId);
+        if (consumed === null) fail('CONTENT_APPROVAL_REQUIRED', POLICY_APPROVAL_STALE_MESSAGE);
+        await linkPolicyApprovalToRun(tx, input.consumePolicyApprovalId, input.runId);
+      }
+    } else {
+      await tx.insert(agentRuns).values(runValues);
+    }
     await tx.insert(messages).values({
       id: input.messageId,
       conversationId: input.conversationId,
@@ -261,6 +319,13 @@ export async function claimScheduleTrigger(
     });
     return 'claimed';
   });
+}
+
+export async function claimScheduleTrigger(
+  db: Database,
+  input: ScheduleTriggerWrite,
+): Promise<ScheduleClaimResult> {
+  return admitScheduleRun(db, { mode: 'trigger', ...input });
 }
 
 export async function scheduleRetryExists(db: DbHandle, previousRunId: string): Promise<boolean> {
@@ -285,108 +350,8 @@ export interface ScheduleRetryWrite {
 export async function claimScheduleRetry(
   db: Database,
   input: ScheduleRetryWrite,
-): Promise<'claimed' | 'duplicate' | 'agent_disabled' | 'budget_exceeded'> {
-  return db.transaction(async (tx) => {
-    const [schedule] = await tx
-      .select({
-        agentId: agentSchedules.agentId,
-      })
-      .from(agentSchedules)
-      .where(and(eq(agentSchedules.id, input.scheduleId), eq(agentSchedules.enabled, true)))
-      .limit(1);
-    if (!schedule) return 'duplicate';
-
-    const [pre] = await tx
-      .select({ publishedVersion: agents.publishedVersion })
-      .from(agents)
-      .where(eq(agents.id, schedule.agentId))
-      .limit(1);
-    const preDefinition =
-      pre?.publishedVersion === null || pre?.publishedVersion === undefined
-        ? null
-        : ((await getAgentVersion(tx, schedule.agentId, pre.publishedVersion))?.definition ?? null);
-    await lockRunResources(tx, schedule.agentId, preDefinition?.agent.subAgentIds);
-
-    const [lockedSchedule] = await tx
-      .select({
-        agentId: agentSchedules.agentId,
-        name: agentSchedules.name,
-        executeAsBusinessId: agentSchedules.executeAsBusinessId,
-      })
-      .from(agentSchedules)
-      .where(and(eq(agentSchedules.id, input.scheduleId), eq(agentSchedules.enabled, true)))
-      .limit(1)
-      .for('share');
-    if (!lockedSchedule) return 'duplicate';
-
-    const [agent] = await tx
-      .select({
-        enabled: agents.enabled,
-        model: agents.model,
-      })
-      .from(agents)
-      .where(eq(agents.id, lockedSchedule.agentId))
-      .limit(1);
-    if (!agent?.enabled) return 'agent_disabled';
-
-    try {
-      await assertRunBudget(tx, {
-        agentId: lockedSchedule.agentId,
-        initiatedBy: lockedSchedule.executeAsBusinessId,
-        definition: preDefinition,
-      });
-    } catch (error) {
-      if (isAppError(error) && error.code === 'BUDGET_EXCEEDED') return 'budget_exceeded';
-      throw error;
-    }
-
-    await tx.insert(conversations).values({
-      id: input.conversationId,
-      agentId: lockedSchedule.agentId,
-      title: `定时: ${lockedSchedule.name}`.slice(0, 80),
-      createdBy: lockedSchedule.executeAsBusinessId,
-    });
-    const inserted = await tx
-      .insert(agentRuns)
-      .values({
-        id: input.runId,
-        conversationId: input.conversationId,
-        agentId: lockedSchedule.agentId,
-        scheduleId: input.scheduleId,
-        status: 'queued',
-        trigger: 'schedule',
-        subjectKind: 'user',
-        initiatedBy: lockedSchedule.executeAsBusinessId,
-        agentVersion: pre?.publishedVersion ?? null,
-        model: preDefinition?.agent.model ?? agent.model,
-        departmentId: await getDepartmentIdForBusinessId(tx, lockedSchedule.executeAsBusinessId),
-        serverIds:
-          preDefinition === null
-            ? await getAgentServerIds(tx, lockedSchedule.agentId)
-            : preDefinition.agent.serverIds,
-        retryOfRunId: input.previousRunId,
-      })
-      .onConflictDoNothing()
-      .returning({ id: agentRuns.id });
-    if (inserted.length === 0) {
-      await tx.delete(conversations).where(eq(conversations.id, input.conversationId));
-      return 'duplicate';
-    }
-    if (input.consumePolicyApprovalId !== undefined) {
-      const consumed = await consumePolicyApproval(tx, input.consumePolicyApprovalId);
-      if (consumed === null) fail('CONTENT_APPROVAL_REQUIRED', POLICY_APPROVAL_STALE_MESSAGE);
-      await linkPolicyApprovalToRun(tx, input.consumePolicyApprovalId, input.runId);
-    }
-    await tx.insert(messages).values({
-      id: input.messageId,
-      conversationId: input.conversationId,
-      role: 'user',
-      senderBusinessId: lockedSchedule.executeAsBusinessId,
-      content: { type: 'text', text: input.prompt },
-      runId: input.runId,
-    });
-    return 'claimed';
-  });
+): Promise<ScheduleClaimResult> {
+  return admitScheduleRun(db, { mode: 'retry', ...input });
 }
 
 export async function listPendingApprovals(db: Database) {

@@ -9,8 +9,8 @@ import {
 } from '@ui-sdk/react/tree';
 import { ChevronRight, FileCode, FileText, Folder, FolderOpen } from 'lucide-react';
 import { useMemo } from 'react';
+import { EmptyState } from '../../components/states.js';
 import { cn } from '../../lib/cn.js';
-import { EmptyState } from '../states.js';
 
 interface FolderNode {
   name: string;

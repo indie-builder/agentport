@@ -21,6 +21,7 @@ import { useMemo, useState } from 'react';
 import { Controller, useWatch } from 'react-hook-form';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { CursorListFooter } from '../components/cursor-list-footer.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
@@ -172,45 +173,6 @@ const VIOLATION_STATUS_OPTIONS = [
   { value: 'all', label: '全部状态' },
   ...Object.entries(VIOLATION_STATUS_LABEL).map(([value, label]) => ({ value, label })),
 ];
-
-function InfiniteFooter({
-  query,
-}: {
-  query: {
-    hasNextPage: boolean;
-    isFetchingNextPage: boolean;
-    isFetchNextPageError: boolean;
-    error: unknown;
-    fetchNextPage: () => Promise<unknown>;
-  };
-}) {
-  if (query.isFetchNextPageError) {
-    return (
-      <div className="flex justify-center">
-        <ErrorState
-          error={query.error}
-          onRetry={() => void query.fetchNextPage()}
-          title="下一页加载失败，保留已加载的记录"
-        />
-      </div>
-    );
-  }
-  if (query.hasNextPage) {
-    return (
-      <div className="flex justify-center">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={query.isFetchingNextPage}
-          onClick={() => void query.fetchNextPage()}
-        >
-          {query.isFetchingNextPage ? '加载中…' : '加载更多'}
-        </Button>
-      </div>
-    );
-  }
-  return <div className="text-center text-xs text-muted-foreground">已到末尾</div>;
-}
 
 export function SecurityPage() {
   const search = useSearch({ from: '/_shell/security' });
@@ -1002,7 +964,13 @@ function ApprovalsSection() {
           storageKey="pace.security.approval-columns"
         />
       ) : null}
-      {rows.length > 0 ? <InfiniteFooter query={approvals} /> : null}
+      {rows.length > 0 ? (
+        <CursorListFooter
+          query={approvals}
+          errorTitle="下一页加载失败，保留已加载的记录"
+          showEndLabel
+        />
+      ) : null}
 
       {deciding ? (
         <ApprovalDialog
@@ -1400,7 +1368,13 @@ function EventsSection() {
           storageKey="pace.security.event-columns"
         />
       ) : null}
-      {rows.length > 0 ? <InfiniteFooter query={events} /> : null}
+      {rows.length > 0 ? (
+        <CursorListFooter
+          query={events}
+          errorTitle="下一页加载失败，保留已加载的记录"
+          showEndLabel
+        />
+      ) : null}
     </PageSection>
   );
 }
@@ -1637,7 +1611,13 @@ function ViolationsSection() {
           storageKey="pace.security.violation-columns"
         />
       ) : null}
-      {rows.length > 0 ? <InfiniteFooter query={violations} /> : null}
+      {rows.length > 0 ? (
+        <CursorListFooter
+          query={violations}
+          errorTitle="下一页加载失败，保留已加载的记录"
+          showEndLabel
+        />
+      ) : null}
 
       {editing ? <ViolationDialog violation={editing} onClose={() => setEditing(null)} /> : null}
     </PageSection>

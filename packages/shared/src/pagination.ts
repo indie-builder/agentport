@@ -5,7 +5,7 @@ export const PAGE_LIMIT_MAX = 100;
 export const ADMIN_PAGE_LIMIT_MAX = 200;
 export const CURSOR_MAX_LENGTH = 16384;
 
-export function cursorQuerySchema(options?: { max?: number }) {
+export function cursorQuerySchema(options?: { max?: number; default?: number }) {
   return z.object({
     cursor: z.string().min(1).max(CURSOR_MAX_LENGTH).optional(),
     limit: z.coerce
@@ -13,7 +13,7 @@ export function cursorQuerySchema(options?: { max?: number }) {
       .int()
       .min(1)
       .max(options?.max ?? PAGE_LIMIT_MAX)
-      .default(PAGE_LIMIT_DEFAULT),
+      .default(options?.default ?? PAGE_LIMIT_DEFAULT),
   });
 }
 

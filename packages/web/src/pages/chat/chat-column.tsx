@@ -1,12 +1,12 @@
 import type { AgentSummary, OpenUiAction, OutputFile, PublicRunQuestion } from '@agentport/shared';
 import { type ReactNode, type RefObject, useCallback, useMemo, useRef } from 'react';
+import { Composer } from '../../components/chat/chat-thread/composer.js';
+import { MessagePane } from '../../components/chat/chat-thread/message-pane.js';
 import {
-  Composer,
-  MessagePane,
   RunFooter,
   RunReconciliation,
   runStatusText,
-} from '../../components/chat/chat-thread.js';
+} from '../../components/chat/chat-thread/run-footer.js';
 import type { OutputSelection } from '../../components/chat/conversation-outputs.js';
 import { Page } from '../../components/page.js';
 import { ErrorState } from '../../components/states.js';

@@ -102,7 +102,6 @@ export function CodeBlock({
   const large = code.length > LARGE_CONTENT_CHARS;
   const open = !large || expanded;
 
-  // Collapsible is unstyled; keep the code surface, border, and container corners.
   return (
     <Collapsible
       open={open}

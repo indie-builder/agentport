@@ -1,5 +1,10 @@
 import { rm } from 'node:fs/promises';
-import type { Options, SDKMessage, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  Options,
+  SDKMessage,
+  SDKResultMessage,
+  SDKResultSuccess,
+} from '@anthropic-ai/claude-agent-sdk';
 import { sdkEnv } from './upstream.js';
 
 type HermeticQueryOverrides = Pick<
@@ -46,6 +51,7 @@ export async function runOneShotSdkQuery(opts: {
   signal: AbortSignal;
   cwd: string;
   create: (controller: AbortController) => AsyncGenerator<SDKMessage, void>;
+  onResultFrame?: (message: SDKResultMessage) => void;
   onSuccessFrame?: (message: SDKResultSuccess) => void;
 }): Promise<OneShotSdkOutcome> {
   const controller = new AbortController();
@@ -61,6 +67,7 @@ export async function runOneShotSdkQuery(opts: {
     for await (const message of messages) {
       if (message.type !== 'result') continue;
       sawResult = true;
+      opts.onResultFrame?.(message);
       if (message.subtype !== 'success') {
         failure = [message.subtype, ...message.errors].filter(Boolean).join(': ');
       } else if (message.is_error) {

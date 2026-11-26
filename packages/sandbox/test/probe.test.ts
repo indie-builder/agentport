@@ -50,8 +50,6 @@ mock.module('../src/stdin-lines.js', () => ({
   },
 }));
 
-let caseSequence = 0;
-
 interface Result {
   ok: boolean;
   tools: Array<Record<string, unknown>>;
@@ -72,7 +70,8 @@ async function run(task: string): Promise<Result[]> {
   });
   const stderr = spyOn(process.stderr, 'write').mockImplementation(() => true);
   try {
-    await import(`../src/probe.js?case=${caseSequence++}`);
+    const { runProbe } = await import('../src/probe.js');
+    await runProbe();
   } finally {
     stdout.mockRestore();
     stderr.mockRestore();

@@ -43,7 +43,7 @@
 5. ✅ **同步过时文档（2026-10-24 完成）**
    - README/DELIVERY 已按代码修正（600/min、D-17 已代理、4 种权限模式、/health 鉴权区分、规则/输出风格/记忆/技能资源/定时任务），并清理 DECISIONS/HANDOFF/CHANGELOG 残留 120/min。`rg '未代理|120/min|只有.*dontAsk|无鉴权'` 无命中。
 6. ✅ **子智能体子级资源与自有 server 绑定（2026-10-24 处理）**
-   - ✅ **子智能体自有 MCP（已接通，2026-10-28 按代码更正）**：`renderSubAgentMd` 写子定义 `mcpServers` 名称引用，worker 以父与启用子级绑定生成 `.mcp.json`（`packages/worker/src/server-bindings.ts`），runner 的 PreToolUse 边界 hook 按子级 server 与技能拒绝越权，`packages/core/test/workspace-input.test.ts` 有渲染断言。限制：子级实际加载仍以真实模型调试验收，真实模型下的子级工具调用尚未验证，不声称已端到端验收。`docs/archive/SUBAGENTS-VERIFICATION.md` 仍是 2026-10-24 的验证快照，其中「平台尚未接通」已过时，本次未改该文。
+   - ✅ **子智能体自有 MCP（已接通，2026-10-28 按代码更正）**：`renderSubAgentMd` 写子定义 `mcpServers` 名称引用，worker 以父与启用子级绑定生成 `.mcp.json`（已内联至 `packages/worker/src/runs/execute.ts`），runner 的 PreToolUse 边界 hook 按子级 server 与技能拒绝越权，`packages/core/test/workspace-input.test.ts` 有渲染断言。限制：子级实际加载仍以真实模型调试验收，真实模型下的子级工具调用尚未验证，不声称已端到端验收。`docs/archive/SUBAGENTS-VERIFICATION.md` 仍是 2026-10-24 的验证快照，其中「平台尚未接通」已过时，本次未改该文。
    - 技能参考文件：已放行主会话 `Read` 只读 `.claude/skills/<slug>/references/**/*.md`（写入仍仅限记忆目录）；此前 Read 只允许记忆目录导致 references 不可读。
 
 ## P2

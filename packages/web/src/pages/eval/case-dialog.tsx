@@ -28,8 +28,18 @@ import type { EvalCase } from '../../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { useCreateEvalCase, useUpdateEvalCase } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
-import { parseToolList } from '../../lib/tool-list.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
+
+export function parseToolList(text: string): string[] {
+  return [
+    ...new Set(
+      text
+        .split(/[\n,]/)
+        .map((tool) => tool.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
 
 function toolListTextSchema(initial: string) {
   return z

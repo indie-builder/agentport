@@ -22,12 +22,8 @@ import {
   type ChannelRunQuestions,
 } from '../api.js';
 import { mergeChannelMessages } from '../channel-state.js';
-import {
-  mergeRunQuestions,
-  useCursorList,
-  useRefetchWhenRunEnds,
-  withRunQuestion,
-} from './shared.js';
+import { useCursorList } from './client.js';
+import { mergeRunQuestions, useRefetchWhenRunEnds, withRunQuestion } from './run-questions.js';
 
 export const channelKeys = {
   all: ['channels'] as const,

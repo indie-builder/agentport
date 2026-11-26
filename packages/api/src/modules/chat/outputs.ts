@@ -17,7 +17,6 @@ import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { invalidCursor } from '../../http/pagination.js';
-import { agentSlug } from '../../lib/agent-slug.js';
 import {
   listWorkspaceOutputs,
   OUTPUT_MISSING_MESSAGE,
@@ -58,7 +57,7 @@ export async function checkOutputSelection(
   const conversation = await repo.chat.getConversation(context.db, input.conversationId);
   if (!conversation)
     return { code: 'NOT_FOUND', message: CONVERSATION_MISSING, resource: 'conversation' };
-  const slug = await agentSlug(context.db, conversation.agentId);
+  const slug = await repo.agents.findAgentSlug(context.db, conversation.agentId);
   if (slug === null)
     return { code: 'NOT_FOUND', message: CONVERSATION_MISSING, resource: 'conversation' };
   try {
@@ -79,7 +78,7 @@ const os = implement(chatContract).$context<RequestContext>();
 export const chatOutputsRouter = {
   listOutputs: os.listOutputs.handler(async ({ input, context }) => {
     const conversation = await loadReadableConversation(context, input.params.id);
-    const slug = await agentSlug(context.db, conversation.agentId);
+    const slug = await repo.agents.findAgentSlug(context.db, conversation.agentId);
     const { limit, cursor, runId } = input.query;
     if (slug === null) {
       if (cursor !== undefined) invalidCursor();
@@ -95,7 +94,7 @@ export const chatOutputsRouter = {
   }),
   output: os.output.handler(async ({ input, context }) => {
     const conversation = await loadReadableConversation(context, input.params.id);
-    const slug = await agentSlug(context.db, conversation.agentId);
+    const slug = await repo.agents.findAgentSlug(context.db, conversation.agentId);
     if (slug === null) return fail('NOT_FOUND', OUTPUT_MISSING_MESSAGE);
     try {
       const { file } = await readWorkspaceOutput(context, {
@@ -122,7 +121,7 @@ async function readRequestedOutput(c: HttpContext) {
     }),
   );
   const conversation = await loadReadableConversation(context, input.params.id);
-  const slug = await agentSlug(context.db, conversation.agentId);
+  const slug = await repo.agents.findAgentSlug(context.db, conversation.agentId);
   if (slug === null) fail('NOT_FOUND', OUTPUT_MISSING_MESSAGE);
   return readWorkspaceOutput(context, {
     slug,

@@ -206,7 +206,6 @@ function isCohere(profile: EmbeddingProfile): boolean {
   return profile.embeddingProtocol === 'cohere_v2';
 }
 
-/** Cohere v2 Embed：endpointUrl 是含 `/v2` 的 API 根。 */
 async function cohereEmbed(
   profile: EmbeddingProfile,
   body: Record<string, unknown>,
@@ -215,7 +214,12 @@ async function cohereEmbed(
 ): Promise<number[][]> {
   const payload = await postJson(
     `${profile.endpointUrl.replace(/\/$/, '')}/embed`,
-    { model: profile.model, embedding_types: ['float'], output_dimension: 1024, ...body },
+    {
+      model: profile.model,
+      embedding_types: ['float'],
+      output_dimension: profile.dimensions,
+      ...body,
+    },
     profile,
     signal,
   );
@@ -230,7 +234,6 @@ async function cohereEmbed(
   );
 }
 
-/** OpenAI 兼容 `/embeddings`；维度不符标 bad_response，不静默截断。 */
 export async function embedTexts(
   profile: EmbeddingProfile,
   texts: string[],
@@ -290,7 +293,6 @@ export async function embedImages(
   );
 }
 
-/** 兼容 `{results:[{index,relevance_score}]}` 与 `{results:[{index,score}]}` 两种常见形状。 */
 export async function rerankDocuments(
   profile: RerankProfile,
   query: string,
@@ -320,7 +322,6 @@ export async function rerankDocuments(
   });
 }
 
-/** 上游 verbose_json：text 必填；duration/segments 可缺省，给了就必须是真实时码。 */
 const transcriptResponseSchema = z.object({
   text: z.string(),
   duration: z.number().finite().nonnegative().optional(),
@@ -366,7 +367,6 @@ async function postMultipart(
   );
 }
 
-/** 只实现 OpenAI Transcriptions multipart + verbose_json 段级时间协议。 */
 export async function transcribeAudio(
   profile: AsrProfile,
   input: { data: Uint8Array; filename: string; mimeType: string },
@@ -414,14 +414,4 @@ export async function transcribeAudio(
       parsed.data.duration === undefined ? null : toMilliseconds(parsed.data.duration, 'duration'),
     segments,
   };
-}
-
-/** 中文用词粒度分词；Postgres `simple` 词典直接消费空格拼接结果。 */
-export function segmentForSearch(text: string): string {
-  const segmenter = new Intl.Segmenter('zh', { granularity: 'word' });
-  const words: string[] = [];
-  for (const segment of segmenter.segment(text)) {
-    if (segment.isWordLike) words.push(segment.segment);
-  }
-  return words.join(' ');
 }

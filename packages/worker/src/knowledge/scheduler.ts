@@ -10,7 +10,7 @@ import {
 import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
-import { startIntervalTicker } from '../scheduling/interval-ticker.js';
+import { startIntervalTicker } from '../interval-ticker.js';
 import { startSingleFlight } from '../scheduling/single-flight.js';
 
 const SCHEDULER_ID_PREFIX = 'knowledge-sync:';

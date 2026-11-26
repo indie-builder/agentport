@@ -33,6 +33,7 @@ import {
 import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import pLimit from 'p-limit';
 import type { Logger } from 'pino';
+import { ONE_SHOT_NO_RESULT_MESSAGE, type OneShotSdkOutcome } from '../one-shot-sdk.js';
 import { describeKnowledgeImage, type ImageQueryFn } from './image-processing.js';
 import { KnowledgeParseError, type ParsedDocument, type ParsedImage } from './parsing.js';
 import { sourceNetworkOptions } from './source-http.js';
@@ -221,6 +222,12 @@ export class KnowledgeCancelled extends Error {
   constructor() {
     super('cancelled');
   }
+}
+
+export function requireOneShotSuccess(outcome: OneShotSdkOutcome): void {
+  if (outcome.status === 'aborted') throw new KnowledgeCancelled();
+  if (outcome.status === 'no_result') throw new Error(ONE_SHOT_NO_RESULT_MESSAGE);
+  if (outcome.status === 'failure') throw new Error(outcome.message);
 }
 
 class KnowledgeProfileMismatch extends Error {}

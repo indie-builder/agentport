@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import { AGENT_PACKAGE_SIDECAR, DEFAULT_RUNTIME_DOCKERFILE } from '@agentport/shared';
-import { encodePackage } from '../src/modules/agents/package-zip.js';
+import { encodePackage } from '../src/lib/package-zip.js';
 import {
   cleanup,
   expectProblem,

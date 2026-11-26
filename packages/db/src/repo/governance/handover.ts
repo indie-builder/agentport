@@ -35,14 +35,7 @@ export async function handoverChecklist(db: DbHandle, businessId: string) {
       .where(eq(agents.ownerBusinessId, businessId))
       .orderBy(asc(agents.name)),
     Promise.all(
-      [
-        resourceTables.knowledge_base,
-        resourceTables.data_domain,
-        resourceTables.skill,
-        resourceTables.server,
-        resourceTables.plugin,
-        resourceTables.runtime_environment,
-      ].map((table) =>
+      Object.values(resourceTables).map((table) =>
         db
           .select({ id: table.id, name: table.name })
           .from(table)
@@ -198,6 +191,14 @@ export async function transferAll(
     if (scheduleAllowed.some((allowed) => !allowed))
       fail('INVALID_INPUT', '接收人缺少执行待转定时任务所需的专家权限');
     const owner = { ownerBusinessId: toBusinessId, updatedAt: new Date() };
+    const resourceIdsByKind: Record<ResourceKind, string[]> = {
+      knowledge_base: checklist.items.knowledgeBases.map((row) => row.id),
+      data_domain: checklist.items.dataDomains.map((row) => row.id),
+      skill: checklist.items.skills.map((row) => row.id),
+      server: serverIds,
+      plugin: checklist.items.plugins.map((row) => row.id),
+      runtime_environment: checklist.items.runtimeEnvironments.map((row) => row.id),
+    };
     const [agentRows, resources, transferredSchedules] = await Promise.all([
       tx
         .update(agents)
@@ -216,30 +217,19 @@ export async function transferAll(
         .returning({ id: agents.id }),
       Promise.all(
         Object.entries(resourceTables).map(async ([resourceKind, table]) => {
-          const items =
-            resourceKind === 'knowledge_base'
-              ? checklist.items.knowledgeBases
-              : resourceKind === 'data_domain'
-                ? checklist.items.dataDomains
-                : resourceKind === 'skill'
-                  ? checklist.items.skills
-                  : resourceKind === 'plugin'
-                    ? checklist.items.plugins
-                    : checklist.items.runtimeEnvironments;
-          const ids = resourceKind === 'server' ? serverIds : items.map((row) => row.id);
+          const kind = resourceKind as ResourceKind;
+          const ids = resourceIdsByKind[kind];
           const rows = await tx
             .update(table)
             .set(owner)
             .where(
               and(
                 ids.length === 0 ? sql`false` : inArray(table.id, ids),
-                resourceKind === 'server'
-                  ? inArray(table.id, serverIds)
-                  : eq(table.ownerBusinessId, fromBusinessId),
+                kind === 'server' ? undefined : eq(table.ownerBusinessId, fromBusinessId),
               ),
             )
             .returning({ id: table.id });
-          return { resourceKind: resourceKind as ResourceKind, count: rows.length };
+          return { resourceKind: kind, count: rows.length };
         }),
       ),
       tx

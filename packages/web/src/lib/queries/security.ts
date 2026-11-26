@@ -11,7 +11,7 @@ import type {
 } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type SecurityEventQuery } from '../api.js';
-import { useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
 
 const PAGE_SIZE = 50;
 

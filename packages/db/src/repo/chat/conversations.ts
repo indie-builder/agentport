@@ -194,7 +194,7 @@ async function readConversationDeletionSnapshot(
   };
 }
 
-export function sameTargets(
+function sameTargets(
   left: ConversationSandboxTarget[],
   right: ConversationSandboxTarget[],
 ): boolean {

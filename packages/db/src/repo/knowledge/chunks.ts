@@ -14,7 +14,13 @@ import {
   knowledgeJobs,
 } from '../../schema.js';
 import { containsPattern } from '../like.js';
-import { isCanonicalTimestamp, keysetPage } from '../pagination.js';
+import {
+  cursorValueSql,
+  decodeJsonCursor,
+  encodeJsonCursor,
+  isCanonicalTimestamp,
+  keysetPage,
+} from '../pagination.js';
 import {
   INSERT_CHUNK,
   type KnowledgeChunkRow,
@@ -262,23 +268,13 @@ function toPageNumber(value: string | null): number | null {
 }
 
 function encodeImageCursor(row: ImageAssetQueryRow): string {
-  return Buffer.from(
-    JSON.stringify({ u: row.updated_at_cursor, d: row.document_id, n: row.name }),
-    'utf8',
-  ).toString('base64url');
+  return encodeJsonCursor({ u: row.updated_at_cursor, d: row.document_id, n: row.name });
 }
 
 function decodeImageCursor(raw: string): { u: string; d: string; n: string } | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== 'object' || parsed === null) {
-    return null;
-  }
-  const { u, d, n } = parsed as { u?: unknown; d?: unknown; n?: unknown };
+  const parsed = decodeJsonCursor(raw);
+  if (parsed === null) return null;
+  const { u, d, n } = parsed;
   if (
     typeof u !== 'string' ||
     !isCanonicalTimestamp(u) ||
@@ -336,10 +332,7 @@ export async function listImageAssets(
             and c.metadata->>'imageRole' = 'ocr'
         ) as ocr_text,
         d.updated_at as updated_at,
-        to_char(
-          d.updated_at at time zone 'UTC',
-          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
-        ) as updated_at_cursor
+        ${cursorValueSql(sql`d.updated_at`)} as updated_at_cursor
       from knowledge_documents d
       join knowledge_document_versions v
         on v.id = d.current_version_id and v.document_id = d.id

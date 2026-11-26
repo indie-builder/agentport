@@ -1,15 +1,14 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { api, type KnowledgeBaseInput, type KnowledgeBatchInput } from '../api.js';
+import { useCursorList, useDrainPages } from './client.js';
 import {
   isTerminalKnowledgeJob,
   KNOWLEDGE_PAGE_SIZE,
   knowledgeJobQuery,
   knowledgeKeys,
   knowledgeShouldPoll,
-  useCursorList,
-  useDrainPages,
-} from './shared.js';
+} from './knowledge-shared.js';
 
 export function useKnowledgeBases(enabled = true) {
   return useCursorList({

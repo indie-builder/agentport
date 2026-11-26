@@ -10,7 +10,7 @@ import {
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Combobox, ComboboxItem, ComboboxList } from '../src/components/ui/combobox.js';
-import { AgentEditor } from '../src/pages/agents/index.js';
+import { AgentEditor } from '../src/pages/agents/agent-editor.js';
 import { allAccessMe } from './me-fixture.js';
 
 vi.mock('@/components/ui/button', () => import('../src/components/ui/button.js'));

@@ -2,6 +2,7 @@ import { RunFailure } from '@agentport/core';
 import {
   type ChatEvent,
   CONFIG_CONTAINER_DIR,
+  createNdjsonReader,
   type ExecutionSettlement,
   errorText,
   INPUTS_CONTAINER_DIR,
@@ -14,6 +15,7 @@ import {
   type SandboxInputCommand,
   type SandboxTaskInput,
   SUBAGENT_MEMORY_CONTAINER_DIR,
+  SUPERVISOR_CANCEL_GRACE_MS,
   SUPERVISOR_INPUT_MAX_BYTES,
   type SupervisorInputFrame,
   type SupervisorOutput,
@@ -67,7 +69,7 @@ interface SessionSandboxesOptions {
   resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
 }
 
-const CANCEL_GRACE_MS = 5_000;
+export const CANCEL_GRACE_MS = SUPERVISOR_CANCEL_GRACE_MS + 2_000;
 
 const IDLE_DESTROY_RETRY_MS = 30_000;
 
@@ -790,50 +792,21 @@ export class SessionSandboxes {
     if (sandbox === null) return;
     const { child } = sandbox;
 
-    let pending = '';
-    let discarding = false;
-    const consume = (chunk: string): void => {
-      let start = 0;
-      while (start < chunk.length) {
-        const newline = chunk.indexOf('\n', start);
-        if (newline === -1) {
-          if (!discarding) {
-            pending += chunk.slice(start);
-            if (Buffer.byteLength(pending) > SUPERVISOR_INPUT_MAX_BYTES) {
-              discarding = true;
-              pending = '';
-              this.logger.warn(
-                { conversationId: entry.conversationId, phase: sessionPhase(entry) },
-                'session supervisor line exceeded the 8MiB cap, dropped',
-              );
-            }
-          }
-          return;
-        }
-        const piece = chunk.slice(start, newline);
-        start = newline + 1;
-        if (discarding) {
-          discarding = false;
-          pending = '';
-          continue;
-        }
-        const line = pending + piece;
-        pending = '';
-        if (Buffer.byteLength(line) > SUPERVISOR_INPUT_MAX_BYTES) {
-          this.logger.warn(
-            { conversationId: entry.conversationId, phase: sessionPhase(entry) },
-            'session supervisor line exceeded the 8MiB cap, dropped',
-          );
-          continue;
-        }
-        if (line.trim().length > 0) this.onLine(entry, line);
-      }
-    };
+    const reader = createNdjsonReader({
+      maxBytes: SUPERVISOR_INPUT_MAX_BYTES,
+      onLine: (line) => this.onLine(entry, line),
+      onOversize: () => {
+        this.logger.warn(
+          { conversationId: entry.conversationId, phase: sessionPhase(entry) },
+          'session supervisor line exceeded the 8MiB cap, dropped',
+        );
+      },
+    });
     const decoder = new TextDecoder();
     const stdoutDone = (async () => {
-      for await (const chunk of child.stdout) consume(decoder.decode(chunk, { stream: true }));
+      for await (const chunk of child.stdout) reader.push(decoder.decode(chunk, { stream: true }));
       const rest = decoder.decode();
-      if (rest !== '') consume(rest);
+      if (rest !== '') reader.push(rest);
     })().catch((err) => {
       this.handleExit(entry, `session supervisor error: ${errorText(err)}`);
     });

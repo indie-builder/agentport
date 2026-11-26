@@ -18,7 +18,6 @@ import {
   BUILD_MENU,
   canAny,
   homePath,
-  isPersonalPath,
   type MenuItem,
   OPERATIONS_MENU,
   PERSONAL_NAV_GROUPS,
@@ -239,7 +238,7 @@ export function AppShell() {
   const isOperationsContext = meta
     ? operationsNavTargets.has(meta.to) || PLATFORM_MENU.some((item) => item.to === meta.to)
     : false;
-  const personalContext = isPersonalPath(pathname);
+  const personalContext = meta?.personal === true;
   const visibleWork = WORK_MENU.filter((item) => canAny(me.data, item.permissionIds));
   const visibleOperations = OPERATIONS_MENU.filter((item) => canAny(me.data, item.permissionIds));
   const visiblePlatform = PLATFORM_MENU.filter((item) => canAny(me.data, item.permissionIds));
@@ -253,9 +252,7 @@ export function AppShell() {
   const buildItems: NavItem[] = BUILD_MENU.filter((item) =>
     canAny(me.data, item.permissionIds),
   ).map((item) =>
-    item.to === '/skills' && resourceTarget
-      ? { ...item, to: resourceTarget, navGroup: 'resources' }
-      : item,
+    item.navGroup === 'resources' && resourceTarget ? { ...item, to: resourceTarget } : item,
   );
   const navGroups: { label: string; items: readonly NavItem[] }[] = personalContext
     ? visiblePersonalGroups
@@ -301,7 +298,7 @@ export function AppShell() {
   const navigationTrigger = useRef<HTMLButtonElement>(null);
   const reduce = useReducedMotion();
   const locationHref = useRouterState({ select: (state) => state.location.href });
-  const immersive = pathname.startsWith('/chat') || /^\/channels\/[^/]+/.test(pathname);
+  const immersive = meta?.immersive === true;
 
   const logout = async (): Promise<void> => {
     await logoutAccount();
@@ -433,11 +430,9 @@ export function AppShell() {
     const roleNames = user.roles.map((role) => role.name).join('、');
     const accountSecondary = roleNames || user.user.username;
     const unreadCount = unreadNotifications.data?.unreadCount ?? 0;
-    const notificationsActive =
-      meta?.to === '/notifications' || /^\/notifications(?:\/|$)/.test(pathname);
+    const notificationsActive = meta?.notifications === true;
     const notificationsLabel = unreadCount > 0 ? `通知（${unreadCount} 条未读）` : '通知';
-    const accountCurrent =
-      pathname === '/personal/profile' || pathname === '/personal' ? 'page' : undefined;
+    const accountCurrent = meta?.accountProfile ? 'page' : undefined;
     const accountAvatar = (
       <span
         className={cn(
@@ -754,7 +749,7 @@ export function AppShell() {
     );
   };
 
-  const selfService = personalContext || /^\/notifications(?:\/|$)/.test(pathname);
+  const selfService = meta?.selfService === true;
   const denied = (!selfService && home === null) || !allowed;
   const content = denied ? (
     <AccessDenied home={home} noPermissions={home === null} onLogout={() => void logout()} />

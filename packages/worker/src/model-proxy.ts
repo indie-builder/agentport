@@ -36,10 +36,6 @@ interface ModelProxyOptions {
   upstreamBaseUrl: string;
   apiKey?: string;
   authToken?: string;
-  /**
-   * 监听端口。必须固定：compose 把它发布到宿主，沙盒通过 host.docker.internal:<port> 访问。
-   * 0 只适合宿主机直跑的 worker（沙盒与 worker 同网络栈）。
-   */
   port?: number;
   resolveRun: (token: string) => Promise<{
     runId: string;

@@ -5,7 +5,6 @@ import {
   AGENT_HOOK_FILE_LIMIT,
   type AgentDefinition,
   decodeCursor,
-  runEnqueueOptions,
   SUB_AGENT_PLUGIN_BINDING_MESSAGE,
   utcMonthStart,
 } from '@agentport/shared';
@@ -22,17 +21,16 @@ import {
 import type { RequestContext } from '../../http/context.js';
 import { AppError, OBJECT_MISSING_MESSAGE, rethrowConflict } from '../../http/errors.js';
 import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
-import { getQueue } from '../../queue/producer.js';
 import {
   readMemoryTarget,
   withMemoryTargetLock,
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
+import { listMemoryFiles, readMemoryFile } from '../memory/memory-files.js';
 import { requireRunQueueCapacity } from '../runs/capacity.js';
-import { failQueuedRunEnqueue, failRunEnqueue } from '../runs/enqueue.js';
+import { enqueueRunOrRollback } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
-import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import {
   agentDetail,
   agentReferenceConflict,
@@ -664,24 +662,17 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
         ? {}
         : { consumePolicyApprovalId: policyDecision.approvalId }),
     });
-    try {
-      await getQueue().add(
-        'run',
-        {
-          runId: run.id,
-          agentId: current.id,
-          conversationId,
-          prompt,
-          requestId: context.requestId,
-        },
-        runEnqueueOptions(run.id),
-      );
-    } catch {
-      await failQueuedRunEnqueue(context.db, run.id).catch((err: unknown) => {
-        context.log.warn({ err, runId: run.id }, 'trial enqueue failure cleanup failed');
-      });
-      return failRunEnqueue();
-    }
+    await enqueueRunOrRollback(
+      context,
+      {
+        runId: run.id,
+        agentId: current.id,
+        conversationId,
+        prompt,
+        requestId: context.requestId,
+      },
+      { cleanupMessage: 'trial enqueue failure cleanup failed' },
+    );
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.trial.started',

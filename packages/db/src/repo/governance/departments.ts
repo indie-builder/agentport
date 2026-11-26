@@ -79,7 +79,7 @@ export async function listDepartments(
   };
 }
 
-export async function getDepartmentById(db: DbHandle, id: string): Promise<Department | null> {
+async function getDepartmentById(db: DbHandle, id: string): Promise<Department | null> {
   const [row] = await db.select().from(departments).where(eq(departments.id, id)).limit(1);
   if (!row) return null;
   return toDepartment(row, await departmentMembersFor(db, [id]));

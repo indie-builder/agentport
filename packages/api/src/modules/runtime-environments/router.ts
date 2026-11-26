@@ -6,7 +6,6 @@ import { implement } from '@orpc/server';
 import {
   actorOf,
   authorizeResourceAccess,
-  requirePermission,
   requireUser,
   resourceAccessFilter,
 } from '../../http/access.js';
@@ -57,7 +56,6 @@ export const runtimeEnvironmentsRouter = os.router({
   }),
 
   create: os.create.handler(async ({ input, context }) => {
-    requirePermission(context, 'runtime_environments.create');
     const env = await envs.createRuntimeEnvironment(
       context.db,
       input.body,

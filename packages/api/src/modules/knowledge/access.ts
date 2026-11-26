@@ -11,7 +11,7 @@ async function authorizeBaseId(
   permissionId: PermissionId,
   level: ResourceAccessLevel,
   message: string,
-): Promise<void> {
+) {
   const base = await repo.knowledge.getBase(context.db, baseId);
   if (!base) throw new AppError('NOT_FOUND', message);
   await authorizeResourceAccess(
@@ -25,6 +25,7 @@ async function authorizeBaseId(
     },
     message,
   );
+  return base;
 }
 
 export function authorizeBase(
@@ -32,7 +33,7 @@ export function authorizeBase(
   baseId: string,
   permissionId: PermissionId,
   level: ResourceAccessLevel,
-): Promise<void> {
+) {
   return authorizeBaseId(context, baseId, permissionId, level, notFoundMessage('知识库'));
 }
 
@@ -41,10 +42,11 @@ export async function authorizeDocument(
   documentId: string,
   permissionId: PermissionId,
   level: ResourceAccessLevel,
-): Promise<void> {
+) {
   const document = await repo.knowledge.getDocument(context.db, documentId);
   if (!document) notFound('文档');
   await authorizeBaseId(context, document.baseId, permissionId, level, notFoundMessage('文档'));
+  return document;
 }
 
 export async function authorizeVersion(
@@ -52,13 +54,14 @@ export async function authorizeVersion(
   versionId: string,
   permissionId: PermissionId,
   level: ResourceAccessLevel,
-): Promise<void> {
+) {
   const version = await repo.knowledge.getVersion(context.db, versionId);
   const document = version
     ? await repo.knowledge.getDocument(context.db, version.documentId)
     : null;
-  if (!document) notFound('版本');
+  if (!version || !document) notFound('版本');
   await authorizeBaseId(context, document.baseId, permissionId, level, notFoundMessage('版本'));
+  return { version, document };
 }
 
 export async function authorizeChunk(
@@ -66,10 +69,11 @@ export async function authorizeChunk(
   chunkId: string,
   permissionId: PermissionId,
   level: ResourceAccessLevel,
-): Promise<void> {
+) {
   const chunk = await repo.knowledge.getChunk(context.db, chunkId);
   if (!chunk) notFound('分块');
   await authorizeBaseId(context, chunk.baseId, permissionId, level, notFoundMessage('分块'));
+  return chunk;
 }
 
 export async function authorizeFolder(
@@ -77,10 +81,11 @@ export async function authorizeFolder(
   folderId: string,
   permissionId: PermissionId,
   level: ResourceAccessLevel,
-): Promise<void> {
+) {
   const folder = await repo.knowledge.getFolder(context.db, folderId);
   if (!folder) notFound('文件夹');
   await authorizeBaseId(context, folder.baseId, permissionId, level, notFoundMessage('文件夹'));
+  return folder;
 }
 
 export async function authorizeTag(
@@ -88,10 +93,11 @@ export async function authorizeTag(
   tagId: string,
   permissionId: PermissionId,
   level: ResourceAccessLevel,
-): Promise<void> {
+) {
   const tag = await repo.knowledge.getTag(context.db, tagId);
   if (!tag) notFound('标签');
   await authorizeBaseId(context, tag.baseId, permissionId, level, notFoundMessage('标签'));
+  return tag;
 }
 
 export async function authorizeSource(
@@ -99,10 +105,11 @@ export async function authorizeSource(
   sourceId: string,
   permissionId: PermissionId,
   level: ResourceAccessLevel,
-): Promise<void> {
+) {
   const source = await repo.knowledge.getSource(context.db, sourceId);
   if (!source) notFound('来源');
   await authorizeBaseId(context, source.baseId, permissionId, level, notFoundMessage('来源'));
+  return source;
 }
 
 export async function authorizeWikiPage(
@@ -110,10 +117,11 @@ export async function authorizeWikiPage(
   pageId: string,
   permissionId: PermissionId,
   level: ResourceAccessLevel,
-): Promise<void> {
+) {
   const page = await repo.knowledge.getWikiPage(context.db, pageId);
   if (!page) notFound('Wiki 页面');
   await authorizeBaseId(context, page.baseId, permissionId, level, notFoundMessage('Wiki 页面'));
+  return page;
 }
 
 export async function authorizeJob(

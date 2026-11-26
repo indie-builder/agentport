@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
-import { knowledgeKeys } from './shared.js';
+import { knowledgeKeys } from './knowledge-shared.js';
 
 export function useKnowledgeModelProfiles() {
   return useQuery({

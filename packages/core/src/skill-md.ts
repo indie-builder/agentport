@@ -1,6 +1,7 @@
 import { type SkillInput, skillInputSchema } from '@agentport/shared';
 import { invalidInput } from './errors.js';
 import { parseMarkdownFrontmatter, splitHeading } from './markdown-frontmatter.js';
+import { isRecord } from './record.js';
 
 export interface SkillProvenance {
   license?: string;
@@ -42,10 +43,10 @@ function provenanceOf(fields: Map<string, unknown>): SkillProvenance {
   const metadata = fields.get('metadata');
   if (metadata !== undefined) {
     const plain = plainValue(metadata, 'metadata');
-    if (typeof plain !== 'object' || plain === null || Array.isArray(plain)) {
+    if (!isRecord(plain)) {
       invalidInput('SKILL.md 的 metadata 必须是映射', '/metadata');
     }
-    provenance.metadata = plain as Record<string, unknown>;
+    provenance.metadata = plain;
   }
   return provenance;
 }

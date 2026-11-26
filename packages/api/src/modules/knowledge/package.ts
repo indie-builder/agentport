@@ -11,7 +11,7 @@ import {
   segmentForSearch,
   sha256Hex,
 } from '@agentport/core';
-import { type CursorPage, type Database, newId, repo, schema } from '@agentport/db';
+import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   knowledgeAudioMetadataSchema,
   knowledgeBaseSettingsSchema,
@@ -36,7 +36,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { zipSync } from 'fflate';
 import { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
-import { cursorOption, requireCursorPage } from '../../http/pagination.js';
+import { collectPages } from '../../http/pagination.js';
 import {
   assertPackagePath,
   decodeZipEntries,
@@ -45,7 +45,7 @@ import {
   PACKAGE_PATH_SEGMENT_MESSAGE,
   ZIP_CORRUPT_MESSAGE,
   type ZipReadLimits,
-} from '../agents/package-zip.js';
+} from '../../lib/package-zip.js';
 import { storeBlob as storeDocumentBlob, supportsImageVectors } from './service.js';
 import { CHUNK_OVERLAP_INVALID_MESSAGE } from './use-cases/shared.js';
 
@@ -450,19 +450,6 @@ function parseManifest(files: Map<string, Buffer>): Manifest {
     );
   }
   return parsed.data;
-}
-
-async function collectPages<T extends { id: string }>(
-  fetchPage: (options: { cursor?: string; limit?: number }) => Promise<CursorPage<T> | null>,
-): Promise<T[]> {
-  const items: T[] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    const page = requireCursorPage(await fetchPage({ limit: 200, ...cursorOption(cursor) }));
-    items.push(...page.items);
-    if (page.nextCursor === null || page.nextCursor === cursor) return items;
-    cursor = page.nextCursor;
-  }
 }
 
 export interface KnowledgePackageFile {

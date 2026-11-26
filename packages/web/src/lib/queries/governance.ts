@@ -18,11 +18,11 @@ import {
 } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
+import { useCursorList } from './client.js';
 import { dataDomainKeys } from './data-domains.js';
 import { pluginKeys } from './plugins.js';
 import { runtimeEnvironmentKeys } from './runtime-environments.js';
 import { SERVERS_QUERY_KEY } from './servers.js';
-import { useCursorList } from './shared.js';
 import { SKILLS_QUERY_KEY } from './skills.js';
 
 const GOVERNANCE_PAGE_SIZE = 50;

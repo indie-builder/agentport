@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cursorQuerySchema } from './pagination.js';
 
 export const notificationKindSchema = z.enum([
   'approval',
@@ -23,9 +24,7 @@ export const notificationSchema = z.object({
 });
 export type Notification = z.infer<typeof notificationSchema>;
 
-export const notificationListQuerySchema = z.object({
-  cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(30),
+export const notificationListQuerySchema = cursorQuerySchema({ default: 30 }).extend({
   unreadOnly: z
     .enum(['true', 'false'])
     .default('false')

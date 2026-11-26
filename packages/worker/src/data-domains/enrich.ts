@@ -14,6 +14,7 @@ import {
 import { type Options, query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import { startIntervalTicker } from '../interval-ticker.js';
 import {
   hermeticQueryOptions,
   ONE_SHOT_NO_RESULT_MESSAGE,
@@ -21,7 +22,6 @@ import {
   runOneShotSdkQuery,
 } from '../one-shot-sdk.js';
 import { startRedisWorker } from '../queue-worker.js';
-import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 
 const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
 

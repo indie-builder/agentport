@@ -15,7 +15,7 @@ import {
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { AppError } from '../../http/errors.js';
-import { failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { cleanupQueuedRunEnqueue } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
 import { publishChannelMessageSafely } from './publish.js';
 
@@ -99,14 +99,13 @@ async function handleEnqueueFailure(
   err: unknown,
 ): Promise<WakeOutcome> {
   if (wake.attempts >= WAKE_MAX_ATTEMPTS) {
-    try {
-      await failQueuedRunEnqueue(context.db, runId);
-    } catch (cleanupErr) {
-      context.log.warn(
-        { err: cleanupErr, runId, wakeId: wake.id },
-        'channel wake queued run cleanup failed',
-      );
-    }
+    await cleanupQueuedRunEnqueue(
+      context.db,
+      context.log,
+      runId,
+      'channel wake queued run cleanup failed',
+      { wakeId: wake.id },
+    );
     const failed = await channelWakeRepo.markChannelWakeFailed(context.db, {
       id: wake.id,
       claimedAt: wake.claimedAt as Date,
@@ -161,14 +160,13 @@ async function dispatchWake(
       agentId: wake.agentId,
     });
     if (run !== null && run.status === 'queued') {
-      try {
-        await failQueuedRunEnqueue(context.db, run.id);
-      } catch (err) {
-        context.log.warn(
-          { err, runId: run.id, wakeId: wake.id },
-          'channel wake queued run cleanup failed',
-        );
-      }
+      await cleanupQueuedRunEnqueue(
+        context.db,
+        context.log,
+        run.id,
+        'channel wake queued run cleanup failed',
+        { wakeId: wake.id },
+      );
     }
     const failed = await channelWakeRepo.markChannelWakeFailed(context.db, {
       id: wake.id,

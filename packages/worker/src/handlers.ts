@@ -28,10 +28,7 @@ export async function toEntry(
   runId: string,
   runToken: string,
 ): Promise<McpJsonArtifactEntry> {
-  if (server.kind === 'knowledge') {
-    return knowledgeMcpEntry({ apiUrl, serverId: server.id, runId, runToken });
-  }
-  if (server.kind === 'data_domain') {
+  if (server.kind === 'knowledge' || server.kind === 'data_domain') {
     return knowledgeMcpEntry({ apiUrl, serverId: server.id, runId, runToken });
   }
   const secrets = server.secretsEncrypted
@@ -114,35 +111,17 @@ function toHostUrl(value: string): string {
 }
 
 export function createSandboxEnvFactory(
-  config: Pick<
-    Config,
-    | 'ANTHROPIC_API_KEY'
-    | 'ANTHROPIC_AUTH_TOKEN'
-    | 'ANTHROPIC_BASE_URL'
-    | 'SANDBOX_EGRESS'
-    | 'HTTPS_PROXY'
-    | 'HTTP_PROXY'
-    | 'NO_PROXY'
-    | 'no_proxy'
-  >,
-  modelProxy: ModelProxy | null,
+  config: Pick<Config, 'SANDBOX_EGRESS' | 'HTTPS_PROXY' | 'HTTP_PROXY' | 'NO_PROXY' | 'no_proxy'>,
+  modelProxy: Pick<ModelProxy, 'url' | 'issueToken'>,
 ) {
   return (apiUrl: string, runId: string): Record<string, string> => {
     const env: Record<string, string> = {
       SANDBOX_API_URL: apiUrl,
       CLAUDE_CONFIG_DIR: CONFIG_CONTAINER_DIR,
+      ANTHROPIC_BASE_URL: modelProxy.url,
+      ANTHROPIC_AUTH_TOKEN: modelProxy.issueToken(runId),
+      ANTHROPIC_API_KEY: '',
     };
-    if (modelProxy) {
-      env.ANTHROPIC_BASE_URL = modelProxy.url;
-      env.ANTHROPIC_AUTH_TOKEN = modelProxy.issueToken(runId);
-      env.ANTHROPIC_API_KEY = '';
-    } else {
-      for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const) {
-        const value = config[key];
-        if (value) env[key] = value;
-      }
-      if (config.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = toHostUrl(config.ANTHROPIC_BASE_URL);
-    }
 
     if (config.SANDBOX_EGRESS === 'proxy') {
       for (const key of ['HTTPS_PROXY', 'HTTP_PROXY'] as const) {

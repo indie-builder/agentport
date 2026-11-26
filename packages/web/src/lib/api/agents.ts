@@ -144,7 +144,9 @@ export default {
         try {
           const parsed: unknown = JSON.parse(decodeURIComponent(raw));
           if (Array.isArray(parsed)) onWarnings(parsed.filter((item) => typeof item === 'string'));
-        } catch {}
+        } catch (error) {
+          console.warn('Invalid x-package-warnings header', error);
+        }
       },
     }),
   importAgent: (

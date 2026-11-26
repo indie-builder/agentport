@@ -880,8 +880,8 @@ export async function documentDiff(
     throw new AppError('INVALID_INPUT', '该版本正文不可用，无法对比');
   }
   const [fromMarkdown, toMarkdown] = await Promise.all([
-    getVersionMarkdown(deps, from.id),
-    getVersionMarkdown(deps, to.id),
+    getVersionMarkdown(deps, from, document),
+    getVersionMarkdown(deps, to, document),
   ]);
   const { added, removed } = diffLinesOrdered(fromMarkdown.markdown, toMarkdown.markdown);
   return {

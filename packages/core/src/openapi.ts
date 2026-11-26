@@ -307,7 +307,6 @@ function requestBodySchema(
   return { schema: media.schema, required: resolved.required === true };
 }
 
-/** MCP outputSchema 只接受 object 根；组合类型要求每个分支都是 object 根。 */
 function isObjectRoot(schema: Record<string, unknown>): boolean {
   if (schema.type === 'object' || isRecord(schema.properties)) return true;
   for (const keyword of ['allOf', 'anyOf', 'oneOf'] as const) {
@@ -321,7 +320,6 @@ function isObjectRoot(schema: Record<string, unknown>): boolean {
   return false;
 }
 
-/** 取成功响应的 JSON Schema；MCP outputSchema 只接受 object 根，其余按未声明处理。 */
 function responseSchema(
   operation: Record<string, unknown>,
   ctx: Ctx,

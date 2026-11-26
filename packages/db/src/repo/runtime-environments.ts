@@ -31,13 +31,12 @@ import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agents, runtimeEnvironments, runtimeEnvironmentVersions } from '../schema.js';
 import { resourceScopeWhere } from './access.js';
+import { lockDefaultRuntimeEnvironment } from './locks.js';
 import { type CursorPage, paginate } from './pagination.js';
 import { isPgCode } from './pg-errors.js';
 
 export type RuntimeEnvironmentRow = typeof runtimeEnvironments.$inferSelect;
 export type RuntimeEnvironmentVersionRow = typeof runtimeEnvironmentVersions.$inferSelect;
-
-const DEFAULT_ENVIRONMENT_LOCK = 'agentport.runtime-environment-default';
 
 export function toRuntimeEnvironment(row: RuntimeEnvironmentRow): RuntimeEnvironment {
   return {
@@ -69,7 +68,7 @@ function toRuntimeEnvironmentVersion(row: RuntimeEnvironmentVersionRow): Runtime
   };
 }
 
-export function toRuntimeEnvironmentVersionSummary(
+function toRuntimeEnvironmentVersionSummary(
   row: RuntimeEnvironmentVersionRow,
 ): RuntimeEnvironmentVersionSummary {
   const version = toRuntimeEnvironmentVersion(row);
@@ -329,7 +328,7 @@ export async function ensureDefaultRuntimeEnvironment(
   input: { imageTag: string; imageId: string },
 ): Promise<RuntimeEnvironment> {
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${DEFAULT_ENVIRONMENT_LOCK}))`);
+    await lockDefaultRuntimeEnvironment(tx);
     const [existing] = await tx
       .select()
       .from(runtimeEnvironments)

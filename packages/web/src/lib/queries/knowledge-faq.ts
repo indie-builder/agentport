@@ -1,12 +1,12 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type KnowledgeFaqDetail, type KnowledgeSearchResponse } from '../api.js';
+import { useCursorList } from './client.js';
 import {
   isMissingJob,
   isTerminalKnowledgeJob,
   KNOWLEDGE_PAGE_SIZE,
   knowledgeKeys,
-  useCursorList,
-} from './shared.js';
+} from './knowledge-shared.js';
 
 export function useKnowledgeFaqs(
   baseId: string,

@@ -1,17 +1,13 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import type { AccessFilter, AccessScope } from '@agentport/shared';
 import { eq, inArray } from 'drizzle-orm';
-import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as agentsRepo from '../src/repo/agents.js';
 import * as chatRepo from '../src/repo/chat.js';
 import { agentRuns, agents, conversations } from '../src/schema.js';
+import { probeTestDb } from './db-probe.js';
 
-const { db, client } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
+const { db, client, ready } = await probeTestDb();
 
 const owner = 'delete-hook-owner';
 const other = 'delete-hook-other';

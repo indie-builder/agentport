@@ -5,7 +5,7 @@ import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { agentRuns, conversations, messages } from '../../schema.js';
 import { cancelPendingRunFailedWebhooks } from '../integrations.js';
-import { type CursorPage, keysetBefore, keysetPage } from '../pagination.js';
+import { type CursorPage, keysetBound, keysetPage } from '../pagination.js';
 import { neverStartedFailureFilter } from '../run-predicates.js';
 import {
   consumePolicyApproval,
@@ -54,7 +54,7 @@ export async function listMessages(
       .where(and(...filters, eq(messages.id, options.before)))
       .limit(1);
     if (anchor === undefined) return null;
-    filters.push(keysetBefore(messages, options.before));
+    filters.push(keysetBound(messages, options.before, messages.createdAt, 'desc'));
   }
   return db
     .select()

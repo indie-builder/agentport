@@ -130,7 +130,12 @@ async function mount(editing = false, options: MountOptions = {}) {
     path: '/away',
     component: () => createElement('h1', null, 'Destination'),
   });
-  window.history.replaceState(null, '', options.url ?? '/eval?agent=agent-a');
+  window.history.replaceState(
+    null,
+    '',
+    options.url ??
+      (options.openDialog === false ? '/eval?agent=agent-a' : '/eval?agent=agent-a&tab=cases'),
+  );
   history = createBrowserHistory();
   const router = createRouter({
     routeTree: rootRoute.addChildren([shell.addChildren([evalRoute, away])]),
@@ -142,11 +147,13 @@ async function mount(editing = false, options: MountOptions = {}) {
       createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
     );
   });
-  await vi.waitFor(() =>
-    expect(container.textContent).toContain(editing ? 'Original case' : '添加第一条评估用例'),
-  );
   if (options.openDialog !== false) {
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(editing ? 'Original case' : '添加第一条评估用例'),
+    );
     await click(editing ? '编辑 Original case' : '新建用例');
+  } else {
+    await vi.waitFor(() => expect(container.textContent).toContain('评估'));
   }
   return router;
 }
@@ -509,13 +516,9 @@ describe('evaluation run URL state', () => {
     await actWaitFor(() => expect(router.state.location.pathname).toBe('/eval'));
     await actWaitFor(() => expect(router.state.location.search.run).toBe(run.id));
     await actWaitFor(() => expect(container.textContent).toContain('History result'));
-
-    await click('返回历史');
-    await actWaitFor(() => expect(router.state.location.search.run).toBeUndefined());
-    expect(container.textContent).not.toContain('History result');
   });
 
-  it('returns to history in place after opening a run, without leaving the page', async () => {
+  it('keeps history visible alongside the selected run in place, without leaving the page', async () => {
     const run = makeRun('evalRun_newest01', { passed: 1, total: 2 });
     vi.spyOn(api, 'evalRun').mockResolvedValue(makeDetail(run, [makeResult('History result')]));
     const router = await mount(false, {
@@ -527,12 +530,8 @@ describe('evaluation run URL state', () => {
     await act(async () => runTrigger(run.id)?.click());
     await actWaitFor(() => expect(router.state.location.search.run).toBe(run.id));
     await actWaitFor(() => expect(container.textContent).toContain('History result'));
-
-    await click('返回历史');
-    await actWaitFor(() => expect(router.state.location.search.run).toBeUndefined());
     expect(router.state.location.pathname).toBe('/eval');
-    expect(container.textContent).toContain('通过 / 总数');
-    expect(container.textContent).not.toContain('History result');
+    expect(container.textContent).toContain('历史运行');
   });
 
   it('clears the selected run when the expert filter changes', async () => {
@@ -551,10 +550,6 @@ describe('evaluation run URL state', () => {
     await actWaitFor(() => expect(container.textContent).toContain('Selected result'));
 
     await chooseOption('按专家筛选', 'Expert B');
-    await actWaitFor(() =>
-      expect(document.body.textContent).toContain('切换专家会清空当前选中的运行与比较。'),
-    );
-    await click('切换专家');
     await actWaitFor(() => expect(router.state.location.search.agent).toBe('agent-b'));
     const search = router.state.location.search as Record<string, unknown>;
     expect(search.run).toBeUndefined();
@@ -563,7 +558,8 @@ describe('evaluation run URL state', () => {
     expect(container.textContent).not.toContain('Selected result');
   });
 
-  it('writes comparison open, change and close to the URL', async () => {
+  it('writes comparison open and change to the URL', async () => {
+    vi.spyOn(api, 'evalRun').mockResolvedValue(makeDetail(newestRun, []));
     const compare = vi
       .spyOn(api, 'compareEvalRuns')
       .mockImplementation(async (baseId) =>
@@ -575,21 +571,16 @@ describe('evaluation run URL state', () => {
     });
 
     await actWaitFor(() => expect(container.textContent).toContain('oldest01'));
-    await click('比较运行');
+    await click('对比最近两次');
     await actWaitFor(() => expect(router.state.location.search.base).toBe(olderRun.id));
     expect(router.state.location.search.head).toBe(newestRun.id);
-    expect(document.body.textContent).toContain('比较评估运行');
+    expect(router.state.location.search.tab).toBe('compare');
     expect(compare).toHaveBeenCalledWith(olderRun.id, newestRun.id);
 
     await chooseOption('基准运行', shortId(oldestRun.id));
     await actWaitFor(() => expect(router.state.location.search.base).toBe(oldestRun.id));
     expect(router.state.location.search.head).toBe(newestRun.id);
     await actWaitFor(() => expect(compare).toHaveBeenCalledWith(oldestRun.id, newestRun.id));
-
-    await click('关闭');
-    await actWaitFor(() => expect(router.state.location.search.base).toBeUndefined());
-    expect(router.state.location.search.head).toBeUndefined();
-    expect(document.body.textContent).not.toContain('比较评估运行');
   });
 
   it('opens a deep-linked comparison outside the loaded history page', async () => {
@@ -604,11 +595,14 @@ describe('evaluation run URL state', () => {
     });
 
     await actWaitFor(() => expect(compare).toHaveBeenCalledWith(base.id, head.id));
-    expect(document.body.textContent).toContain('比较评估运行');
+    expect(document.querySelector('[aria-label="基准运行"]')).not.toBeNull();
   });
 
-  it('shows an invalid run id error with a way back to history', async () => {
-    vi.spyOn(api, 'evalRun').mockRejectedValue(new ApiError(404, '评估运行不存在'));
+  it('shows an invalid run id error with a way back to latest run', async () => {
+    vi.spyOn(api, 'evalRun').mockImplementation(async (id) => {
+      if (id === 'evalRun_missing1') throw new ApiError(404, '评估运行不存在');
+      return makeDetail(newestRun, []);
+    });
     const router = await mount(false, {
       url: '/eval?agent=agent-a&run=evalRun_missing1',
       runs: { items: [newestRun], nextCursor: null },
@@ -617,13 +611,13 @@ describe('evaluation run URL state', () => {
 
     await actWaitFor(() => expect(container.textContent).toContain('这次评估运行不存在'));
     expect(container.textContent).toContain('评估运行不存在');
-    await click('返回历史');
+    await click('返回最近运行');
     await actWaitFor(() => expect(router.state.location.search.run).toBeUndefined());
     expect(container.textContent).not.toContain('这次评估运行不存在');
-    expect(container.textContent).toContain('通过 / 总数');
+    expect(container.textContent).toContain('历史运行');
   });
 
-  it('shows an invalid comparison id error and returns to history', async () => {
+  it('shows an invalid comparison id error and returns to runs tab', async () => {
     vi.spyOn(api, 'compareEvalRuns').mockRejectedValue(new ApiError(404, '评估运行不存在'));
     const router = await mount(false, {
       url: '/eval?agent=agent-a&base=evalRun_missing1&head=evalRun_missing2',
@@ -632,9 +626,9 @@ describe('evaluation run URL state', () => {
     });
 
     await actWaitFor(() => expect(document.body.textContent).toContain('评估运行不存在'));
-    await click('返回历史');
+    await click('返回评估运行');
     await actWaitFor(() => expect(router.state.location.search.base).toBeUndefined());
     expect(router.state.location.search.head).toBeUndefined();
-    expect(document.body.textContent).not.toContain('比较评估运行');
+    expect(router.state.location.search.tab).toBe('runs');
   });
 });

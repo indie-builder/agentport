@@ -196,6 +196,19 @@ export async function publishChannelEvent(channelId: string, event: ChannelEvent
   await appendStreamEvent(redis, channelStreamKey(channelId), event);
 }
 
+export async function publishChannelEventSafely(
+  log: Logger,
+  channelId: string,
+  event: ChannelEvent,
+  fields: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    await publishChannelEvent(channelId, event);
+  } catch (err) {
+    log.warn({ err, channelId, ...fields, type: event.type }, 'channel event publish failed');
+  }
+}
+
 export async function requestRunCancel(runId: string): Promise<boolean> {
   const redis = getClient();
   const key = runCancelKey(runId);
@@ -346,7 +359,7 @@ async function subscribeStream<T>(
           redis = new RedisClient(requireRedisUrl());
           redis.onclose = logRedisError('redis');
           subscriptions.set(redis, shutdown);
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await Bun.sleep(500);
           continue;
         }
         for (const batch of Object.values(reply ?? {})) {

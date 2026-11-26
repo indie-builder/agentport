@@ -40,3 +40,9 @@ export function requestContext(context: HttpContext): RequestContext {
 export function parseRequest<S extends z.ZodTypeAny>(c: HttpContext, schema: S): z.infer<S> {
   return schema.parse({ params: c.req.param(), query: c.req.query() });
 }
+
+export function actorOf(context: RequestContext): string {
+  const principal = context.principal;
+  if (principal === null) return 'anonymous';
+  return principal.kind === 'user' ? principal.businessId : principal.serviceId;
+}

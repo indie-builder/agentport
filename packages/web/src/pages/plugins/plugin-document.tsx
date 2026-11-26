@@ -2,10 +2,10 @@ import { readPluginMarkdown } from '@agentport/core/plugin-display';
 import type { PluginFileInput } from '@agentport/shared';
 import { FileCode } from 'lucide-react';
 import { useMemo } from 'react';
-import { CodeBlock } from '../code-block.js';
-import { Markdown, type MarkdownFileLinks } from '../markdown.js';
-import { PageNote } from '../page.js';
-import { EmptyState } from '../states.js';
+import { CodeBlock } from '../../components/code-block.js';
+import { Markdown, type MarkdownFileLinks } from '../../components/markdown.js';
+import { PageNote } from '../../components/page.js';
+import { EmptyState } from '../../components/states.js';
 
 export function pluginFileTitle(path: string): string {
   const skill = /^skills\/([^/]+)\/SKILL\.md$/i.exec(path);

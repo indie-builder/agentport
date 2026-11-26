@@ -23,7 +23,9 @@ import {
 } from '@agentport/shared';
 import * as Bun from 'bun';
 import { z } from 'zod';
-import { AGENT_DIR_SLUG_INVALID_MESSAGE, fail, INVALID_CURSOR_MESSAGE } from './errors.js';
+import { AGENT_DIR_SLUG_INVALID_MESSAGE, INVALID_CURSOR_MESSAGE } from './domain-messages.js';
+import { fail } from './errors.js';
+import { sha256Hex } from './hash.js';
 import { pathSegmentsProblem } from './path-segments.js';
 
 const CONVERSATION_OUTPUTS = 'conversation-outputs';
@@ -141,10 +143,6 @@ async function trustedPath(
 
 function baseFileOf(conversationRoot: string, runId: string): string {
   return join(conversationRoot, DRAFTS, `${runId}.base`);
-}
-
-export function sha256Hex(data: Uint8Array | string): string {
-  return new Bun.CryptoHasher('sha256').update(data).digest('hex');
 }
 
 function compareText(a: string, b: string): number {

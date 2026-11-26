@@ -1,6 +1,13 @@
 import type { OutputRef, TerminalRunStatus } from '@agentport/shared';
 import { create } from 'zustand';
 import type { ChatItem } from './chat-state.js';
+import {
+  readJsonStorage,
+  readStorage,
+  removeStorage,
+  writeJsonStorage,
+  writeStorage,
+} from './storage.js';
 
 export type RunOutcome = TerminalRunStatus;
 
@@ -102,32 +109,22 @@ const draftKey = (conversationId: string | null): string => conversationId ?? ''
 let memoryOwner: string | null = null;
 
 function readOwner(): string | null {
-  try {
-    return sessionStorage.getItem(OWNER_KEY) ?? memoryOwner;
-  } catch {
-    return memoryOwner;
-  }
+  return readStorage(OWNER_KEY, 'session') ?? memoryOwner;
 }
 
 function writeOwner(businessId: string): void {
   memoryOwner = businessId;
-  try {
-    sessionStorage.setItem(OWNER_KEY, businessId);
-  } catch {}
+  writeStorage(OWNER_KEY, businessId, 'session');
 }
 
 function readDrafts(): Record<string, string> {
-  try {
-    const parsed: unknown = JSON.parse(sessionStorage.getItem(DRAFTS_KEY) ?? '{}');
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter(
-        (entry): entry is [string, string] => typeof entry[1] === 'string',
-      ),
-    );
-  } catch {
-    return {};
-  }
+  const parsed = readJsonStorage<unknown>(DRAFTS_KEY, {}, 'session');
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+  return Object.fromEntries(
+    Object.entries(parsed).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
 }
 
 function readDraft(conversationId: string | null): string {
@@ -139,10 +136,8 @@ function writeDraft(conversationId: string | null, input: string): void {
   const key = draftKey(conversationId);
   if (input) drafts[key] = input;
   else delete drafts[key];
-  try {
-    if (Object.keys(drafts).length === 0) sessionStorage.removeItem(DRAFTS_KEY);
-    else sessionStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
-  } catch {}
+  if (Object.keys(drafts).length === 0) removeStorage(DRAFTS_KEY, 'session');
+  else writeJsonStorage(DRAFTS_KEY, drafts, 'session');
 }
 
 interface ChatWorkspaceState {
@@ -237,10 +232,8 @@ export const useChatStore = create<ChatWorkspaceState>()((set) => ({
     }),
   reset: () => {
     memoryOwner = null;
-    try {
-      sessionStorage.removeItem(DRAFTS_KEY);
-      sessionStorage.removeItem(OWNER_KEY);
-    } catch {}
+    removeStorage(DRAFTS_KEY, 'session');
+    removeStorage(OWNER_KEY, 'session');
     set((state) => ({ ...initial, input: '', accountEpoch: state.accountEpoch + 1 }));
   },
 }));

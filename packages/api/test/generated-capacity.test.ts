@@ -1,5 +1,5 @@
 import { expect, it } from 'bun:test';
-import { runMcpExecution } from '../src/plugins/concurrency.js';
+import { runMcpExecution } from '../src/modules/servers/concurrency.js';
 import { waitForAssertion } from './native.js';
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
