@@ -103,7 +103,7 @@
 
 ## 后端
 
-- **运行时与包管理统一 Bun（版本见根 `package.json` 的 `packageManager`，依赖解析见 `bun.lock`）。** 依赖安装用 `bun install --frozen-lockfile`（CI 可用等价的 `bun ci`）；项目脚本用 `bun run <script>`，自有 `.mjs`/`.ts` 脚本以 `bun` 运行（`bun scripts/*.mjs`、`bun run -`）。Node.js 24 作为镜像基座，并继续承载按其 shebang 运行的第三方 CLI（`tsc`、`vite`、`vitest`、`drizzle-kit`、`openui`、`e2e` 等）；不新增 pnpm/npm 用法。
+- **运行时与包管理统一 Bun（版本见根 `package.json` 的 `packageManager`，依赖解析见 `bun.lock`）。** 依赖安装用 `bun install --frozen-lockfile`（CI 可用等价的 `bun ci`）；项目脚本用 `bun run <script>`，自有 `.mjs`/`.ts` 脚本以 `bun` 运行（`bun scripts/*.mjs`、`bun run -`）。**Node.js 与 `@types/node` 永久锁定 24.x**（仅跟 24.x 补丁，不做 26+ 大版本迁移，也不再提议升级 Node 或 `@types/node` 到 26+；`bun outdated` 提示 `@types/node` 26+ 一律忽略），作为镜像基座并继续承载按其 shebang 运行的第三方 CLI（`tsc`、`vite`、`vitest`、`drizzle-kit`、`openui`、`e2e` 等）；不新增 pnpm/npm 用法。
 - **路由与入口规则见模块。** oRPC 契约、Hono 根入口、`access` 元数据、`requireAuth` 与错误返回形状见 [packages/api/AGENTS.md](packages/api/AGENTS.md) 与 [docs/VALIDATION.md](docs/VALIDATION.md)。
 - **数据库变更见模块。** Drizzle schema、`bun run db:generate` + `bun run db:migrate` 与同步 `docs/` 的要求见 [packages/db/AGENTS.md](packages/db/AGENTS.md)。
 - **业务实体 ID：** 常规业务实体主键统一使用 TypeID；生成入口与命名空间规则见 [packages/db/AGENTS.md](packages/db/AGENTS.md)，完整约定见 [ID 约定](docs/PROJECT-BRIEF.md#162-id-约定)。其他包按该规范使用，不各自实现 ID 生成。
@@ -149,3 +149,4 @@
 | 文档链接/锚点/行内路径有效、禁 `pnpm`/`npm` 命令、`PITFALLS` 索引一致 | Lint + CI | `scripts/check-docs.mjs`（`bun run lint:docs`） |
 | 禁止显式 `any`、格式与 import 排序、全仓类型检查 | 类型 + Lint + CI | `biome.json`（`bun run lint`）+ `tsconfig.base.json`（`bun run typecheck`）+ `scripts/ci.ts`（`bun run ci`） |
 | 并发/重放状态机不变量（Agent Run 生命周期、调度器 sync 单飞） | 形式化模型 + CI | `formal/agent-run-lifecycle/AgentRunLifecycle.tla`、`formal/scheduler-sync/SchedulerSync.tla`（`bun run verify:formal`，已接入 `scripts/ci.ts`） |
+| Node.js 与 `@types/node` 永久锁定 24.x（`node-version-lock`） | 架构 + Lint + CI | `package.json`、`Dockerfile` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |

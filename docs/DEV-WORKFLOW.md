@@ -132,4 +132,5 @@
 
 - 版本唯一来源是根 `package.json`、`bun.lock` 与镜像配置，文档不复制当前版本号。
 - 查过期用 `bun outdated --filter '*'`。
+- Node.js 与 `@types/node` 永久锁定 24.x，查过期与升级时忽略 26+。
 - 升级后按改动面跑 typecheck/build/相关测试，UI 改动加视觉验收；结果写进 PR 或 `CHANGELOG.md`。

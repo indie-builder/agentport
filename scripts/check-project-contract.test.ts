@@ -19,7 +19,21 @@ const validCss = `@custom-variant dark (&:where(.dark, .dark *));
 }
 `;
 
+const validRootPackageJson = JSON.stringify(
+  {
+    engines: { node: '>=24.22.2 <25' },
+    workspaces: { catalog: { '@types/node': '24.19.2' } },
+    devDependencies: { '@types/node': 'catalog:' },
+  },
+  null,
+  2,
+);
+
+const validDockerfile = 'FROM node:24-alpine AS base\n';
+
 const baseFiles: Record<string, string> = {
+  'package.json': validRootPackageJson,
+  Dockerfile: validDockerfile,
   'packages/web/src/styles.css': validCss,
   'packages/api/src/index.ts': '',
   'packages/worker/src/index.ts': '',
@@ -281,6 +295,120 @@ const fixtures = [
         "[data-slot='collapsible-content'] {\n  content-visibility: auto;\n}\n",
     },
     expected: ['禁止在 collapsible-content 上设置 content-visibility'],
+  },
+  {
+    name: 'package.json engines.node 升级到 26',
+    rule: 'node-version-lock',
+    files: {
+      'package.json': JSON.stringify({
+        engines: { node: '>=26.0.0 <27' },
+        workspaces: { catalog: { '@types/node': '24.19.2' } },
+      }),
+    },
+    expected: ['package.json: engines.node', '永久锁定 24.x'],
+  },
+  {
+    name: 'package.json engines.node 缺少上限',
+    rule: 'node-version-lock',
+    files: {
+      'package.json': JSON.stringify({
+        engines: { node: '>=24' },
+        workspaces: { catalog: { '@types/node': '24.19.2' } },
+      }),
+    },
+    expected: ['package.json: engines.node', '永久锁定 24.x'],
+  },
+  {
+    name: 'package.json catalog @types/node 升级到 26',
+    rule: 'node-version-lock',
+    files: {
+      'package.json': JSON.stringify({
+        engines: { node: '>=24.22.2 <25' },
+        workspaces: { catalog: { '@types/node': '26.0.0' } },
+      }),
+    },
+    expected: ['package.json: workspaces.catalog["@types/node"]', '永久锁定 24.x'],
+  },
+  {
+    name: 'package.json @types/node 复合范围绕过',
+    rule: 'node-version-lock',
+    files: {
+      'package.json': JSON.stringify({
+        engines: { node: '>=24.22.2 <25' },
+        workspaces: { catalog: { '@types/node': '24.19.2 || ^26.0.0' } },
+      }),
+    },
+    expected: ['package.json: workspaces.catalog["@types/node"]', '永久锁定 24.x'],
+  },
+  {
+    name: 'package.json overrides @types/node 升级到 26',
+    rule: 'node-version-lock',
+    files: {
+      'package.json': JSON.stringify({
+        engines: { node: '>=24.22.2 <25' },
+        workspaces: { catalog: { '@types/node': '24.19.2' } },
+        overrides: { '@types/node': '26.0.0' },
+      }),
+    },
+    expected: ['package.json: overrides["@types/node"]', '永久锁定 24.x'],
+  },
+  {
+    name: '子包 package.json 直接声明 @types/node 26',
+    rule: 'node-version-lock',
+    files: {
+      'packages/api/package.json': JSON.stringify({
+        devDependencies: { '@types/node': '^26.0.0' },
+      }),
+    },
+    expected: ['packages/api/package.json: devDependencies["@types/node"]', '永久锁定 24.x'],
+  },
+  {
+    name: '子包 package.json peerDependencies 声明 @types/node 26',
+    rule: 'node-version-lock',
+    files: {
+      'packages/api/package.json': JSON.stringify({
+        peerDependencies: { '@types/node': '^26.0.0' },
+      }),
+    },
+    expected: ['packages/api/package.json: peerDependencies["@types/node"]', '永久锁定 24.x'],
+  },
+  {
+    name: '子包 package.json engines.node 升 26',
+    rule: 'node-version-lock',
+    files: {
+      'packages/api/package.json': JSON.stringify({
+        engines: { node: '>=26' },
+      }),
+    },
+    expected: ['packages/api/package.json: engines.node', '永久锁定 24.x'],
+  },
+  {
+    name: 'Dockerfile 使用 node:26-alpine',
+    rule: 'node-version-lock',
+    files: {
+      Dockerfile: 'FROM node:26-alpine AS base\n',
+    },
+    expected: ['Dockerfile:1: FROM node:26-alpine AS base', '永久锁定 24.x'],
+  },
+  {
+    name: 'Dockerfile 带镜像前缀使用 node:26-alpine',
+    rule: 'node-version-lock',
+    files: {
+      Dockerfile: 'FROM docker.io/library/node:26-alpine AS base\n',
+    },
+    expected: ['Dockerfile:1: FROM docker.io/library/node:26-alpine AS base', '永久锁定 24.x'],
+  },
+  {
+    name: 'Dockerfile 使用无 tag 的 node 镜像',
+    rule: 'node-version-lock',
+    files: {
+      Dockerfile: 'FROM node\nFROM node AS base\nFROM node@sha256:deadbeef\n',
+    },
+    expected: [
+      'Dockerfile:1: FROM node',
+      'Dockerfile:2: FROM node AS base',
+      'Dockerfile:3: FROM node@sha256:deadbeef',
+    ],
   },
   ...[
     'scheduling/scheduler.ts',
@@ -731,11 +859,28 @@ test.each([
         "import { MISSING } from './errors';\nnotFound('DOCUMENT', MISSING);",
     },
   },
+  {
+    name: '多阶段 Dockerfile 与带前缀 node:24 镜像及合法 24.x 版本范围',
+    files: {
+      'package.json': JSON.stringify({
+        engines: { node: '>=24.22.2 <25.0.0' },
+        workspaces: { catalog: { '@types/node': '^24.19.2' } },
+        overrides: { '@types/node': '~24.19.0' },
+        devDependencies: { '@types/node': 'catalog:' },
+      }),
+      'packages/api/package.json': JSON.stringify({
+        engines: { node: '24.x' },
+        peerDependencies: { '@types/node': '^24' },
+      }),
+      Dockerfile:
+        'FROM oven/bun:1.4.5-alpine AS bun\nFROM --platform=linux/amd64 docker.io/library/node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS base\nFROM base AS sandbox\n',
+    },
+  },
 ])('$name 不触发违规', ({ files }) => {
   const sources = Object.fromEntries(
     Object.entries(files).map(([file, source]) => [
       file,
-      file.startsWith('packages/api/') ? `${errorImports}\n${source}` : source,
+      file.startsWith('packages/api/src/') ? `${errorImports}\n${source}` : source,
     ]),
   );
   expect(runContract(makeRepo(sources)).code).toBe(0);
