@@ -12,7 +12,12 @@ import {
   PageTopbar,
 } from '../../components/page.js';
 import { SearchInput } from '../../components/search-input.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { can } from '../../lib/access.js';
@@ -112,9 +117,16 @@ export function PersonalWorkPage() {
             <PageHeader title="会话与成果" />
           </PageTopbar>
           <PageBody>
-            <PageNote
-              title="当前账号无会话读取权限"
-              description="缺少 conversations.read 权限，无法查看会话与成果。"
+            <EmptyState
+              variant="permission"
+              scale="page"
+              title="无法查看会话与成果"
+              description="当前账号缺少 conversations.read 权限。"
+              action={
+                <Button variant="outline" size="sm" onClick={() => void me.refetch()}>
+                  刷新权限
+                </Button>
+              }
             />
           </PageBody>
         </>
@@ -220,14 +232,14 @@ export function PersonalWorkPage() {
                     />
                   ) : null}
                   {conversations.data && conversations.data.length === 0 ? (
-                    <PageNote
-                      title="当前无会话记录"
+                    <EmptyState
+                      variant="stage"
+                      scale="section"
+                      specimen="channels"
+                      title="还没有对话记录"
                       description="与专家发起对话后会显示在这里。"
                       action={
-                        <Link
-                          to="/chat"
-                          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                        >
+                        <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
                           开始对话
                         </Link>
                       }
@@ -236,9 +248,47 @@ export function PersonalWorkPage() {
                   {conversations.data &&
                   conversations.data.length > 0 &&
                   filteredConversations.length === 0 ? (
-                    <PageNote
-                      title="当前筛选下无匹配会话"
+                    <EmptyState
+                      variant="filter"
+                      scale="section"
+                      title="没有匹配的会话"
                       description="调整关键词或来源筛选后重试。"
+                      activeFilters={
+                        [
+                          ...(query.trim()
+                            ? [
+                                {
+                                  key: 'q',
+                                  label: '关键词',
+                                  value: query.trim(),
+                                  onRemove: () =>
+                                    void navigate({
+                                      to: '/personal/work',
+                                      search: (current) => ({ ...current, q: undefined }),
+                                      replace: true,
+                                    }),
+                                },
+                              ]
+                            : []),
+                          ...(source !== 'all'
+                            ? [
+                                {
+                                  key: 'source',
+                                  label: '来源',
+                                  value:
+                                    CONVERSATION_SOURCE_OPTIONS.find(
+                                      (option) => option.value === source,
+                                    )?.label ?? source,
+                                  onRemove: () =>
+                                    void navigate({
+                                      to: '/personal/work',
+                                      search: (current) => ({ ...current, source: undefined }),
+                                    }),
+                                },
+                              ]
+                            : []),
+                        ] satisfies EmptyFilterChip[]
+                      }
                       action={
                         <Button
                           variant="outline"
@@ -250,7 +300,7 @@ export function PersonalWorkPage() {
                             })
                           }
                         >
-                          清除筛选
+                          清除全部筛选
                         </Button>
                       }
                     />
@@ -306,23 +356,42 @@ export function PersonalWorkPage() {
                     <ErrorState error={outputs.error} onRetry={() => void outputs.refetch()} />
                   ) : null}
                   {outputs.data && outputs.data.items.length === 0 ? (
-                    <PageNote
-                      title="当前无已发布成果"
+                    <EmptyState
+                      variant="stage"
+                      scale="section"
+                      specimen="outputs"
+                      title="还没有已发布的成果"
                       description="专家在会话中发布文件后会显示在这里。"
                       action={
-                        <Link
-                          to="/chat"
-                          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                        >
+                        <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
                           开始对话
                         </Link>
                       }
                     />
                   ) : null}
                   {outputs.data && outputs.data.items.length > 0 && filteredOutputs.length === 0 ? (
-                    <PageNote
-                      title="当前搜索下无匹配成果"
+                    <EmptyState
+                      variant="filter"
+                      scale="section"
+                      title="没有匹配的成果文件"
                       description="更换文件名或来源会话关键词后重试。"
+                      activeFilters={
+                        query.trim()
+                          ? [
+                              {
+                                key: 'q',
+                                label: '关键词',
+                                value: query.trim(),
+                                onRemove: () =>
+                                  void navigate({
+                                    to: '/personal/work',
+                                    search: { tab: 'outputs' },
+                                    replace: true,
+                                  }),
+                              },
+                            ]
+                          : undefined
+                      }
                       action={
                         <Button
                           variant="outline"

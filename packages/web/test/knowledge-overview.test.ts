@@ -297,7 +297,7 @@ describe('knowledge base overview', () => {
     const router = await mount('/knowledge/kb_1', { panel: 'overview' });
 
     expect(valueFor('文档')).toBe('0');
-    expect(document.body.textContent).toContain('这个库还没有内容');
+    expect(document.body.textContent).toContain('这个知识库还是空的');
     await click(button('上传文档'));
     expect(router.state.location.search).toMatchObject({ panel: 'documents' });
   });
@@ -306,7 +306,7 @@ describe('knowledge base overview', () => {
     overviewHandlers();
     await mount('/knowledge/kb_1', { panel: 'overview' });
 
-    expect(document.body.textContent).not.toContain('这个库还没有内容');
+    expect(document.body.textContent).not.toContain('这个知识库还是空的');
     expect(findButton('上传文档')).toBeUndefined();
   });
 

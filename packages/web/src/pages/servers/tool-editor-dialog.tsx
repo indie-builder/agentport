@@ -1,12 +1,12 @@
 import type { ApiTool, Server } from '@agentport/shared';
 import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
-import { Pencil, Play, Trash2, Upload } from 'lucide-react';
+import { Globe, Pencil, Play, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { ImportOpenApiDialog } from '../../components/server/import-openapi-dialog.js';
 import { TestInvokeDialog } from '../../components/server/test-invoke-dialog.js';
-import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Checkbox } from '../../components/ui/checkbox.js';
 import { Dialog } from '../../components/ui/dialog.js';
@@ -163,7 +163,13 @@ export function ToolEditorDialog({
             <ErrorState error={tools.error} onRetry={() => void tools.refetch()} />
           ) : null}
           {tools.data && tools.data.length === 0 ? (
-            <InlineEmpty>在下方声明第一个 HTTP 端点，供智能体调用。</InlineEmpty>
+            <EmptyState
+              variant="idle"
+              scale="inline"
+              icon={<Globe aria-hidden="true" />}
+              title="尚未声明 HTTP 端点"
+              description="在下方添加第一个端点，保存后即可被专家调用。"
+            />
           ) : null}
           {tools.data && tools.data.length > 0 ? (
             <div className="flex flex-col gap-2">

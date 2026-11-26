@@ -1,7 +1,7 @@
 import { type ChannelListItem, channelCreateSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { Hash, Plus } from 'lucide-react';
+import { Hash, Lock, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../../components/draft-guard.js';
@@ -13,7 +13,7 @@ import {
   PageSection,
   PageTopbar,
 } from '../../components/page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
 import {
@@ -107,20 +107,28 @@ export function ChannelsPage() {
         ) : channels.isError && channels.data === undefined ? (
           <ErrorState error={channels.error} onRetry={() => void channels.refetch()} />
         ) : items.length === 0 ? (
-          <PageNote
-            icon={<Hash className="size-4" aria-hidden="true" />}
-            title="未创建频道"
-            {...(canCreate ? {} : { description: '管理员把你加入频道后，频道会出现在这里。' })}
-            {...(canCreate
-              ? {
-                  action: (
-                    <Button variant="default" onClick={() => setCreating(true)}>
-                      <Plus data-icon="inline-start" aria-hidden="true" />
-                      新建频道
-                    </Button>
-                  ),
-                }
-              : {})}
+          <EmptyState
+            variant="stage"
+            scale="page"
+            specimen="channels"
+            title="创建团队协作频道"
+            description="在同一频道内邀请成员与多位专家共同讨论并追踪执行过程。"
+            action={
+              canCreate ? (
+                <Button onClick={() => setCreating(true)}>
+                  <Plus data-icon="inline-start" aria-hidden="true" />
+                  新建频道
+                </Button>
+              ) : undefined
+            }
+            footer={
+              !canCreate ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Lock className="size-3.5" aria-hidden="true" />
+                  管理员把你加入频道后，频道会显示在这里。
+                </span>
+              ) : undefined
+            }
           />
         ) : (
           <>
@@ -170,7 +178,7 @@ export function ChannelsPage() {
                           <TableCell>
                             <span className="block max-w-96 truncate">
                               {last === null ? (
-                                <span className="text-muted-foreground">还没有消息</span>
+                                <span className="text-muted-foreground">尚未发起讨论</span>
                               ) : (
                                 last.body
                               )}
@@ -279,7 +287,7 @@ function ChannelCard({ channel }: { channel: ChannelListItem }) {
         </CardHeader>
         <CardContent className="flex flex-1 flex-col justify-center">
           <p className="line-clamp-2 text-sm text-muted-foreground">
-            {last === null ? '还没有消息' : last.body}
+            {last === null ? '尚未发起讨论' : last.body}
           </p>
         </CardContent>
         <CardContent className="flex items-center justify-between gap-2 text-xs text-muted-foreground">

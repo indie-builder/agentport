@@ -2,7 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import {
   CircleAlert,
   CircleCheck,
+  CircleDashed,
   CircleX,
+  HeartPulse,
   ListChecks,
   LoaderCircle,
   RefreshCw,
@@ -16,7 +18,7 @@ import {
   PageSection,
   PageTopbar,
 } from '../components/page.js';
-import { LoadingState } from '../components/states.js';
+import { EmptyState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
@@ -82,8 +84,16 @@ function Reason({ tone = 'danger', children }: { tone?: 'warn' | 'danger'; child
   );
 }
 
-function Unknown() {
-  return <div className="text-sm text-muted-foreground">未知</div>;
+function Unknown({ description }: { description?: string }) {
+  return (
+    <EmptyState
+      variant="idle"
+      scale="inline"
+      icon={<CircleDashed className="size-4" aria-hidden="true" />}
+      title="暂未采集到指标"
+      description={description}
+    />
+  );
 }
 
 function formatUptime(seconds: number): string {
@@ -220,11 +230,17 @@ function SmokeChecklist() {
     >
       <div aria-live="polite" aria-relevant="additions text">
         {steps.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {running
-              ? '正在依次检查…'
-              : '依次请求 live、ready、metrics 三个端点，只在这个浏览器里执行，不会改动服务。'}
-          </p>
+          running ? (
+            <p className="text-sm text-muted-foreground">正在依次检查…</p>
+          ) : (
+            <EmptyState
+              variant="idle"
+              scale="inline"
+              icon={<HeartPulse className="size-4" aria-hidden="true" />}
+              title="就绪检查尚未运行"
+              description="将在浏览器内依次探测 live、ready 与 metrics 端点，不改动服务状态。"
+            />
+          )
         ) : (
           <ul>
             {steps.map((step) => (
@@ -485,7 +501,7 @@ export function StatusPage() {
             ) : metrics.isPending ? (
               <LoadingState rows={2} />
             ) : data ? (
-              <div className="text-sm text-muted-foreground">读不到数据库指标。</div>
+              <Unknown description="指标端点未返回数据库数据。" />
             ) : (
               <Unknown />
             )}

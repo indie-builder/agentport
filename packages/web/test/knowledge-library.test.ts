@@ -90,7 +90,12 @@ describe('knowledge library list', () => {
     );
     await mount('/knowledge');
     expect(document.querySelectorAll('h1')).toHaveLength(1);
-    expect(document.body.textContent).toContain('未创建知识库');
+    expect(document.body.textContent).toContain('构建你的专属知识库');
+    await waitFor(() =>
+      [...document.querySelectorAll('button')].some(
+        (item) => item.textContent?.trim() === '新建知识库',
+      ),
+    );
     expect(button('新建知识库')).toBeDefined();
   });
 
@@ -182,7 +187,7 @@ describe('knowledge library list', () => {
     expect(router.state.location.search).toMatchObject({ q: '不存在', status: 'disabled' });
     expect(document.body.textContent).toContain('没有匹配的知识库');
 
-    await click(button('清除筛选'));
+    await click(button('清除全部筛选'));
     expect(router.state.location.search).toEqual({});
     expect(document.body.textContent).toContain('产品手册');
     expect(document.body.textContent).toContain('研发手册');

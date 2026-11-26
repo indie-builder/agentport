@@ -16,8 +16,8 @@ import { CodeBlock } from '../../components/code-block.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { MemoryPanel } from '../../components/memory/memory-panel.js';
-import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../../components/page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { Page, PageBody, PageHeader, PageTopbar } from '../../components/page.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
@@ -161,13 +161,15 @@ export function AgentDetailPage() {
           <PageHeader title="专家" />
         </PageTopbar>
         <PageBody>
-          <PageNote
-            icon={<Bot />}
-            title="专家不存在"
-            description="它可能已被删除，或当前账户没有访问权限。返回列表重新选择。"
+          <EmptyState
+            variant="permission"
+            scale="page"
+            icon={<Bot className="size-5" aria-hidden="true" />}
+            title="无法访问这位专家"
+            description="它可能已被删除，或当前账户没有访问权限。"
             action={
               <Button variant="outline" onClick={backToList}>
-                <ArrowLeft data-icon="inline-start" /> 返回列表
+                <ArrowLeft data-icon="inline-start" /> 返回找专家
               </Button>
             }
           />

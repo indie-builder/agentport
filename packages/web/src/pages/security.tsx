@@ -29,13 +29,17 @@ import {
   Page,
   PageBody,
   PageHeader,
-  PageNote,
   PageSection,
   PageToolbar,
   PageTopbar,
 } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
@@ -413,10 +417,12 @@ function PoliciesSection() {
         />
       ) : null}
       {policies.data && rows.length === 0 ? (
-        <PageNote
-          icon={<ShieldCheck aria-hidden="true" />}
-          title="无内容策略"
-          description="添加策略以拦截、脱敏或人工审批入站与出站内容。"
+        <EmptyState
+          variant="stage"
+          scale="section"
+          specimen="security"
+          title="建立内容安全策略"
+          description="定义入站与出站检测规则，支持拦截、脱敏或转交人工审批。"
           action={
             canManage ? (
               <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
@@ -942,12 +948,33 @@ function ApprovalsSection() {
         />
       ) : null}
       {approvals.data && rows.length === 0 ? (
-        <PageNote
-          icon={<ShieldCheck aria-hidden="true" />}
-          title={`无${APPROVAL_STATUS_LABEL[status]}记录`}
-          description={status === 'pending' ? '命中人工审批策略的外发内容会在此排队。' : undefined}
-          action={
-            status !== 'pending' ? (
+        status === 'pending' ? (
+          <EmptyState
+            variant="clear"
+            scale="section"
+            icon={<ShieldCheck className="size-5" aria-hidden="true" />}
+            title="没有待审批的外发内容"
+            description="命中人工审批策略的请求会在此排队。"
+          />
+        ) : (
+          <EmptyState
+            variant="filter"
+            scale="section"
+            title={`没有${APPROVAL_STATUS_LABEL[status]}的外发审批`}
+            activeFilters={[
+              {
+                key: 'approvalStatus',
+                label: '审批状态',
+                value: APPROVAL_STATUS_LABEL[status],
+                onRemove: () =>
+                  void navigate({
+                    to: '/security',
+                    search: { ...search, approvalStatus: undefined },
+                    replace: true,
+                  }),
+              },
+            ]}
+            action={
               <Button
                 variant="outline"
                 size="sm"
@@ -961,9 +988,9 @@ function ApprovalsSection() {
               >
                 查看待审批
               </Button>
-            ) : undefined
-          }
-        />
+            }
+          />
+        )
       ) : null}
       {rows.length > 0 ? (
         <DataTable
@@ -1298,12 +1325,46 @@ function EventsSection() {
         />
       ) : null}
       {events.data && rows.length === 0 ? (
-        <PageNote
-          icon={<ShieldCheck aria-hidden="true" />}
-          title={filtered ? '无匹配策略事件' : '无策略事件'}
-          description={filtered ? undefined : '命中策略的请求会记录脱敏摘要。'}
-          action={
-            filtered ? (
+        filtered ? (
+          <EmptyState
+            variant="filter"
+            scale="section"
+            title="没有匹配的策略事件"
+            activeFilters={
+              [
+                ...(action
+                  ? [
+                      {
+                        key: 'eventAction',
+                        label: '动作',
+                        value: ACTION_LABEL[action],
+                        onRemove: () =>
+                          void navigate({
+                            to: '/security',
+                            search: { ...search, eventAction: undefined },
+                            replace: true,
+                          }),
+                      },
+                    ]
+                  : []),
+                ...(sourceKind
+                  ? [
+                      {
+                        key: 'eventSource',
+                        label: '来源',
+                        value: SOURCE_LABEL[sourceKind],
+                        onRemove: () =>
+                          void navigate({
+                            to: '/security',
+                            search: { ...search, eventSource: undefined },
+                            replace: true,
+                          }),
+                      },
+                    ]
+                  : []),
+              ] satisfies EmptyFilterChip[]
+            }
+            action={
               <Button
                 variant="outline"
                 size="sm"
@@ -1315,11 +1376,19 @@ function EventsSection() {
                   })
                 }
               >
-                清除筛选
+                清除全部筛选
               </Button>
-            ) : undefined
-          }
-        />
+            }
+          />
+        ) : (
+          <EmptyState
+            variant="clear"
+            scale="section"
+            icon={<ShieldCheck className="size-5" aria-hidden="true" />}
+            title="还没有触发策略事件"
+            description="命中策略的请求会记录脱敏摘要。"
+          />
+        )
       ) : null}
       {rows.length > 0 ? (
         <DataTable
@@ -1514,12 +1583,33 @@ function ViolationsSection() {
         />
       ) : null}
       {violations.data && rows.length === 0 ? (
-        <PageNote
-          icon={<ShieldCheck aria-hidden="true" />}
-          title={status === 'all' ? '无违规记录' : `无${VIOLATION_STATUS_LABEL[status]}的违规记录`}
-          description={status === 'all' ? '严重违规会生成处置记录并跟踪处理结论。' : undefined}
-          action={
-            status !== 'all' ? (
+        status === 'all' ? (
+          <EmptyState
+            variant="clear"
+            scale="section"
+            icon={<ShieldCheck className="size-5" aria-hidden="true" />}
+            title="当前没有违规记录"
+            description="严重违规会生成处置记录并跟踪处理结论。"
+          />
+        ) : (
+          <EmptyState
+            variant="filter"
+            scale="section"
+            title="没有匹配该状态的违规记录"
+            activeFilters={[
+              {
+                key: 'violationStatus',
+                label: '处置状态',
+                value: VIOLATION_STATUS_LABEL[status],
+                onRemove: () =>
+                  void navigate({
+                    to: '/security',
+                    search: { ...search, violationStatus: undefined },
+                    replace: true,
+                  }),
+              },
+            ]}
+            action={
               <Button
                 variant="outline"
                 size="sm"
@@ -1531,11 +1621,11 @@ function ViolationsSection() {
                   })
                 }
               >
-                清除筛选
+                清除全部筛选
               </Button>
-            ) : undefined
-          }
-        />
+            }
+          />
+        )
       ) : null}
       {rows.length > 0 ? (
         <DataTable

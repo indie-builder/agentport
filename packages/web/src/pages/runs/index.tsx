@@ -8,7 +8,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, EllipsisVertical, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
-import { BusinessIllustration } from '../../components/business-illustration.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterPopover } from '../../components/filter-popover.js';
 import { FilterSelect } from '../../components/filter-select.js';
@@ -22,7 +21,12 @@ import {
 } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
 import { RunStatusBadge } from '../../components/run/run-status-badge.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import {
   Card,
@@ -340,6 +344,49 @@ export function RunsPage() {
   const activeFilterCount =
     (agentId ? 1 : 0) + (status ? 1 : 0) + (trigger ? 1 : 0) + (range !== 'all' ? 1 : 0);
 
+  const activeFilters: EmptyFilterChip[] = [
+    ...(agentId
+      ? [
+          {
+            key: 'agent',
+            label: '专家',
+            value: agents.data?.find((agent) => agent.id === agentId)?.name ?? agentId,
+            onRemove: () => setFilter({ agent: undefined }),
+          },
+        ]
+      : []),
+    ...(status
+      ? [
+          {
+            key: 'status',
+            label: '状态',
+            value: runStatusLabel[status],
+            onRemove: () => setFilter({ status: undefined }),
+          },
+        ]
+      : []),
+    ...(trigger
+      ? [
+          {
+            key: 'trigger',
+            label: '触发',
+            value: runTriggerLabel[trigger],
+            onRemove: () => setFilter({ trigger: undefined }),
+          },
+        ]
+      : []),
+    ...(range !== 'all'
+      ? [
+          {
+            key: 'range',
+            label: '时间范围',
+            value: timeRangeOptions.find((option) => option.value === range)?.label ?? range,
+            onRemove: () => setFilter({ range: undefined }),
+          },
+        ]
+      : []),
+  ];
+
   const agentOptions = [
     { value: '', label: '全部专家' },
     ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
@@ -481,11 +528,13 @@ export function RunsPage() {
               />
             ) : null}
             {empty ? (
-              <PageNote
-                icon={<BusinessIllustration name={filtered ? 'search' : 'runs'} size="compact" />}
-                title={filtered ? '没有匹配的运行' : '无运行记录'}
-                action={
-                  filtered ? (
+              filtered ? (
+                <EmptyState
+                  variant="filter"
+                  scale="section"
+                  title="没有匹配的运行记录"
+                  activeFilters={activeFilters}
+                  action={
                     <Button
                       variant="outline"
                       size="sm"
@@ -498,15 +547,24 @@ export function RunsPage() {
                         })
                       }
                     >
-                      清除筛选
+                      清除全部筛选
                     </Button>
-                  ) : (
+                  }
+                />
+              ) : (
+                <EmptyState
+                  variant="stage"
+                  scale="page"
+                  specimen="runs"
+                  title="等待首次运行"
+                  description="在对话、频道或定时任务中调用专家后，每次执行的耗时与成本都会记录在这里。"
+                  action={
                     <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
                       新建对话
                     </Link>
-                  )
-                }
-              />
+                  }
+                />
+              )
             ) : view === 'cards' ? (
               runs.isPending ? (
                 <LoadingState rows={3} layout="cards" />

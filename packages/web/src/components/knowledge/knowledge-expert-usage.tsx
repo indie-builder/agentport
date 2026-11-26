@@ -1,8 +1,10 @@
 import type { KnowledgeBase } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { Users } from 'lucide-react';
 import { agentsQuery } from '../../lib/queries.js';
-import { ErrorState, LoadingState } from '../states.js';
+import { EmptyState, ErrorState, LoadingState } from '../states.js';
+import { buttonVariants } from '../ui/button.js';
 
 export function ExpertUsage({ base }: { base: KnowledgeBase }) {
   const agents = useQuery(agentsQuery);
@@ -45,13 +47,18 @@ export function ExpertUsage({ base }: { base: KnowledgeBase }) {
         </Link>
       ) : null}
       {agents.isSuccess && used.length === 0 && unknown === 0 ? (
-        <div className="flex flex-col gap-1">
-          <span className="text-sm text-fg">没有被任何专家使用</span>
-          <span className="text-sm text-muted-foreground">在专家的能力配置中绑定此知识库。</span>
-          <Link to="/agents" className="self-start text-xs text-fg underline underline-offset-2">
-            选择专家
-          </Link>
-        </div>
+        <EmptyState
+          variant="idle"
+          scale="inline"
+          icon={<Users aria-hidden="true" />}
+          title="还没有专家绑定此知识库"
+          description="在专家的能力配置中勾选此库即可启用检索。"
+          action={
+            <Link to="/agents" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+              前往找专家
+            </Link>
+          }
+        />
       ) : null}
       {unknown > 0 ? (
         <span className="text-xs text-muted-foreground">部分专家的使用关系无法确认</span>

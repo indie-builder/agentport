@@ -243,13 +243,13 @@ describe('run list keeps cached rows when a refetch fails', () => {
       .mockRejectedValueOnce(new Error('runs unavailable'));
 
     await mountRuns();
-    await actWaitFor(() => expect(host.textContent).toContain('无运行记录'));
+    await actWaitFor(() => expect(host.textContent).toContain('等待首次运行'));
 
     await act(async () => {
       await client.invalidateQueries({ queryKey: ['runs', null, null, null, null, 50] });
     });
     await actWaitFor(() => expect(host.textContent).toContain('runs unavailable'));
-    expect(host.textContent).toContain('无运行记录');
+    expect(host.textContent).toContain('等待首次运行');
     expect(host.querySelector('[role="alert"]')).not.toBeNull();
   });
 
@@ -283,7 +283,7 @@ describe('overview trend keeps cached data when a refetch fails', () => {
     await actWaitFor(() => expect(host.textContent).toContain('trend unavailable'));
 
     expect(host.querySelector('[data-slot="chart"]')).not.toBeNull();
-    expect(host.textContent).not.toContain('发起对话后生成趋势');
+    expect(host.textContent).not.toContain('发起对话后生成 7 日趋势');
     expect(button('重试')).not.toBeNull();
 
     await act(async () => trigger().click());
@@ -348,7 +348,7 @@ describe('eval agent access states', () => {
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [], nextCursor: null });
 
     await mountEval();
-    await actWaitFor(() => expect(host.textContent).toContain('用例为空'));
+    await actWaitFor(() => expect(host.textContent).toContain('添加第一条评估用例'));
 
     expect(button('新建用例')).toBeNull();
     expect(button('运行评估')).not.toBeNull();

@@ -1,7 +1,8 @@
+import { GitCompare } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterSelect } from '../../components/filter-select.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
@@ -105,7 +106,13 @@ export function CompareDialog({
             </>
           ) : null}
           {comparison.isSuccess && comparison.data.rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">两次运行都没有结果记录，无法比较。</p>
+            <EmptyState
+              variant="idle"
+              scale="inline"
+              icon={<GitCompare aria-hidden="true" />}
+              title="缺少结果记录，无法对比"
+              description="两次运行都没有结果记录。"
+            />
           ) : null}
           {comparison.isSuccess && comparison.data.rows.length > 0 ? (
             <ul className="flex flex-col gap-4">

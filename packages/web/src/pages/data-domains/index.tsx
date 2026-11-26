@@ -1,12 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { Database, Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { PageNote } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
 import { ResourcePage } from '../../components/resource-page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
@@ -101,26 +105,43 @@ export function DataDomainsPage() {
       ) : null}
 
       {fullyLoaded && domains.data && domains.data.length === 0 ? (
-        <PageNote
-          icon={<Database className="size-4" aria-hidden="true" />}
-          title="未添加数据域"
-          description={canCreate ? undefined : '当前账户没有创建数据域的权限。'}
+        <EmptyState
+          variant="stage"
+          scale="page"
+          specimen="data-domains"
+          title="创建业务数据域"
+          description="定义受控的数据模型、行级身份权限与查询审批边界。"
           action={
             canCreate ? (
               <Button ref={createTriggerRef} onClick={() => setCreating(true)}>
-                新建数据域
+                <Plus data-icon="inline-start" aria-hidden="true" /> 新建数据域
               </Button>
             ) : undefined
           }
+          footer={canCreate ? undefined : '当前账户没有创建数据域的权限。'}
         />
       ) : null}
 
       {fullyLoaded && domains.data && domains.data.length > 0 && shown.length === 0 ? (
-        <PageNote
+        <EmptyState
+          variant="filter"
+          scale="section"
           title="没有匹配的数据域"
+          activeFilters={
+            query.trim()
+              ? ([
+                  {
+                    key: 'q',
+                    label: '关键词',
+                    value: query.trim(),
+                    onRemove: () => setQuery(''),
+                  },
+                ] satisfies EmptyFilterChip[])
+              : undefined
+          }
           action={
             <Button variant="outline" size="sm" onClick={() => setQuery('')}>
-              清除筛选
+              清除全部筛选
             </Button>
           }
         />

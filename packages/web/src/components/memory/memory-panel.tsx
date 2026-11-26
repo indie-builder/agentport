@@ -1,7 +1,7 @@
 import type { MemoryChange, OutputStyle } from '@agentport/shared';
 import { memoryFileNameSchema, validateMemoryContent } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Download, FileText, History, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
@@ -19,7 +19,6 @@ import {
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useEditStateNotify } from '../../lib/use-edit-state-notify.js';
-import { BusinessIllustration } from '../business-illustration.js';
 import { CodeBlock } from '../code-block.js';
 import { ConfirmDialog } from '../confirm-dialog.js';
 import { DialogShell } from '../dialog-shell.js';
@@ -317,7 +316,9 @@ function MemoryFilesPanel({
           <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
         ) : null}
         <EmptyState
-          illustration={<BusinessIllustration name="memory" />}
+          variant="stage"
+          scale="section"
+          specimen="memory"
           title={canWrite ? '初始化记忆' : '尚未初始化记忆'}
           description="MEMORY.md 作为索引，跨会话保留这位专家的长期记忆。"
           action={
@@ -616,7 +617,12 @@ function MemoryFileEditor({
         ) : null}
         {versions.data ? (
           versions.data.items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">保存后会记录版本。</p>
+            <EmptyState
+              variant="idle"
+              scale="inline"
+              icon={<History className="size-4" aria-hidden="true" />}
+              title="保存后会记录版本"
+            />
           ) : (
             <ul className="divide-y border-y">
               {versions.data.items.map((change) => {
@@ -961,7 +967,25 @@ export function RulesPanel({
             </FieldGroup>
           </>
         ) : (
-          <EmptyState title="选择或新建规则" />
+          <EmptyState
+            variant="idle"
+            scale="panel"
+            icon={<FileText className="size-5" aria-hidden="true" />}
+            title="选择左侧规则查看或编辑"
+            description="规则会写入 .claude/rules/，按路径作用域在运行期自动加载。"
+            action={
+              canWrite ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => guard({ type: 'create' })}
+                >
+                  <Plus data-icon="inline-start" aria-hidden="true" /> 新建规则
+                </Button>
+              ) : undefined
+            }
+          />
         )}
       </div>
 
@@ -1311,7 +1335,25 @@ export function OutputStylesPanel({
             </FieldGroup>
           </>
         ) : (
-          <EmptyState title="选择或新建输出风格" description="启用后会替换专家默认的输出风格。" />
+          <EmptyState
+            variant="idle"
+            scale="panel"
+            icon={<Sparkles className="size-5" aria-hidden="true" />}
+            title="选择左侧风格查看或编辑"
+            description="启用后会替换专家默认的输出风格。"
+            action={
+              canWrite ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => guard({ type: 'create' })}
+                >
+                  <Plus data-icon="inline-start" aria-hidden="true" /> 新建风格
+                </Button>
+              ) : undefined
+            }
+          />
         )}
       </div>
 

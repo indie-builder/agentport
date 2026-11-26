@@ -1,6 +1,6 @@
 import type { AgentSummary, ConversationSearchItem, OutputRef } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   createResizableController,
   Resizable,
@@ -19,7 +19,7 @@ import { ConversationSearch } from '../../components/chat/conversation-search.js
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { Page, PageHeader } from '../../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
-import { Button } from '../../components/ui/button.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Sheet, SheetContent, SheetTitle } from '../../components/ui/sheet.js';
 import { type ApprovalRequest, api } from '../../lib/api.js';
 import { mergeOlderHistory, titleFromDetail } from '../../lib/chat-state.js';
@@ -85,13 +85,16 @@ export function ChatPage() {
       <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto p-6">
         <PageHeader title="对话" className="sr-only" />
         <EmptyState
-          icon={<Bot className="size-5" />}
+          variant="permission"
+          scale="page"
+          icon={<Bot className="size-5" aria-hidden="true" />}
           title="找不到这位专家"
-          description="链接里的智能体可能已被删除，或不属于当前工作区。"
-          action={
-            <Button variant="outline" onClick={clearSelection}>
-              开始新对话
-            </Button>
+          description="链接中的专家可能已删除或不属于当前工作区。"
+          action={<Button onClick={clearSelection}>开始新对话</Button>}
+          secondaryAction={
+            <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
+              去找专家
+            </Link>
           }
         />
       </Page>

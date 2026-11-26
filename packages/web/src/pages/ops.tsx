@@ -8,12 +8,21 @@ import {
 } from '@agentport/shared';
 import { type InfiniteData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { History, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  CalendarDays,
+  Clock,
+  History,
+  Lock,
+  Pencil,
+  Plus,
+  Sun,
+  Terminal,
+  Trash2,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { AgentPicker } from '../components/agent/agent-picker.js';
-import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
@@ -28,7 +37,7 @@ import {
 import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { RunStatusBadge } from '../components/run/run-status-badge.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 
 import { Button } from '../components/ui/button.js';
 import {
@@ -274,7 +283,7 @@ export function SchedulesPage() {
   const canManage = can(me.data, 'schedules.manage');
   const agentsError = agents.isError ? agents.error : null;
   const client = useQueryClient();
-  const [creating, setCreating] = useState(false);
+  const [createPreset, setCreatePreset] = useState<ScheduleFrequency | null>(null);
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [deleting, setDeleting] = useState<Schedule | null>(null);
   const [historyOf, setHistoryOf] = useState<Schedule | null>(null);
@@ -343,7 +352,7 @@ export function SchedulesPage() {
             <>
               {items.length > 0 ? <ViewToggle value={view} onChange={setView} /> : null}
               {canManage ? (
-                <Button ref={createButtonRef} onClick={() => setCreating(true)}>
+                <Button ref={createButtonRef} onClick={() => setCreatePreset('daily')}>
                   <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务
                 </Button>
               ) : null}
@@ -373,18 +382,53 @@ export function SchedulesPage() {
         ) : null}
 
         {schedules.data && items.length === 0 ? (
-          <PageNote
-            icon={<BusinessIllustration name="schedule" size="compact" />}
-            title="还没有定时任务"
-            description={
-              canManage ? '创建后按执行计划自动运行专家。' : '当前账户没有创建权限，请联系管理员。'
-            }
+          <EmptyState
+            variant="stage"
+            scale="page"
+            specimen="schedules"
+            title="让专家按计划自动工作"
+            description="设定每日、每周或 Cron 周期，自动触发专家执行并沉淀结果。"
             action={
               canManage ? (
-                <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                <Button onClick={() => setCreatePreset('daily')}>
                   <Plus data-icon="inline-start" aria-hidden="true" />
                   新建定时任务
                 </Button>
+              ) : undefined
+            }
+            starters={
+              canManage
+                ? [
+                    {
+                      id: 'daily',
+                      icon: <Sun className="size-3.5" aria-hidden="true" />,
+                      title: '每日晨报与巡检',
+                      description: '每天固定时间触发专家汇总动态或巡检指标',
+                      onClick: () => setCreatePreset('daily'),
+                    },
+                    {
+                      id: 'weekly',
+                      icon: <CalendarDays className="size-3.5" aria-hidden="true" />,
+                      title: '每周固定复盘',
+                      description: '按工作日或指定星期自动生成周报与复盘',
+                      onClick: () => setCreatePreset('weekly'),
+                    },
+                    {
+                      id: 'custom',
+                      icon: <Terminal className="size-3.5" aria-hidden="true" />,
+                      title: '自定义 Cron',
+                      description: '使用标准五段 Cron 表达式灵活定义任意周期',
+                      onClick: () => setCreatePreset('custom'),
+                    },
+                  ]
+                : undefined
+            }
+            footer={
+              !canManage ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Lock className="size-3.5" aria-hidden="true" />
+                  当前账户没有管理定时任务的权限，请联系管理员配置。
+                </span>
               ) : undefined
             }
           />
@@ -561,12 +605,13 @@ export function SchedulesPage() {
         ) : null}
       </PageBody>
 
-      {creating ? (
+      {createPreset !== null ? (
         <ScheduleDialog
+          initialFrequency={createPreset}
           agents={agents.data ?? []}
           agentsError={agentsError}
           onRetryAgents={() => void agents.refetch()}
-          onClose={() => setCreating(false)}
+          onClose={() => setCreatePreset(null)}
         />
       ) : null}
       {editing ? (
@@ -722,7 +767,13 @@ function ScheduleRunsDialog({
           <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
         ) : null}
         {runs.data && runs.data.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">还没有执行记录</p>
+          <EmptyState
+            variant="idle"
+            scale="inline"
+            icon={<Clock className="size-4" aria-hidden="true" />}
+            title="还没有触发执行过"
+            description="到达下一次计划时间后，运行记录会显示在这里。"
+          />
         ) : null}
         {runs.data && runs.data.length > 0 ? (
           <div className="overflow-x-auto">
@@ -811,12 +862,14 @@ function ScheduleRunsDialog({
 
 function ScheduleDialog({
   schedule,
+  initialFrequency,
   agents,
   agentsError,
   onRetryAgents,
   onClose: onClosed,
 }: {
   schedule?: Schedule;
+  initialFrequency?: ScheduleFrequency;
   agents: AgentSummary[];
   agentsError: unknown;
   onRetryAgents: () => void;
@@ -843,9 +896,15 @@ function ScheduleDialog({
     setValue,
     clearErrors,
   } = useZodForm(scheduleFormSchema, {
-    defaultValues: schedule ? draftFromSchedule(schedule) : emptyScheduleForm,
+    defaultValues: schedule
+      ? draftFromSchedule(schedule)
+      : {
+          ...emptyScheduleForm,
+          frequency: initialFrequency ?? 'daily',
+          weekdays: initialFrequency === 'weekly' ? [...defaultWeekdays] : [],
+        },
   });
-  const firstWeekly = useRef(true);
+  const firstWeekly = useRef(initialFrequency !== 'weekly');
   const { errors, isDirty } = formState;
   const watched = watch();
   const dirty = isDirty;

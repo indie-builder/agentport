@@ -8,9 +8,12 @@ import {
   ChevronRight,
   Download,
   EllipsisVertical,
+  FileCode,
   Package,
+  PackageOpen,
   PanelLeftDashed,
   Plug,
+  Puzzle,
   Terminal,
   Workflow,
   Wrench,
@@ -35,7 +38,7 @@ import {
 import { PluginFileTree } from '../../components/plugin/plugin-file-tree.js';
 import { ReaderToolbar } from '../../components/reader-toolbar.js';
 import { RecordRows } from '../../components/record-rows.js';
-import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import {
   Breadcrumb,
@@ -138,7 +141,22 @@ export function PluginDetailPage() {
           {plugin.isPending ? (
             <LoadingState rows={6} />
           ) : notFound ? (
-            <PageNote tone="danger" title="这个插件不在了" description="它可能已被删除。" />
+            <EmptyState
+              variant="permission"
+              scale="page"
+              icon={<Puzzle aria-hidden="true" />}
+              title="这个插件已不存在"
+              description="它可能已被卸载或删除。"
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void navigate({ to: '/plugins' })}
+                >
+                  返回插件列表
+                </Button>
+              }
+            />
           ) : (
             <ErrorState error={plugin.error} onRetry={() => void plugin.refetch()} />
           )}
@@ -406,9 +424,13 @@ function PluginDetailContent({
                       </PageSection>
                     ))
                   ) : (
-                    <p className="text-muted-foreground">
-                      未检测到技能、命令、代理、钩子或 MCP 服务。
-                    </p>
+                    <EmptyState
+                      variant="idle"
+                      scale="inline"
+                      icon={<PackageOpen aria-hidden="true" />}
+                      title="未在此插件中检测到能力清单"
+                      description="未包含技能、命令、代理、钩子或 MCP 配置。"
+                    />
                   )}
                   {readme ? (
                     <PageSection title="说明" divided={false}>
@@ -574,7 +596,16 @@ function PluginContent({
     return () => clearTimeout(timer);
   }, [open]);
 
-  if (selected === undefined) return <InlineEmpty>没有可查看的文件。</InlineEmpty>;
+  if (selected === undefined) {
+    return (
+      <EmptyState
+        variant="idle"
+        scale="panel"
+        icon={<FileCode aria-hidden="true" />}
+        title="此插件没有可预览文件"
+      />
+    );
+  }
 
   const toggleLabel = open ? '收起文件列表' : '展开文件列表';
   const documentPane = (

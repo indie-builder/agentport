@@ -14,7 +14,7 @@ import {
 } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { CircleStop, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
+import { CircleStop, LoaderCircle, MessageSquare, Plus, RotateCcw, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { can } from '../../lib/access.js';
 import { type AgentSummary, ApiError, errorMessage } from '../../lib/api.js';
@@ -39,16 +39,15 @@ import {
 } from '../../lib/queries.js';
 import { toastSuccess } from '../../lib/toast.js';
 import { AgentPicker } from '../agent/agent-picker.js';
-import { BusinessIllustration } from '../business-illustration.js';
 import { CodeBlock } from '../code-block.js';
 import { ConfirmDialog } from '../confirm-dialog.js';
 import { DialogShell } from '../dialog-shell.js';
 import { FilterPopover } from '../filter-popover.js';
 import { FilterSelect } from '../filter-select.js';
 import { PageBody, PageHeader, PageToolbar, PageTopbar } from '../page.js';
-import { EmptyState, ErrorState, LoadingState } from '../states.js';
+import { type EmptyFilterChip, EmptyState, ErrorState, LoadingState } from '../states.js';
 import { StatusBadge } from '../status-badge.js';
-import { Button } from '../ui/button.js';
+import { Button, buttonVariants } from '../ui/button.js';
 import {
   Card,
   CardAction,
@@ -376,16 +375,16 @@ export function MemoryReviews({
           <ErrorState error={reviews.error} onRetry={() => void reviews.refetch()} />
         ) : null}
         {reviews.data ? (
-          items.length === 0 ? (
+          items.length === 0 && !agentId && !stage ? (
             <EmptyState
-              illustration={<BusinessIllustration name="review" />}
-              title="没有记忆提案"
-              description="从对话整理可采纳的记忆与规则。"
+              variant="stage"
+              scale="page"
+              specimen="memory"
+              title="从历史对话中提炼记忆"
+              description="自动梳理近期对话里的关键信息，生成可审阅、可采纳的记忆提案。"
               action={
                 canCreate ? (
                   <Button
-                    variant="outline"
-                    size="sm"
                     onClick={() => openCreate()}
                     disabled={agents.isPending || agents.isError}
                   >
@@ -397,11 +396,47 @@ export function MemoryReviews({
             />
           ) : visibleItems.length === 0 ? (
             <EmptyState
-              icon={<Search className="size-5" />}
-              title="当前筛选下没有提案"
+              variant="filter"
+              scale="section"
+              title="当前筛选下没有记忆提案"
               description="仅筛选当前已加载的记录。"
+              activeFilters={
+                [
+                  ...(agentId
+                    ? [
+                        {
+                          key: 'agent',
+                          label: '专家',
+                          value:
+                            agents.data?.items.find((agent) => agent.id === agentId)?.name ??
+                            agentId,
+                          onRemove: () => onAgentChange(null),
+                        },
+                      ]
+                    : []),
+                  ...(stage
+                    ? [
+                        {
+                          key: 'stage',
+                          label: '状态',
+                          value:
+                            reviewViewOptions.find((option) => option.value === stage)?.label ??
+                            stage,
+                          onRemove: () => onStageChange(null),
+                        },
+                      ]
+                    : []),
+                ] satisfies EmptyFilterChip[]
+              }
               action={
-                <Button variant="outline" size="sm" onClick={() => onStageChange(null)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    onAgentChange(null);
+                    onStageChange(null);
+                  }}
+                >
                   查看全部
                 </Button>
               }
@@ -1325,9 +1360,22 @@ function CreateMemoryReviewDialog({
                   ) : null}
                   {conversations.data ? (
                     conversations.data.length === 0 ? (
-                      <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-                        该专家当前无会话，请先与这位专家对话后再生成提案。
-                      </p>
+                      <EmptyState
+                        variant="idle"
+                        scale="inline"
+                        icon={<MessageSquare className="size-4" aria-hidden="true" />}
+                        title="还没有与这位专家的对话记录"
+                        description="先发起对话后再来整理记忆提案。"
+                        action={
+                          <Link
+                            to="/chat"
+                            search={sourceExpertId ? { agent: sourceExpertId } : {}}
+                            className={buttonVariants({ variant: 'link', size: 'sm' })}
+                          >
+                            去对话
+                          </Link>
+                        }
+                      />
                     ) : (
                       <ul className="divide-y">
                         {conversations.data.map((conversation) => {

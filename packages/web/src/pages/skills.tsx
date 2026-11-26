@@ -17,6 +17,7 @@ import {
   EllipsisVertical,
   Pencil,
   Plus,
+  Search,
   Send,
   Sparkles,
   Trash2,
@@ -26,7 +27,6 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
-import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
@@ -36,7 +36,12 @@ import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
 import { SourceEditor } from '../components/source-editor.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import {
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
@@ -358,43 +363,86 @@ export function SkillsPage() {
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
       ) : null}
       {skills.data && skills.data.length === 0 ? (
-        <PageNote
-          icon={<BusinessIllustration name="tools" size="compact" />}
-          title="未添加技能"
-          description={
-            canCreateSkill || canReadMarket ? undefined : '当前账号没有创建技能或访问市场的权限。'
-          }
+        <EmptyState
+          variant="stage"
+          scale="page"
+          specimen="skills"
+          title="为专家装配可复用技能"
+          description="通过 SKILL.md 封装工作流、规范与脚本，在多位专家间共享。"
           action={
             canCreateSkill ? (
               <Button
-                variant="outline"
-                size="sm"
                 onClick={(event) => {
                   actionTriggerRef.current = event.currentTarget;
                   setCreating(true);
                 }}
               >
-                新建技能
+                <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
               </Button>
             ) : canReadMarket ? (
-              <Button variant="outline" size="sm" onClick={openMarket}>
-                前往市场
+              <Button variant="outline" onClick={openMarket}>
+                浏览技能市场
               </Button>
             ) : undefined
+          }
+          secondaryAction={
+            canCreateSkill && canReadMarket ? (
+              <Button variant="outline" onClick={openMarket}>
+                浏览技能市场
+              </Button>
+            ) : undefined
+          }
+          footer={
+            !canCreateSkill && !canReadMarket ? '当前账号没有创建技能或访问市场的权限。' : undefined
           }
         />
       ) : null}
       {skills.data && skills.data.length > 0 && visibleSkills.length === 0 ? (
-        <PageNote
-          icon={<BusinessIllustration name="search" size="compact" />}
+        <EmptyState
+          variant="filter"
+          scale="section"
           title="没有匹配的技能"
+          activeFilters={
+            [
+              ...(query.trim()
+                ? [
+                    {
+                      key: 'q',
+                      label: '关键词',
+                      value: query.trim(),
+                      onRemove: () => setFilter({ q: undefined }, true),
+                    },
+                  ]
+                : []),
+              ...(skillStatus
+                ? [
+                    {
+                      key: 'status',
+                      label: '状态',
+                      value: statusMeta[skillStatus].label,
+                      onRemove: () => setFilter({ status: undefined }),
+                    },
+                  ]
+                : []),
+              ...(usage !== 'all'
+                ? [
+                    {
+                      key: 'usage',
+                      label: '使用情况',
+                      value: usage === 'bound' ? '已绑定' : '未绑定',
+                      onRemove: () => setFilter({ usage: undefined }),
+                    },
+                  ]
+                : []),
+            ] satisfies EmptyFilterChip[]
+          }
           action={
             <Button
               variant="outline"
               size="sm"
               onClick={() => setFilter({ q: undefined, usage: undefined, status: undefined })}
             >
-              清除筛选
+              清除全部筛选
             </Button>
           }
         />
@@ -772,7 +820,12 @@ function MarketSkillsPage({
       }
     >
       {tooShort ? (
-        <PageNote icon={<Sparkles aria-hidden="true" />} title="至少输入 2 个字符" />
+        <EmptyState
+          variant="idle"
+          scale="inline"
+          icon={<Search aria-hidden="true" />}
+          title="请至少输入 2 个字符开始检索"
+        />
       ) : null}
       {loaded && !canInstall ? <PageNote title="当前账户没有安装市场技能的权限" /> : null}
       {skills.isPending ? <LoadingState rows={8} layout="list" /> : null}
@@ -791,19 +844,31 @@ function MarketSkillsPage({
       !market.isDebouncing &&
       market.data &&
       market.data.length === 0 ? (
-        <PageNote
-          icon={<BusinessIllustration name={term ? 'search' : 'tools'} size="compact" />}
-          title={term ? '没有匹配的技能' : '榜单为空'}
-          action={
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={term ? clearSearch : () => void market.refetch()}
-            >
-              {term ? '清除搜索' : '刷新榜单'}
-            </Button>
-          }
-        />
+        term ? (
+          <EmptyState
+            variant="filter"
+            scale="section"
+            title={`技能市场未找到「${term}」`}
+            activeFilters={[{ key: 'q', label: '关键词', value: term, onRemove: clearSearch }]}
+            action={
+              <Button variant="outline" size="sm" onClick={clearSearch}>
+                清除搜索
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            variant="idle"
+            scale="section"
+            icon={<Sparkles aria-hidden="true" />}
+            title="市场榜单暂时为空"
+            action={
+              <Button variant="outline" size="sm" onClick={() => void market.refetch()}>
+                刷新榜单
+              </Button>
+            }
+          />
+        )
       ) : null}
       {loaded &&
       !tooShort &&

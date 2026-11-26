@@ -1,36 +1,28 @@
 import { isValidBusinessId } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   CirclePause,
   CirclePlay,
   EllipsisVertical,
   KeyRound,
   Plus,
-  SearchX,
+  Shield,
   ShieldCheck,
   Trash2,
-  UsersRound,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
-import {
-  Page,
-  PageBody,
-  PageHeader,
-  PageNote,
-  PageToolbar,
-  PageTopbar,
-} from '../components/page.js';
+import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../components/page.js';
 import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import {
   Card,
   CardAction,
@@ -202,12 +194,26 @@ export function AccountsPage() {
           <ErrorState error={accounts.error} onRetry={() => void accounts.refetch()} />
         ) : null}
         {accounts.data && items.length === 0 ? (
-          <PageNote
-            icon={settled ? <SearchX /> : <UsersRound />}
-            title={settled ? '没有匹配的账户' : '无账户'}
-            description={settled ? undefined : '创建后即可分配角色；删除认证资料不会移除业务授权。'}
-            action={
-              settled ? (
+          settled ? (
+            <EmptyState
+              variant="filter"
+              scale="section"
+              title="没有匹配的账户"
+              activeFilters={[
+                {
+                  key: 'q',
+                  label: '关键词',
+                  value: settled,
+                  onRemove: () => {
+                    void navigate({
+                      to: '/accounts',
+                      search: { ...search, q: undefined, page: 1 },
+                      replace: true,
+                    });
+                  },
+                },
+              ]}
+              action={
                 <Button
                   variant="outline"
                   size="sm"
@@ -219,13 +225,26 @@ export function AccountsPage() {
                     });
                   }}
                 >
-                  清除筛选
+                  清除全部筛选
                 </Button>
-              ) : canManage ? (
-                <Button onClick={() => setCreating(true)}>新建账户</Button>
-              ) : undefined
-            }
-          />
+              }
+            />
+          ) : (
+            <EmptyState
+              variant="stage"
+              scale="page"
+              specimen="accounts"
+              title="创建工作区账户"
+              description="添加成员并分配角色，按权限控制对专家与资源的访问。"
+              action={
+                canManage ? (
+                  <Button onClick={() => setCreating(true)}>
+                    <Plus data-icon="inline-start" aria-hidden="true" /> 新建账户
+                  </Button>
+                ) : undefined
+              }
+            />
+          )
         ) : null}
 
         {items.length > 0 && view === 'table' ? (
@@ -584,7 +603,17 @@ function RoleChecks({
       {directory.loading && !roles ? <LoadingState rows={2} /> : null}
       {roles ? (
         roles.length === 0 ? (
-          <p className="text-sm text-muted-foreground">没有可分配的角色。</p>
+          <EmptyState
+            variant="idle"
+            scale="inline"
+            icon={<Shield className="size-4" aria-hidden="true" />}
+            title="还没有可分配的角色"
+            action={
+              <Link to="/roles" className={buttonVariants({ variant: 'link', size: 'sm' })}>
+                前往角色管理
+              </Link>
+            }
+          />
         ) : (
           <div className="flex flex-wrap gap-x-5 gap-y-2">
             {roles.map((role) => (

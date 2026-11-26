@@ -1,5 +1,5 @@
 import type { KnowledgeDocument } from '@agentport/shared';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Tags, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -13,7 +13,7 @@ import {
   useDraftGuard,
 } from '../../../components/knowledge/knowledge-shared.js';
 import { RequiredMark } from '../../../components/required-mark.js';
-import { ErrorState, InlineEmpty, LoadingState } from '../../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../../components/states.js';
 import { Button } from '../../../components/ui/button.js';
 import { Dialog } from '../../../components/ui/dialog.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../../../components/ui/field.js';
@@ -210,7 +210,14 @@ export function TagDialog({ baseId, onClose: onClosed }: { baseId: string; onClo
           {tags.isError ? (
             <ErrorState error={tags.error} onRetry={() => void tags.refetch()} />
           ) : null}
-          {tags.data && tags.data.length === 0 ? <InlineEmpty>还没有标签</InlineEmpty> : null}
+          {tags.data && tags.data.length === 0 ? (
+            <EmptyState
+              variant="idle"
+              scale="inline"
+              icon={<Tags aria-hidden="true" />}
+              title="暂无标签"
+            />
+          ) : null}
           {tags.data && tags.data.length > 0 ? (
             <ul className="mt-3 flex flex-col">
               {tags.data.map((tag) => (

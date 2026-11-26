@@ -3,7 +3,17 @@ import {
   type KnowledgeDocumentVersion,
   knowledgeAudioMetadataSchema,
 } from '@agentport/shared';
-import { GitCompare, PanelLeftDashed, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  FileText,
+  GitCompare,
+  Image,
+  Layers,
+  PanelLeftDashed,
+  Pencil,
+  Plus,
+  Tags,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { CodeBlock } from '../../../components/code-block.js';
@@ -28,7 +38,7 @@ import {
 import { Markdown } from '../../../components/markdown.js';
 import { PageSection } from '../../../components/page.js';
 import { ReaderToolbar } from '../../../components/reader-toolbar.js';
-import { ErrorState, InlineEmpty, LoadingState } from '../../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../../components/states.js';
 import { StatusBadge } from '../../../components/status-badge.js';
 import { Button } from '../../../components/ui/button.js';
 import { Dialog } from '../../../components/ui/dialog.js';
@@ -208,7 +218,9 @@ export function DocumentViewer({
                 aria-label="知识文档"
                 className="flex min-w-0 flex-col gap-0.5 md:sticky md:top-0 md:max-h-[calc(85dvh-9rem)] md:overflow-y-auto"
               >
-                {documents.length === 0 ? <InlineEmpty>当前筛选没有文档</InlineEmpty> : null}
+                {documents.length === 0 ? (
+                  <EmptyState variant="filter" scale="inline" title="当前筛选没有文档" />
+                ) : null}
                 {documents.map((item) => {
                   const active = item.id === document.id;
                   return (
@@ -376,7 +388,12 @@ export function DocumentViewer({
                     ))}
                   </div>
                 ) : (
-                  <InlineEmpty>还没有标签</InlineEmpty>
+                  <EmptyState
+                    variant="idle"
+                    scale="inline"
+                    icon={<Tags aria-hidden="true" />}
+                    title="暂无标签"
+                  />
                 )}
                 {canManage && document.status !== 'disabled' ? (
                   <Button
@@ -418,7 +435,12 @@ export function DocumentViewer({
                   document.summaryStatus !== 'pending' &&
                   document.summaryStatus !== 'generating' &&
                   document.summaryStatus !== 'failed' ? (
-                    <InlineEmpty>还没有摘要</InlineEmpty>
+                    <EmptyState
+                      variant="idle"
+                      scale="inline"
+                      icon={<FileText aria-hidden="true" />}
+                      title="尚未生成摘要"
+                    />
                   ) : null}
                   <div className="flex flex-wrap items-center gap-3">
                     {canManage && document.status !== 'disabled' ? (
@@ -453,7 +475,14 @@ export function DocumentViewer({
               ) : null}
 
               <PageSection title="解析正文" divided={false}>
-                {!versionId ? <InlineEmpty>还没有解析完成的版本</InlineEmpty> : null}
+                {!versionId ? (
+                  <EmptyState
+                    variant="idle"
+                    scale="inline"
+                    icon={<FileText aria-hidden="true" />}
+                    title="尚未完成解析"
+                  />
+                ) : null}
                 {versionId && markdown.isPending ? <LoadingState rows={3} /> : null}
                 {versionId && markdown.isError ? (
                   <ErrorState error={markdown.error} onRetry={() => void markdown.refetch()} />
@@ -474,7 +503,12 @@ export function DocumentViewer({
                     <ErrorState error={details.error} onRetry={() => void details.refetch()} />
                   ) : null}
                   {details.isSuccess && versionImages.length === 0 ? (
-                    <InlineEmpty>该版本没有提取到图片</InlineEmpty>
+                    <EmptyState
+                      variant="idle"
+                      scale="inline"
+                      icon={<Image aria-hidden="true" />}
+                      title="未提取到图片"
+                    />
                   ) : null}
                   {versionImages.length > 0 ? (
                     <ul className="grid gap-3 sm:grid-cols-2">
@@ -492,7 +526,14 @@ export function DocumentViewer({
               ) : null}
 
               <PageSection title="分块">
-                {!versionId ? <InlineEmpty>还没有分块</InlineEmpty> : null}
+                {!versionId ? (
+                  <EmptyState
+                    variant="idle"
+                    scale="inline"
+                    icon={<Layers aria-hidden="true" />}
+                    title="尚未切分分块"
+                  />
+                ) : null}
                 {versionId && !isCurrent ? (
                   <p className="text-sm text-muted-foreground">
                     历史版本只读；切回当前版本后可编辑分块。
@@ -513,7 +554,12 @@ export function DocumentViewer({
                   <ErrorState error={chunks.error} onRetry={() => void chunks.refetch()} />
                 ) : null}
                 {versionId && chunks.isSuccess && chunkItems.length === 0 ? (
-                  <InlineEmpty>还没有分块</InlineEmpty>
+                  <EmptyState
+                    variant="idle"
+                    scale="inline"
+                    icon={<Layers aria-hidden="true" />}
+                    title="尚未切分分块"
+                  />
                 ) : null}
                 {chunkItems.length > 0 ? (
                   <ul className="flex flex-col">
@@ -774,7 +820,14 @@ function DocumentDiffDialog({
               </Select>
             </Field>
           </FieldGroup>
-          {!ready ? <InlineEmpty>请选择两个不同的版本</InlineEmpty> : null}
+          {!ready ? (
+            <EmptyState
+              variant="idle"
+              scale="inline"
+              icon={<GitCompare aria-hidden="true" />}
+              title="请选择两个不同的版本"
+            />
+          ) : null}
           {ready && diff.isPending ? <LoadingState rows={3} /> : null}
           {ready && diff.isError ? (
             <ErrorState error={diff.error} onRetry={() => void diff.refetch()} />
@@ -788,7 +841,16 @@ function DocumentDiffDialog({
 
 function DocumentDiffBody({ diff }: { diff: KnowledgeDocumentDiff }) {
   const empty = diff.addedLines.length === 0 && diff.removedLines.length === 0;
-  if (empty) return <InlineEmpty>两个版本没有差异</InlineEmpty>;
+  if (empty) {
+    return (
+      <EmptyState
+        variant="idle"
+        scale="inline"
+        icon={<GitCompare aria-hidden="true" />}
+        title="两个版本无差异"
+      />
+    );
+  }
   return (
     <div className="grid min-w-0 gap-3 sm:grid-cols-2">
       <div className="flex min-w-0 flex-col gap-1">

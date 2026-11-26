@@ -733,8 +733,8 @@ describe('knowledge document viewer', () => {
     }
     await click(button('上线流程'));
     const viewer = dialog('上线流程');
-    expect(viewer.textContent).toContain('还没有解析完成的版本');
-    expect(viewer.textContent).toContain('还没有分块');
+    expect(viewer.textContent).toContain('尚未完成解析');
+    expect(viewer.textContent).toContain('尚未切分分块');
     expect(viewer.querySelector('[aria-label="加载中"]')).toBeNull();
     expect(
       calls.some((item) => item.path.startsWith('/api/knowledge/documents/kdoc_1/chunks')),
@@ -764,7 +764,7 @@ describe('knowledge document viewer', () => {
       ),
     );
     await click(button('上线流程'));
-    expect(dialog('上线流程').textContent).toContain('还没有解析完成的版本');
+    expect(dialog('上线流程').textContent).toContain('尚未完成解析');
 
     parsed = true;
     await act(async () => {
@@ -802,7 +802,7 @@ describe('knowledge document viewer', () => {
       ),
     );
     await click(button('上线流程'));
-    expect(dialog('上线流程').textContent).toContain('还没有解析完成的版本');
+    expect(dialog('上线流程').textContent).toContain('尚未完成解析');
 
     state = 'ready';
     await act(async () => {
@@ -1247,7 +1247,7 @@ describe('knowledge document filters', () => {
     await flush();
     await waitFor(() => document.body.textContent?.includes('没有匹配的文档') === true);
 
-    await click(button('清除筛选'));
+    await click(button('清除全部筛选'));
     await waitFor(() => document.body.textContent?.includes('上线流程') === true);
     const last = [...calls]
       .reverse()

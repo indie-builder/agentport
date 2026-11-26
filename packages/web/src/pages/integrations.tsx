@@ -14,7 +14,7 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { ChevronDown, KeyRound, Plus, Trash2, Webhook } from 'lucide-react';
+import { ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -34,7 +34,7 @@ import {
 } from '../components/page.js';
 import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import {
@@ -352,17 +352,20 @@ function ApiTokensSection({
         <ErrorState error={tokens.error} onRetry={() => void tokens.refetch()} />
       ) : null}
       {tokens.data && rows.length === 0 ? (
-        <PageNote
-          icon={<KeyRound aria-hidden="true" />}
-          title="无 API 令牌"
-          description="创建后可用 Authorization: Bearer <token> 调用开放 API。"
+        <EmptyState
+          variant="stage"
+          scale="section"
+          specimen="integrations"
+          title="创建开放 API 令牌"
+          description="通过 Authorization: Bearer 从外部系统安全调用 PACE。"
           action={
             canManage ? (
-              <Button variant="outline" size="sm" onClick={onCreate}>
+              <Button onClick={onCreate}>
                 <Plus data-icon="inline-start" aria-hidden="true" /> 创建令牌
               </Button>
             ) : undefined
           }
+          footer={canManage ? undefined : '当前账户没有管理集成的权限。'}
         />
       ) : null}
       {rows.length > 0 && view === 'table' ? (
@@ -729,17 +732,20 @@ function WebhookEndpointsSection({
         <ErrorState error={endpoints.error} onRetry={() => void endpoints.refetch()} />
       ) : null}
       {endpoints.data && rows.length === 0 ? (
-        <PageNote
-          icon={<Webhook aria-hidden="true" />}
-          title="无 Webhook 端点"
-          description="入站端点接收外部签名触发，出站端点推送运行事件。"
+        <EmptyState
+          variant="stage"
+          scale="section"
+          specimen="integrations"
+          title="配置 Webhook 端点"
+          description="接收外部签名触发，或将运行事件实时推送到你的服务。"
           action={
             canManage ? (
-              <Button variant="outline" size="sm" onClick={onCreate}>
+              <Button onClick={onCreate}>
                 <Plus data-icon="inline-start" aria-hidden="true" /> 创建端点
               </Button>
             ) : undefined
           }
+          footer={canManage ? undefined : '当前账户没有管理集成的权限。'}
         />
       ) : null}
       {rows.length > 0 && view === 'table' ? (

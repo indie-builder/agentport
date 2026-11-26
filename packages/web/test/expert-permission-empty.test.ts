@@ -208,8 +208,8 @@ describe('agent list empty state follows agent permissions', () => {
       pageParams: [undefined],
     });
     await mount(AgentsPage, '/agents');
-    await waitFor(() => host.textContent?.includes('无可用专家'));
-    expect(host.textContent).toContain('请联系管理员分配。');
+    await waitFor(() => host.textContent?.includes('还没有可用的专家'));
+    expect(host.textContent).toContain('管理员为你分配专家或开启创建权限后，会显示在这里。');
     expect(host.textContent).not.toContain('还没有专家');
     expect(host.textContent).not.toContain('创建第一位专家');
     expect(host.textContent).not.toContain('创建数字分身');
@@ -270,7 +270,7 @@ describe('agent list empty state follows agent permissions', () => {
     await waitFor(() => host.textContent?.includes('没有匹配的专家'));
     expect(host.textContent).not.toContain('无可用专家');
     const clear = [...host.querySelectorAll('button')].find(
-      (item) => item.textContent?.trim() === '清除筛选',
+      (item) => item.textContent?.trim() === '清除全部筛选',
     );
     if (!clear) throw new Error('Missing clear filters button');
     await click(clear);

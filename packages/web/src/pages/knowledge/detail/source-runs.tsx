@@ -1,6 +1,6 @@
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Clock } from 'lucide-react';
 import { jobStatusLabel, jobStatusTone } from '../../../components/knowledge/knowledge-shared.js';
-import { ErrorState } from '../../../components/states.js';
+import { EmptyState, ErrorState } from '../../../components/states.js';
 import { StatusBadge } from '../../../components/status-badge.js';
 import { Button } from '../../../components/ui/button.js';
 import {
@@ -71,7 +71,7 @@ function SyncRunItems({
   }
   const itemRows = items.data?.pages.flatMap((page) => page.items) ?? [];
   if (itemRows.length === 0) {
-    return <span className="text-xs text-muted-foreground">没有失败或跳过项</span>;
+    return <EmptyState variant="clear" scale="inline" title="本次同步没有失败或跳过项" />;
   }
   return (
     <div className="flex flex-col gap-2">
@@ -133,7 +133,12 @@ export function SourceRuns({
         </Button>
       ) : null}
       {runs.data && runs.data.length === 0 ? (
-        <span className="text-xs text-muted-foreground">还没有同步记录</span>
+        <EmptyState
+          variant="idle"
+          scale="inline"
+          icon={<Clock aria-hidden="true" />}
+          title="还没有同步记录"
+        />
       ) : null}
       {runs.data && runs.data.length > 0 ? (
         <ul className="flex flex-col gap-1">

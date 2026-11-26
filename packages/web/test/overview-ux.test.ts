@@ -359,7 +359,7 @@ describe('overview trend states', () => {
 
     expect(host.querySelector('[role="alert"]')).toBeTruthy();
     expect(host.querySelector('[aria-label="加载中"]')).toBeNull();
-    expect(host.textContent).not.toContain('发起对话后生成趋势');
+    expect(host.textContent).not.toContain('发起对话后生成 7 日趋势');
     expect(
       [...host.querySelectorAll('button')].some((item) => item.textContent?.includes('趋势数据')),
     ).toBe(false);
@@ -370,7 +370,7 @@ describe('overview trend states', () => {
     await render(createElement(RunTrendCard, { days: 7 }));
 
     expect(host.querySelector('[aria-label="加载中"]')).toBeTruthy();
-    expect(host.textContent).not.toContain('发起对话后生成趋势');
+    expect(host.textContent).not.toContain('发起对话后生成 7 日趋势');
     expect(
       [...host.querySelectorAll('button')].some((item) => item.textContent?.includes('趋势数据')),
     ).toBe(false);
@@ -382,7 +382,7 @@ describe('overview trend states', () => {
     );
     await render(createElement(RunTrendCard, { days: 7 }));
 
-    expect(host.textContent).toContain('发起对话后生成趋势');
+    expect(host.textContent).toContain('发起对话后生成 7 日趋势');
     expect(host.querySelector('[aria-label="加载中"]')).toBeNull();
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.querySelector('table')).toBeNull();

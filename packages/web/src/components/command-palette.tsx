@@ -27,6 +27,7 @@ import {
 import { searchQuery } from '../lib/queries.js';
 import { SEARCH_KIND_META, SEARCH_KIND_ORDER, searchItemHref } from '../lib/search-meta.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
+import { EmptyState } from './states.js';
 import { Button } from './ui/button.js';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog.js';
 import { Input } from './ui/input.js';
@@ -143,7 +144,35 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
           </div>
           <CommandEmpty>
             {debouncedQuery !== '' && (search.isFetching || search.isError) ? null : (
-              <div className="py-12 text-center text-sm text-muted-foreground">没有匹配的结果</div>
+              <EmptyState
+                variant="filter"
+                scale="inline"
+                title={query.trim() ? `没有匹配「${query.trim()}」的页面或内容` : '没有匹配的结果'}
+                description="尝试更简短的关键词，或按 Esc 关闭。"
+                action={
+                  query.trim() ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => setQuery('')}>
+                      清空输入
+                    </Button>
+                  ) : undefined
+                }
+                secondaryAction={
+                  query.trim() ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const target = `/search?${new URLSearchParams({ q: query.trim() }).toString()}`;
+                        changeOpen(false);
+                        void navigate({ href: target });
+                      }}
+                    >
+                      在搜索页查看全部
+                    </Button>
+                  ) : undefined
+                }
+              />
             )}
           </CommandEmpty>
           {debouncedQuery !== '' && search.isFetching ? (

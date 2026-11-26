@@ -1,4 +1,5 @@
 import type { KnowledgeImageAsset } from '@agentport/contract/knowledge';
+import { Image } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { formatRelative } from '../../lib/format.js';
@@ -7,7 +8,7 @@ import { useDebouncedValue } from '../../lib/use-debounced-value.js';
 import { DialogShell } from '../dialog-shell.js';
 import { PageToolbar } from '../page.js';
 import { SearchInput } from '../search-input.js';
-import { EmptyState, ErrorState, LoadingState } from '../states.js';
+import { type EmptyFilterChip, EmptyState, ErrorState, LoadingState } from '../states.js';
 import { Button } from '../ui/button.js';
 import { Dialog } from '../ui/dialog.js';
 import { KnowledgeImage } from './knowledge-citations.js';
@@ -59,13 +60,27 @@ export function ImagesTab({
       {images.isSuccess && items.length === 0 ? (
         settledQuery === '' ? (
           <EmptyState
-            title="这个知识库还没有可浏览的图片"
-            description="上传含图片的文档并开启图片处理后即可看到"
+            variant="stage"
+            scale="section"
+            icon={<Image aria-hidden="true" />}
+            title="还没有可浏览的图片"
+            description="上传含图片的文档并开启图片处理后，提取的图片会展示在这里。"
           />
         ) : (
           <EmptyState
-            title="没有匹配的图片"
-            description={`没有找到与「${settledQuery}」匹配的图片。`}
+            variant="filter"
+            scale="section"
+            title={`未找到与「${settledQuery}」匹配的图片`}
+            activeFilters={
+              [
+                {
+                  key: 'q',
+                  label: '关键词',
+                  value: settledQuery,
+                  onRemove: () => setQuery(''),
+                },
+              ] satisfies EmptyFilterChip[]
+            }
             action={
               <Button variant="outline" size="sm" onClick={() => setQuery('')}>
                 清除搜索

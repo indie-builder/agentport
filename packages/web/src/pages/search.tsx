@@ -1,21 +1,32 @@
 import type { SearchItem } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Search } from 'lucide-react';
 import {
   Page,
   PageBody,
   PageHeader,
-  PageNote,
   PageSection,
   PageToolbar,
   PageTopbar,
 } from '../components/page.js';
 import { SearchInput } from '../components/search-input.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { formatDateTime } from '../lib/format.js';
 import { searchQuery } from '../lib/queries.js';
 import { SEARCH_KIND_META, SEARCH_KIND_ORDER, searchItemHref } from '../lib/search-meta.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
+
+const SEARCH_KIND_ROUTES: Record<SearchItem['kind'], string> = {
+  agent: '/agents',
+  conversation: '/chat',
+  knowledge: '/knowledge',
+  server: '/servers',
+  skill: '/skills',
+  plugin: '/plugins',
+  output: '/personal/work',
+};
 
 function ResultRow({ item }: { item: SearchItem }) {
   const meta = SEARCH_KIND_META[item.kind];
@@ -60,6 +71,7 @@ export function SearchPage() {
         <PageHeader title="搜索" />
         <PageToolbar>
           <SearchInput
+            inputId="global-search-input"
             label="搜索全部内容"
             placeholder="搜索专家、会话、知识、资源与成果…"
             value={q}
@@ -77,13 +89,55 @@ export function SearchPage() {
 
       <PageBody>
         {q.trim() === '' ? (
-          <PageNote title="输入关键词，搜索专家、会话、知识、资源与成果" />
+          <EmptyState
+            variant="idle"
+            scale="page"
+            icon={<Search className="size-5" aria-hidden="true" />}
+            title="搜索工作区内的全部内容"
+            description="支持按名称、标题或正文即时跨模块检索。"
+            action={
+              <div className="flex max-w-[440px] flex-wrap items-center justify-center gap-2">
+                {SEARCH_KIND_ORDER.map((kind) => {
+                  const meta = SEARCH_KIND_META[kind];
+                  const Icon = meta.icon;
+                  return (
+                    <Link
+                      key={kind}
+                      to={SEARCH_KIND_ROUTES[kind]}
+                      className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                    >
+                      <Icon data-icon="inline-start" aria-hidden="true" />
+                      {meta.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            }
+            footer="提示：随时按 ⌘K 呼出全局命令面板"
+          />
         ) : results.isError ? (
           <ErrorState error={results.error} onRetry={() => void results.refetch()} />
         ) : results.isPending ? (
           <LoadingState rows={3} />
         ) : groups.length === 0 ? (
-          <PageNote title="没有匹配的结果" />
+          <EmptyState
+            variant="filter"
+            scale="section"
+            title={`未找到与「${q.trim()}」匹配的内容`}
+            description="请检查拼写、尝试更短的关键词，或确认当前账号拥有对应资源的查看权限。"
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void navigate({ to: '/search', search: { q: undefined }, replace: true });
+                  document.getElementById('global-search-input')?.focus();
+                }}
+              >
+                清除搜索
+              </Button>
+            }
+          />
         ) : (
           groups.map((group, index) => (
             <PageSection key={group.kind} title={group.label} divided={index > 0} className="gap-2">

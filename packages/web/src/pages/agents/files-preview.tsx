@@ -1,5 +1,6 @@
+import { FileText } from 'lucide-react';
 import { CodeBlock } from '../../components/code-block.js';
-import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import type { useAgentFiles } from '../../lib/queries.js';
 import type { FileEntry } from './shared.js';
 
@@ -38,7 +39,14 @@ export function FilesPreview({
           maxHeight="calc(100vh - 22rem)"
         />
       ) : null}
-      {!disabled && entry && !entry.content ? <InlineEmpty>该文件当前为空。</InlineEmpty> : null}
+      {!disabled && entry && !entry.content ? (
+        <EmptyState
+          variant="idle"
+          scale="inline"
+          icon={<FileText className="size-4" aria-hidden="true" />}
+          title="该文件当前没有内容"
+        />
+      ) : null}
       <p className="py-2 text-sm text-muted-foreground">
         除根文件外，路径相对 <code className="font-mono">.claude/</code>；agent md
         仅供预览，不落盘。

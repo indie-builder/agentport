@@ -1,8 +1,8 @@
 import type { Server } from '@agentport/shared';
-import { RefreshCw } from 'lucide-react';
+import { PlugZap, RefreshCw, Wrench } from 'lucide-react';
 import { JsonBlock } from '../../components/code-block.js';
 import { DialogShell } from '../../components/dialog-shell.js';
-import { InlineEmpty } from '../../components/states.js';
+import { EmptyState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import { Field } from '../../components/ui/field.js';
@@ -97,19 +97,41 @@ export function ToolCatalogDialog({
           ) : null}
 
           {!result ? (
-            <InlineEmpty>
-              {testing
-                ? '正在测试连接…'
-                : !testedAt
-                  ? '未测试连接。'
-                  : ok
-                    ? '重新测试后查看工具目录。'
-                    : '重新测试后查看失败原因。'}
-            </InlineEmpty>
+            <EmptyState
+              variant="idle"
+              scale="inline"
+              icon={<PlugZap aria-hidden="true" />}
+              title={
+                testing
+                  ? '正在测试连接…'
+                  : !testedAt
+                    ? '尚未测试连通性'
+                    : ok
+                      ? '重新测试后查看工具目录'
+                      : '重新测试后查看失败原因'
+              }
+              action={
+                canTest && !testing ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pending}
+                    onClick={(event) => onRetest(event.currentTarget)}
+                  >
+                    {testedAt ? '重新测试' : '立即测试连接'}
+                  </Button>
+                ) : undefined
+              }
+            />
           ) : null}
 
           {tools.length === 0 && result?.ok ? (
-            <InlineEmpty>连接成功，但没有返回任何工具。</InlineEmpty>
+            <EmptyState
+              variant="idle"
+              scale="inline"
+              icon={<Wrench aria-hidden="true" />}
+              title="连接成功，但服务未返回可用工具"
+            />
           ) : null}
 
           {tools.length > 0 ? (

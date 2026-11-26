@@ -5,15 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackLink } from '../../components/back-link.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
-import {
-  Page,
-  PageBody,
-  PageHeader,
-  PageNote,
-  PageSection,
-  PageTopbar,
-} from '../../components/page.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { BuildStatusLabel } from '../../components/status-badge.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
@@ -390,9 +383,12 @@ export function DataDomainDetailPage() {
             <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
           ) : null}
           {versions.data && versions.data.length === 0 ? (
-            <PageNote
-              icon={<Upload className="size-4" aria-hidden="true" />}
-              title="还没有构建版本"
+            <EmptyState
+              variant="stage"
+              scale="section"
+              icon={<Upload aria-hidden="true" />}
+              title="发布首个构建版本"
+              description="在下方导入 Wren 项目文件或从数据库生成 MDL 草稿以创建版本。"
             />
           ) : null}
           {shownVersions.length > 0 ? (

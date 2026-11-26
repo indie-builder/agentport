@@ -884,7 +884,7 @@ describe('expert discovery', () => {
     );
     await flush();
     expect(host.textContent).toContain('没有匹配的专家');
-    await click(button('清除筛选'));
+    await click(button('清除全部筛选'));
     await flush();
 
     expect(router.state.location.search.status).toBeUndefined();
@@ -970,7 +970,7 @@ describe('expert discovery', () => {
     await flush();
     expect(host.textContent).toContain('没有匹配的专家');
     expect(button('新建专家')).toBeDefined();
-    await click(button('清除筛选'));
+    await click(button('清除全部筛选'));
     await flush();
     expect(host.querySelector('[aria-label="专家列表"]')?.textContent).toContain('Expert');
   });
@@ -982,13 +982,15 @@ describe('expert discovery', () => {
     );
     await flush();
     expect(host.textContent).toContain('没有匹配的专家');
-    const note = [...host.querySelectorAll('span')].find(
+    const note = [...host.querySelectorAll('div')].find(
       (item) => item.textContent?.trim() === '没有匹配的专家',
     );
     if (!note?.parentElement) throw new Error('Missing empty result note');
     expect(
-      [...note.parentElement.querySelectorAll('button')].map((item) => item.textContent?.trim()),
-    ).toEqual(['清除筛选']);
+      [...note.parentElement.querySelectorAll('button')]
+        .filter((item) => !item.getAttribute('aria-label')?.startsWith('移除筛选：'))
+        .map((item) => item.textContent?.trim()),
+    ).toEqual(['清除全部筛选']);
 
     const list = host.querySelector('[aria-label="专家列表"]');
     if (!list) throw new Error('Missing agent list');

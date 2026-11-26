@@ -1,6 +1,6 @@
 import { businessIdSchema, dataDomainIdentityInputSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Plus, Users } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useFieldArray } from 'react-hook-form';
 import { z } from 'zod';
@@ -9,7 +9,7 @@ import { DialogShell } from '../../components/dialog-shell.js';
 import { PageSection } from '../../components/page.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { SearchInput } from '../../components/search-input.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import { Field, FieldDescription, FieldError, FieldLabel } from '../../components/ui/field.js';
@@ -112,7 +112,7 @@ function BusinessUserPicker({
         <ErrorState error={accounts.error} onRetry={() => void accounts.refetch()} />
       ) : null}
       {accounts.data && accounts.data.items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">没有匹配的业务用户。</p>
+        <EmptyState variant="filter" scale="inline" title="没有匹配的业务用户" />
       ) : null}
       <fieldset aria-label="可选择的业务用户" className="flex max-h-48 flex-col overflow-y-auto">
         {(accounts.data?.items ?? []).map((account) => (
@@ -366,9 +366,27 @@ export function DataDomainIdentities({
         <ErrorState error={identities.error} onRetry={() => void identities.refetch()} />
       ) : null}
       {identities.data?.length === 0 ? (
-        <p className="border-y py-5 text-sm text-muted-foreground">
-          还没有配置身份属性。配置后，查询会按当前业务用户自动应用对应过滤条件。
-        </p>
+        <EmptyState
+          variant="stage"
+          scale="section"
+          icon={<Users aria-hidden="true" />}
+          title="配置行级身份属性"
+          description="配置后，查询会按当前业务用户自动应用对应过滤条件。"
+          action={
+            canUpdate ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(event) => {
+                  rowTriggerRef.current = event.currentTarget;
+                  setEditing(null);
+                }}
+              >
+                <Plus data-icon="inline-start" aria-hidden="true" /> 新增身份
+              </Button>
+            ) : undefined
+          }
+        />
       ) : null}
       {identities.data && identities.data.length > 0 ? (
         <Table aria-label="身份属性">

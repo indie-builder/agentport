@@ -177,7 +177,7 @@ describe('run list view toggle', () => {
       ),
     );
     const clear = [...host.querySelectorAll('button')].find(
-      (element) => element.textContent?.trim() === '清除筛选',
+      (element) => element.textContent?.trim() === '清除全部筛选',
     );
     if (!clear) throw new Error('Missing clear filters button');
 

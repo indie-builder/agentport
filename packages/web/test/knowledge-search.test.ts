@@ -474,8 +474,8 @@ describe('knowledge UX guards', () => {
     });
     await flush();
     expect(document.body.textContent).toContain('没有匹配的知识库');
-    expect(document.body.textContent).not.toContain('还没有知识库');
-    await click(button('清除筛选'));
+    expect(document.body.textContent).not.toContain('构建你的专属知识库');
+    await click(button('清除全部筛选'));
     expect(document.body.textContent).toContain('产品手册');
   });
 

@@ -8,7 +8,7 @@ import { CodeBlock } from '../components/code-block.js';
 import { Markdown } from '../components/markdown.js';
 import { BlobImage } from '../components/media/blob-image.js';
 import { BlobPdf } from '../components/media/blob-pdf.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { ApiError, api } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
@@ -110,9 +110,14 @@ export function ShareView({ shareId, token }: { shareId: string; token: string |
           </>
         ) : state.status === 'invalid' ? (
           <>
-            <BusinessIllustration name="not-found" size="error" />
-            <h1 className="text-lg font-medium tracking-[-0.01em] text-fg">链接无效或已撤销</h1>
-            <p className="text-sm text-muted-foreground">请向分享者确认链接是否仍然有效。</p>
+            <h1 className="sr-only">链接无效或已撤销</h1>
+            <EmptyState
+              variant="permission"
+              scale="page"
+              illustration={<BusinessIllustration name="not-found" size="error" />}
+              title="链接无效或已撤销"
+              description="该分享可能已被关闭，请联系分享者获取新链接。"
+            />
           </>
         ) : state.status === 'error' ? (
           <>

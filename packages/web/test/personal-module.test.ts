@@ -310,7 +310,7 @@ describe('账号安全', () => {
     );
     const logout = vi.spyOn(api, 'logout').mockResolvedValue({ ok: true });
     await mount({ path: '/personal/security', component: PersonalSecurityPage, me: meWith([]) });
-    await vi.waitFor(() => expect(host.textContent).toContain('请重新登录后管理登录会话'));
+    await vi.waitFor(() => expect(host.textContent).toContain('需要重新验证身份'));
     expect(host.querySelector('h1')?.textContent).toBe('账号安全');
     expect(document.getElementById('security-current-password')).toBeNull();
     expect(logout).not.toHaveBeenCalled();
@@ -490,7 +490,7 @@ describe('账号安全', () => {
 
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
     await click(button('取消', dialog));
-    await vi.waitFor(() => expect(host.textContent).toContain('请重新登录后管理登录会话'));
+    await vi.waitFor(() => expect(host.textContent).toContain('需要重新验证身份'));
     expect(maybeButton('重新登录', host)).not.toBeNull();
     expect(logout).not.toHaveBeenCalled();
   });
@@ -993,9 +993,9 @@ describe('会话与成果', () => {
       convSearch.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await flush();
-    await vi.waitFor(() => expect(host.textContent).toContain('当前筛选下无匹配会话'));
+    await vi.waitFor(() => expect(host.textContent).toContain('没有匹配的会话'));
     expect(host.textContent).not.toContain('还没有');
-    await click(button('清除筛选', host));
+    await click(button('清除全部筛选', host));
     await vi.waitFor(() => expect(host.textContent).toContain('共 2 条会话'));
 
     await click(workTab('成果'));
@@ -1022,7 +1022,7 @@ describe('会话与成果', () => {
     expect(host.textContent).not.toContain('briefing/daily.md');
   });
 
-  it('无会话与无成果时均显示事实空态且不出现「还没有」', async () => {
+  it('无会话与无成果时均显示空态并提供开始对话入口', async () => {
     const me = meWith(['conversations.read']);
     vi.spyOn(api, 'me').mockResolvedValue(me);
     vi.spyOn(api, 'personalConversations').mockResolvedValue({ items: [], nextCursor: null });
@@ -1033,8 +1033,7 @@ describe('会话与成果', () => {
       validateSearch: personalWorkSearchSchema,
       me,
     });
-    await vi.waitFor(() => expect(host.textContent).toContain('当前无会话记录'));
-    expect(host.textContent).not.toContain('还没有');
+    await vi.waitFor(() => expect(host.textContent).toContain('还没有对话记录'));
     expect(host.querySelector('a[href="/chat"]')?.textContent).toBe('开始对话');
 
     const outputsTab = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
@@ -1042,8 +1041,7 @@ describe('会话与成果', () => {
     );
     if (!outputsTab) throw new Error('Missing tab: 成果');
     await click(outputsTab);
-    await vi.waitFor(() => expect(host.textContent).toContain('当前无已发布成果'));
-    expect(host.textContent).not.toContain('还没有');
+    await vi.waitFor(() => expect(host.textContent).toContain('还没有已发布的成果'));
     expect(host.querySelector('a[href="/chat"]')?.textContent).toBe('开始对话');
   });
 });

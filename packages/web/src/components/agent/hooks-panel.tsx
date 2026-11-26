@@ -249,8 +249,10 @@ export function HooksPanel({
       <div className="border-t border-border pt-4">
         {hooks.data.files.length === 0 && !creating ? (
           <EmptyState
+            variant="stage"
+            scale="section"
             icon={<FileCode className="size-5" aria-hidden="true" />}
-            title="还没有 hook 脚本"
+            title="添加 Hook 脚本"
             description="脚本保存到 .claude/hooks/<path>，由上面的 hooks 配置按路径引用。"
             action={
               canWrite ? (
@@ -259,6 +261,7 @@ export function HooksPanel({
                 </Button>
               ) : undefined
             }
+            footer={!canWrite ? '当前账户只有只读权限，无法新建或编辑脚本。' : undefined}
           />
         ) : (
           <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
@@ -388,7 +391,24 @@ export function HooksPanel({
                   ) : null}
                 </>
               ) : (
-                <EmptyState title="选择或新建 hook 脚本" />
+                <EmptyState
+                  variant="idle"
+                  scale="panel"
+                  icon={<FileCode className="size-5" aria-hidden="true" />}
+                  title="选择左侧脚本查看或编辑"
+                  action={
+                    canWrite ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={pending}
+                        onClick={() => guard({ type: 'create' })}
+                      >
+                        <Plus data-icon="inline-start" /> 新建脚本
+                      </Button>
+                    ) : undefined
+                  }
+                />
               )}
             </div>
           </div>

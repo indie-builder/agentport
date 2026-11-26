@@ -1,7 +1,7 @@
 import { type RetentionSettings, retentionSettingsSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { Activity, Bot, Download, Plus, Server, Sparkles } from 'lucide-react';
+import { Activity, Bot, Download, Server, Sparkles } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AttentionPanel } from '../components/attention-panel.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
@@ -21,7 +21,12 @@ import {
   PageTopbar,
 } from '../components/page.js';
 import { RunStatusBadge } from '../components/run/run-status-badge.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import {
+  type EmptyChecklistStep,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
@@ -46,7 +51,6 @@ import { SegmentedToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { errorMessage, type OverviewAgentRow, type RecentRun } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
-import { cn } from '../lib/cn.js';
 import { toCsv } from '../lib/csv.js';
 import { useFormBlocker } from '../lib/form.js';
 import {
@@ -467,7 +471,13 @@ export function RunTrendCard({ days }: { days: number }) {
                 </Collapsible>
               </div>
             ) : (
-              <EmptyState title="发起对话后生成趋势" />
+              <EmptyState
+                variant="idle"
+                scale="section"
+                specimen="trend"
+                title={`发起对话后生成 ${days} 日趋势`}
+                description="运行记录会自动按日汇总耗时、失败与成本。"
+              />
             )}
           </>
         )}
@@ -714,16 +724,65 @@ export function OverviewPage() {
         {loading ? <LoadingState rows={3} /> : null}
 
         {empty ? (
-          <PageNote
-            icon={<Bot className="size-4" aria-hidden="true" />}
-            title="开始配置"
-            description="三步开始：接入一个连接器 → 创建专家并绑定它 → 在对话里使用。"
-            action={
-              canReadServers ? (
-                <Link to="/servers" className={cn(buttonVariants({ size: 'sm' }))}>
-                  <Plus className="size-3.5" /> 接入连接器
-                </Link>
-              ) : undefined
+          <EmptyState
+            variant="checklist"
+            scale="page"
+            title="开启工作区运行"
+            description="完成以下基础步骤后，此处将呈现运行趋势与指标。"
+            steps={
+              [
+                {
+                  id: 'servers',
+                  title: '接入连接器（可选）',
+                  description: '挂载 MCP 服务或 HTTP API，让专家在对话中调用外部工具。',
+                  status: data.counts.servers > 0 ? 'done' : 'current',
+                  action: canReadServers ? (
+                    <Link
+                      to="/servers"
+                      className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                    >
+                      前往连接器
+                    </Link>
+                  ) : undefined,
+                },
+                {
+                  id: 'agents',
+                  title: '创建第一位专家',
+                  description: '定义系统指令、技能与工具，组成可复用的工作区专家。',
+                  status:
+                    data.counts.agents > 0
+                      ? 'done'
+                      : data.counts.servers > 0
+                        ? 'current'
+                        : 'upcoming',
+                  action: canReadAgents ? (
+                    <Link
+                      to="/agents"
+                      className={buttonVariants({
+                        variant:
+                          data.counts.servers > 0 && data.counts.agents === 0
+                            ? 'default'
+                            : 'outline',
+                        size: 'sm',
+                      })}
+                    >
+                      前往创建
+                    </Link>
+                  ) : undefined,
+                },
+                {
+                  id: 'chat',
+                  title: '发起首次对话',
+                  description: '与专家完成一次交互后，此处将自动呈现运行趋势与活跃指标。',
+                  status:
+                    data.counts.runs > 0 ? 'done' : data.counts.agents > 0 ? 'current' : 'upcoming',
+                  action: (
+                    <Link to="/chat" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                      去对话
+                    </Link>
+                  ),
+                },
+              ] satisfies EmptyChecklistStep[]
             }
           />
         ) : null}
@@ -831,7 +890,20 @@ export function OverviewPage() {
                       : {})}
                   />
                 ) : (
-                  <PageNote title="发起对话后在这里查看运行" />
+                  <EmptyState
+                    variant="idle"
+                    scale="inline"
+                    icon={<Activity className="size-4" aria-hidden="true" />}
+                    title="发起对话后在这里查看最近运行"
+                    action={
+                      <Link
+                        to="/chat"
+                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                      >
+                        去对话
+                      </Link>
+                    }
+                  />
                 )
               ) : data.agents.length > 0 ? (
                 <DataTable
@@ -843,7 +915,22 @@ export function OverviewPage() {
                   className="max-h-96 overflow-y-auto"
                 />
               ) : (
-                <PageNote title="创建专家后开始对话" />
+                <EmptyState
+                  variant="idle"
+                  scale="inline"
+                  icon={<Bot className="size-4" aria-hidden="true" />}
+                  title="创建专家后统计活跃表现"
+                  action={
+                    canReadAgents ? (
+                      <Link
+                        to="/agents"
+                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                      >
+                        去创建
+                      </Link>
+                    ) : undefined
+                  }
+                />
               )}
             </PageSection>
           </>

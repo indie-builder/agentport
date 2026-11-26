@@ -1,10 +1,11 @@
 import type { PublicRunQuestion } from '@agentport/shared';
-import { Bot, User, Wrench } from 'lucide-react';
+import { Bot, MousePointerClick, User, Wrench } from 'lucide-react';
 import type { RunStep } from '../../lib/api.js';
 import { questionFromContent } from '../../lib/chat-state.js';
 import { formatDateTime, shortId } from '../../lib/format.js';
 import { CodeBlock, CollapsibleText, prettyJson } from '../code-block.js';
 import { CopyButton } from '../copy-button.js';
+import { EmptyState } from '../states.js';
 import { RunQuestionCard } from './run-question.js';
 
 export const stepIcons = { user: User, assistant: Bot, tool: Wrench } as const;
@@ -32,11 +33,21 @@ export function StepInspector({
   question,
   live,
 }: {
-  step: RunStep;
+  step: RunStep | undefined;
   index: number;
   question?: PublicRunQuestion | undefined;
   live: boolean;
 }) {
+  if (!step) {
+    return (
+      <EmptyState
+        variant="idle"
+        scale="panel"
+        icon={<MousePointerClick className="size-5" aria-hidden="true" />}
+        title="选择左侧步骤查看参数与输出"
+      />
+    );
+  }
   const input = step.kind === 'tool' ? (step.content ?? null) : null;
   const output = step.kind === 'tool' ? (step.result ?? null) : null;
   const nested = step.kind === 'tool' && step.parentToolUseId !== null;
