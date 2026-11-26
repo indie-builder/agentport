@@ -920,6 +920,102 @@ for (const file of walk(join(ROOT, 'packages/web/src'), /\.css$/)) {
   }
 }
 
+const node24VersionRe =
+  /^(?:[\^~]?24(?:\.(?:\d+(?:\.(?:\d+|x|X|\*))?|x|X|\*))?|>=24(?:\.\d+){0,2}\s+<25(?:\.0){0,2})$/;
+const dockerNodeFromRe = /^\s*FROM\s+(?:--\S+\s+)*(?:[^\s/]+\/)*node(?::|@|\s|$)/i;
+const dockerNode24FromRe =
+  /^\s*FROM\s+(?:--\S+\s+)*(?:[^\s/]+\/)*node:24(?:\.\d+)*(?:-|\s|@|$)/i;
+const nodeLockReason = 'Node.js 与 @types/node 永久锁定 24.x，禁止升级到 26+';
+
+const checkDirectTypesNode = (manifestPath, manifest) => {
+  for (const field of [
+    'dependencies',
+    'devDependencies',
+    'optionalDependencies',
+    'peerDependencies',
+  ]) {
+    const version = manifest?.[field]?.['@types/node'];
+    if (
+      version !== undefined &&
+      (typeof version !== 'string' || (version !== 'catalog:' && !node24VersionRe.test(version)))
+    ) {
+      report(
+        'node-version-lock',
+        `${rel(manifestPath)}: ${field}["@types/node"] 为 ${JSON.stringify(version)}（${nodeLockReason}，改为 catalog: 或 24.x 版本）`,
+      );
+    }
+  }
+};
+
+const rootPackagePath = join(ROOT, 'package.json');
+if (existsSync(rootPackagePath)) {
+  const rootPkg = JSON.parse(read(rootPackagePath));
+  const nodeEngine = rootPkg?.engines?.node;
+  if (typeof nodeEngine !== 'string' || !node24VersionRe.test(nodeEngine)) {
+    report(
+      'node-version-lock',
+      `package.json: engines.node 为 ${JSON.stringify(nodeEngine)}（${nodeLockReason}，须锁定为 24.x 如 ">=24.22.2 <25"）`,
+    );
+  }
+  const catalogTypesNode = rootPkg?.workspaces?.catalog?.['@types/node'];
+  if (
+    catalogTypesNode !== undefined &&
+    (typeof catalogTypesNode !== 'string' || !node24VersionRe.test(catalogTypesNode))
+  ) {
+    report(
+      'node-version-lock',
+      `package.json: workspaces.catalog["@types/node"] 为 ${JSON.stringify(catalogTypesNode)}（${nodeLockReason}，须锁定为 24.x）`,
+    );
+  }
+  const overridesTypesNode = rootPkg?.overrides?.['@types/node'];
+  if (
+    overridesTypesNode !== undefined &&
+    (typeof overridesTypesNode !== 'string' ||
+      (overridesTypesNode !== 'catalog:' && !node24VersionRe.test(overridesTypesNode)))
+  ) {
+    report(
+      'node-version-lock',
+      `package.json: overrides["@types/node"] 为 ${JSON.stringify(overridesTypesNode)}（${nodeLockReason}，须锁定为 24.x）`,
+    );
+  }
+  checkDirectTypesNode(rootPackagePath, rootPkg);
+}
+
+const packagesDir = join(ROOT, 'packages');
+if (existsSync(packagesDir)) {
+  for (const name of readdirSync(packagesDir)) {
+    const pkgJsonPath = join(packagesDir, name, 'package.json');
+    if (existsSync(pkgJsonPath)) {
+      const pkg = JSON.parse(read(pkgJsonPath));
+      const pkgNodeEngine = pkg?.engines?.node;
+      if (
+        pkgNodeEngine !== undefined &&
+        (typeof pkgNodeEngine !== 'string' || !node24VersionRe.test(pkgNodeEngine))
+      ) {
+        report(
+          'node-version-lock',
+          `${rel(pkgJsonPath)}: engines.node 为 ${JSON.stringify(pkgNodeEngine)}（${nodeLockReason}，须锁定为 24.x）`,
+        );
+      }
+      checkDirectTypesNode(pkgJsonPath, pkg);
+    }
+  }
+}
+
+const dockerfilePath = join(ROOT, 'Dockerfile');
+if (existsSync(dockerfilePath)) {
+  const lines = read(dockerfilePath).split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (dockerNodeFromRe.test(line) && !dockerNode24FromRe.test(line)) {
+      report(
+        'node-version-lock',
+        `Dockerfile:${i + 1}: ${line.trim()}（${nodeLockReason}，须使用 node:24 镜像）`,
+      );
+    }
+  }
+}
+
 if (problems.length) {
   console.error(problems.join('\n'));
   process.exit(1);
