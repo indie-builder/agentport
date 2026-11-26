@@ -50,6 +50,7 @@ async function mount(
   ],
 ) {
   vi.spyOn(api, 'evalCases').mockResolvedValue({ items: [], nextCursor: null });
+  vi.spyOn(api, 'evalRun').mockResolvedValue({ evalRun: newest, results: [] });
   const evalRuns = vi.spyOn(api, 'evalRuns');
   if (typeof responses === 'function') {
     evalRuns.mockImplementation((query) => responses(query ?? {}));

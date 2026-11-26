@@ -56,6 +56,7 @@ test('runs an evaluation from the page through worker, sandbox and the stub mode
   });
 
   await app.open(`/eval?agent=${agent.id}`);
+  await screen.getByRole('tab', '用例集').tap();
   await expect(screen.getByText(`case-${suffix}`, { exact: true }).first()).toBeVisible({
     timeout: 60_000,
   });
