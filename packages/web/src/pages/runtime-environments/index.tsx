@@ -258,6 +258,8 @@ export function RuntimeEnvironmentsPage() {
                       to="/runtime-environments/$environmentId"
                       params={{ environmentId: environment.id }}
                       search={{ backTo: location.href }}
+                      data-variant="ghost"
+                      data-size="sm"
                       className={buttonVariants({ variant: 'ghost', size: 'sm' })}
                     >
                       查看详情

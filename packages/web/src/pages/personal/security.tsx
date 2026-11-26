@@ -528,7 +528,7 @@ function SessionCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="group self-start text-muted-foreground"
+                className="group -ml-2 self-start text-muted-foreground"
               />
             }
           >

@@ -882,7 +882,7 @@ function ChannelSidebar({ channelId }: { channelId: string }) {
   const list = channels.data ?? [];
   return (
     <aside className="hidden w-56 shrink-0 flex-col border-r border-line lg:flex">
-      <div className="flex h-14 shrink-0 items-center justify-between px-3">
+      <div className="flex h-14 shrink-0 items-center justify-between px-4.5">
         <span className="text-sm font-medium text-fg">频道</span>
         <Link
           to="/channels"

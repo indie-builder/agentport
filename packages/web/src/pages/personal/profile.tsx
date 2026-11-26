@@ -163,7 +163,7 @@ export function PersonalProfilePage() {
             <Card className="min-w-0">
               <CardContent className="flex flex-col gap-3">
                 <h2 className="text-base font-medium text-fg">账号</h2>
-                <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+                <dl className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-x-4 gap-y-2 text-sm">
                   <dt className="text-muted-foreground">角色</dt>
                   <dd className="min-w-0 break-words text-fg">{roleLabel}</dd>
                   <dt className="text-muted-foreground">业务 ID</dt>
