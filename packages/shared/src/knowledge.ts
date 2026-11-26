@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { cronSchema } from './ops.js';
+import { cursorPageSchema } from './pagination.js';
 import { slugSchema } from './params.js';
 import { DEFAULT_JOB_RETENTION } from './run-stream.js';
 
@@ -767,7 +768,6 @@ const sourceBase = {
   ranges: z.array(knowledgeSourceRangeInputSchema).min(1),
 };
 
-/** 各来源共用的同步策略；不显式声明会被 zod strip 掉，worker 就读不到。 */
 const sourceSyncOptions = {
   syncDeletions: z.boolean().default(false),
 };
@@ -1099,19 +1099,16 @@ export const knowledgeListInputSchema = z.object({
   limit: z.number().int().min(1).max(50).default(20).describe('Maximum items per page.'),
 });
 
-export const knowledgeListResultSchema = z.object({
-  items: z.array(
-    z.object({
-      target: knowledgeTargetSchema,
-      versionId: z.string(),
-      title: z.string(),
-      folderId: z.string().nullable(),
-      tags: z.array(z.string()),
-      updatedAt: z.string(),
-    }),
-  ),
-  nextCursor: z.string().nullable(),
-});
+export const knowledgeListResultSchema = cursorPageSchema(
+  z.object({
+    target: knowledgeTargetSchema,
+    versionId: z.string(),
+    title: z.string(),
+    folderId: z.string().nullable(),
+    tags: z.array(z.string()),
+    updatedAt: z.string(),
+  }),
+);
 
 export type KnowledgeSearchResult = z.infer<typeof knowledgeSearchResultSchema>;
 export type KnowledgeReadInput = z.infer<typeof knowledgeReadInputSchema>;

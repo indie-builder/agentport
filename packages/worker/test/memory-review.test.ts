@@ -1124,6 +1124,13 @@ describe.skipIf(!ready)('worker trigger routing', () => {
   let logger!: ReturnType<typeof createWorkerLogger>;
   let sessionSandboxes!: SessionSandboxes;
 
+  const stubModelProxy = {
+    url: 'http://host.docker.internal:0',
+    localUrl: 'http://127.0.0.1:0',
+    issueToken: (runId: string) => runId,
+    revokeToken: () => undefined,
+    close: async () => undefined,
+  };
   const jobDeps = () => ({
     db,
     client: dbHandle.client,
@@ -1134,12 +1141,12 @@ describe.skipIf(!ready)('worker trigger routing', () => {
     sandboxApiUrl: config.SANDBOX_API_URL,
     sandboxClosing: new AbortController(),
     sessionSandboxes,
-    modelProxy: null,
+    modelProxy: stubModelProxy,
     denyQueuedRun,
     loadAgentPlugins: createLoadAgentPlugins(db, logger),
     writeWorkspace: createWorkspaceAssembly({ db, workspacesDir: workdir, logger }),
     toEntry,
-    sandboxEnv: createSandboxEnvFactory(config, null),
+    sandboxEnv: createSandboxEnvFactory(config, stubModelProxy),
     cleanupSandboxIdOf,
   });
 

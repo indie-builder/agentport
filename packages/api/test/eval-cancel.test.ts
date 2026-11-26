@@ -192,7 +192,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
     expect(detail?.evalRun).toMatchObject({ status: 'cancelled', passed: 0 });
   });
 
-  it('ignores late finish, progress and claim while keeping recorded results', async () => {
+  it('ignores late finish and claim while keeping recorded results', async () => {
     const { run, evalCase, caseSnapshot } = await seedRun();
     await repo.evalRepo.addResult(
       app.db,
@@ -211,7 +211,6 @@ describe.skipIf(!ready)('eval run cancellation', () => {
     expect((await cancel(run.id)).statusCode).toBe(202);
 
     await repo.evalRepo.finishEvalRun(app.db, run.id, { status: 'failed', passed: 0 });
-    await repo.evalRepo.updateProgress(app.db, run.id, 9);
     expect(await repo.evalRepo.claimEvalRun(app.db, run.id)).toBe(false);
 
     const row = await repo.evalRepo.getEvalRun(app.db, run.id);

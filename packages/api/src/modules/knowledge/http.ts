@@ -8,12 +8,19 @@ import { requestBodyLimit } from '../../http/body-limit.js';
 import type { HttpContext, HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
-import { requireTrustedOrigin } from '../auth/origin.js';
 import { authorizeBase, authorizeVersion } from './access.js';
 import { FAQ_MAX_BYTES } from './faq.js';
 import { KNOWLEDGE_PACKAGE_MAX_BYTES } from './package.js';
-import * as useCases from './use-cases.js';
-import { depsOf, KNOWLEDGE_UPLOAD_BODY_LIMIT } from './use-cases.js';
+import {
+  exportPackage,
+  getVersionContent,
+  getVersionImage,
+  getVersionMarkdown,
+  importPackage,
+} from './use-cases/binary.js';
+import { KNOWLEDGE_UPLOAD_BODY_LIMIT } from './use-cases/documents.js';
+import { exportFaqs } from './use-cases/faq.js';
+import { depsOf } from './use-cases/shared.js';
 
 const BATCH_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024;
 const WINDOWS_RESERVED_ZIP_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
@@ -82,9 +89,9 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     async (c) => {
       const context = requestContext(c);
       const versionId = param(c, 'versionId');
-      await authorizeVersion(context, versionId, 'knowledge.read', 'read');
+      const { version } = await authorizeVersion(context, versionId, 'knowledge.read', 'read');
       const name = param(c, 'name');
-      const image = await useCases.getVersionImage(depsOf(context), versionId, name);
+      const image = await getVersionImage(depsOf(context), version, name);
       const response = attachmentResponse(new Uint8Array(image.data), name, image.mimeType);
       response.headers.set('cache-control', 'private');
       return response;
@@ -97,8 +104,8 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     async (c) => {
       const context = requestContext(c);
       const versionId = param(c, 'versionId');
-      await authorizeVersion(context, versionId, 'knowledge.read', 'read');
-      const content = await useCases.getVersionContent(depsOf(context), versionId);
+      const { version } = await authorizeVersion(context, versionId, 'knowledge.read', 'read');
+      const content = await getVersionContent(depsOf(context), version);
       return attachmentResponse(new Uint8Array(content.data), content.filename, content.mimeType);
     },
   );
@@ -109,8 +116,13 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     async (c) => {
       const context = requestContext(c);
       const versionId = param(c, 'versionId');
-      await authorizeVersion(context, versionId, 'knowledge.read', 'read');
-      const markdown = await useCases.getVersionMarkdown(depsOf(context), versionId);
+      const { version, document } = await authorizeVersion(
+        context,
+        versionId,
+        'knowledge.read',
+        'read',
+      );
+      const markdown = await getVersionMarkdown(depsOf(context), version, document);
       return new Response(markdown.markdown, {
         headers: {
           'content-type': 'text/markdown; charset=utf-8',
@@ -128,7 +140,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
       const id = param(c, 'id');
       await authorizeBase(context, id, 'knowledge.export', 'read');
 
-      const pkg = await useCases.exportPackage(depsOf(context), id);
+      const pkg = await exportPackage(depsOf(context), id);
       return attachmentResponse(new Uint8Array(pkg.body), pkg.filename, 'application/zip');
     },
   );
@@ -138,19 +150,16 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'knowledge.read' }),
     async (c) => {
       const context = requestContext(c);
-      requireTrustedOrigin(context);
       const id = param(c, 'id');
-      await authorizeBase(context, id, 'knowledge.read', 'read');
+      const base = await authorizeBase(context, id, 'knowledge.read', 'read');
 
       const parsed = batchDownloadBodySchema.safeParse(await c.req.json().catch(() => null));
       if (!parsed.success) {
         throw new AppError('INVALID_INPUT', 'documentIds 需包含 1-200 个不重复的文档 ID');
       }
-      const base = await repo.knowledge.getBase(context.db, id);
-      if (!base) throw new AppError('NOT_FOUND', '知识库不存在，可能已被删除；请刷新后重试');
 
       const documents = await repo.knowledge.getDocumentsByIds(context.db, parsed.data.documentIds);
-      const downloadable: Array<{ versionId: string }> = [];
+      const downloadable: Array<NonNullable<ReturnType<typeof versions.get>>> = [];
       const versionIds: string[] = [];
       let declaredBytes = 0;
       for (const documentId of parsed.data.documentIds) {
@@ -167,7 +176,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
         const version = versions.get(versionId);
         if (!version) continue;
         declaredBytes += version.sizeBytes;
-        downloadable.push({ versionId });
+        downloadable.push(version);
       }
       if (downloadable.length === 0) {
         throw new AppError('INVALID_INPUT', '所选文档没有可下载的原件');
@@ -181,7 +190,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
       const usedLower = new Set<string>();
       let actualBytes = 0;
       for (const item of downloadable) {
-        const content = await useCases.getVersionContent(deps, item.versionId);
+        const content = await getVersionContent(deps, item);
         actualBytes += content.data.length;
         if (actualBytes > BATCH_DOWNLOAD_MAX_BYTES) {
           throw new AppError('PAYLOAD_TOO_LARGE', '所选文档原件合计超过 64MiB 上限');
@@ -201,9 +210,8 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'knowledge.import' }),
     async (c) => {
       const context = requestContext(c);
-      requireTrustedOrigin(context);
       const body = Buffer.from(await c.req.arrayBuffer());
-      const result = await useCases.importPackage(depsOf(context), body);
+      const result = await importPackage(depsOf(context), body);
       return new Response(JSON.stringify(result), {
         status: 201,
         headers: { 'content-type': 'application/json; charset=utf-8' },
@@ -221,7 +229,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
 
       const format = c.req.query('format') === 'csv' ? 'csv' : 'json';
       const version = c.req.query('version') === 'draft' ? 'draft' : 'published';
-      const exported = await useCases.exportFaqs(depsOf(context), id, {
+      const exported = await exportFaqs(depsOf(context), id, {
         format,
         version,
       });

@@ -7,11 +7,11 @@ import {
   evaluateRetrieval,
   type RetrievalEvaluationReport,
 } from '../retrieval-evaluation.js';
-import { type KnowledgeDeps, notFound } from './shared.js';
+import type { KnowledgeDeps } from './shared.js';
 
 export async function evaluateBase(
   deps: KnowledgeDeps,
-  id: string,
+  base: NonNullable<Awaited<ReturnType<typeof repo.knowledge.getBase>>>,
   body: {
     cases: Array<{
       q: string;
@@ -23,7 +23,7 @@ export async function evaluateBase(
     minVectorScore: number;
   },
 ): Promise<RetrievalEvaluationReport> {
-  if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
+  const id = base.id;
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > EVALUATION_MAX_BYTES) {
     throw new AppError('PAYLOAD_TOO_LARGE', '评估内容超过 1MiB 上限');
   }

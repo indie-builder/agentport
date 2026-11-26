@@ -13,6 +13,9 @@ import type {
   WorkspaceSkill,
 } from './workspace.js';
 
+export const WORKSPACE_FILE_MODE = 0o600;
+export const WORKSPACE_DIR_MODE = 0o700;
+
 export interface WorkspaceAgentRow {
   slug: string;
   name: string;

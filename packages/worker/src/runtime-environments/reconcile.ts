@@ -7,8 +7,8 @@ import {
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
-import { queueState } from '../runs/queue-state.js';
-import { startIntervalTicker } from '../scheduling/interval-ticker.js';
+import { startIntervalTicker } from '../interval-ticker.js';
+import { queueState } from '../queue-state.js';
 import {
   RUNTIME_ENVIRONMENT_BUILD_JOB,
   RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS,

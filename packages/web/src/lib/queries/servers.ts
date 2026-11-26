@@ -15,8 +15,8 @@ import {
 } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
+import { useCursorList } from './client.js';
 import { OVERVIEW_QUERY_KEY } from './overview.js';
-import { useCursorList, useInvalidate } from './shared.js';
 
 export const SERVERS_QUERY_KEY = ['servers'] as const;
 
@@ -99,12 +99,12 @@ export function useUpdateServer() {
 }
 
 export function useCreateServer() {
-  const invalidate = useInvalidate();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (input: ServerInput) => api.createServer(input),
     onSuccess: () => {
-      invalidate(SERVERS_QUERY_KEY[0]);
-      invalidate(OVERVIEW_QUERY_KEY[0]);
+      void client.invalidateQueries({ queryKey: serverKeys.all });
+      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
     },
   });
 }
@@ -179,11 +179,11 @@ export function useRotateServerToken(serverId: string) {
 }
 
 export function useBatchSetToolsEnabled(serverId: string) {
-  const invalidate = useInvalidate();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: { toolIds: string[]; enabled: boolean }) =>
       api.batchSetToolsEnabled(serverId, vars.toolIds, vars.enabled),
-    onSuccess: () => invalidate('tools'),
+    onSuccess: () => void client.invalidateQueries({ queryKey: serverKeys.tools(serverId) }),
   });
 }
 
@@ -195,10 +195,10 @@ export function useTestInvokeTool(serverId: string) {
 }
 
 export function useCreateTool(serverId: string) {
-  const invalidate = useInvalidate();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (input: ApiToolInput) => api.createTool(serverId, input),
-    onSuccess: () => invalidate('tools'),
+    onSuccess: () => void client.invalidateQueries({ queryKey: serverKeys.tools(serverId) }),
   });
 }
 
@@ -209,11 +209,11 @@ export function usePreviewOpenApi(serverId: string) {
 }
 
 export function useImportOpenApi(serverId: string) {
-  const invalidate = useInvalidate();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: { spec: string; selectedNames: string[] }) =>
       api.importOpenApiTools(serverId, vars.spec, vars.selectedNames),
-    onSuccess: () => invalidate('tools'),
+    onSuccess: () => void client.invalidateQueries({ queryKey: serverKeys.tools(serverId) }),
   });
 }
 

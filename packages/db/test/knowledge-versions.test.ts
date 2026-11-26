@@ -1,13 +1,9 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
-import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
+import { probeTestDb } from './db-probe.js';
 
-const { db, client } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
+const { db, client, ready } = await probeTestDb();
 
 let serverId = '';
 let profileId = '';

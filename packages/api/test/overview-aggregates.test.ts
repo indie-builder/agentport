@@ -1,8 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { recentUtcDays, utcWindowStart } from '@agentport/shared';
+import { utcWindowStart } from '@agentport/shared';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 
 const DAY_MS = 86_400_000;
+
+function recentUtcDays(days: number): string[] {
+  const start = utcWindowStart(days).getTime();
+  return Array.from({ length: days }, (_, index) =>
+    new Date(start + index * DAY_MS).toISOString().slice(0, 10),
+  );
+}
 
 function utcMidnight(offsetDays = 0): Date {
   const now = new Date();

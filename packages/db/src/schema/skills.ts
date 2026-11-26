@@ -32,7 +32,6 @@ export const skills = pgTable(
   },
   (t) => [
     uniqueIndex('skills_slug_idx').on(t.slug),
-    // 同一市场技能只允许装一次；Postgres 唯一索引允许多个 NULL，内部技能不受影响。
     uniqueIndex('skills_source_id_idx').on(t.sourceId),
     index('skills_status_updated_idx').on(t.status, t.updatedAt),
     check(

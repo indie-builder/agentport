@@ -101,7 +101,6 @@ export function ValueText({
       <span
         className={cn(
           TEXT_SIZES[size],
-          // 官方 Text / BoldText 的语义只有「正文」与「强调」两档。
           bold ? 'font-semibold text-fg' : 'font-normal text-fg',
           numeric && 'font-mono tabular-nums',
           'break-words',
@@ -133,7 +132,6 @@ export function metricTone(subtext: string | undefined): 'neutral' | 'positive' 
   return 'neutral';
 }
 
-/** 卡片块容器的单一来源：官方按卡片容器宽度换列；契约是 ≤480 单列、更宽两列。 */
 export function CardBlockGrid({
   layout,
   responsive,
@@ -146,10 +144,6 @@ export function CardBlockGrid({
   responsive: boolean;
   gap?: number | string | undefined;
   count: number;
-  /**
-   * 官方卡宽语义：small 17.5rem、medium 20rem、overview 15rem（容器 ≤30rem 时 12.5rem）；
-   * responsive 关闭时按此固定。overview 必须由调用方显式传入。
-   */
   size?: 'small' | 'medium' | 'overview';
   children: ReactNode;
 }) {

@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { AppError } from '@agentport/core';
 import type { Agent } from '@agentport/shared';
 import { AGENT_PACKAGE_MAX_BYTES, AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES } from '@agentport/shared';
+import { decodePackage, encodePackage } from '../src/lib/package-zip.js';
 import { packAgentPackage } from '../src/modules/agents/package.js';
-import { decodePackage, encodePackage } from '../src/modules/agents/package-zip.js';
 import {
   cleanup,
   createAgent,

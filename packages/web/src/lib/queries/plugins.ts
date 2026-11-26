@@ -8,7 +8,7 @@ import type {
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type NativePlugins } from '../api.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
-import { useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
 
 export const pluginKeys = {
   all: ['plugins'] as const,

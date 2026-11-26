@@ -16,6 +16,7 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CircleStop, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { z } from 'zod';
 import { can } from '../../lib/access.js';
 import { type AgentSummary, ApiError, errorMessage } from '../../lib/api.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
@@ -38,6 +39,7 @@ import {
   useRollbackMemoryChange,
 } from '../../lib/queries.js';
 import { toastSuccess } from '../../lib/toast.js';
+import { useZodForm } from '../../lib/use-zod-form.js';
 import { AgentPicker } from '../agent/agent-picker.js';
 import { BusinessIllustration } from '../business-illustration.js';
 import { CodeBlock } from '../code-block.js';
@@ -622,30 +624,72 @@ export function MemoryReviews({
   );
 }
 
-interface CreateFieldErrors {
-  model?: string;
-  target?: string;
-  slug?: string;
-  memory?: string;
-  sources?: string;
-  instruction?: string;
-  form?: string;
-}
-
-function clearFieldErrors(
-  errors: CreateFieldErrors,
-  ...keys: (keyof CreateFieldErrors)[]
-): CreateFieldErrors {
-  const next = { ...errors };
-  for (const key of keys) delete next[key];
-  return next;
-}
-
 function slugFormatErrorOf(value: string): string | null {
   if (value === '') return null;
   const parsed = slugSchema.safeParse(value);
   return parsed.success ? null : `规则 slug ${parsed.error.issues[0]?.message ?? '格式不正确'}。`;
 }
+
+const selectedSourceSchema = z.object({
+  conversationId: z.string(),
+  title: z.string(),
+  agentId: z.string(),
+});
+
+const createMemoryReviewFormSchema = z
+  .object({
+    modelAgentId: z.string().min(1, '选择执行专家。'),
+    targetKind: z.enum(['personal', 'agent_memory', 'agent_rule']),
+    targetAgentId: z.string(),
+    ruleChoice: z.string(),
+    newRuleSlug: z.string(),
+    memoryChoice: z.string(),
+    newMemoryName: z.string(),
+    sourceExpertId: z.string(),
+    sources: z
+      .array(selectedSourceSchema)
+      .min(1, '至少选择一段来源会话。')
+      .max(MAX_SOURCES, `最多选择 ${MAX_SOURCES} 段来源会话。`),
+    instruction: z
+      .string()
+      .max(INSTRUCTION_MAX_CHARS, `最多 ${INSTRUCTION_MAX_CHARS} 个字符，请精简后再提交。`),
+  })
+  .superRefine((values, ctx) => {
+    if (values.targetKind !== 'personal' && !values.targetAgentId) {
+      ctx.addIssue({ code: 'custom', path: ['targetAgentId'], message: '选择目标专家。' });
+    }
+    if (values.targetKind === 'agent_rule') {
+      const slug = values.ruleChoice === '__new__' ? values.newRuleSlug.trim() : values.ruleChoice;
+      if (!slug) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['newRuleSlug'],
+          message: '选择已有规则或填写新规则 slug。',
+        });
+      } else {
+        const formatError = slugFormatErrorOf(slug);
+        if (formatError) {
+          ctx.addIssue({ code: 'custom', path: ['newRuleSlug'], message: formatError });
+        }
+      }
+    }
+    if (values.targetKind === 'agent_memory') {
+      if (values.memoryChoice === NEW_MEMORY_CHOICE && values.newMemoryName.trim() === '') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['newMemoryName'],
+          message: '填写新主题文件名。',
+        });
+      } else {
+        const formatError = memoryFormatErrorOf(
+          values.memoryChoice === NEW_MEMORY_CHOICE ? values.newMemoryName : values.memoryChoice,
+        );
+        if (formatError) {
+          ctx.addIssue({ code: 'custom', path: ['newMemoryName'], message: formatError });
+        }
+      }
+    }
+  });
 
 function createInitialState(
   agents: AgentSummary[],
@@ -728,26 +772,33 @@ function CreateMemoryReviewDialog({
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
   const [initial] = useState(() => createInitialState(agents, defaultAgentId, seed));
-  const [modelAgentId, setModelAgentId] = useState(initial.modelAgentId);
-  const [targetKind, setTargetKind] = useState<TargetKind>(initial.targetKind);
-  const [targetAgentId, setTargetAgentId] = useState(initial.targetAgentId);
-  const [ruleChoice, setRuleChoice] = useState(initial.ruleChoice);
-  const [newRuleSlug, setNewRuleSlug] = useState(initial.newRuleSlug);
-  const [memoryChoice, setMemoryChoice] = useState(initial.memoryChoice);
-  const [newMemoryName, setNewMemoryName] = useState(initial.newMemoryName);
-  const [sourceExpertId, setSourceExpertId] = useState(initial.sourceExpertId);
-  const [sources, setSources] = useState<SelectedSource[]>(initial.sources);
-  const [instruction, setInstruction] = useState(initial.instruction);
+  const rhf = useZodForm(createMemoryReviewFormSchema, { defaultValues: initial });
+  const {
+    modelAgentId,
+    targetKind,
+    targetAgentId,
+    ruleChoice,
+    newRuleSlug,
+    memoryChoice,
+    newMemoryName,
+    sourceExpertId,
+    sources,
+    instruction,
+  } = rhf.watch();
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [fieldErrors, setFieldErrors] = useState<CreateFieldErrors>({});
   const [phase, setPhase] = useState<ComposerPhase>('editing');
   const idempotency = useRef<{ fingerprint: string; key: string } | null>(null);
   const sourcesBoxRef = useRef<HTMLDivElement>(null);
   const create = useCreateMemoryReview();
+  const errors = rhf.formState.errors;
+  const modelError = errors.modelAgentId?.message;
+  const targetError = errors.targetAgentId?.message;
+  const sourcesError = errors.sources?.message;
+  const formError = errors.root?.message;
 
   useEffect(() => {
-    if (fieldErrors.sources) sourcesBoxRef.current?.focus();
-  }, [fieldErrors.sources]);
+    if (sourcesError) sourcesBoxRef.current?.focus();
+  }, [sourcesError]);
 
   const modelAgent = agents.find((agent) => agent.id === modelAgentId);
   const sourceAgent = agents.find((agent) => agent.id === sourceExpertId);
@@ -799,36 +850,22 @@ function CreateMemoryReviewDialog({
         ? { kind: 'agent_memory', agentId: targetAgentId, name: selectedMemoryName }
         : { kind: 'agent_rule', agentId: targetAgentId, slug: ruleSlug };
   const summaryTargetDisplay = targetDisplay(summaryTarget, agents);
-  const dirty =
-    phase !== 'closing' &&
-    (modelAgentId !== initial.modelAgentId ||
-      targetKind !== initial.targetKind ||
-      targetAgentId !== initial.targetAgentId ||
-      ruleChoice !== initial.ruleChoice ||
-      newRuleSlug !== initial.newRuleSlug ||
-      memoryChoice !== initial.memoryChoice ||
-      newMemoryName !== initial.newMemoryName ||
-      sourceExpertId !== initial.sourceExpertId ||
-      instruction !== initial.instruction ||
-      sources.length !== initial.sources.length ||
-      sources.some(
-        (source, index) => source.conversationId !== initial.sources[index]?.conversationId,
-      ));
+  const dirty = phase !== 'closing' && rhf.formState.isDirty;
   const instructionLength = instruction.length;
   const slugFormatError =
     targetKind === 'agent_rule' && ruleChoice === '__new__'
       ? slugFormatErrorOf(newRuleSlug.trim())
       : null;
-  const slugError = slugFormatError ?? fieldErrors.slug;
+  const slugError = slugFormatError ?? errors.newRuleSlug?.message;
   const memoryFormatError =
     targetKind === 'agent_memory' && memoryChoice === NEW_MEMORY_CHOICE
       ? memoryFormatErrorOf(newMemoryName)
       : null;
-  const memoryError = memoryFormatError ?? fieldErrors.memory;
+  const memoryError = memoryFormatError ?? errors.newMemoryName?.message;
   const instructionError =
     instructionLength > INSTRUCTION_MAX_CHARS
       ? `最多 ${INSTRUCTION_MAX_CHARS} 个字符，请精简后再提交。`
-      : fieldErrors.instruction;
+      : errors.instruction?.message;
   const blocker = useFormBlocker(dirty, create.isPending);
   const latestBlocker = useRef(blocker);
   latestBlocker.current = blocker;
@@ -848,85 +885,56 @@ function CreateMemoryReviewDialog({
   }, [phase, onClose]);
 
   const changeTargetKind = (next: TargetKind): void => {
-    setTargetKind(next);
-    setFieldErrors({});
-    setRuleChoice('__new__');
-    setNewRuleSlug('');
-    setMemoryChoice(INDEX_FILE_NAME);
-    setNewMemoryName('');
+    rhf.setValue('targetKind', next, { shouldDirty: true });
+    rhf.setValue('ruleChoice', '__new__', { shouldDirty: true });
+    rhf.setValue('newRuleSlug', '', { shouldDirty: true });
+    rhf.setValue('memoryChoice', INDEX_FILE_NAME, { shouldDirty: true });
+    rhf.setValue('newMemoryName', '', { shouldDirty: true });
+    rhf.clearErrors();
   };
 
   const changeSourceExpert = (next: string): void => {
     if (next === sourceExpertId) return;
-    setSourceExpertId(next);
-    setSources([]);
-    setFieldErrors((previous) => clearFieldErrors(previous, 'sources', 'form'));
+    rhf.setValue('sourceExpertId', next, { shouldDirty: true });
+    rhf.setValue('sources', [], { shouldDirty: true });
+    rhf.clearErrors('sources');
+    rhf.clearErrors('root');
   };
 
   const toggleSource = (conversation: ConversationSummary): void => {
-    setFieldErrors((previous) => clearFieldErrors(previous, 'form', 'sources'));
-    setSources((previous) => {
-      if (previous.some((source) => source.conversationId === conversation.id)) {
-        return previous.filter((source) => source.conversationId !== conversation.id);
-      }
-      if (previous.length >= MAX_SOURCES) {
-        setFieldErrors((current) => ({
-          ...current,
-          sources: `最多选择 ${MAX_SOURCES} 段来源会话。`,
-        }));
-        return previous;
-      }
-      return [
-        ...previous,
+    rhf.clearErrors('sources');
+    rhf.clearErrors('root');
+    const current = rhf.getValues('sources');
+    if (current.some((source) => source.conversationId === conversation.id)) {
+      rhf.setValue(
+        'sources',
+        current.filter((source) => source.conversationId !== conversation.id),
+        { shouldDirty: true },
+      );
+      return;
+    }
+    if (current.length >= MAX_SOURCES) {
+      rhf.setError('sources', { message: `最多选择 ${MAX_SOURCES} 段来源会话。` });
+      return;
+    }
+    rhf.setValue(
+      'sources',
+      [
+        ...current,
         {
           conversationId: conversation.id,
           title: conversation.title,
           agentId: conversation.agentId,
         },
-      ];
-    });
+      ],
+      { shouldDirty: true },
+    );
   };
 
-  const validateSources = (): CreateFieldErrors => {
-    const next: CreateFieldErrors = {};
-    if (sources.length === 0) next.sources = '至少选择一段来源会话。';
-    if (sources.length > MAX_SOURCES) next.sources = `最多选择 ${MAX_SOURCES} 段来源会话。`;
-    return next;
-  };
-
-  const validateTarget = (): CreateFieldErrors => {
-    const next: CreateFieldErrors = {};
-    if (!modelAgentId) next.model = '选择执行专家。';
-    if (targetKind !== 'personal' && !targetAgentId) next.target = '选择目标专家。';
-    if (targetKind === 'agent_rule') {
-      if (!ruleSlug) {
-        next.slug = '选择已有规则或填写新规则 slug。';
-      } else {
-        const formatError = slugFormatErrorOf(ruleSlug);
-        if (formatError) next.slug = formatError;
-      }
-    }
-    if (targetKind === 'agent_memory') {
-      if (memoryChoice === NEW_MEMORY_CHOICE && newMemoryName.trim() === '') {
-        next.memory = '填写新主题文件名。';
-      } else {
-        const formatError = memoryFormatErrorOf(
-          memoryChoice === NEW_MEMORY_CHOICE ? newMemoryName : memoryChoice,
-        );
-        if (formatError) next.memory = formatError;
-      }
-    }
-    if (instructionLength > INSTRUCTION_MAX_CHARS) {
-      next.instruction = `最多 ${INSTRUCTION_MAX_CHARS} 个字符，请精简后再提交。`;
-    }
-    return next;
-  };
-
-  const goNext = (): void => {
+  const goNext = async (): Promise<void> => {
     if (step === 1) {
-      const next = validateSources();
-      setFieldErrors((previous) => ({ ...previous, ...next }));
-      if (Object.keys(next).length > 0) {
+      const valid = await rhf.trigger('sources');
+      if (!valid) {
         sourcesBoxRef.current?.focus();
         return;
       }
@@ -934,9 +942,14 @@ function CreateMemoryReviewDialog({
       return;
     }
     if (step === 2) {
-      const next = validateTarget();
-      setFieldErrors((previous) => ({ ...previous, ...next }));
-      if (Object.keys(next).length > 0) return;
+      const valid = await rhf.trigger([
+        'modelAgentId',
+        'targetAgentId',
+        'newRuleSlug',
+        'newMemoryName',
+        'instruction',
+      ]);
+      if (!valid) return;
       setStep(3);
     }
   };
@@ -948,43 +961,48 @@ function CreateMemoryReviewDialog({
 
   const submit = (): void => {
     if (!canUseAgents) return;
-    const next: CreateFieldErrors = { ...validateSources(), ...validateTarget() };
-    setFieldErrors(next);
-    if (Object.keys(next).length > 0) {
-      setStep(next.sources ? 1 : 2);
-      return;
-    }
-
-    const target: MemoryReviewTarget =
-      targetKind === 'personal'
-        ? { kind: 'personal' }
-        : targetKind === 'agent_memory'
-          ? { kind: 'agent_memory', agentId: targetAgentId, name: selectedMemoryName }
-          : { kind: 'agent_rule', agentId: targetAgentId, slug: ruleSlug };
-    const input: CreateMemoryReviewInput = {
-      modelAgentId,
-      target,
-      sources: sources.map((source) => ({ conversationId: source.conversationId })),
-      instruction,
-    };
-    const fingerprint = JSON.stringify(input);
-    let attempt = idempotency.current;
-    if (attempt?.fingerprint !== fingerprint) {
-      attempt = { fingerprint, key: crypto.randomUUID() };
-      idempotency.current = attempt;
-    }
-    create.mutate(
-      { input, idempotencyKey: attempt.key },
-      {
-        onSuccess: () => {
-          toastSuccess('已发起记忆提案');
-          if (latestBlocker.current.status === 'blocked') latestBlocker.current.reset?.();
-          setPhase('closing');
-        },
-        onError: (error) =>
-          setFieldErrors((previous) => ({ ...previous, form: errorMessage(error) })),
+    void rhf.handleSubmit(
+      (data) => {
+        const submittedSlug =
+          data.ruleChoice === '__new__' ? data.newRuleSlug.trim() : data.ruleChoice;
+        const submittedMemoryName =
+          data.memoryChoice === NEW_MEMORY_CHOICE
+            ? memoryFileNameOf(data.newMemoryName)
+            : data.memoryChoice;
+        const target: MemoryReviewTarget =
+          data.targetKind === 'personal'
+            ? { kind: 'personal' }
+            : data.targetKind === 'agent_memory'
+              ? { kind: 'agent_memory', agentId: data.targetAgentId, name: submittedMemoryName }
+              : { kind: 'agent_rule', agentId: data.targetAgentId, slug: submittedSlug };
+        const input: CreateMemoryReviewInput = {
+          modelAgentId: data.modelAgentId,
+          target,
+          sources: data.sources.map((source) => ({ conversationId: source.conversationId })),
+          instruction: data.instruction,
+        };
+        const fingerprint = JSON.stringify(input);
+        let attempt = idempotency.current;
+        if (attempt?.fingerprint !== fingerprint) {
+          attempt = { fingerprint, key: crypto.randomUUID() };
+          idempotency.current = attempt;
+        }
+        create.mutate(
+          { input, idempotencyKey: attempt.key },
+          {
+            onSuccess: () => {
+              toastSuccess('已发起记忆提案');
+              if (latestBlocker.current.status === 'blocked') latestBlocker.current.reset?.();
+              setPhase('closing');
+            },
+            onError: (error) => rhf.setError('root', { message: errorMessage(error) }),
+          },
+        );
       },
-    );
+      (errs) => {
+        setStep(errs.sources ? 1 : 2);
+      },
+    )();
   };
 
   return (
@@ -999,7 +1017,7 @@ function CreateMemoryReviewDialog({
           onSubmit={(event) => {
             event.preventDefault();
             if (step < 3) {
-              goNext();
+              void goNext();
               return;
             }
             submit();
@@ -1017,7 +1035,7 @@ function CreateMemoryReviewDialog({
                 <Field
                   className="gap-1.5"
                   data-disabled={create.isPending}
-                  data-invalid={fieldErrors.model ? true : undefined}
+                  data-invalid={modelError ? true : undefined}
                 >
                   <FieldLabel htmlFor="memory-review-model">执行专家</FieldLabel>
                   <AgentPicker
@@ -1027,19 +1045,20 @@ function CreateMemoryReviewDialog({
                     agentOptions={agentOptions}
                     truncated={agentsTruncated}
                     onSwitchAgent={(id) => {
-                      setModelAgentId(id);
-                      setFieldErrors((previous) => clearFieldErrors(previous, 'model', 'form'));
+                      rhf.setValue('modelAgentId', id, { shouldDirty: true });
+                      rhf.clearErrors('modelAgentId');
+                      rhf.clearErrors('root');
                     }}
                     placeholder="选择专家"
                     triggerId="memory-review-model"
                     triggerAriaLabel="执行专家"
                     triggerClassName="w-full"
                     disabled={create.isPending || !canUseAgents}
-                    ariaInvalid={fieldErrors.model ? true : undefined}
-                    ariaDescribedby={fieldErrors.model ? 'memory-review-model-error' : undefined}
+                    ariaInvalid={modelError ? true : undefined}
+                    ariaDescribedby={modelError ? 'memory-review-model-error' : undefined}
                   />
-                  {fieldErrors.model ? (
-                    <FieldError id="memory-review-model-error">{fieldErrors.model}</FieldError>
+                  {modelError ? (
+                    <FieldError id="memory-review-model-error">{modelError}</FieldError>
                   ) : null}
                 </Field>
 
@@ -1078,7 +1097,7 @@ function CreateMemoryReviewDialog({
                   <Field
                     className="gap-1.5"
                     data-disabled={create.isPending}
-                    data-invalid={fieldErrors.target ? true : undefined}
+                    data-invalid={targetError ? true : undefined}
                   >
                     <FieldLabel htmlFor="memory-review-target-agent">目标专家</FieldLabel>
                     <AgentPicker
@@ -1088,27 +1107,24 @@ function CreateMemoryReviewDialog({
                       agentOptions={agentOptions}
                       truncated={agentsTruncated}
                       onSwitchAgent={(id) => {
-                        setTargetAgentId(id);
-                        setRuleChoice('__new__');
-                        setNewRuleSlug('');
-                        setMemoryChoice(INDEX_FILE_NAME);
-                        setNewMemoryName('');
-                        setFieldErrors((previous) =>
-                          clearFieldErrors(previous, 'target', 'slug', 'memory', 'form'),
-                        );
+                        rhf.setValue('targetAgentId', id, { shouldDirty: true });
+                        rhf.setValue('ruleChoice', '__new__', { shouldDirty: true });
+                        rhf.setValue('newRuleSlug', '', { shouldDirty: true });
+                        rhf.setValue('memoryChoice', INDEX_FILE_NAME, { shouldDirty: true });
+                        rhf.setValue('newMemoryName', '', { shouldDirty: true });
+                        rhf.clearErrors(['targetAgentId', 'newRuleSlug', 'newMemoryName']);
+                        rhf.clearErrors('root');
                       }}
                       placeholder="选择专家"
                       triggerId="memory-review-target-agent"
                       triggerAriaLabel="目标专家"
                       triggerClassName="w-full"
                       disabled={create.isPending}
-                      ariaInvalid={fieldErrors.target ? true : undefined}
-                      ariaDescribedby={
-                        fieldErrors.target ? 'memory-review-target-error' : undefined
-                      }
+                      ariaInvalid={targetError ? true : undefined}
+                      ariaDescribedby={targetError ? 'memory-review-target-error' : undefined}
                     />
-                    {fieldErrors.target ? (
-                      <FieldError id="memory-review-target-error">{fieldErrors.target}</FieldError>
+                    {targetError ? (
+                      <FieldError id="memory-review-target-error">{targetError}</FieldError>
                     ) : null}
                   </Field>
 
@@ -1125,8 +1141,9 @@ function CreateMemoryReviewDialog({
                         disabled={create.isPending}
                         onValueChange={(next) => {
                           if (next === null) return;
-                          setRuleChoice(next);
-                          setFieldErrors((previous) => clearFieldErrors(previous, 'slug', 'form'));
+                          rhf.setValue('ruleChoice', next, { shouldDirty: true });
+                          rhf.clearErrors('newRuleSlug');
+                          rhf.clearErrors('root');
                         }}
                       >
                         <SelectTrigger
@@ -1159,10 +1176,9 @@ function CreateMemoryReviewDialog({
                           className="mt-2 font-mono"
                           disabled={create.isPending}
                           onChange={(event) => {
-                            setNewRuleSlug(event.target.value);
-                            setFieldErrors((previous) =>
-                              clearFieldErrors(previous, 'slug', 'form'),
-                            );
+                            rhf.setValue('newRuleSlug', event.target.value, { shouldDirty: true });
+                            rhf.clearErrors('newRuleSlug');
+                            rhf.clearErrors('root');
                           }}
                         />
                       ) : null}
@@ -1183,10 +1199,9 @@ function CreateMemoryReviewDialog({
                         disabled={create.isPending}
                         onValueChange={(next) => {
                           if (next === null) return;
-                          setMemoryChoice(next);
-                          setFieldErrors((previous) =>
-                            clearFieldErrors(previous, 'memory', 'form'),
-                          );
+                          rhf.setValue('memoryChoice', next, { shouldDirty: true });
+                          rhf.clearErrors('newMemoryName');
+                          rhf.clearErrors('root');
                         }}
                       >
                         <SelectTrigger
@@ -1226,10 +1241,11 @@ function CreateMemoryReviewDialog({
                           className="mt-2 font-mono"
                           disabled={create.isPending}
                           onChange={(event) => {
-                            setNewMemoryName(event.target.value);
-                            setFieldErrors((previous) =>
-                              clearFieldErrors(previous, 'memory', 'form'),
-                            );
+                            rhf.setValue('newMemoryName', event.target.value, {
+                              shouldDirty: true,
+                            });
+                            rhf.clearErrors('newMemoryName');
+                            rhf.clearErrors('root');
                           }}
                         />
                       ) : null}
@@ -1254,7 +1270,7 @@ function CreateMemoryReviewDialog({
               <Field
                 className="gap-1.5"
                 data-disabled={create.isPending}
-                data-invalid={fieldErrors.sources ? true : undefined}
+                data-invalid={sourcesError ? true : undefined}
                 aria-labelledby="memory-review-sources-label"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1292,10 +1308,12 @@ function CreateMemoryReviewDialog({
                             className="inline-flex size-6 shrink-0 items-center justify-center rounded-icon text-muted-foreground hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             disabled={create.isPending}
                             onClick={() =>
-                              setSources((previous) =>
-                                previous.filter(
+                              rhf.setValue(
+                                'sources',
+                                sources.filter(
                                   (item) => item.conversationId !== source.conversationId,
                                 ),
+                                { shouldDirty: true },
                               )
                             }
                           >
@@ -1310,9 +1328,9 @@ function CreateMemoryReviewDialog({
                 <div
                   ref={sourcesBoxRef}
                   className="max-h-52 overflow-y-auto overscroll-contain rounded-lg border border-line"
-                  aria-invalid={fieldErrors.sources ? true : undefined}
-                  aria-describedby={fieldErrors.sources ? 'memory-review-sources-error' : undefined}
-                  tabIndex={fieldErrors.sources ? -1 : undefined}
+                  aria-invalid={sourcesError ? true : undefined}
+                  aria-describedby={sourcesError ? 'memory-review-sources-error' : undefined}
+                  tabIndex={sourcesError ? -1 : undefined}
                 >
                   {conversations.isPending ? <LoadingState rows={3} /> : null}
                   {conversations.isError ? (
@@ -1359,8 +1377,8 @@ function CreateMemoryReviewDialog({
                     )
                   ) : null}
                 </div>
-                {fieldErrors.sources ? (
-                  <FieldError id="memory-review-sources-error">{fieldErrors.sources}</FieldError>
+                {sourcesError ? (
+                  <FieldError id="memory-review-sources-error">{sourcesError}</FieldError>
                 ) : null}
               </Field>
             </>
@@ -1398,8 +1416,8 @@ function CreateMemoryReviewDialog({
                       : 'memory-review-instruction-count'
                   }
                   onChange={(event) => {
-                    setInstruction(event.target.value);
-                    setFieldErrors((previous) => clearFieldErrors(previous, 'instruction'));
+                    rhf.setValue('instruction', event.target.value, { shouldDirty: true });
+                    rhf.clearErrors('instruction');
                   }}
                 />
                 {instructionError ? (
@@ -1484,7 +1502,7 @@ function CreateMemoryReviewDialog({
             </div>
           ) : null}
 
-          {fieldErrors.form ? <FieldError>{fieldErrors.form}</FieldError> : null}
+          {formError ? <FieldError>{formError}</FieldError> : null}
 
           <div className="flex items-center justify-end gap-2">
             <span className="mr-auto text-xs text-muted-foreground">第 {step} / 3 步</span>
@@ -1501,7 +1519,7 @@ function CreateMemoryReviewDialog({
                 type="button"
                 onClick={(event) => {
                   event.preventDefault();
-                  goNext();
+                  void goNext();
                 }}
               >
                 下一步
@@ -1521,7 +1539,7 @@ function CreateMemoryReviewDialog({
                     type="button"
                     onClick={(event) => {
                       event.preventDefault();
-                      goNext();
+                      void goNext();
                     }}
                   >
                     下一步

@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { offsetQuerySchema } from './pagination.js';
 
-export type BusinessId = string;
-
 export function isValidBusinessId(value: string): boolean {
   const chars = [...value];
   return (
@@ -320,13 +318,13 @@ const permissionById = new Map<string, PermissionDefinition>(
   PERMISSIONS.map((permission) => [permission.id, permission]),
 );
 
-export function scopesForPermission(permissionId: PermissionId): readonly AccessScope[] {
+function scopesForPermission(permissionId: PermissionId): readonly AccessScope[] {
   return permissionById.get(permissionId)?.scopes ?? [];
 }
 
 export type PermissionGrant = { permissionId: PermissionId; scope: AccessScope };
 
-export type AccessFilter = { businessId: BusinessId; scopes: AccessScope[] };
+export type AccessFilter = { businessId: string; scopes: AccessScope[] };
 
 export const serviceIdSchema = z.enum(['system', 'mcp']);
 export type ServiceId = z.infer<typeof serviceIdSchema>;
@@ -335,7 +333,7 @@ export const runSubjectKindSchema = z.enum(['user', 'service']);
 export type RunSubjectKind = z.infer<typeof runSubjectKindSchema>;
 
 export type ExecutionSubject =
-  | { kind: 'user'; businessId: BusinessId }
+  | { kind: 'user'; businessId: string }
   | { kind: 'service'; serviceId: ServiceId };
 
 export const systemKeySchema = z.enum(['admin', 'user', 'owner', 'maintainer']);
@@ -353,7 +351,7 @@ export type Principal =
   | {
       kind: 'user';
       authUserId: string;
-      businessId: BusinessId;
+      businessId: string;
       username: string;
       name: string;
       roles: RoleSummary[];
@@ -372,7 +370,7 @@ export const resourceKindSchema = z.enum([
 export type ResourceKind = z.infer<typeof resourceKindSchema>;
 export type ResourceAccessLevel = 'read' | 'manage';
 export type ResourceAccessFilter = {
-  businessId: BusinessId;
+  businessId: string;
   platform: boolean;
   own: boolean;
   grantedIds: readonly string[];
@@ -381,11 +379,11 @@ export type ResourceAccessFilter = {
 export type AccessResource = {
   objectId?: string;
   agentId?: string;
-  createdBy?: BusinessId | null;
+  createdBy?: string | null;
   privateContent?: boolean;
   resource?: {
     kind: ResourceKind;
-    ownerBusinessId: BusinessId | null;
+    ownerBusinessId: string | null;
     level: ResourceAccessLevel;
   };
 };

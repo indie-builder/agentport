@@ -98,11 +98,6 @@ const nativePluginFilesSchema = z
     }
   });
 
-/**
- * 沙盒 stdout 的单行结果。两个成功分支都以 ok:true，所以用 z.union（不能用
- * discriminatedUnion，重复判别值会抛错）；worker 先判 !ok，再用 `'installed' in out`
- * 区分 list 与 read，类型可窄化。
- */
 export const nativePluginOutputSchema = z.union([
   z.object({ ok: z.literal(true), installed: z.array(nativeInstalledPluginSchema) }),
   z.object({

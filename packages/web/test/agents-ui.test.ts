@@ -21,13 +21,11 @@ import { Input } from '../src/components/ui/input.js';
 import { Select, SelectItem } from '../src/components/ui/select.js';
 import { Tabs } from '../src/components/ui/tabs.js';
 import { Textarea } from '../src/components/ui/textarea.js';
-import {
-  AgentDetailPage,
-  AgentEditor,
-  AgentsPage,
-  CreateAgentDialog,
-  VersionHistory,
-} from '../src/pages/agents/index.js';
+import { AgentDetailPage } from '../src/pages/agents/agent-detail-page.js';
+import { AgentEditor } from '../src/pages/agents/agent-editor.js';
+import { AgentsPage } from '../src/pages/agents/agents-page.js';
+import { CreateAgentDialog } from '../src/pages/agents/create-agent-dialog.js';
+import { VersionHistory } from '../src/pages/agents/version-history.js';
 
 const TEST_PERMISSIONS = PERMISSIONS.map((permission) => permission.id);
 

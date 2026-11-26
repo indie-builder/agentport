@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { accountNameSchema, permissionGrantSchema, roleSummarySchema } from './access.js';
 import { runTriggerSchema } from './ops.js';
 import { outputShareSchema } from './outputs.js';
-import { PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX } from './pagination.js';
+import { cursorPageSchema, pageQuerySchema } from './pagination.js';
 import { runStatusSchema } from './run-state.js';
 import { runListItemSchema } from './schemas.js';
 
@@ -57,10 +57,7 @@ export const personalOutputShareSchema = outputShareSchema.extend({
 
 export type PersonalOutputShare = z.infer<typeof personalOutputShareSchema>;
 
-export const personalOutputShareListSchema = z.object({
-  items: z.array(personalOutputShareSchema),
-  nextCursor: z.string().nullable(),
-});
+export const personalOutputShareListSchema = cursorPageSchema(personalOutputShareSchema);
 
 export type PersonalOutputShareList = z.infer<typeof personalOutputShareListSchema>;
 
@@ -92,23 +89,11 @@ export const personalRunSchema = runListItemSchema.extend({
 
 export type PersonalRun = z.infer<typeof personalRunSchema>;
 
-export const personalRunListSchema = z.object({
-  items: z.array(personalRunSchema),
-  nextCursor: z.string().nullable(),
-});
+export const personalRunListSchema = cursorPageSchema(personalRunSchema);
 
 export type PersonalRunList = z.infer<typeof personalRunListSchema>;
 
-const personalPageFields = {
-  cursor: z.string().min(1).max(200).optional(),
-  limit: z.coerce.number().int().min(1).max(PAGE_LIMIT_MAX).default(PAGE_LIMIT_DEFAULT),
-};
-
-export const personalShareListQuerySchema = z
-  .object({
-    ...personalPageFields,
-  })
-  .strict();
+export const personalShareListQuerySchema = pageQuerySchema.strict();
 
 export const personalUsageQuerySchema = z
   .object({
@@ -116,13 +101,12 @@ export const personalUsageQuerySchema = z
   })
   .strict();
 
-export const personalRunListQuerySchema = z
-  .object({
+export const personalRunListQuerySchema = pageQuerySchema
+  .extend({
     days: z.coerce.number().int().min(1).max(90).default(30),
     agentId: z.string().min(1).optional(),
     status: runStatusSchema.optional(),
     trigger: runTriggerSchema.optional(),
-    ...personalPageFields,
   })
   .strict();
 
@@ -151,7 +135,7 @@ export type PersonalRunExport = z.infer<typeof personalRunExportSchema>;
 export const personalOutputListQuerySchema = z
   .object({
     q: z.string().trim().max(128).optional(),
-    limit: personalPageFields.limit,
+    limit: pageQuerySchema.shape.limit,
   })
   .strict();
 

@@ -19,10 +19,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentAvatar, type AgentDisplay } from '../../components/agent/agent-avatar.js';
-import { ChannelHandoffDialog } from '../../components/channel/channel-handoff-dialog.js';
-import { ChannelRunSheet } from '../../components/channel/channel-run-sheet.js';
-import { ChannelSettingsButton, ROLE_LABEL } from '../../components/channel/channel-settings.js';
-import { Composer, MessagePane } from '../../components/chat/chat-thread.js';
+import { Composer } from '../../components/chat/chat-thread/composer.js';
+import { MessagePane } from '../../components/chat/chat-thread/message-pane.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../../components/page.js';
 import { RunQuestionCard } from '../../components/run/run-question.js';
@@ -62,6 +60,9 @@ import {
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useChannelStream } from '../../lib/use-channel-stream.js';
+import { ChannelHandoffDialog } from './channel-handoff-dialog.js';
+import { ChannelRunSheet } from './channel-run-sheet.js';
+import { ChannelSettingsButton, ROLE_LABEL } from './channel-settings.js';
 
 const NO_METRICS: ReadonlyMap<string, RunMetrics> = new Map();
 

@@ -12,7 +12,7 @@ import type { Workbook as ExcelWorkbook } from 'exceljs';
 import ExcelJS from 'exceljs';
 import { Converter } from 'opencc-js';
 import type { z } from 'zod';
-import { decodeZipEntries, inspectZipEntries, type ZipReadLimits } from '../agents/package-zip.js';
+import { decodeZipEntries, inspectZipEntries, type ZipReadLimits } from '../../lib/package-zip.js';
 
 const FAQ_MAX_ITEMS = 500;
 export const FAQ_MAX_BYTES = 2 * 1024 * 1024;

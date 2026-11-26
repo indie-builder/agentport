@@ -26,6 +26,7 @@ import { type ComponentProps, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { CursorListFooter } from '../components/cursor-list-footer.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
 import {
@@ -118,43 +119,6 @@ const TABS: readonly { value: z.infer<typeof governanceTabSchema>; label: string
   { value: 'handover', label: '交接' },
   { value: 'alerts', label: '告警' },
 ];
-
-function ListFooter({
-  query,
-  label,
-}: {
-  query: {
-    hasNextPage: boolean;
-    isFetchingNextPage: boolean;
-    isFetchNextPageError: boolean;
-    fetchNextPage: () => Promise<unknown>;
-  };
-  label: string;
-}) {
-  if (query.isFetchNextPageError) {
-    return (
-      <div className="flex justify-center pt-2">
-        <Button variant="outline" size="sm" onClick={() => void query.fetchNextPage()}>
-          重试加载{label}
-        </Button>
-      </div>
-    );
-  }
-  if (!query.hasNextPage) return null;
-  return (
-    <div className="flex justify-center pt-2">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={query.isFetchingNextPage}
-        aria-busy={query.isFetchingNextPage}
-        onClick={() => void query.fetchNextPage()}
-      >
-        {query.isFetchingNextPage ? '加载中…' : `加载更多${label}`}
-      </Button>
-    </div>
-  );
-}
 
 const SCOPE_KIND_LABEL: Record<BudgetScopeKind, string> = {
   user: '用户',
@@ -495,7 +459,7 @@ function BudgetsSection({ canManage }: { canManage: boolean }) {
           </TableBody>
         </Table>
       ) : null}
-      <ListFooter query={budgets} label="预算" />
+      <CursorListFooter className="pt-2" query={budgets} label="预算" />
 
       {creating ? <BudgetDialog onClose={() => setCreating(false)} /> : null}
       {editing ? <BudgetDialog budget={editing} onClose={() => setEditing(null)} /> : null}
@@ -744,7 +708,9 @@ function BudgetDialog({
                 />
                 <FieldError id="budget-scope-id-error">{errors.scopeId?.message}</FieldError>
                 {candidateError ? <FieldError>{errorMessage(candidateError)}</FieldError> : null}
-                {candidateMore ? <ListFooter query={candidateMore} label="范围" /> : null}
+                {candidateMore ? (
+                  <CursorListFooter className="pt-2" query={candidateMore} label="范围" />
+                ) : null}
               </Field>
             </div>
 
@@ -933,7 +899,7 @@ function DepartmentsSection({ canManage }: { canManage: boolean }) {
           </TableBody>
         </Table>
       ) : null}
-      <ListFooter query={departments} label="部门" />
+      <CursorListFooter className="pt-2" query={departments} label="部门" />
 
       {creating ? <DepartmentDialog onClose={() => setCreating(false)} /> : null}
       {renaming ? (
@@ -1226,7 +1192,7 @@ function DepartmentMembersDialog({
                 })
               )}
             </div>
-            <ListFooter query={accounts} label="账户" />
+            <CursorListFooter className="pt-2" query={accounts} label="账户" />
             <FieldError>{error ?? undefined}</FieldError>
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>
@@ -1366,7 +1332,7 @@ function GrantsSection({ canManage }: { canManage: boolean }) {
           ) : null}
         </div>
       </div>
-      <ListFooter query={resources} label="资源" />
+      <CursorListFooter className="pt-2" query={resources} label="资源" />
 
       {resources.isError ? (
         <ErrorState error={resources.error} onRetry={() => void resources.refetch()} />
@@ -1722,7 +1688,7 @@ function AccountSelect({
           </SelectGroup>
         </SelectContent>
       </Select>
-      <ListFooter query={accounts} label="账户" />
+      <CursorListFooter className="pt-2" query={accounts} label="账户" />
     </div>
   );
 }

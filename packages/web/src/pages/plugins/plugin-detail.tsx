@@ -27,12 +27,6 @@ import {
   PageSection,
   PageTopbar,
 } from '../../components/page.js';
-import {
-  isPluginMarkdown,
-  PluginDocument,
-  pluginFileTitle,
-} from '../../components/plugin/plugin-document.js';
-import { PluginFileTree } from '../../components/plugin/plugin-file-tree.js';
 import { ReaderToolbar } from '../../components/reader-toolbar.js';
 import { RecordRows } from '../../components/record-rows.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
@@ -58,6 +52,8 @@ import { cn } from '../../lib/cn.js';
 import { formatDate } from '../../lib/format.js';
 import { meQuery, usePlugin } from '../../lib/queries.js';
 import { MEDIA_LG, useMediaQuery } from '../../lib/use-media-query.js';
+import { isPluginMarkdown, PluginDocument, pluginFileTitle } from './plugin-document.js';
+import { PluginFileTree } from './plugin-file-tree.js';
 
 type Mode = 'read' | 'source';
 type Tab = 'intro' | 'content';
@@ -552,26 +548,15 @@ function PluginContent({
   useEffect(() => {
     if (!open || !focusFilesOnOpen.current) return;
     focusFilesOnOpen.current = false;
-    let attempts = 0;
-    const focusCurrentFile = () => {
+    const frame = requestAnimationFrame(() => {
       const pane = filesPane.current;
-      const current = pane?.querySelector<HTMLElement>('[aria-current="page"]');
-      if (current) {
-        current.focus();
-        return;
-      }
-      attempts += 1;
-      if (attempts < 6) {
-        timer = setTimeout(focusCurrentFile, 16);
-        return;
-      }
-      const fallback =
+      const target =
+        pane?.querySelector<HTMLElement>('[aria-current="page"]') ??
         pane?.querySelector<HTMLElement>('[role="treeitem"]') ??
         pane?.querySelector<HTMLElement>('[role="tree"]');
-      fallback?.focus();
-    };
-    let timer = setTimeout(focusCurrentFile, 16);
-    return () => clearTimeout(timer);
+      target?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   if (selected === undefined) return <InlineEmpty>没有可查看的文件。</InlineEmpty>;

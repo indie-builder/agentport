@@ -703,7 +703,7 @@
 
 **边界**：仅 `kind='generated'` 支持导入；整批写入在一个事务内，不部分落库；导入写审计 `server.tools.imported`。不聚合 stdio/knowledge，不重造 MCP 路由、执行底座或审批语义。
 
-**影响面**：`packages/core/src/openapi.ts`、`packages/contract/src/servers.ts`、`packages/api/src/modules/servers/{router,ssrf,generated,test-connection}.ts`、`packages/db/src/repo/servers.ts`、`packages/web/src/components/server/import-openapi-dialog.tsx`；验收见 [USER-STORIES.md](USER-STORIES.md) US-1.5–US-1.7。
+**影响面**：`packages/core/src/openapi.ts`、`packages/contract/src/servers.ts`、`packages/api/src/modules/servers/{router,ssrf,generated,test-connection}.ts`、`packages/db/src/repo/servers.ts`、`packages/web/src/pages/servers/import-openapi-dialog.tsx`；验收见 [USER-STORIES.md](USER-STORIES.md) US-1.5–US-1.7。
 
 ---
 
@@ -716,7 +716,7 @@
 
 **边界**：不解析响应 header/cookie，不引入 JSON Schema 运行时校验；outputSchema 只用于声明与结构化返回，不改变上游调用。批量启停不改工具定义正文，试跑结果不落库。
 
-**影响面**：`packages/core/src/openapi.ts`、`packages/contract/src/servers.ts`、`packages/api/src/modules/servers/{router,generated,repo}.ts`、`packages/db/src/repo/servers.ts`、`packages/db/migrations/0068_*.sql`、`packages/web/src/components/server/test-invoke-dialog.tsx`、`packages/web/src/pages/servers/index.tsx`；验收见 [USER-STORIES.md](USER-STORIES.md) US-1.8–US-1.9。
+**影响面**：`packages/core/src/openapi.ts`、`packages/contract/src/servers.ts`、`packages/api/src/modules/servers/{router,generated,repo}.ts`、`packages/db/src/repo/servers.ts`、`packages/db/migrations/0068_*.sql`、`packages/web/src/pages/servers/test-invoke-dialog.tsx`、`packages/web/src/pages/servers/index.tsx`；验收见 [USER-STORIES.md](USER-STORIES.md) US-1.8–US-1.9。
 
 ---
 

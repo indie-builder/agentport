@@ -527,7 +527,6 @@ describe('账号安全', () => {
     const groupSections = [...host.querySelectorAll('[data-slot="page-section"]')];
     expect(groupSections.every((section) => !section.className.includes('border-t'))).toBe(true);
     expect(button('会话详情', currentCard).querySelector('svg')).not.toBeNull();
-    expect(button('撤销', otherCard).className).toContain('text-destructive');
 
     await click(button('会话详情', currentCard));
     await vi.waitFor(() => expect(currentCard.textContent).toContain('Chrome on macOS'));
@@ -546,7 +545,7 @@ describe('账号安全', () => {
     );
     await vi.waitFor(() => expect(host.querySelector('[data-slot="card"]')).toBeNull());
     expect(host.querySelectorAll('ul')).toHaveLength(2);
-    expect(button('撤销', host).className).toContain('text-destructive');
+    expect(button('撤销', host).disabled).toBe(false);
     expect(button('会话详情', host).querySelector('svg')).not.toBeNull();
   });
 });

@@ -5,6 +5,7 @@ import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
 import { likePrefix } from './like.js';
+import { lockAuditChain } from './locks.js';
 import { keysetBound, keysetPage } from './pagination.js';
 
 export interface AuditEvent {
@@ -94,7 +95,7 @@ export async function writeAuditInTx(tx: Transaction, event: AuditEvent): Promis
     requestId: event.requestId ?? null,
     createdAt: new Date(),
   };
-  await tx.execute(sql`select pg_advisory_xact_lock(781236)`);
+  await lockAuditChain(tx);
   const [last] = await tx
     .select({ hash: auditLog.hash })
     .from(auditLog)

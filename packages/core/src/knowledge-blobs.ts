@@ -1,5 +1,6 @@
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { hasErrorCode } from '@agentport/shared';
 import { knowledgeBlobPath } from './knowledge-paths.js';
 
 export async function writeKnowledgeBlob(
@@ -24,6 +25,10 @@ export async function ensureKnowledgeBlob(
   sha: string,
   data: Uint8Array,
 ): Promise<void> {
-  if (await stat(knowledgeBlobPath(knowledgeDir, sha)).catch(() => null)) return;
+  const existing = await stat(knowledgeBlobPath(knowledgeDir, sha)).catch((error: unknown) => {
+    if (hasErrorCode(error, 'ENOENT')) return null;
+    throw error;
+  });
+  if (existing !== null) return;
   await writeKnowledgeBlob(knowledgeDir, sha, data);
 }

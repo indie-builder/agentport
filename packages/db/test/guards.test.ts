@@ -1,18 +1,12 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { count, eq } from 'drizzle-orm';
-import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as chat from '../src/repo/chat.js';
 import * as evalRepo from '../src/repo/eval.js';
 import { agents, conversations, evalCases, evalResults, evalRuns } from '../src/schema.js';
+import { probeTestDb } from './db-probe.js';
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error('请通过 bun run test 注入隔离的 DATABASE_URL');
-const { db, client } = createDb(url);
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
+const { db, client, ready } = await probeTestDb();
 
 describe.skipIf(!ready)('db repo guards', () => {
   const businessId = 'guard-owner';
@@ -70,7 +64,6 @@ describe.skipIf(!ready)('db repo guards', () => {
       .where(eq(evalRuns.id, evalRunId));
 
     await evalRepo.finishEvalRun(db, evalRunId, { status: 'succeeded', passed: 1 });
-    await evalRepo.updateProgress(db, evalRunId, 1);
 
     const row = await evalRepo.getEvalRun(db, evalRunId);
     expect(row?.status).toBe('failed');

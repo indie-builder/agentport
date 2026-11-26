@@ -4,7 +4,7 @@ import {
   knowledgeSourceRangeKindSchema,
   knowledgeSourceStatusSchema,
 } from '@agentport/shared';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Controller, useWatch } from 'react-hook-form';
 import { z } from 'zod';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
@@ -295,7 +295,6 @@ export function SourceDialog({
   const pending = create.isPending || update.isPending;
   const [step, setStep] = useState<'choose' | 'configure'>(editing ? 'configure' : 'choose');
   const [confirmSwitch, setConfirmSwitch] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
 
   const schema = useMemo(
     () => createSourceFormSchema(editing, hasExistingSecret),
@@ -336,71 +335,64 @@ export function SourceDialog({
     else setStep('choose');
   };
 
-  const submit = handleSubmit(
-    (values) => {
-      if (pending) return;
-      const normalized = values.ranges.map(toRangeInput);
-      const syncCron = values.cron.trim() === '' ? null : values.cron.trim();
-      const activeCredential = credentialField(values.type, values.authMode);
-      if (source) {
-        const patchStatus =
-          values.status === 'auth_error'
-            ? values.secret !== ''
-              ? 'active'
-              : undefined
-            : values.status === source.status
-              ? undefined
-              : values.status;
-        update.mutate(
-          {
-            sourceId: source.id,
-            patch: {
-              name: values.name.trim(),
-              ...(patchStatus === undefined ? {} : { status: patchStatus }),
-              syncCron,
-              ranges: normalized,
-              ...(values.type === 'feed' ? {} : { config: buildSourceConfig(values, normalized) }),
-              ...(activeCredential && values.secret !== ''
-                ? { secrets: { [activeCredential.key]: values.secret } }
-                : {}),
-            },
-          },
-          {
-            onSuccess: (result) => {
-              const revoked = result.disabledDocumentIds?.length ?? 0;
-              toastSuccess(revoked > 0 ? `来源已更新，${revoked} 个文档立即撤权` : '来源已更新');
-              guard.finish();
-            },
-            onError: toastError,
-          },
-        );
-        return;
-      }
-      const secrets = activeCredential ? { [activeCredential.key]: values.secret } : {};
-      create.mutate(
+  const submit = handleSubmit((values) => {
+    if (pending) return;
+    const normalized = values.ranges.map(toRangeInput);
+    const syncCron = values.cron.trim() === '' ? null : values.cron.trim();
+    const activeCredential = credentialField(values.type, values.authMode);
+    if (source) {
+      const patchStatus =
+        values.status === 'auth_error'
+          ? values.secret !== ''
+            ? 'active'
+            : undefined
+          : values.status === source.status
+            ? undefined
+            : values.status;
+      update.mutate(
         {
-          name: values.name.trim(),
-          syncCron,
-          ranges: normalized,
-          type: values.type,
-          config: buildSourceConfig(values, normalized),
-          secrets,
-        } as KnowledgeSourceInput,
+          sourceId: source.id,
+          patch: {
+            name: values.name.trim(),
+            ...(patchStatus === undefined ? {} : { status: patchStatus }),
+            syncCron,
+            ranges: normalized,
+            ...(values.type === 'feed' ? {} : { config: buildSourceConfig(values, normalized) }),
+            ...(activeCredential && values.secret !== ''
+              ? { secrets: { [activeCredential.key]: values.secret } }
+              : {}),
+          },
+        },
         {
-          onSuccess: () => {
-            toastSuccess('来源已创建');
+          onSuccess: (result) => {
+            const revoked = result.disabledDocumentIds?.length ?? 0;
+            toastSuccess(revoked > 0 ? `来源已更新，${revoked} 个文档立即撤权` : '来源已更新');
             guard.finish();
           },
           onError: toastError,
         },
       );
-    },
-    () => {
-      requestAnimationFrame(() => {
-        formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
-      });
-    },
-  );
+      return;
+    }
+    const secrets = activeCredential ? { [activeCredential.key]: values.secret } : {};
+    create.mutate(
+      {
+        name: values.name.trim(),
+        syncCron,
+        ranges: normalized,
+        type: values.type,
+        config: buildSourceConfig(values, normalized),
+        secrets,
+      } as KnowledgeSourceInput,
+      {
+        onSuccess: () => {
+          toastSuccess('来源已创建');
+          guard.finish();
+        },
+        onError: toastError,
+      },
+    );
+  });
 
   const secretInput =
     credential === null ? null : (
@@ -457,13 +449,7 @@ export function SourceDialog({
           )
         }
       >
-        <form
-          ref={formRef}
-          id="source-form"
-          className="flex flex-col gap-4"
-          noValidate
-          onSubmit={submit}
-        >
+        <form id="source-form" className="flex flex-col gap-4" noValidate onSubmit={submit}>
           {step === 'choose' ? (
             <div className="flex flex-col">
               {sourceProviders.map((option) => {

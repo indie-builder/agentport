@@ -503,6 +503,19 @@ export async function publishChannelEvent(
   );
 }
 
+export async function publishChannelEventSafely(
+  channelId: string,
+  event: ChannelEvent,
+  logger: Logger,
+  context: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    await publishChannelEvent(channelId, event, logger);
+  } catch (err) {
+    logger.warn({ err, channelId, ...context }, 'channel event publish failed');
+  }
+}
+
 export async function closeRunnerClient(): Promise<void> {
   const closing = [publisher, cancelSubscriber] as const;
   publisher = undefined;

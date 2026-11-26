@@ -4,11 +4,14 @@ import { newId, repo, schema } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
+import { writeCrossUserAudit } from '../../http/audit.js';
 import type { RequestContext } from '../../http/context.js';
+import { EVAL_RUN_MISSING_MESSAGE } from '../../http/errors.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
-import { writeCrossUserAudit } from '../../plugins/audit.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from '../runs/access.js';
-import { EVAL_CASE_MISSING, EVAL_RUN_MISSING } from './errors.js';
+
+const EVAL_CASE_MISSING = '用例不存在，可能已被删除；请刷新后重试';
+
 import { importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
 
 const os = implement(evalContract).$context<RequestContext>();
@@ -250,7 +253,7 @@ export const evalRouter = os.router({
         .from(schema.evalRuns)
         .where(eq(schema.evalRuns.id, input.params.id))
         .limit(1);
-      if (!run) fail('NOT_FOUND', EVAL_RUN_MISSING);
+      if (!run) fail('NOT_FOUND', EVAL_RUN_MISSING_MESSAGE);
       await authorizeEvalAgent(context, run.agentId, ['eval.read', 'eval.manage']);
       if (await evalRepo.cancelEvalRun(context.db, input.params.id)) {
         await repo.audit.writeAudit(context.db, context.log, {
@@ -268,7 +271,7 @@ export const evalRouter = os.router({
       const { head } = input.query;
       if (id === head) fail('INVALID_INPUT', '不能把评估运行与自身对比');
       const comparison = await evalRepo.getComparison(context.db, id, head);
-      if (!comparison) fail('NOT_FOUND', EVAL_RUN_MISSING);
+      if (!comparison) fail('NOT_FOUND', EVAL_RUN_MISSING_MESSAGE);
       await authorizeEvalAgent(context, comparison.baseRun.agentId, ['eval.read']);
       await authorizeEvalAgent(context, comparison.headRun.agentId, ['eval.read']);
       if (comparison.baseRun.agentId !== comparison.headRun.agentId) {
@@ -286,7 +289,7 @@ export const evalRouter = os.router({
     }),
     detail: os.runs.detail.handler(async ({ input, context }) => {
       const detail = await evalRepo.getRunDetail(context.db, input.params.id);
-      if (!detail) fail('NOT_FOUND', EVAL_RUN_MISSING);
+      if (!detail) fail('NOT_FOUND', EVAL_RUN_MISSING_MESSAGE);
       await authorizeEvalAgent(context, detail.evalRun.agentId, ['eval.read']);
       return { ...detail, evalRun: toEvalRun(detail.evalRun) };
     }),

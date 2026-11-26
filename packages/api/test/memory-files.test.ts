@@ -7,7 +7,7 @@ import {
   listMemoryFiles,
   readMemoryFile,
   writeMemoryFile,
-} from '../src/modules/agents/memory-files.js';
+} from '../src/modules/memory/memory-files.js';
 
 const realFs = { ...fs };
 const fsMocks = {

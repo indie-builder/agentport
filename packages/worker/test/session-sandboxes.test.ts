@@ -14,7 +14,11 @@ import {
   type SandboxCreateOptions,
   type SandboxProvider,
 } from '../src/sandbox/provider.js';
-import { memoryMountFor, type SessionSandboxSpec } from '../src/sandbox/sessions.js';
+import {
+  CANCEL_GRACE_MS,
+  memoryMountFor,
+  type SessionSandboxSpec,
+} from '../src/sandbox/sessions.js';
 import {
   advanceTimersByTimeAsync,
   runOnlyPendingTimersAsync,
@@ -834,7 +838,7 @@ describe('session sandboxes', () => {
     await waitFor(() => expect(child.input).toContain('"type":"cancel"'));
     await advanceTimersByTimeAsync(1_000);
     expect(settled).toBeUndefined();
-    await advanceTimersByTimeAsync(5_000);
+    await advanceTimersByTimeAsync(CANCEL_GRACE_MS);
 
     await expect(cancelling).resolves.toMatchObject({
       state: 'unconfirmed',

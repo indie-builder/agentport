@@ -16,7 +16,7 @@ import {
   type RoleMatrixInput,
 } from '../api.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
-import { ME_QUERY_KEY } from './shared.js';
+import { ME_QUERY_KEY } from './session.js';
 
 const authKeys = {
   accounts: (query: { q: string; limit: number; offset: number }) => ['accounts', query] as const,

@@ -10,7 +10,7 @@ import {
 } from '@agentport/shared';
 import { hashPassword } from 'better-auth/crypto';
 import { zipSync } from 'fflate';
-import { decodePackageEntries } from '../src/modules/agents/package-zip.js';
+import { decodePackageEntries } from '../src/lib/package-zip.js';
 import { AUTH_COOKIE } from '../src/modules/auth/types.js';
 import {
   cleanup,

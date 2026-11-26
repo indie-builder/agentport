@@ -95,7 +95,6 @@ function useField(
 ) {
   const field = useStateField(name, value);
   const formName = useFormName();
-  // 官方默认值语义：流结束后把 defaultValue 写进表单状态，用户已填过的值不覆盖。
   useSetDefaultValue({
     ...(formName ? { formName } : {}),
     ...(defaults?.componentType ? { componentType: defaults.componentType } : {}),
@@ -409,7 +408,6 @@ export function CheckBoxGroupRenderer({
         !!item,
     );
   const stored = (field.value ?? {}) as Record<string, unknown>;
-  // 与官方一致：写回整组聚合值，defaultChecked 与显式 false 都要带上。
   const aggregate: Record<string, boolean> = Object.fromEntries(
     items.map((item) => [item.name, Boolean(stored[item.name] ?? item.defaultChecked ?? false)]),
   );
@@ -887,7 +885,6 @@ const BUTTON_VARIANTS = {
   tertiary: 'ghost',
 } as const;
 
-/** 与官方 Button 一致：只有提交类步骤（发消息 / mutation / 自定义动作）才拦在表单校验后。 */
 function needsFormValidation(action: unknown): boolean {
   if (!isActionPlan(action)) return true;
   return action.steps.some(

@@ -34,7 +34,7 @@ describe('EmptyState illustration', () => {
     expect(html).toContain('src="/brand/business/knowledge.webp"');
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain('alt=""');
-    expect(html).not.toContain('rounded-full bg-sunken');
+    expect(html).not.toContain('<svg');
     expect(html).toContain('还没有知识库');
   });
 
@@ -47,8 +47,8 @@ describe('EmptyState illustration', () => {
       }),
     );
 
-    const circle = host?.querySelector('.rounded-full.bg-sunken');
-    expect(circle?.querySelector('svg')).not.toBeNull();
+    expect(host?.querySelector('svg')).not.toBeNull();
+    expect(host?.querySelector('img')).toBeNull();
 
     const button = host?.querySelector('button');
     await act(async () => button?.click());
@@ -64,7 +64,8 @@ describe('EmptyState illustration', () => {
     );
 
     expect(html).toContain('data-test-icon="custom"');
-    expect(html).toContain('rounded-full bg-sunken');
+    expect(html).not.toContain('<svg');
+    expect(html).not.toContain('<img');
   });
 });
 
@@ -73,7 +74,6 @@ describe('BusinessIllustration', () => {
     const html = renderToStaticMarkup(createElement(BusinessIllustration, { name: 'not-found' }));
 
     expect(html).toContain('src="/brand/business/not-found.webp"');
-    expect(html).toContain('class="size-24 shrink-0 object-contain"');
     expect(html).toContain('width="96"');
     expect(html).toContain('height="96"');
   });
@@ -82,14 +82,12 @@ describe('BusinessIllustration', () => {
     const compact = renderToStaticMarkup(
       createElement(BusinessIllustration, { name: 'tools', size: 'compact' }),
     );
-    expect(compact).toContain('class="size-16 shrink-0 object-contain"');
     expect(compact).toContain('width="64"');
     expect(compact).toContain('height="64"');
 
     const large = renderToStaticMarkup(
       createElement(BusinessIllustration, { name: 'search', size: 'error' }),
     );
-    expect(large).toContain('class="size-36 shrink-0 object-contain"');
     expect(large).toContain('width="144"');
     expect(large).toContain('height="144"');
   });

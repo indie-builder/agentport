@@ -288,6 +288,13 @@ describe.skipIf(!ready)('unconfirmed stop handoff', () => {
         imageId: `sha256:${'b'.repeat(64)}`,
       }),
     });
+    const stubModelProxy = {
+      url: 'http://host.docker.internal:0',
+      localUrl: 'http://127.0.0.1:0',
+      issueToken: (runId: string) => runId,
+      revokeToken: () => undefined,
+      close: async () => undefined,
+    };
     runDeps = {
       db,
       client: dbHandle.client,
@@ -298,12 +305,12 @@ describe.skipIf(!ready)('unconfirmed stop handoff', () => {
       sandboxApiUrl: config.SANDBOX_API_URL,
       sandboxClosing: new AbortController(),
       sessionSandboxes,
-      modelProxy: null,
+      modelProxy: stubModelProxy,
       denyQueuedRun,
       loadAgentPlugins: createLoadAgentPlugins(db, logger),
       writeWorkspace: createWorkspaceAssembly({ db, workspacesDir: workdir, logger }),
       toEntry,
-      sandboxEnv: createSandboxEnvFactory(config, null),
+      sandboxEnv: createSandboxEnvFactory(config, stubModelProxy),
       cleanupSandboxIdOf,
     };
     app = await startApp({ WORKSPACES_DIR: workdir, DATABASE_URL: databaseUrl });

@@ -8,7 +8,7 @@ import type { Config } from '../../../config.js';
 import { actorOf, requireUser } from '../../../http/access.js';
 import type { RequestContext } from '../../../http/context.js';
 import { PAYLOAD_TOO_LARGE_MESSAGE } from '../../../http/errors.js';
-import { cursorOption, requireCursorPage } from '../../../http/pagination.js';
+import { collectPages } from '../../../http/pagination.js';
 import {
   createJob,
   enqueueKnowledgeJobAfterCommit,
@@ -63,20 +63,8 @@ export function fileTitle(filename: string): string {
   return (withoutExtension.length > 0 ? withoutExtension : filename).slice(0, 300);
 }
 
-export async function collectChunks(db: Database, versionId: string): Promise<FullChunkRow[]> {
-  const items: FullChunkRow[] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    const page = requireCursorPage(
-      await repo.knowledge.listChunks(db, versionId, {
-        limit: 200,
-        ...cursorOption(cursor),
-      }),
-    );
-    items.push(...page.items);
-    if (page.nextCursor === null || page.nextCursor === cursor) return items;
-    cursor = page.nextCursor;
-  }
+export function collectChunks(db: Database, versionId: string): Promise<FullChunkRow[]> {
+  return collectPages((options) => repo.knowledge.listChunks(db, versionId, options));
 }
 
 export async function copyVersionImages(

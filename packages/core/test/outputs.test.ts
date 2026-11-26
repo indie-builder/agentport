@@ -16,6 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { AppError } from '../src/errors.js';
+import { sha256Hex } from '../src/hash.js';
 
 const actualRename = fsActual.rename;
 const renameFault = {
@@ -49,7 +50,6 @@ const {
   readOutputFile,
   removeConversationOutputs,
   setOutputDraftBlocked,
-  sha256Hex,
 } = await import('../src/outputs.js');
 
 const slug = 'agent-a';

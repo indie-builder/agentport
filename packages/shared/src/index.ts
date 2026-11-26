@@ -23,6 +23,7 @@ export * from './mcp.js';
 export * from './memory.js';
 export * from './model-providers.js';
 export * from './native-plugins.js';
+export * from './ndjson.js';
 export * from './notifications.js';
 export * from './observability.js';
 export * from './openui/index.js';

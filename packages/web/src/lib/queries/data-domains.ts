@@ -13,7 +13,7 @@ import type {
   DataDomainVersionDetail,
 } from '../api.js';
 import { api } from '../api.js';
-import { useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
 
 export const dataDomainKeys = {
   all: ['data-domains'] as const,

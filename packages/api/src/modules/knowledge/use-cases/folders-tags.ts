@@ -1,10 +1,10 @@
 import { AppError } from '@agentport/core';
-import { repo, schema } from '@agentport/db';
-import { eq } from 'drizzle-orm';
+import { repo } from '@agentport/db';
 import { isPgCode } from '../../../http/errors.js';
-import { cursorOption, requireCursorPage } from '../../../http/pagination.js';
+import { collectPages } from '../../../http/pagination.js';
 import { type KnowledgeDeps, notFound } from './shared.js';
 
+type BaseRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getBase>>>;
 type FolderRow = NonNullable<
   Awaited<ReturnType<typeof repo.knowledge.listFolders>>
 >['items'][number];
@@ -26,31 +26,18 @@ function toTag(row: TagRow) {
   return { ...row, createdAt: row.createdAt.toISOString() };
 }
 
-export async function listFolders(deps: KnowledgeDeps, id: string) {
-  if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
-  const folders: FolderRow[] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    const page = requireCursorPage(
-      await repo.knowledge.listFolders(deps.db, id, {
-        limit: 200,
-        ...cursorOption(cursor),
-      }),
-    );
-    folders.push(...page.items);
-    if (page.nextCursor === null || page.nextCursor === cursor) break;
-    cursor = page.nextCursor;
-  }
+export async function listFolders(deps: KnowledgeDeps, base: BaseRow) {
+  const folders = await collectPages((options) =>
+    repo.knowledge.listFolders(deps.db, base.id, options),
+  );
   return folders.map(toFolder);
 }
 
 export async function createFolder(
   deps: KnowledgeDeps,
-  id: string,
+  base: BaseRow,
   body: { parentId: string | null; name: string },
 ) {
-  const base = await repo.knowledge.getBase(deps.db, id);
-  if (!base) notFound('知识库');
   const parent = body.parentId ? await repo.knowledge.getFolder(deps.db, body.parentId) : null;
   if (body.parentId && (!parent || parent.baseId !== base.id)) {
     throw new AppError('INVALID_INPUT', '父文件夹不存在或属于其他知识库');
@@ -98,11 +85,10 @@ export async function listTags(deps: KnowledgeDeps, id: string) {
   return rows.map(toTag);
 }
 
-export async function createTag(deps: KnowledgeDeps, id: string, name: string) {
-  if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
-  const existing = await repo.knowledge.findTagByName(deps.db, id, name);
+export async function createTag(deps: KnowledgeDeps, base: BaseRow, name: string) {
+  const existing = await repo.knowledge.findTagByName(deps.db, base.id, name);
   if (existing) return toTag(existing);
-  const row = await repo.knowledge.upsertTag(deps.db, id, name);
+  const row = await repo.knowledge.upsertTag(deps.db, base.id, name);
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.tag.created',
@@ -133,17 +119,12 @@ export async function renameTag(deps: KnowledgeDeps, tagId: string, name: string
   }
 }
 
-export async function deleteTag(deps: KnowledgeDeps, tagId: string): Promise<void> {
-  const [tag] = await deps.db
-    .select({ baseId: schema.knowledgeTags.baseId })
-    .from(schema.knowledgeTags)
-    .where(eq(schema.knowledgeTags.id, tagId));
-  if (!tag) notFound('标签');
-  if (!(await repo.knowledge.deleteTag(deps.db, tagId))) notFound('标签');
+export async function deleteTag(deps: KnowledgeDeps, tag: TagRow): Promise<void> {
+  if (!(await repo.knowledge.deleteTag(deps.db, tag.id))) notFound('标签');
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.tag.deleted',
-    target: tagId,
+    target: tag.id,
     input: { baseId: tag.baseId },
     status: 'ok',
     requestId: deps.requestId,

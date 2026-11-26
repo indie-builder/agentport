@@ -19,7 +19,7 @@ import {
   WORKSPACE_CONTAINER_DIR,
 } from '@agentport/shared';
 import { asc, eq } from 'drizzle-orm';
-import { listMemoryFiles, readMemoryFile } from '../agents/memory-files.js';
+import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import { readPersonalMemory } from './personal.js';
 
 const INDEX_LINES_NEAR = Math.ceil(AGENT_MEMORY_MAX_LINES * 0.9);

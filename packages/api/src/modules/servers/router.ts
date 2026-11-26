@@ -26,7 +26,6 @@ import { z } from 'zod';
 import {
   actorOf,
   authorizeResourceAccess,
-  requirePermission,
   requireUser,
   resourceAccessFilter,
 } from '../../http/access.js';
@@ -89,7 +88,6 @@ export const serversRouter = os.router({
   catalog: os.catalog.handler(() => connectorCatalogSchema.parse(connectorCatalog)),
   create: os.create.handler(async ({ input: { body: input }, context }) => {
     try {
-      requirePermission(context, 'servers.create');
       if (input.kind === 'http') {
         await assertSafeUrl(input.url, context.config.NODE_ENV);
       } else if (input.kind === 'generated') {
@@ -129,7 +127,6 @@ export const serversRouter = os.router({
       if (input.kind === 'http') await assertSafeUrl(input.url, context.config.NODE_ENV);
     }
     try {
-      requirePermission(context, 'servers.import');
       const servers = await repo.createServers(
         context.db,
         inputs,

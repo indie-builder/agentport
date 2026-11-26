@@ -19,8 +19,11 @@ export const SERVICE_UNAVAILABLE_MESSAGE = '服务暂时不可用，请稍后重
 export const NOT_LOGGED_IN_MESSAGE = 'not logged in';
 export const ACCOUNT_DISABLED_MESSAGE = 'account disabled';
 export const INVALID_BEARER_TOKEN_MESSAGE = 'invalid bearer token';
-export const ZIP_CONTENT_TYPE_MESSAGE = '不支持的 Content-Type，请使用 application/zip';
 export const MCP_JSON_INVALID_MESSAGE = '.mcp.json 不是合法 JSON';
+export const EVAL_RUN_MISSING_MESSAGE = '评估运行不存在，可能已被清理；请刷新列表';
+export const CHANNEL_NOT_FOUND_MESSAGE = '频道不存在';
+export const CHANNEL_MEMBER_MISSING_MESSAGE = '频道不存在或你不是频道成员';
+export const RUN_NOT_IN_CHANNEL_MESSAGE = '运行不存在或不属于该频道';
 
 function isErrorCode(code: string): code is ErrorCode {
   return Object.hasOwn(ERROR_META, code);
@@ -96,7 +99,10 @@ function issuePath(path: readonly PropertyKey[]): string {
 export function problem(requestId: string, error: AppError, extra?: Partial<Problem>): Problem {
   return {
     code: error.code,
-    message: error.status >= 500 ? 'Internal server error' : error.message,
+    message:
+      error.status >= 500 && error.status !== 502 && error.status !== 503
+        ? 'Internal server error'
+        : error.message,
     status: error.status,
     requestId,
     retryable: error.retryable,

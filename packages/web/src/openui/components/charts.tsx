@@ -675,7 +675,6 @@ export function HorizontalBarChartRenderer({
           <SeriesPatterns uid={texture.uid} count={series.length} />
           <CartesianGrid horizontal={false} />
           <XAxis type="number" {...AXIS_PROPS} />
-          {/* width="auto" 由 Recharts 量实际 tick 文本，长类别名不再挤掉柱体。 */}
           <YAxis type="category" dataKey="category" width="auto" {...AXIS_PROPS} />
           <ChartTooltipPortal content={<FixedTooltipContent />} />
           {series.length > 1 ? (

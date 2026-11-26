@@ -18,8 +18,7 @@ import {
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
-import { KnowledgeCancelled } from './ingestion.js';
-import { requireOneShotSuccess } from './one-shot-result.js';
+import { KnowledgeCancelled, requireOneShotSuccess } from './ingestion.js';
 
 type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
 type JobRow = typeof schema.knowledgeJobs.$inferSelect;

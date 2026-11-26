@@ -9,7 +9,8 @@ import type {
 } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../api.js';
-import { meQuery, useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
+import { meQuery } from './session.js';
 
 export function useUpdatePersonalProfile() {
   const client = useQueryClient();

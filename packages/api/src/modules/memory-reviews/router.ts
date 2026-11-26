@@ -33,8 +33,6 @@ import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
-import { requireAgentSlug } from '../../lib/agent-slug.js';
-import { listMemoryFiles } from '../agents/memory-files.js';
 import {
   assertNoPendingReviewWrite,
   assertTopicCapacity,
@@ -44,6 +42,7 @@ import {
   withMemoryTargetLock,
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
+import { listMemoryFiles } from '../memory/memory-files.js';
 import { enqueueRunJob } from '../runs/enqueue.js';
 
 const os = implement(memoryReviewsContract).$context<RequestContext>();
@@ -311,7 +310,8 @@ async function assertProposalAllowed(
     (await repo.agents.getAgentMemoryPolicy(context.db, target.agentId)) ?? DEFAULT_MEMORY_POLICY;
   if (!policy.enabled) fail('CONFLICT', '该专家的记忆已停用，暂不接受新的记忆提案');
   if (target.name === INDEX_FILE_NAME) return;
-  const slug = await requireAgentSlug(context.db, target.agentId);
+  const slug = await repo.agents.findAgentSlug(context.db, target.agentId);
+  if (slug === null) notFound('agent');
   const files = (await listMemoryFiles(context.config.WORKSPACES_DIR, slug)).files;
   const existing = files.some((file) => file.name === target.name);
   if (existing) return;

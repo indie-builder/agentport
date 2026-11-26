@@ -1,6 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { and, eq } from 'drizzle-orm';
-import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as channelsRepo from '../src/repo/channels.js';
 import * as chat from '../src/repo/chat.js';
@@ -13,12 +12,9 @@ import {
   channels,
   servers,
 } from '../src/schema.js';
+import { probeTestDb } from './db-probe.js';
 
-const { db, client } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
+const { db, client, ready } = await probeTestDb();
 
 const owner = 'm3-owner';
 const agentIds: string[] = [];

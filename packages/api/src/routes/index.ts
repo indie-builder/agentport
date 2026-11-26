@@ -12,6 +12,7 @@ import type {
 import { PAYLOAD_TOO_LARGE_MESSAGE } from '../http/errors.js';
 import { healthOpenAPIPaths } from '../http/health-openapi.js';
 import { nativeOpenAPIPaths } from '../http/native-openapi.js';
+import { registerOpenApi } from '../http/openapi.js';
 import { createOpenAPIHandler } from '../http/orpc.js';
 import { registerAgentsHttp } from '../modules/agents/http.js';
 import { agentsRouter } from '../modules/agents/router.js';
@@ -55,7 +56,6 @@ import { serversRouter } from '../modules/servers/router.js';
 import { registerSkillsHttp } from '../modules/skills/http.js';
 import { skillsRouter } from '../modules/skills/router.js';
 import { workflowsRouter } from '../modules/workflows/router.js';
-import { registerOpenApi } from '../plugins/openapi.js';
 
 type RpcContract = Omit<typeof apiContract, 'auth'> & {
   auth: Omit<typeof apiContract.auth, keyof typeof authNativeContract>;

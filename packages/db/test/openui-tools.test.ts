@@ -1,12 +1,9 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { createDb, newId, repo, schema } from '@agentport/db';
+import { newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
+import { probeTestDb } from './db-probe.js';
 
-const { db, client } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
+const { db, client, ready } = await probeTestDb();
 
 const agentIds: string[] = [];
 const serverIds: string[] = [];

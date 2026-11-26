@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseToolList } from '../src/lib/tool-list.js';
+import { parseToolList } from '../src/pages/eval/case-dialog.js';
 
 describe('parseToolList', () => {
   it('splits on newlines and commas, trims each entry and drops blanks', () => {

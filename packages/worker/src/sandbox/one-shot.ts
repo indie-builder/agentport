@@ -1,7 +1,7 @@
-import { errorText } from '@agentport/shared';
+import { createNdjsonReader, errorText, SUPERVISOR_INPUT_MAX_BYTES } from '@agentport/shared';
 import type { Sandbox, SandboxCreateOptions } from './provider.js';
 
-export const SANDBOX_TASK_OUTPUT_MAX_BYTES = 8 * 1024 * 1024;
+export const SANDBOX_TASK_OUTPUT_MAX_BYTES = SUPERVISOR_INPUT_MAX_BYTES;
 
 interface SandboxTaskLogger {
   warn(obj: Record<string, unknown>, msg: string): void;
@@ -23,18 +23,24 @@ interface SandboxTaskOptions<TOutput> {
   totalMs: number;
   stderrMaxBytes: number;
   stderrKeep: 'head' | 'tail';
-  killChildOnDestroy?: boolean;
   logContext: Record<string, unknown>;
   cleanupLog: string;
   lateCleanupLog: string;
 }
 
-interface SandboxTaskOutcome<TOutput> {
-  started: boolean;
-  result: TOutput | undefined;
-  exited: string | undefined;
-  stderr: string;
-}
+export type SandboxTaskExit =
+  | { kind: 'closing' }
+  | { kind: 'startup_timeout' }
+  | { kind: 'timeout' }
+  | { kind: 'output_too_large' }
+  | { kind: 'exited'; detail: string };
+
+export type SandboxTaskOutcome<TOutput> =
+  | { started: false; exit: SandboxTaskExit; stderr: string }
+  | { started: true; result: TOutput; stderr: string }
+  | { started: true; result: undefined; exit: SandboxTaskExit; stderr: string };
+
+type DoneState<TOutput> = { kind: 'result'; value: TOutput } | SandboxTaskExit;
 
 interface SandboxTaskHandlers<TOutput, TResult> {
   complete(outcome: SandboxTaskOutcome<TOutput>): TResult;
@@ -53,25 +59,27 @@ export async function runSandboxTask<TOutput, TResult>(
   const destroy = async (): Promise<void> => {
     if (!sandbox || destroyed) return;
     destroyed = true;
-    if (opts.killChildOnDestroy) sandbox.child.kill('SIGKILL');
+    sandbox.child.kill('SIGKILL');
     await opts.provider.destroy(sandbox).catch((err: unknown) => {
       opts.logger.warn({ err, ...opts.logContext }, opts.cleanupLog);
     });
   };
 
-  let resolveDone: (value: { result?: TOutput; exited?: string }) => void = () => {};
-  const done = new Promise<{ result?: TOutput; exited?: string }>((resolve) => {
+  let resolveDone: (value: DoneState<TOutput>) => void = () => {};
+  const done = new Promise<DoneState<TOutput>>((resolve) => {
     resolveDone = resolve;
   });
-  let exitReason: string | undefined;
-  const finish = (outcome: { result?: TOutput; exited?: string }): void => {
-    exitReason = outcome.exited;
-    resolveDone(outcome);
+  let settled = false;
+  let lastExit: SandboxTaskExit | undefined;
+  const finish = (state: DoneState<TOutput>): void => {
+    if (settled) return;
+    settled = true;
+    if (state.kind !== 'result') lastExit = state;
+    resolveDone(state);
   };
   const onClosing = (): void => {
-    exitReason = '__closing__';
     createAbort.abort();
-    finish({ exited: '__closing__' });
+    finish({ kind: 'closing' });
   };
   if (opts.closing?.aborted) onClosing();
   opts.closing?.addEventListener('abort', onClosing, { once: true });
@@ -88,7 +96,7 @@ export async function runSandboxTask<TOutput, TResult>(
   };
 
   let timer = setTimeout(
-    () => finish({ exited: opts.startupMs === undefined ? '__timeout__' : '__startup_timeout__' }),
+    () => finish({ kind: opts.startupMs === undefined ? 'timeout' : 'startup_timeout' }),
     opts.startupMs ?? opts.totalMs,
   );
   try {
@@ -109,44 +117,38 @@ export async function runSandboxTask<TOutput, TResult>(
       createAbort.abort();
       return handlers.complete({
         started: false,
-        result: undefined,
-        exited: exitReason,
+        exit: lastExit ?? { kind: 'exited', detail: 'unknown' },
         stderr,
       });
     }
     sandbox = created;
     if (opts.startupMs !== undefined) {
       clearTimeout(timer);
-      timer = setTimeout(() => finish({ exited: '__timeout__' }), opts.totalMs);
+      timer = setTimeout(() => finish({ kind: 'timeout' }), opts.totalMs);
     }
 
     const { child } = created;
-    let pending = '';
     let outputTooLarge = false;
-    const consume = (chunk: string): void => {
-      if (outputTooLarge) return;
-      if (Buffer.byteLength(pending) + Buffer.byteLength(chunk) > SANDBOX_TASK_OUTPUT_MAX_BYTES) {
-        outputTooLarge = true;
-        finish({ exited: '__output_too_large__' });
-        return;
-      }
-      pending += chunk;
-      for (;;) {
-        const newline = pending.indexOf('\n');
-        if (newline === -1) return;
-        const line = pending.slice(0, newline);
-        pending = pending.slice(newline + 1);
+    const reader = createNdjsonReader({
+      maxBytes: SANDBOX_TASK_OUTPUT_MAX_BYTES,
+      onLine: (line) => {
+        if (outputTooLarge) return;
         const result = opts.parseLine(line);
-        if (result) finish({ result });
-      }
-    };
+        if (result) finish({ kind: 'result', value: result });
+      },
+      onOversize: () => {
+        if (outputTooLarge) return;
+        outputTooLarge = true;
+        finish({ kind: 'output_too_large' });
+      },
+    });
     const decoder = new TextDecoder();
     const stdoutDone = (async () => {
-      for await (const chunk of child.stdout) consume(decoder.decode(chunk, { stream: true }));
+      for await (const chunk of child.stdout) reader.push(decoder.decode(chunk, { stream: true }));
       const rest = decoder.decode();
-      if (rest !== '') consume(rest);
+      if (rest !== '') reader.push(rest);
     })().catch((err) => {
-      finish({ exited: errorText(err) });
+      finish({ kind: 'exited', detail: errorText(err) });
     });
     const stderrDecoder = new TextDecoder();
     const stderrDone = (async () => {
@@ -160,24 +162,32 @@ export async function runSandboxTask<TOutput, TResult>(
     void Promise.all([stdoutDone, stderrDone, child.exited]).then(([, , exitCode]) => {
       const code = child.signalCode === null ? exitCode : null;
       finish({
-        exited: `退出码 ${String(code)}${child.signalCode === null ? '' : ` (${child.signalCode})`}`,
+        kind: 'exited',
+        detail: `退出码 ${String(code)}${child.signalCode === null ? '' : ` (${child.signalCode})`}`,
       });
     });
     const written = child.stdin.write(`${JSON.stringify(opts.payload)}\n`);
     if (written instanceof Promise) void written.catch(() => undefined);
 
     const outcome = await done;
-    if (outcome.exited === '__timeout__' || outcome.exited === '__closing__') {
+    if (outcome.kind === 'timeout' || outcome.kind === 'closing') {
       createAbort.abort();
+    }
+    if (outcome.kind === 'result') {
+      return handlers.complete({
+        started: true,
+        result: outcome.value,
+        stderr,
+      });
     }
     return handlers.complete({
       started: true,
-      result: outcome.result,
-      exited: outcome.exited,
+      result: undefined,
+      exit: outcome,
       stderr,
     });
   } catch (err) {
-    return handlers.fail(err, exitReason === '__closing__' || opts.closing?.aborted === true);
+    return handlers.fail(err, lastExit?.kind === 'closing' || opts.closing?.aborted === true);
   } finally {
     clearTimeout(timer);
     opts.closing?.removeEventListener('abort', onClosing);

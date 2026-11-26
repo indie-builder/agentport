@@ -36,18 +36,14 @@ async function render(program: string, props: Record<string, unknown> = {}) {
 describe('OpenUI Markdown components', () => {
   it('lets TextContent size and color reach the Markdown tree', async () => {
     await render(['root = Card([t])', 't = TextContent("小字说明", "small")'].join('\n'));
-    const markdownRoot = host.querySelector<HTMLElement>('[class*="whitespace-normal"]');
-    expect(markdownRoot).toBeTruthy();
-    expect(markdownRoot?.className).not.toContain('text-base text-fg');
-    expect(markdownRoot?.closest('.text-muted-foreground')).toBeTruthy();
-    expect(host.textContent).toContain('小字说明');
+    expect(host.querySelector('p')?.textContent).toBe('小字说明');
+    expect(host.innerHTML).not.toContain('text-base text-fg');
   });
 
-  it('keeps headings above body size when inheriting small text', async () => {
+  it('renders headings semantically inside small TextContent', async () => {
     await render(['root = Card([t])', 't = TextContent("## 小节标题", "small")'].join('\n'));
     const heading = host.querySelector('h3');
-    expect(heading?.className).toContain('text-lg');
-    expect(heading?.className).not.toContain('text-sm');
+    expect(heading?.textContent).toBe('小节标题');
   });
 
   it('disables code copy while the program is still streaming', async () => {

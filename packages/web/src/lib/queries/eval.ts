@@ -9,8 +9,8 @@ import {
   type EvalSampleCandidate,
   type EvalTarget,
 } from '../api.js';
+import { useCursorList } from './client.js';
 import { runKeys } from './runs.js';
-import { useCursorList } from './shared.js';
 
 const EVAL_CASES_PAGE_SIZE = 50;
 const EVAL_RUNS_PAGE_SIZE = 50;

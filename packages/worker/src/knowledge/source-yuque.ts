@@ -190,7 +190,6 @@ function itemFor(
       throw new Error(`yuque doc ${summary.id} has no readable body`);
     }
   } else if (detail.format === 'html') {
-    // format=html 的 body 与 body_html 都是 HTML；body_html 只在 body 为空时兜底。
     const htmlBody =
       typeof body === 'string' && body.trim() !== ''
         ? body

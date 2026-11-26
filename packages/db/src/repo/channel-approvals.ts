@@ -1,9 +1,9 @@
 import { ACTIVE_RUN_STATUSES, isActiveRunStatus } from '@agentport/shared';
-import { and, asc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { agentRuns, approvalRequests, servers } from '../schema.js';
 import { allows, channelMemberRole } from './channels.js';
-import type { RecheckApproval } from './runs.js';
+import { applyApprovalDecision, lockRunForApproval, type RecheckApproval } from './runs.js';
 
 export interface ChannelApprovalItem {
   id: string;
@@ -132,16 +132,7 @@ async function decideChannelApproval(
       .limit(1);
     if (!approval || approval.runId === null) return { kind: 'not_found' };
 
-    const [run] = await tx
-      .select({
-        channelId: agentRuns.channelId,
-        status: agentRuns.status,
-        initiatedBy: agentRuns.initiatedBy,
-      })
-      .from(agentRuns)
-      .where(eq(agentRuns.id, approval.runId))
-      .limit(1)
-      .for('update');
+    const run = await lockRunForApproval(tx, approval.runId);
     if (!run || run.channelId !== input.channelId) return { kind: 'not_found' };
     if (role === 'member' && run.initiatedBy !== input.businessId) {
       return { kind: 'forbidden', reason: 'channel_role' };
@@ -156,65 +147,47 @@ async function decideChannelApproval(
       return { kind: 'conflict', reason: 'expired' };
     }
 
-    if (
-      approval.decisionHash === null ||
-      approval.supersededAt !== null ||
-      (await recheck(tx, {
+    const result = await applyApprovalDecision(
+      tx,
+      {
+        approvalId: input.approvalId,
         runId: approval.runId,
         serverId: approval.serverId,
         toolName: approval.toolName,
-      })) !== approval.decisionHash
-    ) {
+        decisionHash: approval.decisionHash,
+        supersededAt: approval.supersededAt,
+        decision,
+        businessId: input.businessId,
+        scopeWhere: eq(approvalRequests.channelId, input.channelId),
+      },
+      recheck,
+    );
+    if (result.kind === 'decision_changed') {
       return { kind: 'conflict', reason: 'decision_changed' };
     }
-
-    const [decided] = await tx
-      .update(approvalRequests)
-      .set(
-        decision === 'approve'
-          ? { approvedAt: sql`clock_timestamp()`, approvedByBusinessId: input.businessId }
-          : { deniedAt: sql`clock_timestamp()`, deniedByBusinessId: input.businessId },
-      )
-      .where(
-        and(
-          eq(approvalRequests.id, input.approvalId),
-          eq(approvalRequests.channelId, input.channelId),
-          eq(approvalRequests.decisionHash, approval.decisionHash),
-          isNull(approvalRequests.supersededAt),
-          isNull(approvalRequests.approvedAt),
-          isNull(approvalRequests.deniedAt),
-          or(
-            isNull(approvalRequests.expiresAt),
-            gt(approvalRequests.expiresAt, sql`clock_timestamp()`),
-          ),
-        ),
-      )
-      .returning({
-        id: approvalRequests.id,
-        channelId: approvalRequests.channelId,
-        runId: approvalRequests.runId,
-        serverId: approvalRequests.serverId,
-        toolName: approvalRequests.toolName,
-        argumentsSummary: approvalRequests.argumentsSummary,
-        createdAt: approvalRequests.createdAt,
-        approvedAt: approvalRequests.approvedAt,
-        deniedAt: approvalRequests.deniedAt,
-        approvedByBusinessId: approvalRequests.approvedByBusinessId,
-        deniedByBusinessId: approvalRequests.deniedByBusinessId,
-        expiresAt: approvalRequests.expiresAt,
-      });
+    if (result.kind !== 'ok') {
+      return { kind: 'conflict', reason: 'decided' };
+    }
+    const decided = result.approval;
     const decidedByBusinessId =
-      decision === 'approve' ? decided?.approvedByBusinessId : decided?.deniedByBusinessId;
-    if (!decided || decided.runId === null || decidedByBusinessId == null) {
+      decision === 'approve' ? decided.approvedByBusinessId : decided.deniedByBusinessId;
+    if (decided.runId === null || decidedByBusinessId == null) {
       return { kind: 'conflict', reason: 'decided' };
     }
     return {
       kind: 'ok',
       approval: {
-        ...decided,
-        runId: decided.runId,
+        id: decided.id,
         channelId: decided.channelId ?? input.channelId,
+        runId: decided.runId,
+        serverId: decided.serverId,
         serverName: approval.serverName,
+        toolName: decided.toolName,
+        argumentsSummary: decided.argumentsSummary,
+        createdAt: decided.createdAt,
+        approvedAt: decided.approvedAt,
+        deniedAt: decided.deniedAt,
+        expiresAt: decided.expiresAt,
       },
       decidedByBusinessId,
     };

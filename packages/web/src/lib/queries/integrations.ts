@@ -1,7 +1,7 @@
 import type { ApiTokenCreateInput, WebhookEndpointCreateInput } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
-import { useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
 
 const INTEGRATIONS_PAGE_SIZE = 50;
 

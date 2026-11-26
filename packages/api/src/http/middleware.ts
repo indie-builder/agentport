@@ -4,6 +4,9 @@ import { assertNever } from '../lib/assert-never.js';
 import { authenticate } from '../modules/auth/session.js';
 import { requirePermission, requireUser } from './access.js';
 import type { HttpEnv, RequestContext } from './context.js';
+import { requireTrustedOrigin } from './origin.js';
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 export async function enforceAccess(context: RequestContext, access: RouteAccess): Promise<void> {
   switch (access.kind) {
@@ -13,13 +16,16 @@ export async function enforceAccess(context: RequestContext, access: RouteAccess
     case 'authenticated':
       await authenticate(context);
       requireUser(context);
-      return;
+      break;
     case 'permission':
       await authenticate(context);
       await requirePermission(context, access.permissionId);
-      return;
+      break;
     default:
       return assertNever(access);
+  }
+  if (!SAFE_METHODS.has(context.request.method)) {
+    requireTrustedOrigin(context);
   }
 }
 

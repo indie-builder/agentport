@@ -175,11 +175,6 @@ type XmlElement = {
   namespaces: Namespaces;
 };
 
-/**
- * XML namespaces are resolved from each element's effective scope, so any
- * prefix (or the default namespace) works and a local rebinding keeps its own
- * URI. A same-name element in another URI is never treated as DAV/ownCloud.
- */
 function scopedNamespaces(record: Record<string, unknown>, parent: Namespaces): Namespaces {
   let scoped: Map<string, string> | undefined;
   for (const [key, value] of Object.entries(record)) {
@@ -212,7 +207,6 @@ function findElement(elements: XmlElement[], uri: string, local: string): XmlEle
   return elements.find((element) => element.uri === uri && element.local === local);
 }
 
-/** Directory listings need a DAV collection child, not merely any resourcetype. */
 function isCollection(resourceType: XmlElement): boolean {
   return childrenOf(resourceType.value, resourceType.namespaces).some(
     (element) => element.uri === DAV_URI && element.local === 'collection',
@@ -282,7 +276,6 @@ function parseResponse(element: XmlElement): DavEntry {
   if (failed !== undefined) throw failed;
   if (!resourceTypeSeen) throw new Error('nextcloud DAV response is missing resourcetype');
   if (id === undefined || id === '') throw new Error('nextcloud DAV response is missing oc:id');
-  // getlastmodified is an HTTP-date; an unparsable value cannot be a validator.
   if (modified !== undefined && !Number.isFinite(Date.parse(modified))) {
     throw new Error('nextcloud DAV response has an invalid getlastmodified date');
   }
@@ -398,8 +391,6 @@ function requireSelf(results: DavResult[], auth: Auth, current: string): DavEntr
     const relative = relativeFromHref(result.entry.href, auth, request, current);
     if (relative === current) return result.entry;
   }
-  // A failed self response (for example 403/404) is a range/auth failure, not
-  // an empty directory.
   const failed = results.find((result) => !result.ok);
   if (failed !== undefined && !failed.ok) throw failed.error;
   throw new Error('nextcloud DAV response does not include the requested directory itself');
@@ -409,7 +400,6 @@ function stripWeak(etag: string): string {
   return etag.trim().replace(/^W\//i, '');
 }
 
-/** Only a strong validator can be compared byte-for-byte and sent as If-Match. */
 function strongEtag(etag: string | undefined): string | undefined {
   const value = etag?.trim();
   return value === undefined || value === '' || /^W\//i.test(value) ? undefined : value;
@@ -449,8 +439,6 @@ async function revalidate(
     }
     return;
   }
-  // Without a comparable ETag, only a complete modified+size fingerprint can
-  // prove stability; two absent values must not compare equal by accident.
   if (
     listed.modified !== undefined &&
     listed.size !== undefined &&
@@ -520,8 +508,6 @@ async function emitFile(
     ) {
       throw new ItemError('nextcloud download ETag differs from the listing', 'fetch_failed', true);
     }
-    // A weak or missing validator cannot prove the bytes stayed stable, even
-    // when the download reports the same weak ETag as the listing.
     if (ifMatch === undefined || responseStrong === undefined || ifMatch !== responseStrong) {
       await revalidate(auth, relative, listed, signal);
     }

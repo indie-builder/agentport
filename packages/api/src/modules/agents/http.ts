@@ -4,10 +4,8 @@ import {
   AGENT_PACKAGE_MAX_BYTES,
   AGENT_PACKAGE_MAX_ENTRIES,
   AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
-  displayNameSchema,
   INDEX_FILE_NAME,
   idParams,
-  slugSchema,
 } from '@agentport/shared';
 import { inArray } from 'drizzle-orm';
 import type { Hono } from 'hono';
@@ -22,29 +20,21 @@ import { attachmentResponse } from '../../http/attachment.js';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
-import { ZIP_CONTENT_TYPE_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { requireTrustedOrigin } from '../auth/origin.js';
+import { agentImportQuerySchema } from '../../http/native-schemas.js';
+import { encodePackage, readZipUpload } from '../../lib/package-zip.js';
 import { withMemoryTargetLock } from '../memory/changes.js';
+import { listMemoryFiles, readMemoryFile } from '../memory/memory-files.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
-import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import {
   buildAgentPackage,
   type PackageResourceAuthorization,
   packAgentPackage,
   parseAgentPackage,
 } from './package.js';
-import { decodePackageEntries, encodePackage, type PackageEntry } from './package-zip.js';
 import { importAgent } from './use-cases.js';
 import { renderAgentWorkspace } from './workspace.js';
 
-export const agentImportQuerySchema = z
-  .object({
-    slug: slugSchema.optional(),
-    name: displayNameSchema.optional(),
-    runtimeEnvironmentId: z.string().min(1).optional(),
-  })
-  .strict();
 const subAgentFileParams = z.object({ id: z.string().min(1), childId: z.string().min(1) });
 const packageResourcePermissions = {
   server: 'servers.read',
@@ -71,16 +61,8 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
     requestBodyLimit(AGENT_PACKAGE_MAX_BYTES),
     async (c) => {
       const context = requestContext(c);
-      requireTrustedOrigin(context);
-      if (c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/zip')
-        fail('UNSUPPORTED_MEDIA_TYPE', ZIP_CONTENT_TYPE_MESSAGE);
+      const entries = await readZipUpload(c.req.raw, '专家包无法解析');
       const query = agentImportQuerySchema.parse(c.req.query());
-      let entries: Map<string, PackageEntry>;
-      try {
-        entries = await decodePackageEntries(Buffer.from(await c.req.arrayBuffer()));
-      } catch (error) {
-        fail('INVALID_INPUT', error instanceof Error ? error.message : '专家包无法解析');
-      }
       const parsed = parseAgentPackage(
         new Map([...entries].map(([path, entry]) => [path, entry.content])),
         {

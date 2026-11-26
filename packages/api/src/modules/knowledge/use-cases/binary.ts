@@ -12,11 +12,9 @@ import {
   importKnowledgePackage,
   KNOWLEDGE_PACKAGE_MAX_BYTES,
 } from '../package.js';
-import { type KnowledgeDeps, notFound } from './shared.js';
+import { type DocumentRow, type KnowledgeDeps, notFound, type VersionRow } from './shared.js';
 
-export async function getVersionDetails(deps: KnowledgeDeps, versionId: string) {
-  const version = await repo.knowledge.getVersion(deps.db, versionId);
-  if (!version) throw new AppError('NOT_FOUND', '版本不存在，可能已被删除');
+export function getVersionDetails(version: VersionRow) {
   return {
     id: version.id,
     documentId: version.documentId,
@@ -32,9 +30,7 @@ export async function getVersionDetails(deps: KnowledgeDeps, versionId: string) 
   };
 }
 
-export async function getVersionContent(deps: KnowledgeDeps, versionId: string) {
-  const version = await repo.knowledge.getVersion(deps.db, versionId);
-  if (!version) notFound('版本');
+export async function getVersionContent(deps: KnowledgeDeps, version: VersionRow) {
   const data = await readFile(
     knowledgeBlobPath(deps.config.KNOWLEDGE_DIR, version.blobSha256),
   ).catch(() => null);
@@ -42,24 +38,23 @@ export async function getVersionContent(deps: KnowledgeDeps, versionId: string) 
   return { data, mimeType: version.mimeType, filename: version.originalFilename };
 }
 
-export async function getVersionMarkdown(deps: KnowledgeDeps, versionId: string) {
-  const version = await repo.knowledge.getVersion(deps.db, versionId);
-  if (!version) notFound('版本');
-  const [document, markdown] = await Promise.all([
-    repo.knowledge.getDocument(deps.db, version.documentId),
-    Bun.file(
-      knowledgeVersionMarkdownPath(deps.config.KNOWLEDGE_DIR, version.documentId, version.id),
-    )
-      .text()
-      .catch(() => null),
-  ]);
+export async function getVersionMarkdown(
+  deps: KnowledgeDeps,
+  version: VersionRow,
+  document: DocumentRow,
+) {
+  const markdown = await Bun.file(
+    knowledgeVersionMarkdownPath(deps.config.KNOWLEDGE_DIR, version.documentId, version.id),
+  )
+    .text()
+    .catch(() => null);
   if (markdown === null) notFound('解析正文');
-  return { markdown, status: document?.status ?? 'unknown' };
+  return { markdown, status: document.status };
 }
 
 export async function getVersionImage(
   deps: KnowledgeDeps,
-  versionId: string,
+  version: VersionRow,
   name: string,
 ): Promise<{ data: Buffer; mimeType: string }> {
   if (
@@ -73,8 +68,6 @@ export async function getVersionImage(
   ) {
     throw new AppError('INVALID_INPUT', '图片名不合法');
   }
-  const version = await repo.knowledge.getVersion(deps.db, versionId);
-  if (!version) throw new AppError('NOT_FOUND', '版本不存在，可能已被删除');
   const image = version.images.find((entry) => entry.name === name);
   if (!image) throw new AppError('NOT_FOUND', '图片不存在或不属于该版本');
   const data = await readFile(

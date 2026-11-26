@@ -15,7 +15,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, vi } from 'vitest';
 import { z } from 'zod';
 import { toastError } from '../src/lib/toast.js';
-import { KnowledgeDetailPage } from '../src/pages/knowledge/detail/index.js';
+import { KnowledgeDetailPage } from '../src/pages/knowledge/detail/knowledge-detail-page.js';
 import { KnowledgePage } from '../src/pages/knowledge/index.js';
 import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';

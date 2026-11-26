@@ -2,6 +2,7 @@ import {
   cursorPageSchema,
   evalCaseFieldsSchema,
   evalComparisonSchema,
+  evalDatasetImportResultSchema,
   evalDatasetSchema,
   evalJudgeModeSchema,
   evalRunDetailSchema,
@@ -33,12 +34,6 @@ export const createEvalCaseSchema = evalCaseFieldsSchema.extend({ agentId: z.str
 export const patchEvalCaseSchema = createEvalCaseSchema.omit({ agentId: true }).partial().extend({
   expectation: evalCaseFieldsSchema.shape.expectation.removeDefault().optional(),
   judgeMode: evalJudgeModeSchema.optional(),
-});
-
-export const evalDatasetImportResultSchema = z.object({
-  imported: z.number().int().nonnegative(),
-  skipped: z.number().int().nonnegative(),
-  warnings: z.array(z.string()),
 });
 
 export const evalCaseListQuerySchema = pageQuerySchema.extend({

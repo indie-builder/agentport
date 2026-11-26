@@ -688,10 +688,6 @@ export function CompositeCardBlockRenderer({
   );
 }
 
-/**
- * 卡内图表未显式给 height 时补 192；官方做法就是复制节点再补默认 props，不改 schema。
- * 主图尺寸由 charts 自己决定，这里只处理卡内 body。
- */
 const CARD_CHART_TYPES = new Set(['BarChart', 'LineChart', 'AreaChart']);
 
 export function withCardChartHeight(node: unknown) {

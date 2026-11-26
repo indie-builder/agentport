@@ -7,7 +7,7 @@ import {
   type HealthProbe,
   type HealthReady,
 } from '../api.js';
-import { useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
 
 export const opsKeys = {
   healthMetrics: ['health-metrics'] as const,

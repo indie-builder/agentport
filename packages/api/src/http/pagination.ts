@@ -21,3 +21,17 @@ export function pageOptions(query: PageQuery): { cursor?: string; limit?: number
     ...(query.limit === undefined ? {} : { limit: query.limit }),
   };
 }
+
+export async function collectPages<T>(
+  fetchPage: (options: { cursor?: string; limit?: number }) => Promise<CursorPage<T> | null>,
+  limit = 200,
+): Promise<T[]> {
+  const items: T[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = requireCursorPage(await fetchPage({ limit, ...cursorOption(cursor) }));
+    items.push(...page.items);
+    if (page.nextCursor === null || page.nextCursor === cursor) return items;
+    cursor = page.nextCursor;
+  }
+}

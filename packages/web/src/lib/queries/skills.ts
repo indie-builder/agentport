@@ -11,13 +11,14 @@ import { ApiError, api } from '../api.js';
 import { toast, toastError, toastSuccess } from '../toast.js';
 import { useDebouncedValue } from '../use-debounced-value.js';
 import { AGENT_OPTIONS_QUERY_KEY, AGENTS_QUERY_KEY } from './agents.js';
-import { useCursorList } from './shared.js';
+import { useCursorList } from './client.js';
 
 export const SKILLS_QUERY_KEY = ['skills'] as const;
 
 export const skillKeys = {
   all: SKILLS_QUERY_KEY,
   list: (status: string | undefined) => [...SKILLS_QUERY_KEY, status ?? 'all'] as const,
+  files: (skillId: string) => ['skill-files', skillId] as const,
   market: (view: MarketView, query: string) => ['market-skills', view, query] as const,
 };
 

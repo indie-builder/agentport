@@ -18,7 +18,9 @@ import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pa
 import { ensureKnowledgeServer, supportsImageVectors } from '../service.js';
 import { CHUNK_OVERLAP_INVALID_MESSAGE, type KnowledgeDeps, notFound } from './shared.js';
 
-function toBase(row: Awaited<ReturnType<typeof repo.knowledge.createBase>>) {
+type BaseRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getBase>>>;
+
+function toBase(row: BaseRow) {
   return {
     id: row.id,
     slug: row.slug,
@@ -73,10 +75,8 @@ export async function listPins(deps: KnowledgeDeps) {
   return { baseIds: await repo.knowledge.listPinnedBaseIds(deps.db, deps.actor) };
 }
 
-export async function setPin(deps: KnowledgeDeps, baseId: string, pinned: boolean) {
-  const base = await repo.knowledge.getBase(deps.db, baseId);
-  if (!base) notFound('知识库');
-  await repo.knowledge.setBasePin(deps.db, deps.actor, baseId, pinned);
+export async function setPin(deps: KnowledgeDeps, base: BaseRow, pinned: boolean) {
+  await repo.knowledge.setBasePin(deps.db, deps.actor, base.id, pinned);
   return { pinned };
 }
 
@@ -154,9 +154,7 @@ export async function createBase(
   }
 }
 
-export async function getBase(deps: KnowledgeDeps, id: string) {
-  const row = await repo.knowledge.getBase(deps.db, id);
-  if (!row) notFound('知识库');
+export function getBase(row: BaseRow) {
   return toBase(row);
 }
 
@@ -224,9 +222,7 @@ function changedBaseFields(
   return fields;
 }
 
-export async function updateBase(deps: KnowledgeDeps, id: string, body: UpdateBaseBody) {
-  const current = await repo.knowledge.getBase(deps.db, id);
-  if (!current) notFound('知识库');
+export async function updateBase(deps: KnowledgeDeps, current: BaseRow, body: UpdateBaseBody) {
   const settingsPatch = body.settings;
   const merged = knowledgeBaseSettingsSchema.safeParse({
     chunkTokens: settingsPatch?.chunkTokens ?? current.settings.chunkTokens,
@@ -299,9 +295,7 @@ export async function updateBase(deps: KnowledgeDeps, id: string, body: UpdateBa
   return toBase(row);
 }
 
-export async function deleteBase(deps: KnowledgeDeps, id: string): Promise<void> {
-  const row = await repo.knowledge.getBase(deps.db, id);
-  if (!row) notFound('知识库');
+export async function deleteBase(deps: KnowledgeDeps, row: BaseRow): Promise<void> {
   const unbound = await deps.db.execute<{ agent_id: string }>(
     sql`select agent_id from agent_servers where server_id = ${row.serverId}`,
   );
@@ -339,10 +333,9 @@ export async function getBaseSummary(deps: KnowledgeDeps, id: string) {
   };
 }
 
-export async function listBaseActivity(deps: KnowledgeDeps, id: string, query: PageQuery) {
-  if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
+export async function listBaseActivity(deps: KnowledgeDeps, base: BaseRow, query: PageQuery) {
   const page = requireCursorPage(
-    await repo.knowledge.listBaseActivity(deps.db, id, pageOptions(query)),
+    await repo.knowledge.listBaseActivity(deps.db, base.id, pageOptions(query)),
   );
   return {
     items: page.items.map((entry) => ({
@@ -359,13 +352,10 @@ export async function listBaseActivity(deps: KnowledgeDeps, id: string, query: P
 
 const CHUNK_PREVIEW_MAX_CHUNKS = 50;
 
-export async function previewChunks(
-  deps: KnowledgeDeps,
-  id: string,
+export function previewChunks(
+  row: BaseRow,
   body: { sample: string; chunkTokens?: number | undefined; chunkOverlap?: number | undefined },
 ) {
-  const row = await repo.knowledge.getBase(deps.db, id);
-  if (!row) notFound('知识库');
   const chunkTokens = body.chunkTokens ?? row.settings.chunkTokens;
   const chunkOverlap = body.chunkOverlap ?? row.settings.chunkOverlap;
   if (chunkOverlap >= chunkTokens) {
@@ -421,15 +411,13 @@ async function availableCopySlug(deps: KnowledgeDeps, sourceSlug: string): Promi
 
 export async function duplicateBase(
   deps: KnowledgeDeps,
-  id: string,
+  source: BaseRow,
   body: {
     name?: string | undefined;
     slug?: string | undefined;
     description?: string | undefined;
   },
 ) {
-  const source = await repo.knowledge.getBase(deps.db, id);
-  if (!source) notFound('知识库');
   const row = await createBase(deps, {
     slug: body.slug ?? (await availableCopySlug(deps, source.slug)),
     name: body.name ?? `${source.name.slice(0, DUPLICATE_NAME_MAX - 3)} 副本`,

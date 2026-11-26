@@ -23,10 +23,13 @@ import {
 import { isObjectSchema, type OpenAPI, toOpenAPIParameters, toOpenAPISchema } from '@orpc/openapi';
 import { ZodToJsonSchemaConverter } from '@orpc/zod/zod4';
 import { z } from 'zod';
-import { agentImportQuerySchema } from '../modules/agents/http.js';
-import { auditExportQuerySchema } from '../modules/audit/http.js';
-import { PLUGIN_ZIP_MAX_BYTES, pluginImportQuerySchema } from '../modules/plugins/http.js';
-import { runExportQuerySchema } from '../modules/runs/router.js';
+import {
+  agentImportQuerySchema,
+  auditExportQuerySchema,
+  PLUGIN_ZIP_MAX_BYTES,
+  pluginImportQuerySchema,
+  runExportQuerySchema,
+} from './native-schemas.js';
 
 const converter = new ZodToJsonSchemaConverter();
 const auditExportItemSchema = auditItemSchema.extend({ detail: z.unknown().nullable() });

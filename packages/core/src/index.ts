@@ -15,20 +15,14 @@ export {
 export { canonicalJson } from './canonical-json.js';
 export {
   ACTION_RANK,
-  ANTHROPIC_DEFAULT_BASE_URL,
   CONTENT_BLOCKED_MESSAGE,
   type ContentPolicyDecision,
-  envProviderDestination,
   evaluateContentPolicy,
-  providerRouteDestination,
-  providerRouteMatches,
 } from './content-policy.js';
-export { DbError, isRetryableFailure, RunFailure, runProgram } from './effect-runtime.js';
 export {
   ACCOUNT_NOT_FOUND_MESSAGE,
   AGENT_DIR_SLUG_INVALID_MESSAGE,
   AGENT_SELECTION_MISSING_MESSAGE,
-  AppError,
   ASR_PROFILE_INVALID_MESSAGE,
   BUILD_ABORTED_MESSAGE,
   BUILD_ENQUEUE_FAILED_MESSAGE,
@@ -36,9 +30,7 @@ export {
   BUILD_TIMEOUT_MESSAGE,
   CONFIG_STALE_MESSAGE,
   DOCUMENT_VERSION_STALE_MESSAGE,
-  fail,
   INVALID_CURSOR_MESSAGE,
-  isAppError,
   KNOWLEDGE_BASE_DISABLED_MESSAGE,
   KNOWLEDGE_BASE_NOT_FOUND_MESSAGE,
   KNOWLEDGE_DOCUMENT_MISSING_MESSAGE,
@@ -46,9 +38,11 @@ export {
   KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE,
   NOT_FOUND_MESSAGES,
   type NotFoundResource,
-  notFound,
   ORIGINAL_RUN_UNAVAILABLE_MESSAGE,
-} from './errors.js';
+} from './domain-messages.js';
+export { DbError, isRetryableFailure, RunFailure, runProgram } from './effect-runtime.js';
+export { AppError, fail, isAppError, notFound } from './errors.js';
+export { sha256Hex } from './hash.js';
 export { readCappedBytes, readCappedText } from './http-body.js';
 export { inspectKnowledgeAudio } from './knowledge-audio.js';
 export { ensureKnowledgeBlob, writeKnowledgeBlob } from './knowledge-blobs.js';
@@ -78,7 +72,6 @@ export {
   embedTexts,
   KnowledgeModelError,
   rerankDocuments,
-  segmentForSearch,
   transcribeAudio,
 } from './knowledge-models.js';
 export {
@@ -93,12 +86,8 @@ export {
 } from './knowledge-paths.js';
 export { visibleDocumentSummary } from './knowledge-summary.js';
 export { parseMcpJson } from './mcp-json.js';
-export { hashMcpToken, WORKSPACE_DIR_MODE, WORKSPACE_FILE_MODE } from './mcp-token.js';
-export {
-  type ReviewWindow,
-  reviewAnchorMissingMessage,
-  selectReviewWindow,
-} from './memory-review-window.js';
+export { hashMcpToken } from './mcp-token.js';
+export { reviewAnchorMissingMessage, selectReviewWindow } from './memory-review-window.js';
 export {
   parseChildAgentMd,
   parseClaudeMd,
@@ -118,7 +107,6 @@ export {
   readOutputFile,
   removeConversationOutputs,
   setOutputDraftBlocked,
-  sha256Hex,
 } from './outputs.js';
 export {
   personalMemoryDir,
@@ -127,7 +115,14 @@ export {
 } from './personal-memory.js';
 export { renderPlugin } from './plugin-render.js';
 export { installProcessGuards } from './process-guards.js';
+export {
+  ANTHROPIC_DEFAULT_BASE_URL,
+  envProviderDestination,
+  providerRouteDestination,
+  providerRouteMatches,
+} from './provider-route.js';
 export { appendStreamEvent } from './run-stream.js';
+export { segmentForSearch } from './search-segment.js';
 export { decryptSecrets, encryptSecrets } from './secrets.js';
 export {
   sdkSessionDir,
@@ -137,10 +132,7 @@ export {
 } from './session-paths.js';
 export { buildSkillDraft } from './skill-draft.js';
 export { type ParsedSkill, parseSkillMd, type SkillProvenance } from './skill-md.js';
-export {
-  type ApprovalMode,
-  evaluateToolApproval,
-} from './tool-approval-policy.js';
+export { type ApprovalMode, evaluateToolApproval } from './tool-approval-policy.js';
 export { parseWorkflowMeta } from './workflow-file.js';
 export {
   renderOutputStyleMd,
@@ -157,5 +149,7 @@ export {
   toOutputStyleSelection,
   toWorkspaceAgent,
   toWorkspaceInput,
+  WORKSPACE_DIR_MODE,
+  WORKSPACE_FILE_MODE,
 } from './workspace-input.js';
 export { validateWrenProjectFiles } from './wren-project.js';

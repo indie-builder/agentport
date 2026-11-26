@@ -1,5 +1,5 @@
 import { canonicalJson } from './canonical-json.js';
-import { sha256Hex } from './outputs.js';
+import { sha256Hex } from './hash.js';
 
 export type ApprovalMode = 'allow' | 'ask' | 'deny';
 

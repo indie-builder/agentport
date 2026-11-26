@@ -12,12 +12,14 @@ import {
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { CHANNEL_NOT_FOUND_MESSAGE } from '../../http/errors.js';
 import { listWorkspaceOutputs, readWorkspaceOutput } from '../../lib/outputs.js';
 import { getQueue } from '../../queue/producer.js';
 import { loadReadableConversation } from '../chat/access.js';
-import { notFound, SOURCE_RUN_MISSING } from './errors.js';
 import { publishChannelMessageSafely } from './publish.js';
 import { dispatchChannelWakes } from './wakes.js';
+
+const SOURCE_RUN_MISSING = '来源运行不存在，可能已被删除';
 
 const channelRepo = repo.channels;
 const HANDOFF_BODY_LIMIT = 32000;
@@ -36,17 +38,17 @@ export const channelsHandoffRouter = {
     const { id } = input.params;
     const subject = { businessId: principal.businessId };
     const detail = await channelRepo.getChannelDetail(context.db, subject, id);
-    if ('kind' in detail) return notFound();
+    if ('kind' in detail) return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
     const role = detail.members.find((member) => member.businessId === principal.businessId)?.role;
-    if (role === undefined) return notFound();
+    if (role === undefined) return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
     if (role === 'viewer') return fail('FORBIDDEN', 'viewer 不能发起交接');
     if (detail.channel.archivedAt !== null) return fail('CONFLICT', '频道已关闭，不能发起交接');
     const binding = detail.agentBindings.find((item) => item.agentId === input.body.targetAgentId);
     if (binding === undefined || binding.status !== 'active') {
-      return notFound('目标智能体不在频道内或已断开');
+      return fail('NOT_FOUND', '目标智能体不在频道内或已断开');
     }
     const targetAgent = await repo.agents.getAgent(context.db, input.body.targetAgentId);
-    if (!targetAgent?.enabled) return notFound('目标智能体不存在或已停用');
+    if (!targetAgent?.enabled) return fail('NOT_FOUND', '目标智能体不存在或已停用');
     const targetActiveRun = await repo.channelWakes.findActiveChannelRunForAgent(context.db, {
       channelId: id,
       agentId: targetAgent.id,
@@ -56,7 +58,7 @@ export const channelsHandoffRouter = {
     }
 
     const source = await repo.runs.getRunDetail(context.db, input.body.sourceRunId);
-    if (!source) return notFound(SOURCE_RUN_MISSING);
+    if (!source) return fail('NOT_FOUND', SOURCE_RUN_MISSING);
     if (source.run.channelId !== null) {
       const access = await repo.channelControl.getChannelRunForMember(
         context.db,
@@ -64,7 +66,7 @@ export const channelsHandoffRouter = {
         source.run.channelId,
         source.run.id,
       );
-      if (!access) return notFound(SOURCE_RUN_MISSING);
+      if (!access) return fail('NOT_FOUND', SOURCE_RUN_MISSING);
     } else {
       await loadReadableConversation(context, source.run.conversationId);
     }
@@ -75,7 +77,7 @@ export const channelsHandoffRouter = {
       return fail('INVALID_INPUT', '不能交接给来源智能体自身');
     }
     const sourceAgent = await repo.agents.getAgent(context.db, source.run.agentId);
-    if (!sourceAgent) return notFound('来源智能体不存在，可能已被删除');
+    if (!sourceAgent) return fail('NOT_FOUND', '来源智能体不存在，可能已被删除');
 
     const triggerMessage =
       source.run.channelId !== null && source.run.channelTriggerMessageId !== null
@@ -210,7 +212,7 @@ export const channelsHandoffRouter = {
     }
     switch (result.kind) {
       case 'not_found':
-        return notFound();
+        return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
       case 'forbidden':
         return fail('FORBIDDEN', 'viewer 不能发起交接');
       case 'invalid_mentions':

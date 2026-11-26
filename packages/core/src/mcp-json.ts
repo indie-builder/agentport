@@ -2,6 +2,7 @@ import type { ServerInput } from '@agentport/shared';
 import { mcpJsonEntrySchema, serverInputSchema, slugSchema } from '@agentport/shared';
 import type { z } from 'zod';
 import { invalidInput } from './errors.js';
+import { stripBom } from './frontmatter-scan.js';
 import { isRecord } from './record.js';
 
 const MCP_JSON_MAX_BYTES = 1_048_576;
@@ -78,7 +79,7 @@ export function parseMcpJson(text: string): ServerInput[] {
   if (Buffer.byteLength(text, 'utf8') > MCP_JSON_MAX_BYTES) {
     invalidInput('文件超过 1 MiB 上限', 'mcpJson');
   }
-  const body = text.startsWith('﻿') ? text.slice(1) : text;
+  const body = stripBom(text);
 
   let root: unknown;
   try {

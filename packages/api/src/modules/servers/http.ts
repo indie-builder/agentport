@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { Hono, MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
+import { bearerToken, tokenMatches } from '../../http/bearer.js';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import type { AppContext, HttpEnv } from '../../http/context.js';
 import {
@@ -22,7 +23,6 @@ import {
   getRunApprovalTool,
 } from './approval-policy.js';
 import { requestToolApproval } from './approvals.js';
-import { bearerToken, tokenMatches } from './bearer.js';
 import { serverMcpResponse, validRunToken } from './mcp-endpoint.js';
 
 const APPROVAL_STALE_MESSAGE = '工具审批已失效，调用未执行';

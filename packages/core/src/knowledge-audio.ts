@@ -116,7 +116,6 @@ export async function inspectKnowledgeAudio(input: {
   }
 
   const recognized = await fileTypeFromBuffer(data);
-  // 普通文本也可能以 FORM 开头，不能被 file-type 的宽松 IFF 识别误判成音频。
   const detected = recognized?.ext === 'aif' && !hasAiffTypeField(data) ? null : recognized;
   if (!detected) {
     if (declaredAudio) fail('UNSUPPORTED_MEDIA_TYPE', '内容不是可识别的音频格式');

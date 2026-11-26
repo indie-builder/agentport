@@ -11,8 +11,8 @@ import { repo } from '@agentport/db';
 import type { OutputFile, OutputShare, PublicOutputShare } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, authorizeObject } from '../../http/access.js';
+import { bearerToken, tokenMatches } from '../../http/bearer.js';
 import type { RequestContext } from '../../http/context.js';
-import { agentSlug } from '../../lib/agent-slug.js';
 import {
   OUTPUT_MISSING_MESSAGE,
   previewText,
@@ -20,7 +20,6 @@ import {
   SHARE_MISSING_MESSAGE,
 } from '../../lib/outputs.js';
 import { CONVERSATION_MISSING } from '../chat/access.js';
-import { bearerToken, tokenMatches } from '../servers/bearer.js';
 
 const os = implement(outputSharesContract).$context<RequestContext>();
 
@@ -80,7 +79,7 @@ export async function resolveSharedFile(
   const conversation = await repo.chat.getConversation(context.db, row.conversationId);
   if (!conversation) return null;
   if (await repo.chat.isConversationDataDomainRestricted(context.db, conversation.id)) return null;
-  const slug = await agentSlug(context.db, conversation.agentId);
+  const slug = await repo.agents.findAgentSlug(context.db, conversation.agentId);
   if (slug === null) return null;
 
   try {
@@ -121,7 +120,7 @@ export const outputSharesRouter = os.router({
     if (await repo.chat.isConversationDataDomainRestricted(context.db, conversation.id)) {
       fail('FORBIDDEN', '该会话读取过数据域治理数据，其成果不支持公开分享');
     }
-    const slug = await agentSlug(context.db, conversation.agentId);
+    const slug = await repo.agents.findAgentSlug(context.db, conversation.agentId);
     if (slug === null) fail('NOT_FOUND', OUTPUT_MISSING_MESSAGE);
 
     let file: OutputFile;
