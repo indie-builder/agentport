@@ -187,7 +187,7 @@ async function mountRuns(): Promise<void> {
   });
 }
 
-async function mountEval(): Promise<void> {
+async function mountEval(url = '/eval?agent=agent-a'): Promise<void> {
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const evalRoute = createRoute({
@@ -198,7 +198,7 @@ async function mountEval(): Promise<void> {
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([shell.addChildren([evalRoute])]),
-    history: createMemoryHistory({ initialEntries: ['/eval?agent=agent-a'] }),
+    history: createMemoryHistory({ initialEntries: [url] }),
   });
   await act(async () => {
     await router.load();
@@ -347,7 +347,7 @@ describe('eval agent access states', () => {
     vi.spyOn(api, 'evalCases').mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [], nextCursor: null });
 
-    await mountEval();
+    await mountEval('/eval?agent=agent-a&tab=cases');
     await actWaitFor(() => expect(host.textContent).toContain('用例为空'));
 
     expect(button('新建用例')).toBeNull();
@@ -395,7 +395,7 @@ describe('eval agent access states', () => {
     await mountEval();
     await actWaitFor(() => expect(host.textContent).toContain('至少需要两次已结束的运行'));
 
-    const compare = button('比较运行');
+    const compare = button('对比最近两次');
     expect(compare?.disabled).toBe(true);
     expect(compare?.title).toBe('至少需要两次已结束的运行');
   });

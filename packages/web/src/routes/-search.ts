@@ -240,14 +240,17 @@ export const runDetailSearchSchema = z.object({
 
 export const evalSearchSchema = z.object({
   agent: z.string().optional().catch(undefined),
+  tab: z.enum(['runs', 'cases', 'compare']).optional().catch(undefined),
   run: z.string().min(1).optional().catch(undefined),
-  base: z.string().min(1).optional().catch(undefined),
-  head: z.string().min(1).optional().catch(undefined),
   failedOnly: z.coerce
     .string()
     .pipe(z.enum(['1']))
     .optional()
     .catch(undefined),
+  caseId: z.string().min(1).optional().catch(undefined),
+  base: z.string().min(1).optional().catch(undefined),
+  head: z.string().min(1).optional().catch(undefined),
+  diff: z.enum(['changed', 'regressed', 'all']).optional().catch(undefined),
 });
 
 export const knowledgeSearchSchema = resourceSearchSchema.extend({

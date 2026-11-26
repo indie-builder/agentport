@@ -94,7 +94,7 @@ async function mount() {
   window.history.replaceState(null, '', '/eval/other');
   history = createBrowserHistory();
   blocked = captureBlockedNavigations(history);
-  history.push('/eval?agent=agent-a');
+  history.push('/eval?agent=agent-a&tab=cases');
   await new Promise((resolve) => setTimeout(resolve, 0));
   router = routerFor(history, (shell) => [
     createRoute({

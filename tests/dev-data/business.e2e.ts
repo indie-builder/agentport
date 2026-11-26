@@ -1651,6 +1651,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
       conflict(`评估用例 ${name} 已变化`);
     if (existing.length === 1) return;
     await app.open(`/eval?agent=${encodeURIComponent(main.id)}`);
+    await screen.getByRole('tab', '用例集').tap();
     await screen.getByRole('button', '新建用例', { exact: true }).first().tap();
     await browser.locator('#eval-name').fill(name);
     await browser.locator('#eval-prompt').fill(prompt);

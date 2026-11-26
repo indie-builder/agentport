@@ -1,66 +1,18 @@
 import { evalDatasetSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import {
-  CircleStop,
-  Download,
-  EllipsisVertical,
-  GitCompare,
-  Pencil,
-  Play,
-  Plus,
-  Shuffle,
-  Trash2,
-  Upload,
-} from 'lucide-react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { CircleStop, Play } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { BusinessIllustration } from '../../components/business-illustration.js';
-import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterSelect } from '../../components/filter-select.js';
-import {
-  Page,
-  PageBody,
-  PageHeader,
-  PageNote,
-  PageSection,
-  PageToolbar,
-  PageTopbar,
-} from '../../components/page.js';
+import { Page, PageBody, PageHeader, PageTopbar } from '../../components/page.js';
 import { EvalFromRunDialog } from '../../components/run/eval-from-run-dialog.js';
-import { ErrorState, LoadingState } from '../../components/states.js';
-import { StatusBadge } from '../../components/status-badge.js';
-import { Button, buttonVariants } from '../../components/ui/button.js';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '../../components/ui/collapsible.js';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../../components/ui/dropdown-menu.js';
+import { ErrorState } from '../../components/states.js';
+import { Button } from '../../components/ui/button.js';
+import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { can, hasAnyGrant } from '../../lib/access.js';
-import {
-  ApiError,
-  api,
-  type EvalCase,
-  type EvalRun,
-  type EvalSampleCandidate,
-  type EvalTarget,
-} from '../../lib/api.js';
+import { api, type EvalCase, type EvalSampleCandidate, type EvalTarget } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
-import { onFilePick } from '../../lib/file-pick.js';
-import {
-  evalStatusLabel,
-  evalStatusVariant,
-  formatDateTime,
-  formatRelative,
-  shortId,
-} from '../../lib/format.js';
+import { cn } from '../../lib/cn.js';
 import {
   meQuery,
   useAgentAccess,
@@ -74,167 +26,12 @@ import {
 } from '../../lib/queries.js';
 import { toast, toastError, toastSuccess } from '../../lib/toast.js';
 import { CaseDialog } from './case-dialog.js';
-import { CompareDialog } from './compare-dialog.js';
+import { EvalCasesTab } from './cases-tab.js';
+import { EvalCompareTab } from './compare-tab.js';
 import { DeleteCaseDialog } from './delete-case-dialog.js';
-import { EvalPassRateChart } from './pass-rate-chart.js';
-import { EvalRunResults } from './run-results.js';
+import { EvalRunsTab } from './runs-tab.js';
 import { SampleRunsDialog } from './sample-runs-dialog.js';
-import type { EvalSearchPatch } from './shared.js';
-
-const runColumns: DataColumn<EvalRun>[] = [
-  {
-    id: 'id',
-    header: '评估 ID',
-    locked: true,
-    width: '110px',
-    sortValue: (run) => run.id,
-    cell: (run) => (
-      <code className="font-mono text-xs text-muted-foreground" title={run.id}>
-        {shortId(run.id)}
-      </code>
-    ),
-  },
-  {
-    id: 'status',
-    header: '状态',
-    locked: true,
-    width: '100px',
-    sortValue: (run) => run.status,
-    cell: (run) => (
-      <StatusBadge tone={evalStatusVariant[run.status]}>
-        {run.status === 'running' ? (
-          <span className="size-1.5 rounded-full bg-fg" aria-hidden="true" />
-        ) : null}
-        {evalStatusLabel[run.status]}
-      </StatusBadge>
-    ),
-  },
-  {
-    id: 'passed',
-    header: '通过 / 总数',
-    numeric: true,
-    width: '120px',
-    sortValue: (run) => (run.total === 0 ? 0 : run.passed / run.total),
-    cell: (run) => (
-      <span className="font-mono tabular-nums">
-        {run.passed} / {run.total}
-      </span>
-    ),
-  },
-  {
-    id: 'createdAt',
-    header: '发起',
-    width: '96px',
-    sortValue: (run) => run.createdAt,
-    cell: (run) => (
-      <span className="text-sm text-muted-foreground" title={formatDateTime(run.createdAt)}>
-        {formatRelative(run.createdAt)}
-      </span>
-    ),
-  },
-  {
-    id: 'error',
-    header: '失败原因',
-    width: '220px',
-    hiddenByDefault: true,
-    sortValue: (run) => run.error ?? '',
-    cell: (run) =>
-      run.error ? (
-        <span className="block truncate text-sm text-danger" title={run.error}>
-          {run.error}
-        </span>
-      ) : (
-        <span className="text-muted-foreground">—</span>
-      ),
-  },
-  {
-    id: 'finishedAt',
-    header: '结束',
-    width: '96px',
-    sortValue: (run) => run.finishedAt ?? '',
-    cell: (run) => (
-      <span className="text-sm text-muted-foreground" title={formatDateTime(run.finishedAt)}>
-        {formatRelative(run.finishedAt)}
-      </span>
-    ),
-  },
-];
-
-function EvalCaseRow({
-  testCase,
-  canManage,
-  onEdit,
-  onDelete,
-}: {
-  testCase: EvalCase;
-  canManage: boolean;
-  onEdit: (trigger: HTMLElement) => void;
-  onDelete: (trigger: HTMLElement) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const expectationLabel = testCase.judgeMode === 'llm' ? '评判标准' : '期望包含';
-  const expectation = testCase.expectation
-    ? `${expectationLabel}：${testCase.expectation}`
-    : testCase.judgeMode === 'llm'
-      ? '评判标准为空：仅要求有实质文本输出'
-      : '期望为空：只要求有文本输出';
-  return (
-    <Collapsible
-      render={<li />}
-      open={open}
-      onOpenChange={setOpen}
-      className="group flex min-h-14 flex-col border-b px-2.5 py-3.5 transition-colors duration-150 ease-out-soft last:border-b-0 hover:bg-hover"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 flex-1 text-md font-medium text-fg [overflow-wrap:anywhere]">
-          {testCase.name}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <CollapsibleTrigger className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
-            {open ? '收起' : '查看完整'}
-            <span className="sr-only">用例 {testCase.name}</span>
-          </CollapsibleTrigger>
-          {canManage ? (
-            <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={(event) => onEdit(event.currentTarget)}
-              >
-                <span className="sr-only">编辑 {testCase.name}</span>
-                <Pencil aria-hidden="true" />
-              </Button>
-              <Button
-                variant="destructive"
-                size="icon-sm"
-                onClick={(event) => onDelete(event.currentTarget)}
-              >
-                <span className="sr-only">删除 {testCase.name}</span>
-                <Trash2 aria-hidden="true" />
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      </div>
-      {open ? null : (
-        <>
-          <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-muted-foreground">
-            {testCase.prompt}
-          </p>
-          <p className="mt-1 truncate text-xs text-muted-foreground">{expectation}</p>
-        </>
-      )}
-      <CollapsibleContent>
-        <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground [overflow-wrap:anywhere]">
-          {testCase.prompt}
-        </p>
-        <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground [overflow-wrap:anywhere]">
-          {expectation}
-        </p>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
+import type { EvalSearchPatch, EvalTab } from './shared.js';
 
 export function EvalPage() {
   const agents = useExperts();
@@ -262,9 +59,12 @@ export function EvalPage() {
   const [target, setTarget] = useState<EvalTarget>('published');
   const missingAgent = agents.isSuccess && Boolean(agentId) && !selectedAgent;
   const selectedRunId = search.run ?? null;
+  const selectedCaseId = search.caseId ?? null;
   const baseId = search.base ?? null;
   const headId = search.head ?? null;
-  const compareOpen = baseId !== null && headId !== null && baseId !== headId;
+  const activeTab: EvalTab =
+    search.tab ?? (baseId !== null && headId !== null && baseId !== headId ? 'compare' : 'runs');
+  const diffFilter = search.diff ?? 'changed';
 
   const setSearch = (patch: EvalSearchPatch): void => {
     void navigate({
@@ -272,26 +72,22 @@ export function EvalPage() {
       search: { ...search, ...patch },
     });
   };
+
   const setAgentId = (next: string): void => {
+    if (next === (effectiveAgentId ?? '') && !missingAgent) return;
     setSearch({
       agent: next || undefined,
       run: undefined,
+      caseId: undefined,
       base: undefined,
       head: undefined,
       failedOnly: undefined,
     });
   };
-  const [pendingAgent, setPendingAgent] = useState<string | null>(null);
-  const requestAgentChange = (next: string): void => {
-    if (next === (effectiveAgentId ?? '')) return;
-    if (selectedRunId !== null || baseId !== null || headId !== null) {
-      setPendingAgent(next);
-      return;
-    }
-    setAgentId(next);
-  };
+
   const selectRun = (runId: string): void => setSearch({ run: runId, failedOnly: undefined });
-  const closeRun = (): void => setSearch({ run: undefined, failedOnly: undefined });
+  const clearRunSelection = (): void => setSearch({ run: undefined, failedOnly: undefined });
+  const selectCase = (caseId: string): void => setSearch({ caseId });
 
   const cases = useEvalCases(effectiveAgentId);
   const caseItems = cases.data?.pages.flatMap((page) => page.items) ?? [];
@@ -310,12 +106,45 @@ export function EvalPage() {
   const [editing, setEditing] = useState<EvalCase | null>(null);
   const [deleting, setDeleting] = useState<EvalCase | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
-  const compareButtonRef = useRef<HTMLButtonElement>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const finalFocus = (): HTMLElement | null =>
     dialogTriggerRef.current?.isConnected ? dialogTriggerRef.current : createButtonRef.current;
-  const compareFinalFocus = (): HTMLButtonElement | null =>
-    compareButtonRef.current?.isConnected ? compareButtonRef.current : createButtonRef.current;
+
+  const runningRun = effectiveAgentId
+    ? runItems.find((run) => run.status === 'running')
+    : undefined;
+
+  const terminalRuns = runItems.filter((run) => run.status !== 'running');
+  const compareHead = terminalRuns[0];
+  const compareBase = terminalRuns[1];
+
+  const startDisabledReason = start.isPending
+    ? '正在启动评估'
+    : runningRun
+      ? '已有评估正在运行，请等待结束或先停止'
+      : agents.isPending
+        ? '专家加载中，稍后再试'
+        : agents.isError
+          ? '专家加载失败，请重试'
+          : missingAgent
+            ? '所选专家不存在，请清除筛选或重新选择'
+            : !effectiveAgentId
+              ? '先创建一个专家'
+              : target === 'published' && missingPublished
+                ? '该专家尚未发布，请先发布或选择当前草稿'
+                : accessPending
+                  ? '正在检查评估权限，稍后再试'
+                  : accessFailed
+                    ? '评估权限加载失败，请重试'
+                    : !canExecuteEval
+                      ? '当前账户没有执行该专家评估的权限'
+                      : cases.isPending
+                        ? '用例加载中，稍后再试'
+                        : cases.isError && !cases.isFetchNextPageError
+                          ? '用例加载失败，请重试'
+                          : casesEmpty
+                            ? '先新建至少一个用例'
+                            : null;
 
   const startRun = (): void => {
     if (!effectiveAgentId || startDisabledReason !== null) return;
@@ -328,9 +157,6 @@ export function EvalPage() {
     );
   };
 
-  const runningRun = effectiveAgentId
-    ? runItems.find((run) => run.status === 'running')
-    : undefined;
   const stopRun = (): void => {
     if (!runningRun) return;
     cancel.mutate(runningRun.id, {
@@ -394,83 +220,82 @@ export function EvalPage() {
     }
   };
 
-  const terminalRuns = runItems.filter((run) => run.status !== 'running');
-  const compareHead = terminalRuns[0];
-  const compareBase = terminalRuns[1];
-  const openCompare = (): void => {
+  const openCompareLatest = (): void => {
     if (!compareBase || !compareHead) return;
-    setSearch({ base: compareBase.id, head: compareHead.id });
+    setSearch({ tab: 'compare', base: compareBase.id, head: compareHead.id });
   };
-  const closeCompare = (): void => setSearch({ base: undefined, head: undefined });
-  const startDisabledReason = start.isPending
-    ? '正在启动评估'
-    : runningRun
-      ? '已有评估正在运行，请等待结束或先停止'
-      : agents.isPending
-        ? '专家加载中，稍后再试'
-        : agents.isError
-          ? '专家加载失败，请重试'
-          : missingAgent
-            ? '所选专家不存在，请清除筛选或重新选择'
-            : !effectiveAgentId
-              ? '先创建一个专家'
-              : target === 'published' && missingPublished
-                ? '该专家尚未发布，请先发布或选择当前草稿'
-                : accessPending
-                  ? '正在检查评估权限，稍后再试'
-                  : accessFailed
-                    ? '评估权限加载失败，请重试'
-                    : !canExecuteEval
-                      ? '当前账户没有执行该专家评估的权限'
-                      : cases.isPending
-                        ? '用例加载中，稍后再试'
-                        : cases.isError && !cases.isFetchNextPageError
-                          ? '用例加载失败，请重试'
-                          : casesEmpty
-                            ? '先新建至少一个用例'
-                            : null;
+
+  const backToRuns = (): void => {
+    setSearch({ tab: 'runs', base: undefined, head: undefined, diff: undefined });
+  };
 
   const agentOptions = (agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }));
-  const targetOptions = [
-    { value: 'published', label: '线上版本' },
-    { value: 'draft', label: '当前草稿' },
-  ];
-  const createCaseButton = canManageEval ? (
-    <Button
-      variant="outline"
-      size="sm"
-      ref={createButtonRef}
-      disabled={!effectiveAgentId}
-      onClick={(event) => {
-        dialogTriggerRef.current = event.currentTarget;
-        setCreatingAgentId(effectiveAgentId);
-      }}
-    >
-      <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
-    </Button>
-  ) : null;
-  const sampleButton =
-    canManageEval && canReadRuns ? (
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={!effectiveAgentId}
-        onClick={(event) => {
-          dialogTriggerRef.current = event.currentTarget;
-          setSamplingAgentId(effectiveAgentId);
-        }}
-      >
-        <Shuffle data-icon="inline-start" aria-hidden="true" /> 从运行抽样
-      </Button>
-    ) : null;
+
+  const openCreateCase = (trigger: HTMLElement): void => {
+    dialogTriggerRef.current = trigger;
+    setCreatingAgentId(effectiveAgentId);
+  };
+
+  const openSampleRuns = (trigger: HTMLElement): void => {
+    dialogTriggerRef.current = trigger;
+    setSamplingAgentId(effectiveAgentId);
+  };
 
   return (
     <Page>
       <PageTopbar>
         <PageHeader
           title="评估"
+          eyebrow={
+            <div className="flex flex-wrap items-center gap-2">
+              <FilterSelect
+                value={effectiveAgentId ?? ''}
+                onValueChange={setAgentId}
+                options={agentOptions}
+                label="按专家筛选"
+                className="w-40"
+              />
+              <fieldset
+                aria-label="评估目标"
+                className="inline-flex items-center rounded-pill border-0 bg-sunken p-0.5"
+              >
+                <button
+                  type="button"
+                  aria-pressed={target === 'published'}
+                  onClick={() => setTarget('published')}
+                  className={cn(
+                    'rounded-pill px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    target === 'published'
+                      ? 'bg-surface text-fg shadow-sm'
+                      : 'text-muted-foreground hover:text-fg',
+                  )}
+                >
+                  线上版本
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={target === 'draft'}
+                  onClick={() => setTarget('draft')}
+                  className={cn(
+                    'rounded-pill px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    target === 'draft'
+                      ? 'bg-surface text-fg shadow-sm'
+                      : 'text-muted-foreground hover:text-fg',
+                  )}
+                >
+                  当前草稿
+                  {hasDraft ? <span className="ml-1 text-muted-foreground">· 有改动</span> : null}
+                </button>
+              </fieldset>
+            </div>
+          }
           actions={
             <>
+              {runningRun ? (
+                <span className="text-xs text-muted-foreground">
+                  当前用例可能继续执行；停止后不再开始后续用例。
+                </span>
+              ) : null}
               {runningRun && canExecuteEval ? (
                 <Button
                   variant="outline"
@@ -481,6 +306,11 @@ export function EvalPage() {
                   <CircleStop data-icon="inline-start" aria-hidden="true" />
                   {cancel.isPending ? '停止中…' : '停止后续用例'}
                 </Button>
+              ) : null}
+              {startDisabledReason ? (
+                <span id="eval-start-reason" className="text-xs text-muted-foreground">
+                  {startDisabledReason}
+                </span>
               ) : null}
               {canExecuteEval ? (
                 <Button
@@ -497,43 +327,34 @@ export function EvalPage() {
           }
         />
 
-        <PageToolbar>
-          <FilterSelect
-            value={effectiveAgentId ?? ''}
-            onValueChange={requestAgentChange}
-            options={agentOptions}
-            label="按专家筛选"
-            className="w-full sm:w-36"
-          />
-          <FilterSelect
-            value={target}
-            onValueChange={(next) => {
-              if (next === 'published' || next === 'draft') setTarget(next);
-            }}
-            options={targetOptions}
-            label="评估目标"
-            className="w-full sm:w-32"
-          />
-          {hasDraft || target === 'draft' ? (
-            <span className="text-sm text-muted-foreground">
-              {hasDraft && target === 'draft'
-                ? '当前草稿含未发布改动，本次评估使用草稿'
-                : hasDraft
-                  ? '当前草稿含未发布改动'
-                  : '本次评估使用当前草稿'}
-            </span>
-          ) : null}
-          {startDisabledReason ? (
-            <span id="eval-start-reason" className="text-sm text-muted-foreground">
-              {startDisabledReason}
-            </span>
-          ) : null}
-          {runningRun ? (
-            <span className="text-sm text-muted-foreground">
-              当前用例可能继续执行；停止后不再开始后续用例。
-            </span>
-          ) : null}
-        </PageToolbar>
+        <div className="border-b">
+          <Tabs<EvalTab> value={activeTab} onValueChange={(next) => setSearch({ tab: next })}>
+            <TabsList variant="line">
+              <TabsTrigger value="runs">
+                {runningRun ? (
+                  <span className="size-1.5 rounded-full bg-fg" aria-hidden="true" />
+                ) : null}
+                评估运行
+                {effectiveAgentId && runs.isSuccess ? (
+                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                    {runItems.length}
+                    {runs.hasNextPage ? '+' : ''}
+                  </span>
+                ) : null}
+              </TabsTrigger>
+              <TabsTrigger value="cases">
+                用例集
+                {effectiveAgentId && cases.isSuccess ? (
+                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                    {caseItems.length}
+                    {cases.hasNextPage ? '+' : ''}
+                  </span>
+                ) : null}
+              </TabsTrigger>
+              <TabsTrigger value="compare">运行对比</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </PageTopbar>
 
       <PageBody>
@@ -547,269 +368,111 @@ export function EvalPage() {
           />
         ) : null}
 
-        <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-          <PageSection
-            title="用例维护"
-            divided={false}
-            actions={
-              <>
-                <input
-                  ref={importInputRef}
-                  type="file"
-                  accept=".json,application/json"
-                  className="hidden"
-                  onChange={onFilePick((files) => {
-                    const file = files[0];
-                    if (!file || !effectiveAgentId || !selectedAgent) return;
-                    const targetId = effectiveAgentId;
-                    const targetName = selectedAgent.name;
-                    void importJson(targetId, targetName, file);
-                  })}
-                />
-                {casesEmpty ? null : createCaseButton}
-                {effectiveAgentId ? sampleButton : null}
-                {canManageEval || canReadEval ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="用例更多操作"
-                          disabled={!effectiveAgentId || importDataset.isPending || exporting}
-                          aria-busy={importDataset.isPending || exporting}
-                        >
-                          <EllipsisVertical aria-hidden="true" />
-                        </Button>
-                      }
-                    />
-                    <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-                      <DropdownMenuGroup>
-                        {canManageEval ? (
-                          <DropdownMenuItem
-                            disabled={!effectiveAgentId || importDataset.isPending}
-                            onSelect={() => importInputRef.current?.click()}
-                          >
-                            <Upload aria-hidden="true" />
-                            {importDataset.isPending ? '导入中…' : '导入 JSON'}
-                          </DropdownMenuItem>
-                        ) : null}
-                        {canReadEval ? (
-                          <DropdownMenuItem
-                            disabled={!effectiveAgentId || exporting || caseItems.length === 0}
-                            title={casesEmpty ? '至少新建一条用例后可导出' : undefined}
-                            onSelect={() => void exportJson()}
-                          >
-                            <Download aria-hidden="true" />
-                            {exporting ? '导出中…' : '导出 JSON'}
-                          </DropdownMenuItem>
-                        ) : null}
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : null}
-              </>
-            }
-          >
-            {agents.isPending ? <LoadingState rows={3} /> : null}
-            {agents.isError ? (
-              <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-            ) : null}
-            {missingAgent ? (
-              <PageNote
-                title="所选专家不存在"
-                description="链接中的专家可能已删除，请清除筛选或重新选择专家。"
-                action={
-                  <Button variant="outline" size="sm" onClick={() => setAgentId('')}>
-                    清除专家筛选
-                  </Button>
-                }
-              />
-            ) : null}
-            {agents.isSuccess && !missingAgent && !effectiveAgentId ? (
-              <PageNote
-                icon={<BusinessIllustration name="agents" size="compact" />}
-                title="专家列表为空"
-                action={
-                  <Link to="/agents" className="text-sm text-fg underline underline-offset-4">
-                    前往创建专家
-                  </Link>
-                }
-              />
-            ) : null}
-            {cases.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
-            {effectiveAgentId && cases.isError && !cases.isFetchNextPageError ? (
-              <ErrorState error={cases.error} onRetry={() => void cases.refetch()} />
-            ) : null}
-            {effectiveAgentId && casesEmpty ? (
-              <PageNote
-                icon={<BusinessIllustration name="review" size="compact" />}
-                title="用例为空"
-                description={canManageEval ? undefined : '当前账户没有维护该专家用例的权限。'}
-                action={createCaseButton}
-              />
-            ) : null}
-            {effectiveAgentId && caseItems.length > 0 ? (
-              <>
-                <ul>
-                  {caseItems.map((testCase) => (
-                    <EvalCaseRow
-                      key={testCase.id}
-                      testCase={testCase}
-                      canManage={canManageEval}
-                      onEdit={(trigger) => {
-                        dialogTriggerRef.current = trigger;
-                        setEditing(testCase);
-                      }}
-                      onDelete={(trigger) => {
-                        dialogTriggerRef.current = trigger;
-                        setDeleting(testCase);
-                      }}
-                    />
-                  ))}
-                </ul>
-                {cases.isFetchNextPageError ? (
-                  <ErrorState
-                    error={cases.error}
-                    onRetry={() =>
-                      void (cases.error instanceof ApiError &&
-                      cases.error.code === 'INVALID_INPUT' &&
-                      cases.error.path === '/cursor'
-                        ? cases.refetch()
-                        : cases.fetchNextPage())
-                    }
-                    title="下一页加载失败，保留已加载的用例"
-                  />
-                ) : cases.hasNextPage ? (
-                  <div className="flex justify-center">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={cases.isFetchingNextPage}
-                      aria-busy={cases.isFetchingNextPage}
-                      onClick={() => void cases.fetchNextPage()}
-                    >
-                      {cases.isFetchingNextPage ? '加载中…' : '加载更多'}
-                    </Button>
-                  </div>
-                ) : null}
-              </>
-            ) : null}
-          </PageSection>
+        {activeTab === 'runs' ? (
+          <EvalRunsTab
+            agentsPending={agents.isPending}
+            agentsError={agents.isError}
+            agentsErrorValue={agents.error}
+            onRetryAgents={() => void agents.refetch()}
+            missingAgent={missingAgent}
+            onClearAgent={() => setAgentId('')}
+            effectiveAgentId={effectiveAgentId}
+            runsPending={runs.isPending}
+            runsError={runs.isError}
+            runsErrorValue={runs.error}
+            runsIsFetchNextPageError={runs.isFetchNextPageError}
+            runsSuccess={runs.isSuccess}
+            runsHasNextPage={runs.hasNextPage}
+            runsFetchingNextPage={runs.isFetchingNextPage}
+            onRetryRuns={() => void runs.refetch()}
+            onFetchNextRuns={() => void runs.fetchNextPage()}
+            runItems={runItems}
+            caseItems={caseItems}
+            casesSuccess={cases.isSuccess}
+            casesEmpty={casesEmpty}
+            casesHasNextPage={cases.hasNextPage}
+            canManageEval={canManageEval}
+            canExecuteEval={canExecuteEval}
+            canReadRuns={canReadRuns}
+            selectedRunId={selectedRunId}
+            onSelectRun={selectRun}
+            onClearRunSelection={clearRunSelection}
+            onCompareLatest={openCompareLatest}
+            onOpenCreateCase={openCreateCase}
+            onOpenSampleRuns={openSampleRuns}
+          />
+        ) : null}
 
-          <PageSection
-            title="运行历史"
-            className="xl:border-t-0 xl:pt-0 [&>div:first-child]:items-center"
-            actions={
-              <div className="flex flex-wrap items-center gap-2">
-                {terminalRuns.length < 2 ? (
-                  <span className="text-xs text-muted-foreground">至少需要两次已结束的运行</span>
-                ) : null}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  ref={compareButtonRef}
-                  disabled={terminalRuns.length < 2}
-                  title={terminalRuns.length < 2 ? '至少需要两次已结束的运行' : undefined}
-                  onClick={openCompare}
-                >
-                  <GitCompare data-icon="inline-start" aria-hidden="true" /> 比较运行
-                </Button>
-              </div>
-            }
-          >
-            {agents.isPending ? <LoadingState rows={3} /> : null}
-            {!effectiveAgentId && !agents.isPending ? (
-              <p className="text-sm text-muted-foreground">
-                {agents.isError
-                  ? '专家加载失败，请重试后查看运行历史。'
-                  : '选择有效的专家后查看运行历史。'}
-              </p>
-            ) : null}
-            {effectiveAgentId && runs.isError && !runs.isFetchNextPageError ? (
-              <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
-            ) : null}
-            {runs.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
-            {effectiveAgentId && runs.isSuccess && runItems.length === 0 ? (
-              <PageNote
-                icon={<BusinessIllustration name="runs" size="compact" />}
-                title="评估尚未运行"
-                description={
-                  cases.isSuccess && casesEmpty
-                    ? '先添加用例后再运行评估。'
-                    : cases.isSuccess && !casesEmpty && canExecuteEval
-                      ? '点击右上角「运行评估」开始。'
-                      : !canExecuteEval
-                        ? '当前账户没有执行该专家评估的权限。'
-                        : undefined
-                }
-              />
-            ) : null}
-            {effectiveAgentId && runItems.length > 0 ? (
-              <>
-                <EvalPassRateChart runs={runItems} />
-                <DataTable
-                  rows={runItems}
-                  columns={runColumns}
-                  rowKey={(run) => run.id}
-                  rowLabel={(run) => `${formatDateTime(run.createdAt)} · ${shortId(run.id)}`}
-                  label="评估运行"
-                  storageKey="agentport.eval-runs.columns"
-                  onRowClick={(run) => selectRun(run.id)}
-                />
-                {runs.isFetchNextPageError ? (
-                  <ErrorState
-                    error={runs.error}
-                    onRetry={() => void runs.fetchNextPage()}
-                    title="下一页加载失败，保留已加载的运行记录"
-                  />
-                ) : runs.hasNextPage ? (
-                  <div className="flex justify-center">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={runs.isFetchingNextPage}
-                      aria-busy={runs.isFetchingNextPage}
-                      onClick={() => void runs.fetchNextPage()}
-                    >
-                      {runs.isFetchingNextPage ? '加载中…' : '加载更多'}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="text-center text-xs text-muted-foreground">已到末尾</div>
-                )}
-              </>
-            ) : null}
-          </PageSection>
-        </div>
+        {activeTab === 'cases' ? (
+          <EvalCasesTab
+            agentsPending={agents.isPending}
+            agentsError={agents.isError}
+            agentsErrorValue={agents.error}
+            onRetryAgents={() => void agents.refetch()}
+            missingAgent={missingAgent}
+            onClearAgent={() => setAgentId('')}
+            effectiveAgentId={effectiveAgentId}
+            casesPending={cases.isPending}
+            casesError={cases.isError}
+            casesErrorValue={cases.error}
+            casesIsFetchNextPageError={cases.isFetchNextPageError}
+            casesEmpty={casesEmpty}
+            casesHasNextPage={cases.hasNextPage}
+            casesFetchingNextPage={cases.isFetchingNextPage}
+            onRetryCases={() => void cases.refetch()}
+            onFetchNextCases={() => void cases.fetchNextPage()}
+            caseItems={caseItems}
+            selectedCaseId={selectedCaseId}
+            onSelectCase={selectCase}
+            canManageEval={canManageEval}
+            canReadEval={canReadEval}
+            canReadRuns={canReadRuns}
+            createButtonRef={createButtonRef}
+            importInputRef={importInputRef}
+            importPending={importDataset.isPending}
+            exporting={exporting}
+            onImportFile={(file) => {
+              if (!effectiveAgentId || !selectedAgent) return;
+              void importJson(effectiveAgentId, selectedAgent.name, file);
+            }}
+            onExportJson={() => void exportJson()}
+            onOpenCreateCase={openCreateCase}
+            onOpenSampleRuns={openSampleRuns}
+            onEditCase={(testCase, trigger) => {
+              dialogTriggerRef.current = trigger;
+              setEditing(testCase);
+            }}
+            onDeleteCase={(testCase, trigger) => {
+              dialogTriggerRef.current = trigger;
+              setDeleting(testCase);
+            }}
+          />
+        ) : null}
 
-        {selectedRunId ? (
-          <PageSection
-            title="运行结果"
-            description={`评估 ${shortId(selectedRunId)}`}
-            actions={
-              <Button variant="outline" size="sm" onClick={closeRun}>
-                返回历史
-              </Button>
-            }
-          >
-            <EvalRunResults id={selectedRunId} />
-          </PageSection>
+        {activeTab === 'compare' ? (
+          <EvalCompareTab
+            agentsPending={agents.isPending}
+            agentsError={agents.isError}
+            agentsErrorValue={agents.error}
+            onRetryAgents={() => void agents.refetch()}
+            missingAgent={missingAgent}
+            onClearAgent={() => setAgentId('')}
+            effectiveAgentId={effectiveAgentId}
+            runsPending={runs.isPending}
+            runsError={runs.isError}
+            runsErrorValue={runs.error}
+            runsIsFetchNextPageError={runs.isFetchNextPageError}
+            onRetryRuns={() => void runs.refetch()}
+            baseId={baseId}
+            headId={headId}
+            diff={diffFilter}
+            runs={terminalRuns}
+            onChangeSearch={setSearch}
+            onBackToRuns={backToRuns}
+          />
         ) : null}
       </PageBody>
 
-      {pendingAgent !== null ? (
-        <ConfirmDialog
-          open
-          title="切换专家？"
-          description="切换专家会清空当前选中的运行与比较。"
-          confirmLabel="切换专家"
-          tone="default"
-          finalFocus={() => document.querySelector<HTMLElement>('[aria-label="按专家筛选"]')}
-          onClose={() => setPendingAgent(null)}
-          onConfirm={async () => setAgentId(pendingAgent)}
-        />
-      ) : null}
       {creatingAgentId ? (
         <CaseDialog
           agentId={creatingAgentId}
@@ -845,16 +508,6 @@ export function EvalPage() {
           testCase={deleting}
           finalFocus={finalFocus}
           onClose={() => setDeleting(null)}
-        />
-      ) : null}
-      {compareOpen ? (
-        <CompareDialog
-          baseId={baseId ?? ''}
-          headId={headId ?? ''}
-          runs={terminalRuns}
-          onChange={setSearch}
-          finalFocus={compareFinalFocus}
-          onClose={closeCompare}
         />
       ) : null}
     </Page>
