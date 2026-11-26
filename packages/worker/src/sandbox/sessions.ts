@@ -1,3 +1,4 @@
+import { RunFailure } from '@agentport/core';
 import {
   type ChatEvent,
   CONFIG_CONTAINER_DIR,
@@ -110,7 +111,7 @@ function deferred<T>(): Deferred<T> {
 
 interface ReadyWaiter {
   resolve(): void;
-  reject(error: Error): void;
+  reject(error: unknown): void;
 }
 
 interface LeaseState {
@@ -507,7 +508,8 @@ export class SessionSandboxes {
       try {
         await this.destroyEntry(entry);
       } catch (cleanupErr) {
-        throw cleanupFailure(sandbox.id, `ready failure (${errorText(err)})`, cleanupErr);
+        const reason = err instanceof RunFailure ? err.message : errorText(err);
+        throw cleanupFailure(sandbox.id, `ready failure (${reason})`, cleanupErr);
       }
       throw err;
     }
@@ -858,6 +860,7 @@ export class SessionSandboxes {
       this.handleExit(
         entry,
         `session supervisor exited with code ${String(code)}${child.signalCode === null ? '' : ` (${child.signalCode})`}`,
+        code,
       );
     });
   }
@@ -1005,12 +1008,21 @@ export class SessionSandboxes {
     execution.done.resolve(settlement);
   }
 
-  private handleExit(entry: SessionEntry, message: string): void {
+  private handleExit(entry: SessionEntry, message: string, exitCode: number | null = null): void {
     if (entry.destroying !== null) return;
     entry.alive = false;
     const waiter = entry.readyWaiter;
     entry.readyWaiter = null;
-    waiter?.reject(new Error(message));
+    if (waiter !== null) {
+      waiter.reject(
+        exitCode === 127
+          ? new RunFailure(
+              'sandbox',
+              `运行环境「${entry.runtimeEnvironment?.environmentName ?? '未知'}」的线上镜像已过期（缺少 bun 或与当前沙盒协议不兼容），平台正在自动重建或请在「运维 → 运行环境」中重建上线`,
+            )
+          : new Error(message),
+      );
+    }
     if (entry.active !== null) this.settle(entry, entry.active, unconfirmed(message));
     this.logger.warn({ conversationId: entry.conversationId, phase: sessionPhase(entry) }, message);
     if (!entry.leaseHeld) {

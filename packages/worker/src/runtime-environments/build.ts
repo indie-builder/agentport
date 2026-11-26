@@ -43,19 +43,26 @@ function detail(stderr: string): string {
   return line === '' ? '' : `: ${line}`;
 }
 
-function imageTagFor(sandboxImage: string, versionId: string): string {
-  const slash = sandboxImage.lastIndexOf('/');
-  const colon = sandboxImage.lastIndexOf(':');
-  const repository = colon > slash ? sandboxImage.slice(0, colon) : sandboxImage;
-  return `${repository}:runtime-env-${versionId}`;
+function repositoryFor(imageRef: string, fallbackRef?: string): string {
+  const ref = IMAGE_ID.test(imageRef)
+    ? fallbackRef !== undefined && fallbackRef !== '' && !IMAGE_ID.test(fallbackRef)
+      ? fallbackRef
+      : 'agentport/sandbox'
+    : imageRef;
+  const at = ref.indexOf('@');
+  const name = at === -1 ? ref : ref.slice(0, at);
+  const slash = name.lastIndexOf('/');
+  const colon = name.lastIndexOf(':');
+  return colon > slash ? name.slice(0, colon) : name;
+}
+
+function imageTagFor(baseImageRef: string, versionId: string, sandboxImage?: string): string {
+  return `${repositoryFor(baseImageRef, sandboxImage)}:runtime-env-${versionId}`;
 }
 
 /** BuildKit 不接受裸镜像 ID 作为 FROM；用 ID 派生不可变 tag 再传给构建。 */
-function immutableBaseTagFor(sandboxImage: string, imageId: string): string {
-  const slash = sandboxImage.lastIndexOf('/');
-  const colon = sandboxImage.lastIndexOf(':');
-  const repository = colon > slash ? sandboxImage.slice(0, colon) : sandboxImage;
-  return `${repository}:runtime-base-${imageId.slice('sha256:'.length, 'sha256:'.length + 12)}`;
+function immutableBaseTagFor(baseImageRef: string, imageId: string, sandboxImage?: string): string {
+  return `${repositoryFor(baseImageRef, sandboxImage)}:runtime-base-${imageId.slice('sha256:'.length, 'sha256:'.length + 12)}`;
 }
 
 interface RuntimeEnvironmentBuildSuccess {
@@ -83,6 +90,7 @@ interface RuntimeEnvironmentBuildInput {
   versionId: string;
   dockerfile: string;
   baseImageId: string;
+  sandboxImage?: string | undefined;
   onOutput?: ((chunk: string) => void) | undefined;
   spawn?: SpawnFn | undefined;
   signal?: AbortSignal | undefined;
@@ -147,7 +155,7 @@ export async function executeRuntimeEnvironmentBuild(
         false,
       );
     }
-    const baseTag = immutableBaseTagFor(input.baseImageId, baseImageId);
+    const baseTag = immutableBaseTagFor(input.baseImageId, baseImageId, input.sandboxImage);
     const tagged = await runDocker(spawnFn, ['tag', baseImageId, baseTag], signal, emit);
     if (tagged.aborted) return failure(log, BUILD_ABORTED_MESSAGE, true);
     if (tagged.code !== 0) {
@@ -157,7 +165,7 @@ export async function executeRuntimeEnvironmentBuild(
     tempDir = await mkdtemp(join(tmpdir(), 'runtime-env-build-'));
     const iidFile = join(tempDir, 'image.iid');
     await Bun.write(join(tempDir, 'Dockerfile'), input.dockerfile);
-    const imageTag = imageTagFor(input.baseImageId, input.versionId);
+    const imageTag = imageTagFor(input.baseImageId, input.versionId, input.sandboxImage);
 
     const built = await runDocker(
       spawnFn,
@@ -233,6 +241,7 @@ export async function executeRuntimeEnvironmentBuild(
 }
 
 export interface RuntimeEnvironmentBuildClaim {
+  environmentId: string;
   versionId: string;
   dockerfile: string;
   baseImageId: string;
@@ -246,11 +255,17 @@ export interface RuntimeEnvironmentBuildStore {
     image: { imageTag: string; imageId: string; baseImageId: string },
   ): Promise<void>;
   failBuild(versionId: string, error: string): Promise<void>;
+  publishIfOnlineMatches?: (
+    environmentId: string,
+    versionId: string,
+    expectedOnlineVersionId: string,
+  ) => Promise<boolean>;
 }
 
 interface RuntimeEnvironmentBuildDeps {
   store: RuntimeEnvironmentBuildStore;
   logger: Logger;
+  sandboxImage?: string | undefined;
   signal?: AbortSignal | undefined;
   spawn?: SpawnFn | undefined;
   timeoutMs?: number | undefined;
@@ -333,6 +348,7 @@ export function createRuntimeEnvironmentBuildHandler(
         versionId,
         dockerfile: claim.dockerfile,
         baseImageId: claim.baseImageId,
+        ...(deps.sandboxImage === undefined ? {} : { sandboxImage: deps.sandboxImage }),
         onOutput: logStream.append,
         ...(deps.spawn === undefined ? {} : { spawn: deps.spawn }),
         signal,
@@ -350,6 +366,33 @@ export function createRuntimeEnvironmentBuildHandler(
           imageId: result.imageId,
           baseImageId: result.baseImageId,
         });
+        if (
+          job.data.autoPublishIfOnlineVersionId !== undefined &&
+          deps.store.publishIfOnlineMatches !== undefined
+        ) {
+          try {
+            const published = await deps.store.publishIfOnlineMatches(
+              claim.environmentId,
+              versionId,
+              job.data.autoPublishIfOnlineVersionId,
+            );
+            if (published) {
+              deps.logger.info(
+                {
+                  environmentId: claim.environmentId,
+                  versionId,
+                  previousOnlineVersionId: job.data.autoPublishIfOnlineVersionId,
+                },
+                'runtime environment auto-published after base image rebuild',
+              );
+            }
+          } catch (err) {
+            deps.logger.warn(
+              { err, environmentId: claim.environmentId, versionId },
+              'runtime environment auto-publish failed',
+            );
+          }
+        }
         return;
       }
       await deps.store.failBuild(
@@ -371,6 +414,7 @@ interface RuntimeEnvironmentBuildWorkerConfig {
   store: RuntimeEnvironmentBuildStore;
   logger: Logger;
   redisUrl: string;
+  sandboxImage?: string | undefined;
   spawn?: SpawnFn | undefined;
   timeoutMs?: number | undefined;
   prefix?: string | undefined;
@@ -389,6 +433,7 @@ export async function startRuntimeEnvironmentBuildWorker(
       createRuntimeEnvironmentBuildHandler({
         store: config.store,
         logger: config.logger,
+        ...(config.sandboxImage === undefined ? {} : { sandboxImage: config.sandboxImage }),
         signal,
         ...(config.spawn === undefined ? {} : { spawn: config.spawn }),
         ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),

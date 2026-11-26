@@ -84,7 +84,10 @@ export function runtimeBuildEnqueueOptions(versionId: string) {
   };
 }
 
-export const runtimeEnvironmentBuildJobSchema = z.object({ versionId: z.string().min(1) });
+export const runtimeEnvironmentBuildJobSchema = z.object({
+  versionId: z.string().min(1),
+  autoPublishIfOnlineVersionId: z.string().min(1).optional(),
+});
 export type RuntimeEnvironmentBuildJob = z.infer<typeof runtimeEnvironmentBuildJobSchema>;
 
 export const runtimeEnvironmentOnlineVersionInputSchema = z.object({

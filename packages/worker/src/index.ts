@@ -8,9 +8,11 @@ import {
   agentRunJobSchema,
   EVAL_RUNS_QUEUE,
   RUNS_QUEUE,
+  RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
+  type RuntimeEnvironmentBuildJob,
   SESSION_CLEANUP_TIMEOUT_MS,
 } from '@agentport/shared';
-import { createBunRedisClient, Worker } from 'bullmq';
+import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { inArray } from 'drizzle-orm';
 import { loadConfig } from './config.js';
@@ -52,6 +54,7 @@ import {
 } from './runtime-environments/default.js';
 import { startRuntimeEnvironmentBuildReconciler } from './runtime-environments/reconcile.js';
 import { createRuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
+import { syncStaleRuntimeEnvironments } from './runtime-environments/sync-base.js';
 import { DockerSandboxProvider, resolveLocalImageId } from './sandbox/docker.js';
 import { closeSessionRuntime, startSessionCleanupChannel } from './sandbox/session-cleanup.js';
 import { SessionSandboxes } from './sandbox/sessions.js';
@@ -350,6 +353,7 @@ const runtimeEnvironmentBuildStore = {
     return version === null
       ? null
       : {
+          environmentId: version.environmentId,
           versionId: version.id,
           dockerfile: version.dockerfile,
           baseImageId: version.baseImageId,
@@ -366,11 +370,23 @@ const runtimeEnvironmentBuildStore = {
   failBuild: async (versionId: string, error: string) => {
     await repo.runtimeEnvironments.failRuntimeEnvironmentBuild(db, versionId, error);
   },
+  publishIfOnlineMatches: (
+    environmentId: string,
+    versionId: string,
+    expectedOnlineVersionId: string,
+  ) =>
+    repo.runtimeEnvironments.publishRuntimeEnvironmentVersionIfOnlineMatches(
+      db,
+      environmentId,
+      versionId,
+      expectedOnlineVersionId,
+    ),
 };
 const runtimeEnvironmentBuilds = await startRuntimeEnvironmentBuildWorker({
   store: runtimeEnvironmentBuildStore,
   logger,
   redisUrl: config.REDIS_URL,
+  sandboxImage: config.SANDBOX_IMAGE,
 });
 const dataDomainBuilds = await startDataDomainBuildWorker({
   db,
@@ -396,6 +412,39 @@ const stopRuntimeEnvironmentBuildReconciler = startRuntimeEnvironmentBuildReconc
   logger,
   redisUrl: config.REDIS_URL,
 });
+
+const runtimeEnvironmentBaseSyncDone = (async () => {
+  if (sandboxClosing.signal.aborted) return;
+  const connection = createBunRedisClient(new RedisClient(config.REDIS_URL));
+  const queue = new Queue<RuntimeEnvironmentBuildJob>(RUNTIME_ENVIRONMENT_BUILDS_QUEUE, {
+    connection,
+  });
+  queue.on('error', () => logger.warn('runtime environment base sync queue connection failed'));
+  try {
+    await syncStaleRuntimeEnvironments({
+      sandboxImage: config.SANDBOX_IMAGE,
+      resolveImageId: resolveLocalImageId,
+      listStale: (currentBaseImageId, sandboxImage) =>
+        repo.runtimeEnvironments.listStaleOnlineRuntimeEnvironments(
+          db,
+          currentBaseImageId,
+          sandboxImage,
+        ),
+      enqueueBuild: (environmentId, baseImageId) =>
+        repo.runtimeEnvironments.enqueueRuntimeEnvironmentBuild(db, environmentId, baseImageId),
+      failBuild: (versionId, error) =>
+        repo.runtimeEnvironments.failRuntimeEnvironmentBuild(db, versionId, error),
+      queue,
+      logger,
+      signal: sandboxClosing.signal,
+    });
+  } catch (err) {
+    logger.warn({ err }, 'runtime environment base sync failed');
+  } finally {
+    await queue.close().catch(() => undefined);
+    await connection.quit().catch(() => undefined);
+  }
+})();
 
 const stopReconciler = startReconciler({
   db,
@@ -484,6 +533,10 @@ const shutdown = async (): Promise<void> => {
       {
         label: 'runtime environment build reconciler',
         close: () => stopRuntimeEnvironmentBuildReconciler(),
+      },
+      {
+        label: 'runtime environment base sync',
+        close: () => runtimeEnvironmentBaseSyncDone,
       },
       { label: 'schedule scheduler', close: () => scheduleScheduler.close() },
       {
