@@ -21,7 +21,7 @@ export function HistoryHeader({
   onSwitchAgent?: (id: string | null) => void;
 }) {
   return (
-    <div className="flex h-14 shrink-0 items-center gap-1 px-3">
+    <div className="flex h-14 shrink-0 items-center gap-1 px-3 [&>:last-child[data-variant=ghost][data-size=icon]]:-mr-2">
       {agentOptions && onSwitchAgent ? (
         <div className="min-w-0 flex-1">
           <AgentPicker

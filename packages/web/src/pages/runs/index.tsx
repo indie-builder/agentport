@@ -240,6 +240,8 @@ function RunCard({ run }: { run: RunListItem }) {
         </span>
         <Link
           {...detailLink}
+          data-variant="ghost"
+          data-size="sm"
           aria-label={`查看 ${agentName} 运行 ${shortId(run.id)} 详情`}
           className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'shrink-0')}
         >

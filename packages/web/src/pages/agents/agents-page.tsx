@@ -602,7 +602,7 @@ export function AgentsPage() {
                           </div>
                         ) : null}
                       </div>
-                      <CardAction className="-mr-2 flex items-center gap-1">
+                      <CardAction className="flex items-center gap-1 self-start">
                         <Button
                           variant="ghost"
                           size="icon-sm"

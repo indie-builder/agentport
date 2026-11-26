@@ -1061,7 +1061,7 @@ function ScheduleDialog({
                   id="schedule-name"
                   disabled={pending}
                   placeholder="任务名称"
-                  className="border-transparent text-base font-medium md:text-base"
+                  className="-mx-2.5 w-[calc(100%+1.25rem)]! border-transparent text-base font-medium md:text-base"
                   aria-required="true"
                   aria-invalid={Boolean(errors.name)}
                   aria-describedby={errors.name ? 'schedule-name-error' : undefined}
@@ -1084,7 +1084,7 @@ function ScheduleDialog({
                     id="schedule-prompt"
                     disabled={pending}
                     rows={8}
-                    className="min-h-40 border-transparent"
+                    className="-mx-2.5 min-h-40 w-[calc(100%+1.25rem)]! border-transparent"
                     placeholder="希望专家定期完成什么？"
                     aria-required="true"
                     aria-invalid={Boolean(errors.prompt)}

@@ -78,7 +78,7 @@ export function PageHeader({
       ) : null}
       <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-3">
         {actions ? (
-          <div className="flex min-w-0 flex-wrap items-center gap-2 [&>:last-child[data-variant=ghost][data-size=icon]]:-mr-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 [&>:last-child[data-variant=ghost][data-size=icon]]:-mr-2 [&>:last-child[data-variant=ghost][data-size=icon-sm]]:-mr-1.5">
             {actions}
           </div>
         ) : null}
@@ -121,7 +121,7 @@ export function PageSection({
       className={cn('flex min-w-0 flex-col gap-4', divided && 'border-t pt-5', className)}
     >
       {title || actions || description ? (
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
             {title ? (
               <h2 className={cn('text-base font-medium text-fg', titleClassName)}>{title}</h2>
@@ -130,7 +130,11 @@ export function PageSection({
               <p className="min-w-0 break-words text-sm text-muted-foreground">{description}</p>
             ) : null}
           </div>
-          {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+          {actions ? (
+            <div className="flex shrink-0 items-center gap-2 [&>:last-child[data-variant=ghost][data-size=icon]]:-mr-2 [&>:last-child[data-variant=ghost][data-size=icon-sm]]:-mr-1.5 [&>:last-child[data-variant=ghost][data-size=icon-xs]]:-mr-1.5 [&>:last-child[data-variant=ghost][data-size=sm]]:-mr-2.5 [&>:last-child[data-variant=ghost][data-size=default]]:-mr-2.5">
+              {actions}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {children}

@@ -761,7 +761,7 @@ export function OverviewPage() {
               title="运行"
               divided={false}
               actions={
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <>
                   <SegmentedToggle
                     label="切换区段"
                     value={tab}
@@ -777,12 +777,17 @@ export function OverviewPage() {
                     }
                   />
                   {tab === 'recent' && canReadRuns ? (
-                    <Link to="/runs" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+                    <Link
+                      to="/runs"
+                      data-variant="ghost"
+                      data-size="sm"
+                      className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+                    >
                       查看运行
                     </Link>
                   ) : null}
                   {tab === 'agents' ? (
-                    <div className="flex items-center gap-2">
+                    <>
                       {data.agents.length > 0 ? (
                         <Button variant="outline" size="sm" onClick={exportUsageCsv}>
                           <Download data-icon="inline-start" aria-hidden="true" /> 导出 CSV
@@ -791,14 +796,16 @@ export function OverviewPage() {
                       {canReadAgents ? (
                         <Link
                           to="/agents"
+                          data-variant="ghost"
+                          data-size="sm"
                           className={buttonVariants({ variant: 'ghost', size: 'sm' })}
                         >
                           管理专家
                         </Link>
                       ) : null}
-                    </div>
+                    </>
                   ) : null}
-                </div>
+                </>
               }
             >
               {tab === 'recent' ? (

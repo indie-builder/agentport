@@ -350,6 +350,15 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 - `DialogShell`：内容左右轴 `20px`，关闭 `×` 回拉 `-8px`（`-mr-2`）。
 - `CommandPalette`：盒 `8px`、图标/分组标题/底栏 `16px`、图标中心 `24px`、标签 `42px`。
 
+2026-11-26 全站基座与工作区对齐基准线：
+
+- `Card`（`size="sm"` / 默认）：单行无描述的 `CardHeader` 标题与 `CardAction` 严格同水平中心线；`CardAction` 与 `CardFooter` 末尾透明 `ghost` 按钮按尺寸在容器层自动回拉（`icon` `-mr-2`、`icon-sm`/`icon-xs` `-mr-1.5`、`default`/`sm` `-mr-2.5`），`CardFooter` 同样覆盖末尾 `link` 变体（`default`/`sm` `-mr-2.5`）；导航链接使用 `buttonVariants({ variant: 'ghost' | 'link' })` 时显式带对应 `data-variant` 与 `data-size` 以共用同一容器规则。
+- `PageSection`：头部外层容器与操作区垂直居中（`items-center`），操作区末尾透明 `ghost` 按钮按同一尺寸规则在容器层自动回拉。
+- 对话历史头（`HistoryHeader`）：容器 `px-3`（12px），末尾透明 `ghost icon` 按钮容器层回拉 `-mr-2` 对齐搜索框右缘。
+- `AgentPicker` 下拉列表：图标列统一 `24px`（`size-6` 居中槽），「通用助手」`16px` 图标居中于该列，与专家头像共享图标中心线与标签起线。
+- 频道左栏（`ChannelSidebar`）：头部水平内边距 `18px`（`px-4.5`），左缘对齐 `#` 图标列，右缘对齐未读计数。
+- 定时任务弹层（`ScheduleDialog`）：左栏无边框透明 `Input` / `Textarea` 外扩 `-mx-2.5 w-[calc(100%+1.25rem)]!`，使正文与占位文字严格对齐 `DialogShell` `20px` 内容左轴。
+
 ### Channels（频道）
 
 - **List:** 默认卡片视图，`view=cards|table` 写入 URL，缺省 `cards`；列表非空时 PageHeader 右侧依次为共享 `ViewToggle`（卡片 / 表格）与「新建频道」主操作，description 显示「N 个频道」。

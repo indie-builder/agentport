@@ -183,49 +183,55 @@ function EvalCaseRow({
       render={<li />}
       open={open}
       onOpenChange={setOpen}
-      className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 ease-out-soft last:border-b-0 hover:bg-hover"
+      className="group flex min-h-14 flex-col border-b px-2.5 py-3.5 transition-colors duration-150 ease-out-soft last:border-b-0 hover:bg-hover"
     >
-      <div className="min-w-0 flex-1">
-        <div className="text-md font-medium text-fg [overflow-wrap:anywhere]">{testCase.name}</div>
-        {open ? null : (
-          <>
-            <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-muted-foreground">
-              {testCase.prompt}
-            </p>
-            <p className="mt-1 truncate text-xs text-muted-foreground">{expectation}</p>
-          </>
-        )}
-        <CollapsibleContent>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground [overflow-wrap:anywhere]">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1 text-md font-medium text-fg [overflow-wrap:anywhere]">
+          {testCase.name}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <CollapsibleTrigger className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+            {open ? '收起' : '查看完整'}
+            <span className="sr-only">用例 {testCase.name}</span>
+          </CollapsibleTrigger>
+          {canManage ? (
+            <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={(event) => onEdit(event.currentTarget)}
+              >
+                <span className="sr-only">编辑 {testCase.name}</span>
+                <Pencil aria-hidden="true" />
+              </Button>
+              <Button
+                variant="destructive"
+                size="icon-sm"
+                onClick={(event) => onDelete(event.currentTarget)}
+              >
+                <span className="sr-only">删除 {testCase.name}</span>
+                <Trash2 aria-hidden="true" />
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {open ? null : (
+        <>
+          <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-muted-foreground">
             {testCase.prompt}
           </p>
-          <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground [overflow-wrap:anywhere]">
-            {expectation}
-          </p>
-        </CollapsibleContent>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <CollapsibleTrigger className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
-          {open ? '收起' : '查看完整'}
-          <span className="sr-only">用例 {testCase.name}</span>
-        </CollapsibleTrigger>
-        {canManage ? (
-          <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
-            <Button variant="ghost" size="icon-sm" onClick={(event) => onEdit(event.currentTarget)}>
-              <span className="sr-only">编辑 {testCase.name}</span>
-              <Pencil aria-hidden="true" />
-            </Button>
-            <Button
-              variant="destructive"
-              size="icon-sm"
-              onClick={(event) => onDelete(event.currentTarget)}
-            >
-              <span className="sr-only">删除 {testCase.name}</span>
-              <Trash2 aria-hidden="true" />
-            </Button>
-          </div>
-        ) : null}
-      </div>
+          <p className="mt-1 truncate text-xs text-muted-foreground">{expectation}</p>
+        </>
+      )}
+      <CollapsibleContent>
+        <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground [overflow-wrap:anywhere]">
+          {testCase.prompt}
+        </p>
+        <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground [overflow-wrap:anywhere]">
+          {expectation}
+        </p>
+      </CollapsibleContent>
     </Collapsible>
   );
 }
@@ -545,9 +551,8 @@ export function EvalPage() {
           <PageSection
             title="用例维护"
             divided={false}
-            className="[&>div:first-child]:items-center"
             actions={
-              <div className="flex flex-wrap items-center gap-2">
+              <>
                 <input
                   ref={importInputRef}
                   type="file"
@@ -603,7 +608,7 @@ export function EvalPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 ) : null}
-              </div>
+              </>
             }
           >
             {agents.isPending ? <LoadingState rows={3} /> : null}

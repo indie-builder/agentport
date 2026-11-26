@@ -238,11 +238,11 @@ function KnowledgeRow({
                 </h2>
               </span>
             </CardTitle>
-            <CardAction className="flex items-center gap-1">
+            <CardAction className="relative z-10 flex items-center gap-1">
               <StatusBadge tone={base.status === 'active' ? 'success' : 'outline'}>
                 {base.status === 'active' ? '启用' : '停用'}
               </StatusBadge>
-              <div className="relative z-10">{menu}</div>
+              {menu}
             </CardAction>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">

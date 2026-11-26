@@ -159,7 +159,12 @@ export function AgentPicker({
                 {option.agent ? (
                   <AgentAvatar agent={option.agent} className="size-6" />
                 ) : (
-                  <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
+                  <span
+                    className="flex size-6 shrink-0 items-center justify-center"
+                    aria-hidden="true"
+                  >
+                    <Bot className="size-4 text-muted-foreground" />
+                  </span>
                 )}
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="min-w-0 break-words text-sm text-fg">{label}</span>

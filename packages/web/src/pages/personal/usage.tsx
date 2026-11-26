@@ -206,6 +206,8 @@ export function PersonalUsagePage() {
         <Link
           to="/personal/reviews"
           search={{ run: run.id }}
+          data-variant="link"
+          data-size="sm"
           aria-label={`审核提案 ${run.agentName ?? shortId(run.id)}`}
           className={actionLinkClass}
         >
@@ -218,6 +220,8 @@ export function PersonalUsagePage() {
         <Link
           to="/chat"
           search={{ agent: run.agentId, conversation: run.conversationId }}
+          data-variant="link"
+          data-size="sm"
           aria-label={`回到对话 ${run.agentName ?? shortId(run.id)}`}
           className={actionLinkClass}
         >
@@ -230,6 +234,8 @@ export function PersonalUsagePage() {
         to="/runs/$runId"
         params={{ runId: run.id }}
         search={{ backTo: location.href }}
+        data-variant="link"
+        data-size="sm"
         aria-label={`查看运行 ${run.agentName ?? shortId(run.id)}`}
         className={actionLinkClass}
       >
