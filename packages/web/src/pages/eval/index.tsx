@@ -7,7 +7,6 @@ import { FilterSelect } from '../../components/filter-select.js';
 import { Page, PageBody, PageHeader, PageTopbar } from '../../components/page.js';
 import { EvalFromRunDialog } from '../../components/run/eval-from-run-dialog.js';
 import {
-  type EmptyChecklistStep,
   type EmptyFilterChip,
   EmptyState,
   ErrorState,
@@ -402,30 +401,15 @@ export function EvalPage() {
           />
         ) : !effectiveAgentId ? (
           <EmptyState
-            variant="checklist"
+            variant="stage"
             scale="page"
-            title="评估需要关联一位专家"
-            description="完成以下步骤后，即可持续回归验证专家表现。"
-            steps={
-              [
-                {
-                  id: 'agent',
-                  title: '创建专家',
-                  description: '配置提示词、模型与所需能力。',
-                  status: 'current',
-                  action: (
-                    <Link to="/agents" className={buttonVariants({ size: 'sm' })}>
-                      前往创建专家
-                    </Link>
-                  ),
-                },
-                {
-                  id: 'cases',
-                  title: '添加评估用例并运行',
-                  description: '用固定输入与预期标准生成基线报告。',
-                  status: 'upcoming',
-                },
-              ] satisfies EmptyChecklistStep[]
+            specimen="eval"
+            title="还没有可评估的专家"
+            description="先创建一位专家，再为其添加评估用例并运行回归测试。"
+            action={
+              <Link to="/agents" className={buttonVariants()}>
+                前往创建专家
+              </Link>
             }
           />
         ) : (

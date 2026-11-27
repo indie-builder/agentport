@@ -21,12 +21,7 @@ import {
   PageTopbar,
 } from '../components/page.js';
 import { RunStatusBadge } from '../components/run/run-status-badge.js';
-import {
-  type EmptyChecklistStep,
-  EmptyState,
-  ErrorState,
-  LoadingState,
-} from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
@@ -725,64 +720,32 @@ export function OverviewPage() {
 
         {empty ? (
           <EmptyState
-            variant="checklist"
+            variant="stage"
             scale="page"
-            title="开启工作区运行"
-            description="完成以下基础步骤后，此处将呈现运行趋势与指标。"
-            steps={
-              [
-                {
-                  id: 'servers',
-                  title: '接入连接器（可选）',
-                  description: '挂载 MCP 服务或 HTTP API，让专家在对话中调用外部工具。',
-                  status: data.counts.servers > 0 ? 'done' : 'current',
-                  action: canReadServers ? (
-                    <Link
-                      to="/servers"
-                      className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                    >
-                      前往连接器
-                    </Link>
-                  ) : undefined,
-                },
-                {
-                  id: 'agents',
-                  title: '创建第一位专家',
-                  description: '定义系统指令、技能与工具，组成可复用的工作区专家。',
-                  status:
-                    data.counts.agents > 0
-                      ? 'done'
-                      : data.counts.servers > 0
-                        ? 'current'
-                        : 'upcoming',
-                  action: canReadAgents ? (
-                    <Link
-                      to="/agents"
-                      className={buttonVariants({
-                        variant:
-                          data.counts.servers > 0 && data.counts.agents === 0
-                            ? 'default'
-                            : 'outline',
-                        size: 'sm',
-                      })}
-                    >
-                      前往创建
-                    </Link>
-                  ) : undefined,
-                },
-                {
-                  id: 'chat',
-                  title: '发起首次对话',
-                  description: '与专家完成一次交互后，此处将自动呈现运行趋势与活跃指标。',
-                  status:
-                    data.counts.runs > 0 ? 'done' : data.counts.agents > 0 ? 'current' : 'upcoming',
-                  action: (
-                    <Link to="/chat" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                      去对话
-                    </Link>
-                  ),
-                },
-              ] satisfies EmptyChecklistStep[]
+            specimen="runs"
+            title="还没有运行数据"
+            description="创建专家并发起对话后，这里会展示 7 日运行趋势与汇总指标。"
+            action={
+              canReadAgents ? (
+                <Link to="/agents" className={buttonVariants()}>
+                  前往找专家
+                </Link>
+              ) : canReadServers ? (
+                <Link to="/servers" className={buttonVariants()}>
+                  接入连接器
+                </Link>
+              ) : (
+                <Link to="/chat" className={buttonVariants()}>
+                  开始对话
+                </Link>
+              )
+            }
+            secondaryAction={
+              canReadAgents || canReadServers ? (
+                <Link to="/chat" className={buttonVariants({ variant: 'outline' })}>
+                  开始对话
+                </Link>
+              ) : undefined
             }
           />
         ) : null}

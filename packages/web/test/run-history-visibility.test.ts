@@ -148,15 +148,16 @@ describe('overview retained run history', () => {
       counts: { ...noConfiguration.counts, ...counts },
     } satisfies Overview);
     await mount();
-    expect(host.textContent).not.toContain('开启工作区运行');
+    expect(host.textContent).not.toContain('还没有运行数据');
     expect(host.querySelector('a[href="/runs"]')?.textContent).toBe('查看运行');
   });
 
-  it('shows onboarding when no resources or executions exist', async () => {
+  it('shows empty state when no resources or executions exist', async () => {
     client.setQueryData(['overview'], noConfiguration);
     await mount();
-    expect(host.textContent).toContain('开启工作区运行');
-    expect(host.querySelector('a[href="/servers"]')).not.toBeNull();
+    expect(host.textContent).toContain('还没有运行数据');
+    expect(host.querySelector('a[href="/agents"]')).not.toBeNull();
+    expect(host.querySelector('a[href="/chat"]')).not.toBeNull();
   });
 
   it('renders the real failure instead of inferring statistics from list endpoints', async () => {
@@ -166,7 +167,7 @@ describe('overview retained run history', () => {
       .setState({ status: 'error', error: new Error('Overview unavailable') });
     await mount();
     expect(host.textContent).toContain('Overview unavailable');
-    expect(host.textContent).not.toContain('开启工作区运行');
+    expect(host.textContent).not.toContain('还没有运行数据');
     expect(host.querySelector('table[aria-label="最近运行"]')).toBeNull();
   });
 
@@ -174,7 +175,7 @@ describe('overview retained run history', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => {}));
     client.removeQueries({ queryKey: ['overview'] });
     await mount();
-    expect(host.textContent).not.toContain('开启工作区运行');
+    expect(host.textContent).not.toContain('还没有运行数据');
     expect(host.querySelector('[aria-label="加载中"]')).not.toBeNull();
   });
 

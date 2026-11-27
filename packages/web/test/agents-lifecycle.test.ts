@@ -976,7 +976,7 @@ describe('expert discovery', () => {
     expect(host.querySelector('[aria-label="专家列表"]')?.textContent).toContain('Expert');
   });
 
-  it('keeps list card creation on fixed roles while the role filter yields no result', async () => {
+  it('hides list create cards while the role filter yields no result and keeps header creation available', async () => {
     const router = await mount();
     await act(async () =>
       router.navigate({ to: '/agents', search: { role: '数字分身', q: 'missing' } }),
@@ -993,17 +993,14 @@ describe('expert discovery', () => {
         .map((item) => item.textContent?.trim()),
     ).toEqual(['清除全部筛选']);
 
-    const list = host.querySelector('[aria-label="专家列表"]');
-    if (!list) throw new Error('Missing agent list');
-    await click(button('新建专家', list));
-    let setup = dialog('新建专家');
-    expect(setup.querySelector('#new-agent-role')?.textContent).toContain('通用助手');
+    expect(host.querySelector('[aria-label="专家列表"]')).toBeNull();
+    expect(host.querySelector('button[aria-label="创建数字分身"]')).toBeNull();
+
+    await click(button('新建专家'));
+    const setup = dialog('创建数字分身');
+    expect(setup.querySelector<HTMLInputElement>('#new-agent-name')?.value).toBe('我的分身');
     await click(button('取消', setup));
     await flush();
-
-    await click(button('创建数字分身', list));
-    setup = dialog('创建数字分身');
-    expect(setup.querySelector<HTMLInputElement>('#new-agent-name')?.value).toBe('我的分身');
   });
 
   it('opens the digital twin creation from the list card without a role filter', async () => {

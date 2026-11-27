@@ -264,6 +264,13 @@ export function AgentsPage() {
       : []),
   ];
 
+  const hasFilters = activeFilters.length > 0;
+  const hasSearchOrAttrFilter = Boolean(
+    query.trim() || tag || favoriteOnly || role || (lifecycle === 'active' && status !== 'enabled'),
+  );
+  const showCreateCards =
+    canCreate && lifecycle === 'active' && !(hasFilters && filtered.length === 0);
+
   return (
     <Page>
       <PageTopbar>
@@ -470,9 +477,7 @@ export function AgentsPage() {
         {agents.data &&
         !agents.hasNextPage &&
         agents.data.length === 0 &&
-        !query.trim() &&
-        !tag &&
-        !favoriteOnly ? (
+        !hasSearchOrAttrFilter ? (
           me.isPending ? (
             <LoadingState rows={4} layout="cards" />
           ) : me.isError ? (
@@ -522,7 +527,7 @@ export function AgentsPage() {
         {agents.data &&
         !agents.hasNextPage &&
         filtered.length === 0 &&
-        (agents.data.length > 0 || query.trim() || tag || favoriteOnly) ? (
+        (agents.data.length > 0 || hasSearchOrAttrFilter) ? (
           <EmptyState
             variant="filter"
             scale="section"
@@ -554,12 +559,12 @@ export function AgentsPage() {
           />
         ) : null}
 
-        {agents.data && ((canCreate && lifecycle === 'active') || filtered.length > 0) ? (
+        {agents.data && (showCreateCards || filtered.length > 0) ? (
           <ul
             aria-label="专家列表"
             className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
           >
-            {canCreate && lifecycle === 'active' ? (
+            {showCreateCards ? (
               <>
                 <li className="min-w-0">
                   <button
