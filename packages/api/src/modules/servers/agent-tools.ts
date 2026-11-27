@@ -70,11 +70,6 @@ export function buildAgentServer(specs: AgentToolSpec[], invoker: AgentInvoker):
   return server;
 }
 
-export function platformMcpToken(env: NodeJS.ProcessEnv): string | null {
-  const token = env.PLATFORM_MCP_TOKEN;
-  return token && token.length >= 16 ? token : null;
-}
-
 export function agentHandler(
   invoker: AgentInvoker,
   specs: AgentToolSpec[],

@@ -3,7 +3,7 @@ import { assertServerEndpoint } from '@agentport/core/net-guard';
 import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
-import type { createApprovalEvaluator } from './approval-policy.js';
+import type { createApprovalEvaluator } from '../runs/approval-policy.js';
 import { runMcpExecution } from './concurrency.js';
 
 type ApprovalEvaluation = Pick<

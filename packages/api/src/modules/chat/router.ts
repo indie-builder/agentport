@@ -11,46 +11,26 @@ import {
   sessionSandboxDir,
 } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
-import type { PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
-import type { Hono } from 'hono';
-import { streamSSE } from 'hono/streaming';
-import { z } from 'zod';
-import {
-  accessFilter,
-  actorOf,
-  authorize,
-  authorizeObject,
-  requireUser,
-} from '../../http/access.js';
-import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
-import { parseRequest, requestContext } from '../../http/context.js';
-import { access } from '../../http/middleware.js';
+import { accessFilter, authorize, authorizeObject, requireUser } from '../../http/access.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { cursorOption, invalidCursor, requireCursorPage } from '../../http/pagination.js';
-import { beginSse } from '../../http/sse.js';
 import { authorizeRun } from '../runs/access.js';
 import { cancelAgentRun } from '../runs/cancel-run.js';
-import { terminalRunEvent, writeChatEvent } from '../runs/events.js';
-import { relayRunEvents } from '../runs/stream.js';
-import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
+import { terminalRunEvent } from '../runs/events.js';
 import { loadReadableConversation, loadWritableConversation } from './access.js';
 import { chatStateRouter } from './openui-state.js';
 import { chatToolsRouter } from './openui-tools.js';
 import { chatOutputsRouter } from './outputs.js';
-import { deleteCreatedConversation, regenerateLastRun, startRun } from './use-cases.js';
+import {
+  deleteConversationWithSandboxes,
+  deleteCreatedConversation,
+  regenerateLastRun,
+  startRun,
+} from './use-cases.js';
 
 const chatRepo = repo.chat;
-
-function hasPlatformScope(context: RequestContext, permissionId: PermissionId): boolean {
-  const principal = context.principal;
-  return (
-    principal?.kind === 'user' &&
-    principal.grants.some(
-      (grant) => grant.permissionId === permissionId && grant.scope === 'platform',
-    )
-  );
-}
 
 const os = implement(chatContract).$context<RequestContext>();
 const chatMainRouter = {
@@ -370,68 +350,6 @@ const chatMainRouter = {
     };
   }),
 };
-export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDependencies): void {
-  app.get(
-    '/api/chat/:runId/events',
-    access({ kind: 'permission', permissionId: 'runs.read' }),
-    async (c) => {
-      const context = requestContext(c);
-      const input = parseRequest(c, z.object({ params: z.object({ runId: z.string().min(1) }) }));
-      const { runId } = input.params;
-      const run = await authorizeRun(context, runId, 'runs.read');
-      beginSse(c, deps.timeout);
-      return streamSSE(c, async (stream) => {
-        await relayRunEvents({
-          stream,
-          signal: c.req.raw.signal,
-          runId,
-          initialRun: run,
-          log: context.log,
-          domain: {
-            load: async () => {
-              const current = await chatRepo.getRun(context.db, runId);
-              if (current === null) return { kind: 'unavailable', reason: 'missing' };
-              if (!hasPlatformScope(context, 'runs.read')) {
-                try {
-                  await authorize(context, 'runs.read', {
-                    objectId: current.id,
-                    createdBy: current.initiatedBy,
-                    privateContent: true,
-                  });
-                } catch {
-                  return { kind: 'unavailable', reason: 'forbidden' };
-                }
-              }
-              return { kind: 'run', run: current };
-            },
-            writeUnavailable: async (reason) => {
-              const message =
-                reason === 'missing'
-                  ? '运行记录已不存在，已停止接收。'
-                  : '当前账户已无权读取该运行，已停止接收。';
-              try {
-                await writeChatEvent(stream, { type: 'run_unavailable', message });
-              } catch (err) {
-                context.log.warn(
-                  reason === 'missing' ? { runId } : { err, runId },
-                  reason === 'missing'
-                    ? 'sse run unavailable write failed'
-                    : 'sse access recheck write failed',
-                );
-              }
-            },
-            labels: {
-              recheckFailed: 'sse terminal recheck failed',
-              writeFailed: 'sse write failed',
-              subscribeFailed: 'sse subscribe failed',
-            },
-          },
-        });
-      });
-    },
-  );
-}
-
 export const chatRouter = {
   ...chatMainRouter,
   ...chatStateRouter,

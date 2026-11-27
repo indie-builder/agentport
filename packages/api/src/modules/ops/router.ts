@@ -1,18 +1,41 @@
 import { opsContract } from '@agentport/contract/ops';
 import { fail, notFound } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
-import { describeScheduleCron, RETENTION_DEFAULTS, utcWindowStart } from '@agentport/shared';
+import {
+  describeScheduleCron,
+  RETENTION_DEFAULTS,
+  type ScheduleTriggerJob,
+  scheduleTriggerArgs,
+  utcWindowStart,
+} from '@agentport/shared';
 import { implement } from '@orpc/server';
+import type { Queue } from 'bullmq';
 import { eq } from 'drizzle-orm';
-import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
-import type { RequestContext } from '../../http/context.js';
+import { accessFilter, authorizeObject, requireUser } from '../../http/access.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
 import { toIso } from '../../lib/iso.js';
 import { getScheduleQueue } from '../../queue/schedule.js';
 import { enqueueRunOrRollback } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
-import { schedulerNextRun, upsertScheduler } from './schedule-sync.js';
+
+async function upsertScheduler(
+  queueLike: Pick<Queue<ScheduleTriggerJob>, 'upsertJobScheduler'>,
+  schedule: { id: string; cron: string; timezone: string },
+): Promise<void> {
+  await queueLike.upsertJobScheduler(
+    ...scheduleTriggerArgs(schedule.id, schedule.cron, schedule.timezone),
+  );
+}
+
+async function schedulerNextRun(
+  queueLike: Pick<Queue<ScheduleTriggerJob>, 'getJobScheduler'>,
+  scheduleId: string,
+): Promise<string | null> {
+  const entry = await queueLike.getJobScheduler(scheduleId);
+  return entry?.next === undefined ? null : new Date(entry.next).toISOString();
+}
 
 const os = implement(opsContract).$context<RequestContext>();
 const opsRepo = repo.ops;
@@ -166,7 +189,7 @@ export const opsRouter = os.router({
           limit: input.query.limit,
         }),
       );
-      const queue = getScheduleQueue(context.config.REDIS_URL);
+      const queue = getScheduleQueue(context.config.REDIS_URL, context.config.NODE_ENV);
       return {
         items: await Promise.all(
           page.items.map(async (row) => toSchedule(row, await schedulerNextRun(queue, row.id))),
@@ -210,7 +233,7 @@ export const opsRouter = os.router({
       });
       let nextDueAt: string | null = null;
       if (row.enabled) {
-        const queue = getScheduleQueue(context.config.REDIS_URL);
+        const queue = getScheduleQueue(context.config.REDIS_URL, context.config.NODE_ENV);
         try {
           await upsertScheduler(queue, row);
           nextDueAt = await schedulerNextRun(queue, row.id);
@@ -249,7 +272,7 @@ export const opsRouter = os.router({
         status: 'ok',
         requestId: context.requestId,
       });
-      const queue = getScheduleQueue(context.config.REDIS_URL);
+      const queue = getScheduleQueue(context.config.REDIS_URL, context.config.NODE_ENV);
       let nextDueAt: string | null = null;
       try {
         if (!row.enabled) {
@@ -383,7 +406,10 @@ export const opsRouter = os.router({
         requestId: context.requestId,
       });
       try {
-        await getScheduleQueue(context.config.REDIS_URL).removeJobScheduler(input.params.id);
+        await getScheduleQueue(
+          context.config.REDIS_URL,
+          context.config.NODE_ENV,
+        ).removeJobScheduler(input.params.id);
       } catch (err) {
         await reportScheduleSyncFailure(context, input.params.id, err);
       }

@@ -20,7 +20,7 @@ type SourcePatch = {
   ranges?: RangeInput[] | undefined;
 };
 
-export type KnowledgeSourceRow = typeof schema.knowledgeSources.$inferSelect;
+type KnowledgeSourceRow = typeof schema.knowledgeSources.$inferSelect;
 
 type RangeRow = typeof schema.knowledgeSourceRanges.$inferSelect;
 

@@ -1,14 +1,30 @@
-import { AppError, CONFIG_STALE_MESSAGE, fail } from '@agentport/core';
+import {
+  AppError,
+  CONFIG_STALE_MESSAGE,
+  decryptSecrets,
+  encryptSecrets,
+  fail,
+} from '@agentport/core';
 import { type CursorPage, type Database, newId, repo, schema } from '@agentport/db';
-import type {
-  ApiTool,
-  ApiToolInput,
-  ResourceAccessFilter,
-  Server,
-  ServerInput,
+import {
+  type ApiTool,
+  type ApiToolInput,
+  maskUrlCredentials,
+  type ResourceAccessFilter,
+  SECRET_MASK,
+  type Server,
+  type ServerInput,
 } from '@agentport/shared';
 import { inArray } from 'drizzle-orm';
-import { decryptSecrets, encryptSecrets, maskServer, SECRET_MASK } from './secrets.js';
+
+export function maskServer(s: Server): Server {
+  if (s.kind === 'knowledge' || s.kind === 'data_domain') return s;
+  const keys = Object.keys(s.kind === 'stdio' ? s.env : s.headers);
+  const masked = Object.fromEntries(keys.map((k) => [k, SECRET_MASK]));
+  if (s.kind === 'stdio') return { ...s, env: masked };
+  if (s.kind === 'http') return { ...s, url: maskUrlCredentials(s.url), headers: masked };
+  return { ...s, baseUrl: maskUrlCredentials(s.baseUrl), headers: masked };
+}
 
 type Db = Database;
 

@@ -1,9 +1,14 @@
 import type { WorkspaceFiles } from '@agentport/core';
-import { renderPlugin, renderWorkspace, toOutputStyleSelection, unionById } from '@agentport/core';
+import {
+  decryptSecrets,
+  renderPlugin,
+  renderWorkspace,
+  toOutputStyleSelection,
+  unionById,
+} from '@agentport/core';
 import { resolveWorkspaceMemoryPolicy, toWorkspaceInput } from '@agentport/core/workspace-input';
 import { repo, type schema } from '@agentport/db';
 import {
-  DEFAULT_SANDBOX_API_URL,
   generatedMcpEntry,
   knowledgeMcpEntry,
   type PreviewMcpJsonArtifactEntry,
@@ -11,13 +16,9 @@ import {
   SECRET_MASK,
 } from '@agentport/shared';
 import type { AppContext } from '../../http/context.js';
-import { decryptSecrets } from '../servers/secrets.js';
 
 type ServerRow = typeof schema.servers.$inferSelect;
 const RUNTIME_AUTH_NOTE = 'Authorization 由运行时注入，不在此显示。';
-function sandboxApiUrl(): string {
-  return process.env.SANDBOX_API_URL ?? DEFAULT_SANDBOX_API_URL;
-}
 function maskValues(keys: string[], omitAuthorization = false): Record<string, string> {
   return Object.fromEntries(
     keys
@@ -25,12 +26,16 @@ function maskValues(keys: string[], omitAuthorization = false): Record<string, s
       .map((key) => [key, SECRET_MASK]),
   );
 }
-function toEntry(row: ServerRow, secretKeys: string[]): PreviewMcpJsonArtifactEntry {
+function toEntry(
+  row: ServerRow,
+  secretKeys: string[],
+  sandboxApiUrl: string,
+): PreviewMcpJsonArtifactEntry {
   const config = row.config;
   if (row.kind === 'knowledge' || row.kind === 'data_domain') {
     return {
       ...knowledgeMcpEntry({
-        apiUrl: sandboxApiUrl(),
+        apiUrl: sandboxApiUrl,
         serverId: row.id,
         runId: '<run-id>',
         runToken: '<run-token>',
@@ -47,7 +52,7 @@ function toEntry(row: ServerRow, secretKeys: string[]): PreviewMcpJsonArtifactEn
   }
   const entry = generatedMcpEntry(
     {
-      apiUrl: sandboxApiUrl(),
+      apiUrl: sandboxApiUrl,
       serverId: row.id,
       runId: '<run-id>',
       runToken: '<run-token>',
@@ -86,7 +91,7 @@ export async function renderAgentWorkspace(
       const secretKeys = row.secretsEncrypted
         ? Object.keys(await decryptSecrets(row.secretsEncrypted, app.config.APP_SECRET_KEY))
         : [];
-      return { name: row.name, entry: toEntry(row, secretKeys) };
+      return { name: row.name, entry: toEntry(row, secretKeys, app.config.SANDBOX_API_URL) };
     }),
   );
   const skillFiles = await repo.skillFiles.getSkillFilesBySkillIds(app.db, [

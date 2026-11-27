@@ -44,9 +44,8 @@ import {
   validateRuntimeEnvironment,
   validateSubAgents,
 } from './use-cases.js';
-import { unsupportedAllowedTool } from './validation.js';
 import { renderAgentWorkspace } from './workspace.js';
-import { toAgentPatch } from './write.js';
+import { toAgentPatch, unsupportedAllowedTool } from './write.js';
 
 type HookFileRow = Awaited<ReturnType<typeof allRepo.hooks.listHookFiles>>[number];
 function toHookFile(row: HookFileRow) {

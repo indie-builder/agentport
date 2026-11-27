@@ -9,7 +9,7 @@ import { ZodToJsonSchemaConverter } from '@orpc/zod/zod4';
 import { Scalar } from '@scalar/hono-api-reference';
 import type { Hono } from 'hono';
 import { z } from 'zod';
-import { AUTH_COOKIE } from '../modules/auth/types.js';
+import { AUTH_COOKIE } from './auth.js';
 import { type HttpEnv, requestContext } from './context.js';
 import { access } from './middleware.js';
 import { nativeOpenAPISchemas } from './native-openapi.js';

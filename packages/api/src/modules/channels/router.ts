@@ -11,27 +11,17 @@ import {
   type Channel,
   type ChannelAgentBinding,
   type ChannelDetail,
-  type ChannelEvent,
   type ChannelListItem,
   type ChannelMember,
-  channelEventsQuerySchema,
-  channelMessageCreatedEvent,
-  idParams,
-  SERVER_SHUTDOWN_MESSAGE,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import type { Hono } from 'hono';
-import { type SSEStreamingApi, streamSSE } from 'hono/streaming';
-import { z } from 'zod';
-import { actorOf, authorize, authorizeObject, requireUser } from '../../http/access.js';
-import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
-import { parseRequest, requestContext } from '../../http/context.js';
+import { authorizeObject, requireUser } from '../../http/access.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { CHANNEL_MEMBER_MISSING_MESSAGE, CHANNEL_NOT_FOUND_MESSAGE } from '../../http/errors.js';
-import { access } from '../../http/middleware.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
-import { beginSse } from '../../http/sse.js';
-import { getQueue, type RunSubscription, subscribeChannel } from '../../queue/producer.js';
+import { getQueue } from '../../queue/producer.js';
 import { requireRunQueueCapacity } from '../runs/capacity.js';
+import { auditChannelRead, channelSubject } from './access.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
 import { channelsHandoffRouter } from './handoff.js';
@@ -43,19 +33,6 @@ const AGENT_BINDING_FORBIDDEN = '当前频道角色无权管理智能体绑定';
 const MEMBER_FORBIDDEN = '当前频道角色无权管理成员';
 
 const channelRepo = repo.channels;
-const SSE_BATCH = 200;
-const SSE_POLL_MS = 3000;
-const SSE_FALLBACK_POLL_MS = 30_000;
-function subjectFor(context: RequestContext): {
-  businessId: string;
-} {
-  return { businessId: requireUser(context).businessId };
-}
-function isPlatformReader(context: RequestContext): boolean {
-  return requireUser(context).grants.some(
-    (grant) => grant.permissionId === 'conversations.read' && grant.scope === 'platform',
-  );
-}
 function toChannel(row: repo.channels.ChannelRow): Channel {
   return {
     id: row.id,
@@ -136,45 +113,16 @@ async function auditWrite(
     requestId: context.requestId,
   });
 }
-const auditRead = async (
-  context: RequestContext,
-  channel: {
-    id: string;
-    createdBy: string;
-  },
-): Promise<void> => {
-  if (!isPlatformReader(context)) return;
-  await authorize(context, 'conversations.read', {
-    objectId: channel.id,
-    createdBy: channel.createdBy,
-    privateContent: true,
-  });
-};
-async function writeEvent(
-  stream: SSEStreamingApi,
-  event: ChannelEvent,
-  id?: string,
-): Promise<void> {
-  await stream.writeSSE({
-    ...(id === undefined ? {} : { id }),
-    data: JSON.stringify(event),
-  });
-}
-function parseEventCursor(raw: string | undefined): number | undefined {
-  if (raw === undefined || raw.trim() === '') return undefined;
-  const value = Number(raw);
-  return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
-}
 const os = implement(channelsContract).$context<RequestContext>();
 const channelsMainRouter = {
   list: os.list.handler(async ({ input, context }) => {
     const page = requireCursorPage(
-      await channelRepo.listChannels(context.db, subjectFor(context), {
+      await channelRepo.listChannels(context.db, channelSubject(context), {
         ...cursorOption(input.query.cursor),
         limit: input.query.limit,
       }),
     );
-    await Promise.all(page.items.map((channel) => auditRead(context, channel)));
+    await Promise.all(page.items.map((channel) => auditChannelRead(context, channel)));
     return { items: page.items.map(toListItem), nextCursor: page.nextCursor };
   }),
   create: os.create.handler(async ({ input, context }) => {
@@ -195,17 +143,17 @@ const channelsMainRouter = {
   detail: os.detail.handler(async ({ input, context }) => {
     const result = await channelRepo.getChannelDetail(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
     );
     if ('kind' in result) return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
-    await auditRead(context, result.channel);
+    await auditChannelRead(context, result.channel);
     return toDetail(result);
   }),
   update: os.update.handler(async ({ input, context }) => {
     const result = await channelRepo.updateChannel(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
       input.body,
     );
@@ -226,7 +174,7 @@ const channelsMainRouter = {
   addMember: os.addMember.handler(async ({ input, context }) => {
     const result = await channelRepo.addMember(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
       input.body,
     );
@@ -255,7 +203,7 @@ const channelsMainRouter = {
   updateMember: os.updateMember.handler(async ({ input, context }) => {
     const result = await channelRepo.updateMemberRole(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
       input.params.businessId,
       input.body.role,
@@ -286,7 +234,7 @@ const channelsMainRouter = {
   removeMember: os.removeMember.handler(async ({ input, context }) => {
     const result = await channelRepo.removeMember(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
       input.params.businessId,
     );
@@ -325,7 +273,7 @@ const channelsMainRouter = {
     const { agentId, autoWakeOnAll } = input.body;
     const access = await channelRepo.getChannelManageAccess(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
     );
     if (access.kind === 'not_found') return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
@@ -335,7 +283,7 @@ const channelsMainRouter = {
     await authorizeObject(context, 'agents.use', { agentId }, '智能体不存在，可能已被删除');
     const result = await channelRepo.addAgentBinding(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
       { agentId, autoWakeOnAll },
     );
@@ -361,7 +309,7 @@ const channelsMainRouter = {
   updateAgent: os.updateAgent.handler(async ({ input, context }) => {
     const access = await channelRepo.getChannelManageAccess(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
     );
     if (access.kind === 'not_found') return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
@@ -370,7 +318,7 @@ const channelsMainRouter = {
     }
     const result = await channelRepo.updateAgentBinding(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
       input.params.agentId,
       { autoWakeOnAll: input.body.autoWakeOnAll },
@@ -395,7 +343,7 @@ const channelsMainRouter = {
   removeAgent: os.removeAgent.handler(async ({ input, context }) => {
     const result = await channelRepo.removeAgentBinding(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
       input.params.agentId,
     );
@@ -427,7 +375,7 @@ const channelsMainRouter = {
   messages: os.messages.handler(async ({ input, context }) => {
     const result = await channelRepo.listMessages(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
       {
         after: input.query.after,
@@ -436,7 +384,7 @@ const channelsMainRouter = {
       },
     );
     if (result.kind === 'not_found') return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
-    await auditRead(context, { id: input.params.id, createdBy: result.createdBy });
+    await auditChannelRead(context, { id: input.params.id, createdBy: result.createdBy });
     return result.items.map(repo.channels.toChannelMessage);
   }),
   postMessage: os.postMessage.handler(async ({ input, context }) => {
@@ -472,7 +420,7 @@ const channelsMainRouter = {
     };
     let result: Awaited<ReturnType<typeof channelRepo.postMessage>>;
     try {
-      result = await channelRepo.postMessage(context.db, subjectFor(context), id, {
+      result = await channelRepo.postMessage(context.db, channelSubject(context), id, {
         id: messageId,
         body: input.body.body ?? '',
         ...(input.body.clientMessageId === undefined
@@ -528,7 +476,7 @@ const channelsMainRouter = {
   markRead: os.markRead.handler(async ({ input, context }) => {
     const result = await channelRepo.markRead(
       context.db,
-      subjectFor(context),
+      channelSubject(context),
       input.params.id,
       input.body.seq,
     );
@@ -536,196 +484,6 @@ const channelsMainRouter = {
     return { lastReadSeq: result.lastReadSeq };
   }),
 };
-export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDependencies): void {
-  app.get('/api/channels/:id/events', access({ kind: 'authenticated' }), async (c) => {
-    const context = requestContext(c);
-    const input = parseRequest(c, z.object({ params: idParams, query: channelEventsQuerySchema }));
-    const { id } = input.params;
-    const subject = subjectFor(context);
-    const readAccess = await channelRepo.getChannelReadAccess(context.db, subject, id);
-    if (!readAccess) return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
-    if (input.query.after > readAccess.maxSeq) {
-      return fail('INVALID_INPUT', '事件游标超过频道当前消息序号');
-    }
-    const lastEventId = parseEventCursor(c.req.header('Last-Event-ID'));
-    const initialCursor =
-      lastEventId === undefined
-        ? input.query.after
-        : Math.min(Math.max(input.query.after, lastEventId), readAccess.maxSeq);
-    const initial = await channelRepo.listMessages(context.db, subject, id, {
-      after: initialCursor,
-      limit: SSE_BATCH,
-    });
-    if (initial.kind === 'not_found') return fail('NOT_FOUND', CHANNEL_NOT_FOUND_MESSAGE);
-    await auditRead(context, { id, createdBy: initial.createdBy });
-    beginSse(c, deps.timeout);
-    let cursor = initialCursor;
-    return streamSSE(c, async (stream) => {
-      await stream.write('retry: 3000\n\n');
-      let resolveClosed!: () => void;
-      const ended = new Promise<void>((resolve) => {
-        resolveClosed = resolve;
-      });
-      let closed = false;
-      let pollTimer: ReturnType<typeof setTimeout> | undefined;
-      const subscriptionAbort = new AbortController();
-      let subscription: RunSubscription | undefined;
-      let catchUpTail: Promise<void> = Promise.resolve();
-      const cleanup = (): void => {
-        if (closed) return;
-        closed = true;
-        resolveClosed();
-        c.req.raw.signal.removeEventListener('abort', cleanup);
-        if (pollTimer !== undefined) clearTimeout(pollTimer);
-        subscriptionAbort.abort();
-        subscription?.close();
-      };
-      const finish = (): void => {
-        cleanup();
-        void stream.close();
-      };
-      const lostAccess = async (): Promise<void> => {
-        try {
-          await writeEvent(stream, {
-            type: 'error',
-            code: 'FORBIDDEN',
-            message: '当前账户已无权读取该频道，已停止接收。',
-          });
-        } finally {
-          finish();
-        }
-      };
-      const sendMessages = async (rows: repo.channels.ChannelMessageRow[]): Promise<void> => {
-        for (const row of rows) {
-          if (closed) return;
-          const access = await channelRepo.getChannelReadAccess(context.db, subject, id);
-          if (closed) return;
-          if (!access) {
-            await lostAccess();
-            return;
-          }
-          const message = repo.channels.toChannelMessage(row);
-          cursor = message.seq;
-          await writeEvent(stream, channelMessageCreatedEvent(id, message), String(message.seq));
-        }
-      };
-      const catchUp = async (): Promise<void> => {
-        for (;;) {
-          if (closed) return;
-          let page: Awaited<ReturnType<typeof channelRepo.listMessages>>;
-          try {
-            page = await channelRepo.listMessages(context.db, subject, id, {
-              after: cursor,
-              limit: SSE_BATCH,
-            });
-          } catch (err) {
-            context.log.warn({ err, channelId: id }, 'channel sse catch-up failed');
-            return;
-          }
-          if (closed) return;
-          if (page.kind === 'not_found') {
-            await lostAccess();
-            return;
-          }
-          if (page.items.length === 0) return;
-          try {
-            await sendMessages(page.items);
-          } catch (err) {
-            context.log.error({ err, channelId: id }, 'channel sse write failed');
-            finish();
-            return;
-          }
-          if (page.items.length < SSE_BATCH) return;
-        }
-      };
-      const enqueueCatchUp = (): Promise<void> => {
-        catchUpTail = catchUpTail.then(catchUp, catchUp);
-        return catchUpTail;
-      };
-      stream.onAbort(cleanup);
-      if (c.req.raw.signal.aborted) cleanup();
-      else c.req.raw.signal.addEventListener('abort', cleanup, { once: true });
-      try {
-        await sendMessages(initial.items);
-        if (initial.items.length === SSE_BATCH) await catchUp();
-      } catch (err) {
-        context.log.error({ err, channelId: id }, 'channel sse history failed');
-        finish();
-        return;
-      }
-      if (closed) return;
-      let pollInterval = SSE_FALLBACK_POLL_MS;
-      let polling = false;
-      const schedulePoll = (): void => {
-        if (closed) return;
-        polling = true;
-        pollTimer = setTimeout(() => {
-          pollTimer = undefined;
-          void enqueueCatchUp().finally(schedulePoll);
-        }, pollInterval);
-      };
-      const startPolling = (interval: number): void => {
-        if (closed) return;
-        if (pollTimer !== undefined) {
-          if (pollInterval === interval) return;
-          pollInterval = interval;
-          clearTimeout(pollTimer);
-          pollTimer = undefined;
-          schedulePoll();
-          return;
-        }
-        pollInterval = interval;
-        if (!polling) schedulePoll();
-      };
-      try {
-        subscription = await subscribeChannel(
-          id,
-          async (event) => {
-            if (closed) return;
-            if (event.type === 'error') {
-              if (event.message === SERVER_SHUTDOWN_MESSAGE) {
-                finish();
-                return;
-              }
-              context.log.warn(
-                { channelId: id },
-                'channel redis subscription ended; DB polling continues',
-              );
-              startPolling(SSE_POLL_MS);
-              return;
-            }
-            await enqueueCatchUp();
-            if (closed || event.type === 'message.created') return;
-            const access = await channelRepo.getChannelReadAccess(context.db, subject, id);
-            if (closed) return;
-            if (!access) {
-              await lostAccess();
-              return;
-            }
-            try {
-              await writeEvent(stream, event);
-            } catch (err) {
-              context.log.error({ err, channelId: id }, 'channel sse write failed');
-              finish();
-            }
-          },
-          subscriptionAbort.signal,
-        );
-      } catch (err) {
-        context.log.warn(
-          { err, channelId: id },
-          'channel sse subscribe failed; DB polling continues',
-        );
-        startPolling(SSE_POLL_MS);
-        await ended;
-        return;
-      }
-      if (closed) subscription.close();
-      else startPolling(SSE_FALLBACK_POLL_MS);
-      await ended;
-    });
-  });
-}
 
 export const channelsRouter = {
   ...channelsMainRouter,

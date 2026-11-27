@@ -12,6 +12,7 @@ export function contextApp(runtime: AppContext): Hono<HttpEnv> {
       config: runtime.config,
       log: runtime.log,
       auth: runtime.auth,
+      authenticate: runtime.authenticate,
       principal: null,
       requestId: crypto.randomUUID(),
       request: c.req.raw,

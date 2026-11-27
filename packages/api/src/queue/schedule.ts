@@ -3,6 +3,7 @@ import { SCHEDULE_TRIGGERS_QUEUE, type ScheduleTriggerJob } from '@agentport/sha
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
+import type { Config } from '../config.js';
 
 const { version }: { version: string } = await Bun.file(
   new URL('../../../../package.json', import.meta.url),
@@ -16,19 +17,22 @@ export function configureScheduleLogger(log: Logger): void {
   logger = log;
 }
 
-function scheduleLogger(): Logger {
+function scheduleLogger(nodeEnv: Config['NODE_ENV'] = 'development'): Logger {
   logger ??= createServiceLogger({
     service: 'api',
-    env: process.env.NODE_ENV ?? 'development',
+    env: nodeEnv,
     version,
     level: 'info',
   });
   return logger;
 }
 
-export function getScheduleQueue(redisUrl: string): Queue<ScheduleTriggerJob> {
+export function getScheduleQueue(
+  redisUrl: string,
+  nodeEnv: Config['NODE_ENV'] = 'development',
+): Queue<ScheduleTriggerJob> {
   if (!queue) {
-    const log = scheduleLogger();
+    const log = scheduleLogger(nodeEnv);
     connection = createBunRedisClient(new RedisClient(redisUrl));
     queue = new Queue<ScheduleTriggerJob>(SCHEDULE_TRIGGERS_QUEUE, {
       connection,

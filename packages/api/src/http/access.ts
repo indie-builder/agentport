@@ -281,5 +281,3 @@ export async function resourceAccessFilter(
         : [],
   };
 }
-
-export { actorOf } from './context.js';

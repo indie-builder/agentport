@@ -9,13 +9,8 @@ import {
 import { repo } from '@agentport/db';
 import type { DataDomainQueryApprovalStatus, PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import {
-  actorOf,
-  authorize,
-  authorizeResourceAccess,
-  resourceAccessFilter,
-} from '../../http/access.js';
-import type { RequestContext } from '../../http/context.js';
+import { authorize, authorizeResourceAccess, resourceAccessFilter } from '../../http/access.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import {
   deleteDataDomainServer,
@@ -387,25 +382,16 @@ export const dataDomainsRouter = os.router({
       note: input.body.note,
     });
     if (!updated) fail('CONFLICT', '审批不存在或已处理');
-    await repo.audit.writeAudit(
-      context.db,
-      {
-        warn: () =>
-          context.log.warn(
-            { approvalId: input.params.approvalId },
-            'data domain approval audit write failed',
-          ),
-      },
-      {
-        actor: actorOf(context),
-        actorKind: 'user',
-        action: 'data_domain.query.approval_decided',
-        target: updated.id,
-        status: 'ok',
-        durationMs: 0,
-        input: { dataDomainId: input.params.id, status, note: input.body.note.slice(0, 200) },
-      },
-    );
+    await repo.audit.writeAudit(context.db, context.log, {
+      actor: actorOf(context),
+      actorKind: 'user',
+      action: 'data_domain.query.approval_decided',
+      target: updated.id,
+      status: 'ok',
+      durationMs: 0,
+      requestId: context.requestId,
+      input: { dataDomainId: input.params.id, status, note: input.body.note.slice(0, 200) },
+    });
     return toApproval(updated);
   }),
 

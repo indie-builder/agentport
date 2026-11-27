@@ -100,7 +100,7 @@ export const overviewRouter = os.router({
         .select({
           servers: ownOnly
             ? sql<number>`0::int`
-            : sql<number>`(select count(*)::int from ${schema.servers} where ${schema.servers.kind} <> 'knowledge')`,
+            : sql<number>`(select count(*)::int from ${schema.servers} where ${schema.servers.kind} not in ('knowledge', 'data_domain'))`,
           agents: ownOnly
             ? sql<number>`(select count(*)::int from ${schema.agents} where ${schema.agents.createdBy} = ${access.businessId} and ${schema.agents.isDefault} = false)`
             : sql<number>`(select count(*)::int from ${schema.agents} where ${schema.agents.isDefault} = false)`,

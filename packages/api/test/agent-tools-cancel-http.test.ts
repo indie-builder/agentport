@@ -149,6 +149,7 @@ describe.skipIf(!(ready && isolated))('platform MCP over real HTTP: cancellation
       config: app.config,
       log: app.log,
       auth: app.auth,
+      authenticate: app.authenticate,
       invoker: stub.invoker,
     });
     platform = await listen({ app: platformApp as never });

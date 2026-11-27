@@ -22,23 +22,16 @@ import {
 } from '@agentport/shared';
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { implement } from '@orpc/server';
-import { z } from 'zod';
-import {
-  actorOf,
-  authorizeResourceAccess,
-  requireUser,
-  resourceAccessFilter,
-} from '../../http/access.js';
-import type { RequestContext } from '../../http/context.js';
+import { authorizeResourceAccess, requireUser, resourceAccessFilter } from '../../http/access.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { isPgCode, rethrowConflict } from '../../http/errors.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { connectorCatalog } from './connector-catalog-data.js';
 import { buildGeneratedServer } from './generated.js';
 import * as repo from './repo.js';
-import { getMcpToken, toApiServer } from './repo.js';
+import { getMcpToken, maskServer, toApiServer } from './repo.js';
 import { testStdioInSandbox } from './sandbox-probe.js';
-import { maskServer } from './secrets.js';
 import { testConnection } from './test-connection.js';
 
 const writeAudit = dbRepo.audit.writeAudit;
@@ -121,7 +114,7 @@ export const serversRouter = os.router({
       inputs = parseMcpJson(input.body.mcpJson);
     } catch (err) {
       if (!isAppError(err)) throw err;
-      throw new z.ZodError([{ code: 'custom', path: ['mcpJson'], message: err.message }]);
+      fail('INVALID_INPUT', err.message, { path: '/mcpJson' });
     }
     for (const input of inputs) {
       if (input.kind === 'http') await assertSafeUrl(input.url, context.config.NODE_ENV);

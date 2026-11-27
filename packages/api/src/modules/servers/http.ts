@@ -2,26 +2,22 @@ import { fail } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import type { Hono, MiddlewareHandler } from 'hono';
-import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
+import { resolveRuntimeFlags } from '../../config.js';
 import { bearerToken, tokenMatches } from '../../http/bearer.js';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import type { AppContext, HttpEnv } from '../../http/context.js';
-import {
-  INVALID_BEARER_TOKEN_MESSAGE,
-  INVALID_JSON_BODY_MESSAGE,
-  PAYLOAD_TOO_LARGE_MESSAGE,
-} from '../../http/errors.js';
+import { INVALID_BEARER_TOKEN_MESSAGE, INVALID_JSON_BODY_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
-import { createInvoker } from './agent-invoker.js';
-import type { AgentInvoker } from './agent-tools.js';
-import { agentHandler, platformMcpToken } from './agent-tools.js';
 import {
   auditToolPolicyDenial,
   createApprovalEvaluator,
   getRunApprovalTool,
-} from './approval-policy.js';
+} from '../runs/approval-policy.js';
+import { createInvoker } from './agent-invoker.js';
+import type { AgentInvoker } from './agent-tools.js';
+import { agentHandler } from './agent-tools.js';
 import { requestToolApproval } from './approvals.js';
 import { serverMcpResponse, validRunToken } from './mcp-endpoint.js';
 
@@ -38,11 +34,8 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
     await c.get('context').limit(60, c.req.path === '/mcp' ? 'mcp:platform' : 'mcp:server');
     await next();
   };
-  const mcpBodyLimit = bodyLimit({
-    maxSize: 1_048_576,
-    onError: () => fail('PAYLOAD_TOO_LARGE', PAYLOAD_TOO_LARGE_MESSAGE),
-  });
-  const expected = platformMcpToken(process.env);
+  const mcpBodyLimit = requestBodyLimit(1_048_576);
+  const expected = resolveRuntimeFlags(deps.config).platformMcpToken;
   if (expected === null) {
     deps.log.warn('PLATFORM_MCP_TOKEN not set; /mcp disabled');
   } else {

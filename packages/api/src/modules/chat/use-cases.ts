@@ -32,9 +32,9 @@ import {
 import type { SQL } from 'bun';
 import type { Logger } from 'pino';
 import type { Config } from '../../config.js';
+import { closeSessionSandboxes } from '../../queue/session-cleanup.js';
 import { requireRunQueueCapacity } from '../runs/capacity.js';
 import { enqueueRunJob, enqueueRunOrRollback, failRunEnqueue } from '../runs/enqueue.js';
-import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
 import { enforceContentPolicy, failContentApprovalRequired } from '../security/policy-gate.js';
 import { CONVERSATION_MISSING } from './access.js';
 import {
@@ -84,6 +84,30 @@ async function removeWrittenAttachments(input: {
     }),
   );
 }
+const DELETION_HOLD_TIMEOUT_MS = 40_000;
+
+export async function deleteConversationWithSandboxes(input: {
+  client: SQL;
+  redisUrl: string;
+  deletion: repo.chat.ConversationDeletionInput;
+}): Promise<repo.chat.ConversationDeletionSnapshot | null> {
+  return repo.locks.withAdvisoryLock(
+    input.client,
+    repo.locks.AGENT_BINDINGS_LOCK_KEY,
+    async (lockedDb) => {
+      const snapshot = await repo.chat.prepareConversationDeletion(lockedDb, input.deletion);
+      if (snapshot === null) return null;
+      await closeSessionSandboxes({ redisUrl: input.redisUrl, targets: snapshot.targets });
+      const deleted = await repo.chat.deleteConversation(lockedDb, {
+        ...input.deletion,
+        expected: snapshot,
+      });
+      return deleted ? snapshot : null;
+    },
+    DELETION_HOLD_TIMEOUT_MS,
+  );
+}
+
 export function deleteCreatedConversation(
   context: Pick<StartRunDependencies, 'client' | 'config'>,
   conversationId: string,

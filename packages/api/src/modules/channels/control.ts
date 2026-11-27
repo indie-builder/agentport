@@ -6,9 +6,9 @@ import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
-import { actorOf, requireUser } from '../../http/access.js';
+import { requireUser } from '../../http/access.js';
 import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
-import { parseRequest, requestContext } from '../../http/context.js';
+import { actorOf, parseRequest, requestContext } from '../../http/context.js';
 import {
   AppError,
   CHANNEL_MEMBER_MISSING_MESSAGE,

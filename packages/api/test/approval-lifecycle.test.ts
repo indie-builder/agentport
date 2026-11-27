@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { repo } from '@agentport/db';
 import type { Server } from '@agentport/shared';
-import { createApprovalEvaluator } from '../src/modules/servers/approval-policy.js';
+import { createApprovalEvaluator } from '../src/modules/runs/approval-policy.js';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,

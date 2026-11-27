@@ -4,13 +4,12 @@ import {
   DEFAULT_JOB_RETENTION,
   type EvalDatasetImportResult,
   type evalDatasetSchema,
-  RUN_QUEUE_MAX_WAITING,
 } from '@agentport/shared';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
 import { getEvalQueue, getQueue } from '../../queue/producer.js';
-import { RUN_QUEUE_FULL_MESSAGE } from '../runs/capacity.js';
+import { requireRunQueueCapacity } from '../runs/capacity.js';
 
 export function toEvalRun(row: repo.evalRepo.EvalRunSummary) {
   return {
@@ -80,13 +79,7 @@ export async function startEvalRun(
   createdBy: string,
   target: 'published' | 'draft' = 'published',
 ): Promise<{ evalRunId: string }> {
-  const [waitingRuns, waitingEvals] = await Promise.all([
-    getQueue().getWaitingCount(),
-    getEvalQueue().getWaitingCount(),
-  ]);
-  if (waitingRuns > RUN_QUEUE_MAX_WAITING || waitingEvals > RUN_QUEUE_MAX_WAITING) {
-    fail('SERVICE_UNAVAILABLE', RUN_QUEUE_FULL_MESSAGE);
-  }
+  await requireRunQueueCapacity(undefined, [getQueue(), getEvalQueue()]);
 
   let evalRun: typeof schema.evalRuns.$inferSelect | undefined;
   try {

@@ -9,7 +9,7 @@ import type {
 const EVALUATION_MAX_CASES = 100;
 export const EVALUATION_MAX_BYTES = 1024 * 1024;
 
-export interface RetrievalEvaluationCase {
+interface RetrievalEvaluationCase {
   q: string;
   expectedTargets: KnowledgeTarget[];
   expectedChunkIds?: string[] | undefined;

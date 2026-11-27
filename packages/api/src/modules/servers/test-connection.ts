@@ -72,7 +72,7 @@ function connectAndList(
 
 export async function testConnection(
   server: Server,
-  nodeEnv: string | undefined = process.env.NODE_ENV,
+  nodeEnv?: string,
   self?: SelfMcp,
   logger?: TestLogger,
   privateHostAllowlist = '',

@@ -14,7 +14,7 @@ import {
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
-import { deleteConversationWithSandboxes } from '../../api/src/modules/runtime/runtime-deletion.js';
+import { deleteConversationWithSandboxes } from '../../api/src/modules/chat/use-cases.js';
 import { DockerSandboxProvider } from '../src/sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../src/sandbox/provider.js';
 import { startSessionCleanupChannel } from '../src/sandbox/session-cleanup.js';

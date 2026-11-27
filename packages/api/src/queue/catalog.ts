@@ -9,6 +9,7 @@ import {
   SCHEDULE_TRIGGERS_QUEUE,
 } from '@agentport/shared';
 import type { Queue } from 'bullmq';
+import type { Config } from '../config.js';
 import { assertNever } from '../lib/assert-never.js';
 import {
   getDataDomainBuildQueue,
@@ -31,7 +32,7 @@ type NonMonitoredName = RegistryEntry extends infer Entry
       : never
   : never;
 
-function otherQueue(name: NonMonitoredName, redisUrl: string): Queue {
+function otherQueue(name: NonMonitoredName, redisUrl: string, nodeEnv: Config['NODE_ENV']): Queue {
   switch (name) {
     case RUNS_QUEUE:
       return getQueue();
@@ -46,14 +47,16 @@ function otherQueue(name: NonMonitoredName, redisUrl: string): Queue {
     case DATA_DOMAIN_ENRICHMENTS_QUEUE:
       return getDataDomainEnrichmentQueue();
     case SCHEDULE_TRIGGERS_QUEUE:
-      return getScheduleQueue(redisUrl);
+      return getScheduleQueue(redisUrl, nodeEnv);
     default:
       return assertNever(name);
   }
 }
 
-export function getQueues(redisUrl: string): Queue[] {
+export function getQueues(redisUrl: string, nodeEnv: Config['NODE_ENV'] = 'development'): Queue[] {
   return QUEUE_REGISTRY.map((entry) =>
-    entry.apiMonitored !== null ? getMonitoringQueue(entry.name) : otherQueue(entry.name, redisUrl),
+    entry.apiMonitored !== null
+      ? getMonitoringQueue(entry.name)
+      : otherQueue(entry.name, redisUrl, nodeEnv),
   );
 }

@@ -4,6 +4,7 @@ import {
   type MemoryChange,
   PERSONAL_MEMORY_MAX_BYTES,
   PERSONAL_MEMORY_MAX_CHARS,
+  type PersonalMemory,
 } from '@agentport/shared';
 import type { SQL } from 'bun';
 import { requireCursorPage } from '../../http/pagination.js';
@@ -18,12 +19,6 @@ function assertPersonalMemoryLimit(content: string): void {
   ) {
     fail('PAYLOAD_TOO_LARGE', PERSONAL_MEMORY_LIMIT_MESSAGE);
   }
-}
-
-export interface PersonalMemory {
-  content: string;
-  revision: number;
-  updatedAt: string | null;
 }
 
 export interface PersonalMemoryWriteResult extends PersonalMemory {

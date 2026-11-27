@@ -7,7 +7,7 @@ import {
   KnowledgeModelError,
   rerankDocuments,
 } from '@agentport/core';
-import { assertSafeUrl } from '@agentport/core/net-guard';
+import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
 import {
   KNOWLEDGE_EMBEDDING_DIMENSIONS,
@@ -52,20 +52,6 @@ function toProfile(row: {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
-}
-
-async function assertKnowledgeEndpoint(
-  raw: string,
-  config: { KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: string; NODE_ENV: string | undefined },
-): Promise<void> {
-  const url = new URL(raw);
-  const host = url.hostname.replace(/^\[|\]$/g, '');
-  const key = url.port ? `${host}:${url.port}` : host;
-  const allowed = config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST.split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (allowed.includes(key) || allowed.includes(host) || allowed.includes(url.origin)) return;
-  await assertSafeUrl(raw, config.NODE_ENV);
 }
 
 function imageCapabilityProblem(input: {
@@ -124,7 +110,10 @@ export async function createModelProfile(
   const capabilityProblem = imageCapabilityProblem(input);
   if (capabilityProblem !== null) throw new AppError('INVALID_INPUT', capabilityProblem);
   try {
-    await assertKnowledgeEndpoint(input.endpointUrl, deps.config);
+    await assertServerEndpoint(input.endpointUrl, {
+      nodeEnv: deps.config.NODE_ENV,
+      allowlist: deps.config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST,
+    });
     const row = await repo.knowledge.createModelProfile(deps.db, {
       kind: input.kind,
       name: input.name,
@@ -159,7 +148,12 @@ export async function updateModelProfile(
   },
 ) {
   const { apiKey, ...rest } = body;
-  if (rest.endpointUrl !== undefined) await assertKnowledgeEndpoint(rest.endpointUrl, deps.config);
+  if (rest.endpointUrl !== undefined) {
+    await assertServerEndpoint(rest.endpointUrl, {
+      nodeEnv: deps.config.NODE_ENV,
+      allowlist: deps.config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST,
+    });
+  }
   const current = await repo.knowledge.getModelProfileWithSecret(deps.db, profileId);
   if (!current) notFound('模型 profile');
   if (
@@ -235,7 +229,10 @@ export async function testModelProfile(
   if (row.kind === 'asr') {
     throw new AppError('CONFLICT', 'ASR 请通过显式音频上传验证');
   }
-  await assertKnowledgeEndpoint(row.endpointUrl, deps.config);
+  await assertServerEndpoint(row.endpointUrl, {
+    nodeEnv: deps.config.NODE_ENV,
+    allowlist: deps.config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST,
+  });
   const apiKey = row.secretsEncrypted
     ? (await decryptSecrets(row.secretsEncrypted, deps.config.APP_SECRET_KEY)).apiKey
     : undefined;

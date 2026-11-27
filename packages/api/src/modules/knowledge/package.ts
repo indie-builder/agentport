@@ -453,16 +453,7 @@ function parseManifest(files: Map<string, Buffer>): Manifest {
   return parsed.data;
 }
 
-export interface KnowledgePackageFile {
-  filename: string;
-  body: Buffer;
-}
-
-export async function exportKnowledgePackage(
-  db: Db,
-  knowledgeDir: string,
-  baseId: string,
-): Promise<KnowledgePackageFile | null> {
+export async function exportKnowledgePackage(db: Db, knowledgeDir: string, baseId: string) {
   const base = await repo.knowledge.getBase(db, baseId);
   if (!base) return null;
   const embedding = await repo.knowledge.getModelProfileWithSecret(db, base.embeddingProfileId);
@@ -822,25 +813,12 @@ export async function exportKnowledgePackage(
   return { filename: `${base.slug}.knowledge.zip`, body };
 }
 
-export interface KnowledgePackageImportResult {
-  baseId: string;
-  serverId: string;
-  counts: {
-    folders: number;
-    tags: number;
-    documents: number;
-    versions: number;
-    chunks: number;
-    wikiPages: number;
-  };
-}
-
 export async function importKnowledgePackage(
   db: Db,
   knowledgeDir: string,
   archive: Buffer,
   ownerBusinessId?: string,
-): Promise<KnowledgePackageImportResult> {
+) {
   const files = await readZip(archive);
   const manifest = parseManifest(files);
   if (manifest.base.settings.chunkOverlap >= manifest.base.settings.chunkTokens) {

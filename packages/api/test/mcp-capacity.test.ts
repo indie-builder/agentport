@@ -280,6 +280,7 @@ describe.skipIf(!ready)('platform MCP: long tool invokes must not block new sess
       config: app.config,
       log: app.log,
       auth: app.auth,
+      authenticate: app.authenticate,
       invoker: mock.invoker,
     });
     platform = await listen({ app: platformApp as never });

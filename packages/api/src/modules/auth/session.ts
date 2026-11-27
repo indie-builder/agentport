@@ -4,9 +4,9 @@ import type { Principal } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
 import { generateCookie } from 'hono/cookie';
 import { z } from 'zod';
+import type { AuthService } from '../../http/auth.js';
 import type { RequestContext } from '../../http/context.js';
 import { ACCOUNT_DISABLED_MESSAGE, NOT_LOGGED_IN_MESSAGE } from '../../http/errors.js';
-import type { Auth } from './better-auth.js';
 
 const sessionViewSchema = z.object({
   session: z.object({ id: z.string() }),
@@ -95,7 +95,10 @@ export async function authenticate(context: RequestContext): Promise<void> {
   context.principal = await principalOf(context, session.user);
 }
 
-export async function sessionFromCookie(auth: Auth, cookie: string): Promise<SessionView | null> {
+export async function sessionFromCookie(
+  auth: AuthService,
+  cookie: string,
+): Promise<SessionView | null> {
   if (cookie === '') return null;
   return normalizeSession(
     await auth.api.getSession({

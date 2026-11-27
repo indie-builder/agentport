@@ -2,11 +2,11 @@ import { channelsContract } from '@agentport/contract/channels';
 import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
-import { actorOf, requireUser } from '../../http/access.js';
-import type { RequestContext } from '../../http/context.js';
+import { requireUser } from '../../http/access.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { CHANNEL_MEMBER_MISSING_MESSAGE } from '../../http/errors.js';
 import { toIso } from '../../lib/iso.js';
-import { recheckRunApproval } from '../servers/approval-policy.js';
+import { recheckRunApproval } from '../runs/approval-policy.js';
 
 const approvalsRepo = repo.channelApprovals;
 function toItem(item: repo.channelApprovals.ChannelApprovalItem) {

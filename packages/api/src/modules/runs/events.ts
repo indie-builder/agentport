@@ -10,6 +10,10 @@ type Run = Pick<
 
 type RunDetail = NonNullable<Awaited<ReturnType<typeof repo.runs.getRunDetail>>>;
 
+export function toRunItem(run: repo.runs.RunListItem) {
+  return { ...run, startedAt: toIso(run.startedAt), endedAt: toIso(run.endedAt) };
+}
+
 export function toRunDetail(detail: RunDetail) {
   return {
     run: {

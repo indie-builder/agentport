@@ -9,9 +9,9 @@ import type {
   ViolationCase,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { actorOf, requireUser } from '../../http/access.js';
+import { requireUser } from '../../http/access.js';
 import { domainAudit } from '../../http/audit.js';
-import type { RequestContext } from '../../http/context.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 

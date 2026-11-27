@@ -1,6 +1,7 @@
 import { type KnowledgeContract, knowledgeContract } from '@agentport/contract/knowledge';
 
 import { AppError } from '@agentport/core';
+import { logEvent } from '@agentport/core/logger';
 import type { KnowledgeFaqImportResult } from '@agentport/shared';
 import { implement, ORPCError, type Router } from '@orpc/server';
 import { requirePermission, resourceAccessFilter } from '../../http/access.js';
@@ -49,6 +50,7 @@ import {
   updateDocument,
   uploadDocument,
 } from './use-cases/documents.js';
+import { evaluateBase } from './use-cases/evaluation.js';
 import {
   createFaq,
   deleteFaq,
@@ -61,7 +63,7 @@ import {
   setFaqStatus,
   testFaqs,
   updateFaq,
-} from './use-cases/faq.js';
+} from './use-cases/faq-commands.js';
 import {
   createFolder,
   createTag,
@@ -87,7 +89,6 @@ import {
   testModelProfile,
   updateModelProfile,
 } from './use-cases/model-profiles.js';
-import { evaluateBase } from './use-cases/retrieval-evaluation.js';
 import { batchDocuments, rebuildBase, searchBase } from './use-cases/search.js';
 import { depsOf } from './use-cases/shared.js';
 import {
@@ -275,17 +276,23 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       } catch (err) {
         if (input.body.importBatchId === undefined) throw err;
         const appError = toAppError(err);
+        const body = problem(context.requestId, appError);
+        if (body.status >= 500) {
+          logEvent(context.log, 'unhandled error', { code: body.code }, 'error', { err });
+        } else if (body.status !== 401) {
+          context.log.warn({ err, code: body.code }, 'request rejected');
+        }
         const results: KnowledgeFaqImportResult[] = input.body.items.map((item, index) => ({
           row: index + 1,
           status: 'failed',
           operation: null,
           documentId: item.documentId,
-          issues: [{ field: 'batch', code: appError.code, message: appError.message }],
+          issues: [{ field: 'batch', code: appError.code, message: body.message }],
         }));
         throw new ORPCError(appError.code, {
           status: appError.status,
-          message: appError.message,
-          data: { ...problem(context.requestId, appError), results },
+          message: body.message,
+          data: { ...body, results },
           cause: err,
         });
       }

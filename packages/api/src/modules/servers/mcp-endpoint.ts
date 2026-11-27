@@ -1,4 +1,4 @@
-import { fail, hashMcpToken } from '@agentport/core';
+import { decryptSecrets, fail, hashMcpToken } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
@@ -8,12 +8,11 @@ import { INVALID_BEARER_TOKEN_MESSAGE } from '../../http/errors.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
 import { buildDataDomainServer } from '../data-domains/mcp.js';
 import { buildKnowledgeServer } from '../knowledge/mcp.js';
+import { auditToolPolicyDenial, createApprovalEvaluator } from '../runs/approval-policy.js';
 import { checkOutboundToolArgs } from '../security/outbound-policy.js';
-import { auditToolPolicyDenial, createApprovalEvaluator } from './approval-policy.js';
 import { requestToolApproval } from './approvals.js';
 import { buildGeneratedServer } from './generated.js';
 import { listTools, str, toApiServer } from './repo.js';
-import { decryptSecrets } from './secrets.js';
 
 export async function validRunToken(
   context: RequestContext,

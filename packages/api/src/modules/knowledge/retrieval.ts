@@ -62,7 +62,7 @@ type SearchQuery = Omit<
 
 export type SearchKnowledgeResult = KnowledgeSearchResult;
 
-export interface SearchKnowledgeOptions {
+interface SearchKnowledgeOptions {
   secretKey: string;
   signal?: AbortSignal;
 }
