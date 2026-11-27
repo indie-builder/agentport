@@ -3,8 +3,6 @@ import { slugSchema } from './params.js';
 
 export const PLUGIN_ZIP_MAX_BYTES = 4_194_304;
 
-export const PLUGIN_FILE_MAX_CODE_POINTS = 200_000;
-
 export const PLUGIN_FILE_MAX_CODE_UNITS = 200_000;
 
 export const pluginFilePathSchema = z
@@ -23,7 +21,7 @@ export const pluginFilePathSchema = z
 
 export const pluginFileInputSchema = z.object({
   path: pluginFilePathSchema,
-  content: z.string().max(PLUGIN_FILE_MAX_CODE_POINTS).default(''),
+  content: z.string().max(PLUGIN_FILE_MAX_CODE_UNITS).default(''),
   executable: z.boolean().default(false),
 });
 

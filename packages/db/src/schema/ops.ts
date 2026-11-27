@@ -1,5 +1,11 @@
 import type { AuditActorKind, NotificationKind } from '@agentport/shared';
-import { auditActorKindSchema, notificationKindSchema } from '@agentport/shared';
+import {
+  ALERT_DEFAULTS,
+  auditActorKindSchema,
+  notificationKindSchema,
+  RETENTION_DEFAULTS,
+  SLO_DEFAULTS,
+} from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigserial,
@@ -92,31 +98,51 @@ export const platformSettings = pgTable(
   'platform_settings',
   {
     id: text('id').primaryKey(),
-    retentionRunDays: integer('retention_run_days').notNull().default(90),
-    retentionMessageDays: integer('retention_message_days').notNull().default(30),
-    retentionAgentVersions: integer('retention_agent_versions').notNull().default(50),
-    alertRunFailuresEnabled: boolean('alert_run_failures_enabled').notNull().default(true),
-    alertRunFailuresThreshold: integer('alert_run_failures_threshold').notNull().default(5),
+    retentionRunDays: integer('retention_run_days').notNull().default(RETENTION_DEFAULTS.runDays),
+    retentionMessageDays: integer('retention_message_days')
+      .notNull()
+      .default(RETENTION_DEFAULTS.messageDays),
+    retentionAgentVersions: integer('retention_agent_versions')
+      .notNull()
+      .default(RETENTION_DEFAULTS.agentVersions),
+    alertRunFailuresEnabled: boolean('alert_run_failures_enabled')
+      .notNull()
+      .default(ALERT_DEFAULTS.runFailures.enabled),
+    alertRunFailuresThreshold: integer('alert_run_failures_threshold')
+      .notNull()
+      .default(ALERT_DEFAULTS.runFailures.threshold),
     alertRunFailuresWindowMinutes: integer('alert_run_failures_window_minutes')
       .notNull()
-      .default(30),
-    alertQueueFailedEnabled: boolean('alert_queue_failed_enabled').notNull().default(true),
-    alertQueueFailedThreshold: integer('alert_queue_failed_threshold').notNull().default(1),
-    alertQueueWaitingEnabled: boolean('alert_queue_waiting_enabled').notNull().default(true),
-    alertQueueWaitingThreshold: integer('alert_queue_waiting_threshold').notNull().default(100),
-    sloEnabled: boolean('slo_enabled').notNull().default(true),
-    sloWindowMinutes: integer('slo_window_minutes').notNull().default(60),
+      .default(ALERT_DEFAULTS.runFailures.windowMinutes),
+    alertQueueFailedEnabled: boolean('alert_queue_failed_enabled')
+      .notNull()
+      .default(ALERT_DEFAULTS.queueFailed.enabled),
+    alertQueueFailedThreshold: integer('alert_queue_failed_threshold')
+      .notNull()
+      .default(ALERT_DEFAULTS.queueFailed.threshold),
+    alertQueueWaitingEnabled: boolean('alert_queue_waiting_enabled')
+      .notNull()
+      .default(ALERT_DEFAULTS.queueWaiting.enabled),
+    alertQueueWaitingThreshold: integer('alert_queue_waiting_threshold')
+      .notNull()
+      .default(ALERT_DEFAULTS.queueWaiting.threshold),
+    sloEnabled: boolean('slo_enabled').notNull().default(SLO_DEFAULTS.enabled),
+    sloWindowMinutes: integer('slo_window_minutes').notNull().default(SLO_DEFAULTS.windowMinutes),
     sloRunSuccessTarget: numeric('slo_run_success_target', { precision: 4, scale: 3 })
       .notNull()
-      .default('0.950'),
-    sloRunP95LatencyMs: integer('slo_run_p95_latency_ms').notNull().default(120000),
-    sloQueueOldestWaitMs: integer('slo_queue_oldest_wait_ms').notNull().default(60000),
+      .default(SLO_DEFAULTS.runSuccessTarget.toFixed(3)),
+    sloRunP95LatencyMs: integer('slo_run_p95_latency_ms')
+      .notNull()
+      .default(SLO_DEFAULTS.runP95LatencyMs),
+    sloQueueOldestWaitMs: integer('slo_queue_oldest_wait_ms')
+      .notNull()
+      .default(SLO_DEFAULTS.queueOldestWaitMs),
     sloProviderErrorRateTarget: numeric('slo_provider_error_rate_target', {
       precision: 4,
       scale: 3,
     })
       .notNull()
-      .default('0.050'),
+      .default(SLO_DEFAULTS.providerErrorRateTarget.toFixed(3)),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     updatedBy: text('updated_by'),
   },

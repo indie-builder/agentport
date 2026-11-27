@@ -1,5 +1,10 @@
 import type { AlertSettings, CostGroupBy, SloSettings } from '@agentport/shared';
-import { FAILED_RUN_STATUSES, utcWindowStart } from '@agentport/shared';
+import {
+  ALERT_DEFAULTS,
+  FAILED_RUN_STATUSES,
+  SLO_DEFAULTS,
+  utcWindowStart,
+} from '@agentport/shared';
 import { and, count, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import {
@@ -55,17 +60,17 @@ export async function getAlertSettings(db: DbHandle): Promise<AlertSettings> {
     .limit(1);
   return {
     runFailures: {
-      enabled: row?.alertRunFailuresEnabled ?? true,
-      threshold: row?.alertRunFailuresThreshold ?? 5,
-      windowMinutes: row?.alertRunFailuresWindowMinutes ?? 30,
+      enabled: row?.alertRunFailuresEnabled ?? ALERT_DEFAULTS.runFailures.enabled,
+      threshold: row?.alertRunFailuresThreshold ?? ALERT_DEFAULTS.runFailures.threshold,
+      windowMinutes: row?.alertRunFailuresWindowMinutes ?? ALERT_DEFAULTS.runFailures.windowMinutes,
     },
     queueFailed: {
-      enabled: row?.alertQueueFailedEnabled ?? true,
-      threshold: row?.alertQueueFailedThreshold ?? 1,
+      enabled: row?.alertQueueFailedEnabled ?? ALERT_DEFAULTS.queueFailed.enabled,
+      threshold: row?.alertQueueFailedThreshold ?? ALERT_DEFAULTS.queueFailed.threshold,
     },
     queueWaiting: {
-      enabled: row?.alertQueueWaitingEnabled ?? true,
-      threshold: row?.alertQueueWaitingThreshold ?? 100,
+      enabled: row?.alertQueueWaitingEnabled ?? ALERT_DEFAULTS.queueWaiting.enabled,
+      threshold: row?.alertQueueWaitingThreshold ?? ALERT_DEFAULTS.queueWaiting.threshold,
     },
     updatedAt: row?.updatedAt.toISOString() ?? new Date(0).toISOString(),
   };
@@ -97,12 +102,18 @@ export async function getSloSettings(db: DbHandle): Promise<SloSettings> {
     .where(eq(platformSettings.id, 'singleton'))
     .limit(1);
   return {
-    enabled: row?.sloEnabled ?? true,
-    windowMinutes: row?.sloWindowMinutes ?? 60,
-    runSuccessTarget: Number(row?.sloRunSuccessTarget ?? '0.950'),
-    runP95LatencyMs: row?.sloRunP95LatencyMs ?? 120_000,
-    queueOldestWaitMs: row?.sloQueueOldestWaitMs ?? 60_000,
-    providerErrorRateTarget: Number(row?.sloProviderErrorRateTarget ?? '0.050'),
+    enabled: row?.sloEnabled ?? SLO_DEFAULTS.enabled,
+    windowMinutes: row?.sloWindowMinutes ?? SLO_DEFAULTS.windowMinutes,
+    runSuccessTarget:
+      row?.sloRunSuccessTarget === undefined
+        ? SLO_DEFAULTS.runSuccessTarget
+        : Number(row.sloRunSuccessTarget),
+    runP95LatencyMs: row?.sloRunP95LatencyMs ?? SLO_DEFAULTS.runP95LatencyMs,
+    queueOldestWaitMs: row?.sloQueueOldestWaitMs ?? SLO_DEFAULTS.queueOldestWaitMs,
+    providerErrorRateTarget:
+      row?.sloProviderErrorRateTarget === undefined
+        ? SLO_DEFAULTS.providerErrorRateTarget
+        : Number(row.sloProviderErrorRateTarget),
   };
 }
 

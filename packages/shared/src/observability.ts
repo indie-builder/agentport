@@ -10,6 +10,15 @@ export const sloSettingsSchema = z.object({
 });
 export type SloSettings = z.infer<typeof sloSettingsSchema>;
 
+export const SLO_DEFAULTS = {
+  enabled: true,
+  windowMinutes: 60,
+  runSuccessTarget: 0.95,
+  runP95LatencyMs: 120_000,
+  queueOldestWaitMs: 60_000,
+  providerErrorRateTarget: 0.05,
+} as const satisfies SloSettings;
+
 export const queueSnapshotSchema = z.object({
   name: z.string(),
   waiting: z.number().int(),

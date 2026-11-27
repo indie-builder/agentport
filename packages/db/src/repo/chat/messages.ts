@@ -1,4 +1,5 @@
 import { fail } from '@agentport/core';
+import { isRecord } from '@agentport/core/record';
 import type { ChatMessageRole, ExecutionSubject } from '@agentport/shared';
 import { and, asc, desc, eq, exists, isNotNull, type SQL } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
@@ -171,19 +172,11 @@ export async function insertMessages(db: DbHandle, rows: MessageInsert[]): Promi
 export function messageText(content: unknown): string | null {
   if (Array.isArray(content)) {
     const parts = (content as unknown[]).flatMap((part) =>
-      typeof part === 'object' &&
-      part !== null &&
-      'type' in part &&
-      part.type === 'text' &&
-      'text' in part &&
-      typeof part.text === 'string'
-        ? [part.text]
-        : [],
+      isRecord(part) && part.type === 'text' && typeof part.text === 'string' ? [part.text] : [],
     );
     return parts.length > 0 ? parts.join('\n') : null;
   }
-  if (typeof content !== 'object' || content === null || !('text' in content)) return null;
-  return typeof content.text === 'string' ? content.text : null;
+  return isRecord(content) && typeof content.text === 'string' ? content.text : null;
 }
 
 export async function listConversationMessageUuids(

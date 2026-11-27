@@ -1,4 +1,8 @@
-import { KNOWLEDGE_DOCUMENT_TITLE_MAX_CHARS } from '@agentport/shared';
+import {
+  ADMIN_PAGE_LIMIT_MAX,
+  KNOWLEDGE_DOCUMENT_TITLE_MAX_CHARS,
+  PAGE_LIMIT_DEFAULT,
+} from '@agentport/shared';
 import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../../client.js';
 import {
@@ -63,7 +67,7 @@ export interface PageOptions {
 }
 
 export function pageLimit(options: PageOptions): number {
-  return Math.min(Math.max(options.limit ?? 50, 1), 200);
+  return Math.min(Math.max(options.limit ?? PAGE_LIMIT_DEFAULT, 1), ADMIN_PAGE_LIMIT_MAX);
 }
 
 export function readableDocumentSql(alias: string): SQL {

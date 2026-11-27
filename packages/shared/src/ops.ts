@@ -28,11 +28,13 @@ export const scheduleTimezoneSchema = z
   .min(1, '无效的时区')
   .refine((timeZone) => timeZone === 'UTC' || ianaTimeZones.has(timeZone), '无效的时区');
 
+export const DEFAULT_TIMEZONE = 'Asia/Shanghai';
+
 export const scheduleInputSchema = z.object({
   agentId: z.string().min(1),
   name: z.string().min(1).max(120),
   cron: cronSchema,
-  timezone: scheduleTimezoneSchema.default('Asia/Shanghai'),
+  timezone: scheduleTimezoneSchema.default(DEFAULT_TIMEZONE),
   missedPolicy: scheduleMissedPolicySchema.default('skip'),
   prompt: z.string().min(1).max(8000),
   enabled: z.boolean().default(true),
@@ -148,6 +150,12 @@ export function utcMonthStart(now = new Date()): Date {
 }
 
 export const RETENTION_DEFAULTS = { runDays: 90, messageDays: 30, agentVersions: 50 } as const;
+
+export const ALERT_DEFAULTS = {
+  runFailures: { enabled: true, threshold: 5, windowMinutes: 30 },
+  queueFailed: { enabled: true, threshold: 1 },
+  queueWaiting: { enabled: true, threshold: 100 },
+} as const;
 
 export const retentionSettingsSchema = z.object({
   runDays: z.number().int().positive(),

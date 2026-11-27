@@ -11,11 +11,11 @@ import type {
   KnowledgeImageProcessingPatch,
   ResourceAccessFilter,
 } from '@agentport/shared';
-import { knowledgeBaseSettingsSchema } from '@agentport/shared';
+import { knowledgeBaseSettingsSchema, supportsKnowledgeImageVectors } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
 import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
-import { ensureKnowledgeServer, supportsImageVectors } from '../service.js';
+import { ensureKnowledgeServer } from '../service.js';
 import { CHUNK_OVERLAP_INVALID_MESSAGE, type KnowledgeDeps, notFound } from './shared.js';
 
 type BaseRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getBase>>>;
@@ -50,7 +50,12 @@ async function imageSettingsProblem(
   if (!settings.imageProcessing.enabled) return null;
   if (
     !settings.imageProcessing.imageVectorEnabled ||
-    (embedding.enabled && supportsImageVectors(embedding))
+    (embedding.enabled &&
+      supportsKnowledgeImageVectors({
+        protocol: embedding.embeddingProtocol,
+        model: embedding.model,
+        supportsImageInput: embedding.imageInputEnabled,
+      }))
   )
     return null;
   return (

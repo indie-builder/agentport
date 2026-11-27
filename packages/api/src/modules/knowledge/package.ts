@@ -31,6 +31,7 @@ import {
   knowledgeWikiGeneratedBySchema,
   knowledgeWikiPageStatusSchema,
   slugSchema,
+  supportsKnowledgeImageVectors,
 } from '@agentport/shared';
 import { and, eq, inArray } from 'drizzle-orm';
 import { zipSync } from 'fflate';
@@ -46,7 +47,7 @@ import {
   ZIP_CORRUPT_MESSAGE,
   type ZipReadLimits,
 } from '../../lib/package-zip.js';
-import { storeBlob as storeDocumentBlob, supportsImageVectors } from './service.js';
+import { storeBlob as storeDocumentBlob } from './service.js';
 import { CHUNK_OVERLAP_INVALID_MESSAGE } from './use-cases/shared.js';
 
 type Db = Database;
@@ -892,7 +893,11 @@ export async function importKnowledgePackage(
   }
   if (
     manifest.base.settings.imageProcessing.imageVectorEnabled &&
-    !supportsImageVectors(embedding)
+    !supportsKnowledgeImageVectors({
+      protocol: embedding.embeddingProtocol,
+      model: embedding.model,
+      supportsImageInput: embedding.imageInputEnabled,
+    })
   ) {
     fail(
       'CONFLICT',

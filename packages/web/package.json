@@ -46,7 +46,7 @@
     "zustand": "^5.1.0"
   },
   "devDependencies": {
-    "@orpc/contract": "1.16.6",
+    "@orpc/contract": "catalog:",
     "@tailwindcss/vite": "4.3.5",
     "@tanstack/router-plugin": "1.169.0",
     "@types/node": "catalog:",

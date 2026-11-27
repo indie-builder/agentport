@@ -5,6 +5,7 @@ import type {
   KnowledgeModelProfileKind,
 } from '@agentport/shared';
 import {
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
   knowledgeBaseStatusSchema,
   knowledgeEmbeddingProtocolSchema,
   knowledgeModelProfileKindSchema,
@@ -60,7 +61,7 @@ export const knowledgeModelProfiles = pgTable(
     ),
     check(
       'knowledge_model_profiles_dimensions_check',
-      sql`(${t.kind} = 'embedding' and ${t.dimensions} = 1024) or (${t.kind} in ('rerank', 'asr') and ${t.dimensions} is null)`,
+      sql`(${t.kind} = 'embedding' and ${t.dimensions} = ${sql.raw(String(KNOWLEDGE_EMBEDDING_DIMENSIONS))}) or (${t.kind} in ('rerank', 'asr') and ${t.dimensions} is null)`,
     ),
     check(
       'knowledge_model_profiles_embedding_protocol_check',

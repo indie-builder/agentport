@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { channelRoleSchema } from './channels.js';
 import { apiToolApprovalModeSchema } from './mcp.js';
 
 export const contentPolicyDirectionSchema = z.enum(['inbound', 'outbound']);
@@ -141,11 +142,11 @@ export const violationCaseUpdateSchema = z.object({
 });
 export type ViolationCaseUpdate = z.infer<typeof violationCaseUpdateSchema>;
 
-export const toolApprovalRoleSchema = z
-  .string()
-  .regex(
-    /^(platform:[A-Za-z0-9_]+|agent:(owner|maintainer|user)|channel:(owner|admin|member|viewer)|service:(system|mcp))$/,
-  );
+const toolApprovalRolePattern = new RegExp(
+  `^(platform:[A-Za-z0-9_]+|agent:(owner|maintainer|user)|channel:(${channelRoleSchema.options.join('|')})|service:(system|mcp))$`,
+);
+
+const toolApprovalRoleSchema = z.string().regex(toolApprovalRolePattern);
 
 export const toolApprovalMethodSchema = z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 export type ToolApprovalMethod = z.infer<typeof toolApprovalMethodSchema>;

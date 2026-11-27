@@ -6,6 +6,7 @@ import {
 } from '@agentport/core';
 import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { type Database, repo } from '@agentport/db';
+import { utcMonthStart } from '@agentport/shared';
 import type { Config } from './config.js';
 import type { ProviderResolution } from './model-proxy.js';
 
@@ -48,8 +49,7 @@ export async function resolveProviderUpstreams(
     return destination === undefined ? { routed: false } : { routed: true, blocked: true };
   }
 
-  const now = new Date();
-  const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const month = utcMonthStart();
   const candidates = await Promise.all(
     providers.map(async (provider) => {
       if (provider.monthlyBudgetUsd !== null) {

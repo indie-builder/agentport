@@ -5,9 +5,9 @@ import { repo, type schema } from '@agentport/db';
 import {
   generatedMcpEntry,
   knowledgeMcpEntry,
-  PREVIEW_SECRET,
   type PreviewMcpJsonArtifactEntry,
   previewMcpEntry,
+  SECRET_MASK,
 } from '@agentport/shared';
 import type { AppContext } from '../../http/context.js';
 import { decryptSecrets } from '../servers/secrets.js';
@@ -21,7 +21,7 @@ function maskValues(keys: string[], omitAuthorization = false): Record<string, s
   return Object.fromEntries(
     keys
       .filter((key) => !(omitAuthorization && key.toLowerCase() === 'authorization'))
-      .map((key) => [key, PREVIEW_SECRET]),
+      .map((key) => [key, SECRET_MASK]),
   );
 }
 function toEntry(row: ServerRow, secretKeys: string[]): PreviewMcpJsonArtifactEntry {

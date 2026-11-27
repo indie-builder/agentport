@@ -1,8 +1,10 @@
 import type { KnowledgeBase, KnowledgeBaseSettings } from '@agentport/shared';
 import {
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
   knowledgeEmbeddingProtocolSchema,
   knowledgeImageProcessingSchema,
   knowledgeModelProfileKindSchema,
+  supportsKnowledgeImageVectors,
 } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Cpu } from 'lucide-react';
@@ -856,7 +858,7 @@ export function KnowledgeProfilesDialog({
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {profile.kind === 'embedding'
-                          ? `维度固定 1024 · ${profile.embeddingProtocol === 'cohere_v2' ? 'Cohere v2' : 'OpenAI'}`
+                          ? `维度固定 ${KNOWLEDGE_EMBEDDING_DIMENSIONS} · ${profile.embeddingProtocol === knowledgeEmbeddingProtocolSchema.enum.cohere_v2 ? 'Cohere v2' : 'OpenAI'}`
                           : profile.kind === 'rerank'
                             ? '无维度'
                             : 'OpenAI 转录（段级时间） · 请通过上传音频验证'}{' '}
@@ -988,7 +990,9 @@ function ProfileForm({
   const { errors, dirtyFields, isSubmitting } = formState;
   const [kind, protocol, model] = watch(['kind', 'protocol', 'model']);
   const busy = isSubmitting;
-  const imageCapable = kind === 'embedding' && protocol === 'cohere_v2' && model === 'embed-v4.0';
+  const imageCapable =
+    kind === 'embedding' &&
+    supportsKnowledgeImageVectors({ protocol, model, supportsImageInput: true });
   const dirty =
     Object.entries(dirtyFields).some(([key, value]) => key !== 'enabled' && Boolean(value)) ||
     (kind === 'asr' && Boolean(dirtyFields.enabled));
@@ -999,8 +1003,11 @@ function ProfileForm({
   const save = handleSubmit(async (values: ProfileFormValues) => {
     const imgCapable =
       values.kind === 'embedding' &&
-      values.protocol === 'cohere_v2' &&
-      values.model === 'embed-v4.0';
+      supportsKnowledgeImageVectors({
+        protocol: values.protocol,
+        model: values.model,
+        supportsImageInput: true,
+      });
     const input = {
       name: values.name.trim(),
       endpointUrl: values.endpointUrl.trim(),
@@ -1128,7 +1135,8 @@ function ProfileForm({
                   value={field.value}
                   disabled={busy}
                   onValueChange={(next) => {
-                    if (next === 'openai' || next === 'cohere_v2') field.onChange(next);
+                    const parsed = knowledgeEmbeddingProtocolSchema.safeParse(next);
+                    if (parsed.success) field.onChange(parsed.data);
                   }}
                   items={[
                     { value: 'openai', label: 'OpenAI' },
@@ -1191,8 +1199,8 @@ function ProfileForm({
           </Field>
           <FieldDescription>
             {imageCapable
-              ? 'Embedding 维度固定 1024，不可配置。'
-              : '仅 Cohere v2 协议的 embed-v4.0 支持图片输入；维度固定 1024。'}
+              ? `Embedding 维度固定 ${KNOWLEDGE_EMBEDDING_DIMENSIONS}，不可配置。`
+              : `仅 Cohere v2 协议的 embed-v4.0 支持图片输入；维度固定 ${KNOWLEDGE_EMBEDDING_DIMENSIONS}。`}
           </FieldDescription>
         </>
       ) : null}

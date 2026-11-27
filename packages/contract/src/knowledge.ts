@@ -10,6 +10,7 @@ import {
   knowledgeBaseSettingsSchema,
   knowledgeBaseStatusSchema,
   knowledgeBaseSummarySchema,
+  knowledgeChunkKindSchema,
   knowledgeChunkSchema,
   knowledgeDocumentSchema,
   knowledgeDocumentStatusSchema,
@@ -340,7 +341,7 @@ const urlSchema = z.object({
 
 const chunkCreateSchema = z.object({
   expectedVersionId: z.string().min(1),
-  kind: z.enum(['text', 'table', 'image']).default('text'),
+  kind: knowledgeChunkKindSchema.default('text'),
   heading: z.string().max(300).nullable().default(null),
   content: z.string().min(1).max(100_000),
   enabled: z.boolean().default(true),

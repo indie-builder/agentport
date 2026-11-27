@@ -6,6 +6,7 @@ import type {
   KnowledgeSourceType,
 } from '@agentport/shared';
 import {
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
   knowledgeChunkIndexRoleSchema,
   knowledgeChunkKindSchema,
   knowledgeContentKindSchema,
@@ -243,7 +244,7 @@ export const knowledgeChunks = pgTable(
     searchVector: tsvector('search_vector').generatedAlwaysAs(
       sql`to_tsvector('simple', search_text)`,
     ),
-    embedding: vector('embedding', { dimensions: 1024 }),
+    embedding: vector('embedding', { dimensions: KNOWLEDGE_EMBEDDING_DIMENSIONS }),
     enabled: boolean('enabled').notNull().default(true),
     editedByUser: boolean('edited_by_user').notNull().default(false),
     pageFrom: integer('page_from'),

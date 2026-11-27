@@ -1,4 +1,5 @@
 import { AppError } from '@agentport/core';
+import { isRecord } from '@agentport/core/record';
 import type {
   AccessFilter,
   AgentDefinition,
@@ -7,6 +8,7 @@ import type {
   ResolvedRuntimeEnvironment,
   RunErrorKind,
   RunStatus,
+  RunStep,
   RunTrigger,
 } from '@agentport/shared';
 import {
@@ -79,20 +81,6 @@ export interface RunDetailRow extends RunListItem {
   sandboxId: string | null;
   runtimeEnvironment: ResolvedRuntimeEnvironment | null;
 }
-
-export type RunStep =
-  | { kind: 'user'; at: string; text: string; messageId?: string }
-  | { kind: 'assistant'; at: string; text: string; messageId?: string }
-  | {
-      kind: 'tool';
-      at: string;
-      name: string | null;
-      toolUseId: string | null;
-      content: unknown;
-      result?: unknown;
-      parentToolUseId: string | null;
-      question?: PublicRunQuestion;
-    };
 
 export function mergeToolSteps(steps: RunStep[]): RunStep[] {
   const merged: RunStep[] = [];
@@ -350,15 +338,9 @@ export async function personalUsageSummary(
   };
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
-}
-
 function questionOf(content: Record<string, unknown>): PublicRunQuestion | undefined {
   const question = content.question;
-  return typeof question === 'object' && question !== null
-    ? (question as PublicRunQuestion)
-    : undefined;
+  return isRecord(question) ? (question as PublicRunQuestion) : undefined;
 }
 
 export function toStep(message: {
@@ -367,7 +349,7 @@ export function toStep(message: {
   content: unknown;
   createdAt: Date;
 }): RunStep | null {
-  const content = asRecord(message.content);
+  const content = isRecord(message.content) ? message.content : null;
   const at = message.createdAt.toISOString();
   const text = messageText(message.content);
   const messageId = message.id === undefined ? {} : { messageId: message.id };

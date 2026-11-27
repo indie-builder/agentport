@@ -127,15 +127,3 @@ export async function storeBlob(knowledgeDir: string, data: Uint8Array): Promise
   await writeKnowledgeBlob(knowledgeDir, sha, data);
   return sha;
 }
-
-export function supportsImageVectors(profile: {
-  embeddingProtocol: string;
-  model: string;
-  imageInputEnabled: boolean;
-}): boolean {
-  return (
-    profile.embeddingProtocol === 'cohere_v2' &&
-    profile.model === 'embed-v4.0' &&
-    profile.imageInputEnabled
-  );
-}

@@ -259,7 +259,7 @@ export type Skill = z.infer<typeof skillSchema>;
 
 export const AGENT_WORKFLOW_CONTENT_MAX = 131_072;
 const AGENT_WORKFLOW_NAME_MAX = 200;
-export const AGENT_WORKFLOW_DESCRIPTION_MAX = 2_000;
+const AGENT_WORKFLOW_DESCRIPTION_MAX = 2_000;
 
 export const agentWorkflowInputSchema = z.object({
   slug: slugSchema,
@@ -284,7 +284,7 @@ export const agentWorkflowSchema = agentWorkflowInputSchema.and(
 export type AgentWorkflow = z.infer<typeof agentWorkflowSchema>;
 
 export const AGENT_HOOK_CONTENT_MAX = 200_000;
-export const AGENT_HOOKS_CONFIG_MAX = 65_536;
+const AGENT_HOOKS_CONFIG_MAX = 65_536;
 export const AGENT_HOOK_FILE_LIMIT = 50;
 
 export const agentHookFilePathSchema = z

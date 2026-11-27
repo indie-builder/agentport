@@ -9,10 +9,14 @@ import {
 } from '@agentport/core';
 import { assertSafeUrl } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
-import type { KnowledgeEmbeddingProtocol, KnowledgeModelProfileKind } from '@agentport/shared';
+import {
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
+  type KnowledgeEmbeddingProtocol,
+  type KnowledgeModelProfileKind,
+  supportsKnowledgeImageVectors,
+} from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
-import { supportsImageVectors } from '../service.js';
 import { type KnowledgeDeps, notFound } from './shared.js';
 
 type ProfileRow = Awaited<ReturnType<typeof repo.knowledge.listModelProfiles>>[number];
@@ -73,7 +77,13 @@ function imageCapabilityProblem(input: {
   if (!input.imageInputEnabled) return null;
   if (input.kind === 'asr') return 'ASR profile 不支持图片输入';
   if (input.kind !== 'embedding') return '只有 embedding profile 可以开启图片输入';
-  if (!supportsImageVectors(input)) {
+  if (
+    !supportsKnowledgeImageVectors({
+      protocol: input.embeddingProtocol,
+      model: input.model,
+      supportsImageInput: input.imageInputEnabled,
+    })
+  ) {
     return '图片输入需要 embeddingProtocol=cohere_v2 且 model=embed-v4.0';
   }
   return null;
@@ -87,7 +97,14 @@ export async function listModelProfiles(deps: KnowledgeDeps, view: 'selection' |
     name: row.name,
     kind: row.kind,
     enabled: row.enabled,
-    supportsImageVectors: row.kind === 'embedding' && row.enabled && supportsImageVectors(row),
+    supportsImageVectors:
+      row.kind === 'embedding' &&
+      row.enabled &&
+      supportsKnowledgeImageVectors({
+        protocol: row.embeddingProtocol,
+        model: row.model,
+        supportsImageInput: row.imageInputEnabled,
+      }),
   }));
 }
 
@@ -115,7 +132,7 @@ export async function createModelProfile(
       model: input.model,
       embeddingProtocol: input.embeddingProtocol,
       imageInputEnabled: input.imageInputEnabled,
-      dimensions: input.kind === 'embedding' ? 1024 : null,
+      dimensions: input.kind === 'embedding' ? KNOWLEDGE_EMBEDDING_DIMENSIONS : null,
       secretsEncrypted: input.apiKey
         ? await encryptSecrets({ apiKey: input.apiKey }, deps.config.APP_SECRET_KEY)
         : null,
@@ -227,7 +244,7 @@ export async function testModelProfile(
       const embeddingProfile = {
         endpointUrl: row.endpointUrl,
         model: row.model,
-        dimensions: 1024 as const,
+        dimensions: KNOWLEDGE_EMBEDDING_DIMENSIONS,
         embeddingProtocol: row.embeddingProtocol,
         imageInputEnabled: row.imageInputEnabled,
         ...(apiKey ? { apiKey } : {}),

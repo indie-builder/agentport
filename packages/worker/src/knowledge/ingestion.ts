@@ -26,9 +26,11 @@ import type {
 } from '@agentport/shared';
 import {
   errorText,
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
   knowledgeBaseSettingsSchema,
   knowledgeImageChunkMetadataSchema,
   knowledgeJobPayloadSchema,
+  supportsKnowledgeImageVectors,
 } from '@agentport/shared';
 import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import pLimit from 'p-limit';
@@ -323,17 +325,18 @@ async function embeddingClient(deps: KnowledgeDeps, profileId: string): Promise<
   const settings = {
     endpointUrl: profile.endpointUrl,
     model: profile.model,
-    dimensions: 1024 as const,
+    dimensions: KNOWLEDGE_EMBEDDING_DIMENSIONS,
     ...(apiKey ? { apiKey } : {}),
     embeddingProtocol: profile.embeddingProtocol,
     imageInputEnabled: profile.imageInputEnabled,
   };
   return {
     profileId: profile.id,
-    imageVectors:
-      profile.embeddingProtocol === 'cohere_v2' &&
-      profile.model === 'embed-v4.0' &&
-      profile.imageInputEnabled,
+    imageVectors: supportsKnowledgeImageVectors({
+      protocol: profile.embeddingProtocol,
+      model: profile.model,
+      supportsImageInput: profile.imageInputEnabled,
+    }),
     embed: (texts, signal) => withModelRetry(() => embedTexts(settings, texts, signal), signal),
     embedImage: async (image, signal) =>
       withModelRetry(async () => {

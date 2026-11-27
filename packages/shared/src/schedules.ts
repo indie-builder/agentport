@@ -3,8 +3,6 @@ import { DEFAULT_JOB_RETENTION } from './run-stream.js';
 
 export const SCHEDULE_TRIGGERS_QUEUE = 'schedule-triggers';
 
-export const AGENT_RUNS_BACKLOG_LIMIT = 100;
-
 export const scheduleTriggerJobSchema = z.object({
   scheduleId: z.string().min(1),
   runId: z.string().optional(),

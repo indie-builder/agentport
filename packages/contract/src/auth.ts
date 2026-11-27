@@ -1,5 +1,4 @@
 import {
-  ACCESS_SCOPES,
   accessScopeSchema,
   accountCreateSchema,
   accountPasswordSchema,
@@ -145,9 +144,7 @@ export const authContract = {
           scopes: z.array(accessScopeSchema),
         }),
       ),
-      scopes: z.array(
-        z.object({ id: z.enum(ACCESS_SCOPES.map((scope) => scope.id)), label: z.string() }),
-      ),
+      scopes: z.array(z.object({ id: accessScopeSchema, label: z.string() })),
     }),
   ),
 };

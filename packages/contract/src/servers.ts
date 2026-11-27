@@ -9,6 +9,7 @@ import {
   idParams,
   pageQuerySchema,
   serverInputSchema,
+  serverKindSchema,
   serverSchema,
   serverTestResultSchema,
   stdioServerSchema,
@@ -19,9 +20,11 @@ import { domainErrors } from './errors.js';
 
 const serversProcedure = contractProcedure.errors(domainErrors('AGENT_DISABLED'));
 
+const editableServerKindSchema = serverKindSchema.extract(['stdio', 'http', 'generated']);
+
 const toolParams = idParams.extend({ toolId: z.string().min(1) });
 const serverPatchSchema = z.object({
-  kind: z.enum(['stdio', 'http', 'generated']).optional(),
+  kind: editableServerKindSchema.optional(),
   name: stdioServerSchema.shape.name.optional(),
   description: stdioServerSchema.shape.description.removeDefault().optional(),
   command: stdioServerSchema.shape.command.optional(),
@@ -54,7 +57,7 @@ const serverTestBodySchema = z
 const importedServerSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
-  kind: z.enum(['stdio', 'http', 'generated']),
+  kind: editableServerKindSchema,
   secretKeys: z.array(z.string()),
 });
 const readServers = serversProcedure.meta({

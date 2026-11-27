@@ -1,4 +1,5 @@
 import { AppError } from '@agentport/core';
+import { isRecord } from '@agentport/core/record';
 import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -102,17 +103,14 @@ function readHttpCatalog(config: Record<string, unknown>): Array<{
   const catalog = config.toolCatalog;
   if (!Array.isArray(catalog)) return [];
   return catalog.flatMap((item) => {
-    if (typeof item !== 'object' || item === null) return [];
-    const { name, description, inputSchema } = item as Record<string, unknown>;
+    if (!isRecord(item)) return [];
+    const { name, description, inputSchema } = item;
     if (typeof name !== 'string') return [];
     return [
       {
         name,
         description: typeof description === 'string' ? description : '',
-        inputSchema:
-          typeof inputSchema === 'object' && inputSchema !== null
-            ? (inputSchema as Record<string, unknown>)
-            : { type: 'object', properties: {} },
+        inputSchema: isRecord(inputSchema) ? inputSchema : { type: 'object', properties: {} },
         approvalMode: 'allow',
       },
     ];

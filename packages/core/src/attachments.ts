@@ -26,6 +26,7 @@ import {
 import * as Bun from 'bun';
 import { AGENT_DIR_SLUG_INVALID_MESSAGE } from './domain-messages.js';
 import { fail } from './errors.js';
+import { sha256Hex } from './hash.js';
 import { pathSegmentsProblem } from './path-segments.js';
 
 const INPUTS_DIR = 'conversation-inputs';
@@ -184,7 +185,7 @@ export function decodeAttachmentInput(input: ChatAttachmentInput): DecodedConver
     filename,
     mimeType,
     size: data.length,
-    sha256: new Bun.CryptoHasher('sha256').update(data).digest('hex'),
+    sha256: sha256Hex(data),
     extension: attachmentExtension(mimeType),
     data,
   };

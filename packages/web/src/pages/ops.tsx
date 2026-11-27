@@ -1,6 +1,7 @@
 import {
   type AgentSummary,
   type CursorPage,
+  DEFAULT_TIMEZONE,
   type Schedule,
   type ScheduleInput,
   scheduleInputSchema,
@@ -170,7 +171,7 @@ const emptyScheduleForm: ScheduleFormValues = {
   agentId: '',
   name: '',
   cron: '',
-  timezone: 'Asia/Shanghai',
+  timezone: DEFAULT_TIMEZONE,
   missedPolicy: 'skip',
   prompt: '',
   enabled: true,

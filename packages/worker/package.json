@@ -14,14 +14,14 @@
     "@agentport/core": "workspace:*",
     "@agentport/db": "workspace:*",
     "@agentport/shared": "workspace:*",
-    "@anthropic-ai/claude-agent-sdk": "0.3.332",
+    "@anthropic-ai/claude-agent-sdk": "catalog:",
     "bullmq": "catalog:",
-    "csv-parse": "7.0.3",
+    "csv-parse": "catalog:",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "feedsmith": "3.1.0",
-    "mdast-util-from-markdown": "2.1.0",
-    "p-limit": "7.3.3",
+    "mdast-util-from-markdown": "catalog:",
+    "p-limit": "catalog:",
     "pino": "catalog:",
     "sharp": "0.35.5",
     "turndown": "7.2.5",
@@ -31,6 +31,6 @@
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@types/turndown": "5.0.6",
-    "nodemon": "3.1.14"
+    "nodemon": "catalog:"
   }
 }

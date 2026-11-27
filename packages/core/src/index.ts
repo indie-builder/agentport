@@ -42,7 +42,7 @@ export {
 } from './domain-messages.js';
 export { DbError, isRetryableFailure, RunFailure, runProgram } from './effect-runtime.js';
 export { AppError, fail, isAppError, notFound } from './errors.js';
-export { sha256Hex } from './hash.js';
+export { hashMcpToken, sha256Hex } from './hash.js';
 export { readCappedBytes, readCappedText } from './http-body.js';
 export { inspectKnowledgeAudio } from './knowledge-audio.js';
 export { ensureKnowledgeBlob, writeKnowledgeBlob } from './knowledge-blobs.js';
@@ -86,7 +86,6 @@ export {
 } from './knowledge-paths.js';
 export { visibleDocumentSummary } from './knowledge-summary.js';
 export { parseMcpJson } from './mcp-json.js';
-export { hashMcpToken } from './mcp-token.js';
 export { reviewAnchorMissingMessage, selectReviewWindow } from './memory-review-window.js';
 export {
   parseChildAgentMd,
