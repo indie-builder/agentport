@@ -20,11 +20,19 @@ import {
 
 const IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const MODEL = 'claude-sonnet-5-5';
-const SDK_VERSION = (
+const sandboxPkgSdkVersion = (
   JSON.parse(readFileSync(new URL('../../../sandbox/package.json', import.meta.url), 'utf8')) as {
     dependencies: Record<string, string>;
   }
 ).dependencies['@anthropic-ai/claude-agent-sdk'];
+const SDK_VERSION =
+  sandboxPkgSdkVersion === 'catalog:'
+    ? (
+        JSON.parse(readFileSync(new URL('../../../../package.json', import.meta.url), 'utf8')) as {
+          workspaces: { catalog: Record<string, string> };
+        }
+      ).workspaces.catalog['@anthropic-ai/claude-agent-sdk']
+    : sandboxPkgSdkVersion;
 export const SUBAGENT_MEMORY_ROOT = '/workspace/.claude/agent-memory';
 const REPO_ROOT = Bun.fileURLToPath(new URL('../../../..', import.meta.url));
 

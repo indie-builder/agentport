@@ -111,10 +111,41 @@ const fixtures = [
     expected: ['web 禁止引入 @agentport/core', '只允许 @agentport/core/workspace'],
   },
   {
+    name: 'web 引 @agentport/sandbox',
+    rule: 'web-server-import',
+    files: {
+      'packages/web/src/lib/sandbox.ts': "import { probe } from '@agentport/sandbox';\n",
+    },
+    expected: ['web 禁止引入 @agentport/sandbox'],
+  },
+  {
+    name: 'web 动态 import @agentport/db',
+    rule: 'web-server-import',
+    files: {
+      'packages/web/src/lib/agents.ts': "export const load = () => import('@agentport/db');\n",
+    },
+    expected: ['web 禁止引入 @agentport/db'],
+  },
+  {
+    name: 'web 动态 import @radix-ui',
+    rule: 'web-banned-primitive',
+    files: {
+      'packages/web/src/components/dialog.tsx':
+        "export const load = () => import('@radix-ui/react-dialog');\n",
+    },
+    expected: ['引入 @radix-ui/react-dialog'],
+  },
+  {
     name: 'shared 跨层 import',
     rule: 'shared-import',
     files: { 'packages/shared/src/fs.ts': "import { readFileSync } from 'node:fs';\n" },
     expected: ['shared 禁止引入 node:fs', 'packages/shared 只允许依赖 zod 与包内相对路径'],
+  },
+  {
+    name: 'shared 动态 import node:fs',
+    rule: 'shared-import',
+    files: { 'packages/shared/src/fs.ts': "export const load = () => import('node:fs');\n" },
+    expected: ['shared 禁止引入 node:fs'],
   },
   {
     name: 'contract 跨层 import',
@@ -126,10 +157,374 @@ const fixtures = [
     ],
   },
   {
+    name: 'contract 引 @agentport/web 与 @agentport/sandbox',
+    rule: 'contract-import',
+    files: {
+      'packages/contract/src/a.ts': "import { x } from '@agentport/web';\n",
+      'packages/contract/src/b.ts': "export const load = () => import('@agentport/sandbox');\n",
+    },
+    expected: ['contract 禁止引入 @agentport/web', 'contract 禁止引入 @agentport/sandbox'],
+  },
+  {
     name: 'db 跨层 import',
     rule: 'db-import',
     files: { 'packages/db/src/repo/agent.ts': "import { Hono } from 'hono';\n" },
     expected: ['db 禁止引入 hono', 'db 模块边界只使用 drizzle-orm/bun-sql'],
+  },
+  {
+    name: 'db 引 @agentport/contract、@agentport/web 与 @agentport/sandbox',
+    rule: 'db-import',
+    files: {
+      'packages/db/src/repo/a.ts': "import { c } from '@agentport/contract';\n",
+      'packages/db/src/repo/b.ts': "import { w } from '@agentport/web';\n",
+      'packages/db/src/repo/c.ts': "export const load = () => import('@agentport/sandbox');\n",
+      'packages/db/src/repo/d.ts': "export const loadHono = () => require('hono');\n",
+    },
+    expected: [
+      'db 禁止引入 @agentport/contract',
+      'db 禁止引入 @agentport/web',
+      'db 禁止引入 @agentport/sandbox',
+      'db 禁止引入 hono',
+    ],
+  },
+  {
+    name: 'core 引 @agentport/db',
+    rule: 'core-import',
+    files: { 'packages/core/src/bad.ts': "import { repo } from '@agentport/db';\n" },
+    expected: ['core 禁止引入 @agentport/db', 'packages/core 只允许依赖 @agentport/shared'],
+  },
+  {
+    name: 'core 引 @agentport/sandbox',
+    rule: 'core-import',
+    files: { 'packages/core/src/bad.ts': "import { run } from '@agentport/sandbox/runner';\n" },
+    expected: ['core 禁止引入 @agentport/sandbox/runner'],
+  },
+  {
+    name: 'core 动态 import @agentport/db',
+    rule: 'core-import',
+    files: { 'packages/core/src/bad.ts': "export const load = () => import('@agentport/db');\n" },
+    expected: ['core 禁止引入 @agentport/db'],
+  },
+  {
+    name: 'worker 引 @agentport/api',
+    rule: 'worker-import',
+    files: { 'packages/worker/src/bad.ts': "import { app } from '@agentport/api';\n" },
+    expected: ['worker 禁止引入 @agentport/api', 'packages/worker 只允许依赖 @agentport/core'],
+  },
+  {
+    name: 'worker 引 @agentport/sandbox',
+    rule: 'worker-import',
+    files: { 'packages/worker/src/bad.ts': "import { probe } from '@agentport/sandbox/probe';\n" },
+    expected: ['worker 禁止引入 @agentport/sandbox/probe'],
+  },
+  {
+    name: 'worker 动态 import @agentport/api',
+    rule: 'worker-import',
+    files: {
+      'packages/worker/src/bad.ts': "export const load = () => import('@agentport/api');\n",
+    },
+    expected: ['worker 禁止引入 @agentport/api'],
+  },
+  {
+    name: 'sandbox 引 @agentport/core',
+    rule: 'sandbox-import',
+    files: { 'packages/sandbox/src/runner.ts': "import { fail } from '@agentport/core';\n" },
+    expected: ['sandbox 禁止引入 @agentport/core', 'packages/sandbox 只允许依赖 @agentport/shared'],
+  },
+  {
+    name: 'sandbox 引 @agentport/db',
+    rule: 'sandbox-import',
+    files: { 'packages/sandbox/src/probe.ts': "import { repo } from '@agentport/db';\n" },
+    expected: ['sandbox 禁止引入 @agentport/db'],
+  },
+  {
+    name: 'sandbox 动态 import @agentport/core',
+    rule: 'sandbox-import',
+    files: {
+      'packages/sandbox/src/runner.ts': "export const load = () => import('@agentport/core');\n",
+    },
+    expected: ['sandbox 禁止引入 @agentport/core'],
+  },
+  {
+    name: 'api 跨层 import @agentport/{worker,sandbox,web}',
+    rule: 'api-import',
+    files: {
+      'packages/api/src/a.ts': "import { run } from '@agentport/worker';\n",
+      'packages/api/src/b.ts': "import { probe } from '@agentport/sandbox/probe';\n",
+      'packages/api/src/c.ts': "import { App } from '@agentport/web';\n",
+      'packages/api/src/d.ts': "export const load = () => import('@agentport/worker');\n",
+      'packages/api/src/e.ts': "export const req = () => require('@agentport/sandbox');\n",
+    },
+    expected: [
+      'packages/api/src/a.ts:1: api 禁止引入 @agentport/worker',
+      'packages/api/src/b.ts:1: api 禁止引入 @agentport/sandbox/probe',
+      'packages/api/src/c.ts:1: api 禁止引入 @agentport/web',
+      'packages/api/src/d.ts:1: api 禁止引入 @agentport/worker',
+      'packages/api/src/e.ts:1: api 禁止引入 @agentport/sandbox',
+      'packages/api 只允许依赖 @agentport/contract、@agentport/core、@agentport/db 与 @agentport/shared',
+    ],
+  },
+  {
+    name: '文件级循环依赖（相对导入三元环）',
+    rule: 'file-cycle',
+    files: {
+      'packages/core/src/a.ts': "import { b } from './b.js';\nexport const a = () => b;\n",
+      'packages/core/src/b.ts': "import { c } from './c.js';\nexport const b = () => c;\n",
+      'packages/core/src/c.ts': "import { a } from './a.js';\nexport const c = () => a;\n",
+    },
+    expected: [
+      '发现文件级循环依赖：packages/core/src/a.ts -> packages/core/src/b.ts -> packages/core/src/c.ts -> packages/core/src/a.ts',
+    ],
+  },
+  {
+    name: '文件级循环依赖（web @/ 别名与跨包 @agentport/*）',
+    rule: 'file-cycle',
+    files: {
+      'packages/web/src/a.tsx': "import { b } from '@/b';\nexport const A = () => b;\n",
+      'packages/web/src/b.ts': "import { A } from './a';\nexport const b = A;\n",
+      'packages/core/src/x.ts': "import { s } from '@agentport/shared';\nexport const x = s;\n",
+      'packages/shared/src/index.ts':
+        "import { x } from '@agentport/core/x';\nexport const s = x;\n",
+    },
+    expected: [
+      '发现文件级循环依赖：packages/core/src/x.ts -> packages/shared/src/index.ts -> packages/core/src/x.ts',
+      '发现文件级循环依赖：packages/web/src/a.tsx -> packages/web/src/b.ts -> packages/web/src/a.tsx',
+    ],
+  },
+  {
+    name: 'API 业务域循环依赖（跨文件模块环）',
+    rule: 'api-module-cycle',
+    files: {
+      'packages/api/src/modules/alpha/a.ts':
+        "import { b } from '../beta/b.js';\nexport const a = b;\n",
+      'packages/api/src/modules/alpha/d.ts': 'export const d = 1;\n',
+      'packages/api/src/modules/beta/b.ts': 'export const b = 2;\n',
+      'packages/api/src/modules/beta/c.ts':
+        "import { d } from '../alpha/d.js';\nexport const c = d;\n",
+    },
+    expected: ['发现 API 业务域循环依赖：alpha -> beta -> alpha'],
+  },
+  {
+    name: 'Worker 子域循环依赖（跨文件子域环）',
+    rule: 'worker-domain-cycle',
+    files: {
+      'packages/worker/src/runs/a.ts':
+        "import { b } from '../scheduling/b.js';\nexport const a = b;\n",
+      'packages/worker/src/runs/d.ts': 'export const d = 1;\n',
+      'packages/worker/src/scheduling/b.ts': 'export const b = 2;\n',
+      'packages/worker/src/scheduling/c.ts':
+        "import { d } from '../runs/d.js';\nexport const c = d;\n",
+    },
+    expected: ['发现 Worker 子域循环依赖：runs -> scheduling -> runs'],
+  },
+  {
+    name: 'api http/lib/queue 禁止引入 modules',
+    rule: 'api-http-no-module-import',
+    files: {
+      'packages/api/src/http/mid.ts':
+        "import { run } from '../modules/chat/use-cases.js';\nexport const mid = run;\n",
+      'packages/api/src/lib/helper.ts':
+        "import { auth } from '../modules/auth/session.js';\nexport const helper = auth;\n",
+      'packages/api/src/queue/producer.ts':
+        "import { svc } from '../modules/agents/service.js';\nexport const p = svc;\n",
+    },
+    expected: [
+      'packages/api/src/http/mid.ts:1: 基础设施层禁止引入业务模块 ../modules/chat/use-cases.js',
+      'packages/api/src/lib/helper.ts:1: 基础设施层禁止引入业务模块 ../modules/auth/session.js',
+      'packages/api/src/queue/producer.ts:1: 基础设施层禁止引入业务模块 ../modules/agents/service.js',
+    ],
+  },
+  {
+    name: 'api http/lib/queue 动态 import modules',
+    rule: 'api-http-no-module-import',
+    files: {
+      'packages/api/src/http/mid.ts':
+        "export const load = () => import('../modules/chat/use-cases.js');\n",
+      'packages/api/src/lib/helper.ts':
+        "export const req = () => require('../modules/auth/session.js');\n",
+    },
+    expected: [
+      'packages/api/src/http/mid.ts:1: 基础设施层禁止引入业务模块 ../modules/chat/use-cases.js',
+      'packages/api/src/lib/helper.ts:1: 基础设施层禁止引入业务模块 ../modules/auth/session.js',
+    ],
+  },
+  {
+    name: 'api 禁止在 routes/index.ts 之外导入 router',
+    rule: 'api-no-cross-router-import',
+    files: {
+      'packages/api/src/modules/chat/use-cases.ts':
+        "import { agentsRouter } from '../agents/router.js';\nexport const r = agentsRouter;\n",
+      'packages/api/src/modules/chat/http.ts':
+        "import { chatRouter } from './router.ts';\nexport const r = chatRouter;\n",
+    },
+    expected: [
+      'packages/api/src/modules/chat/use-cases.ts:1: 禁止在 routes/index.ts 之外导入 ../agents/router.js',
+      'packages/api/src/modules/chat/http.ts:1: 禁止在 routes/index.ts 之外导入 ./router.ts',
+    ],
+  },
+  {
+    name: 'api routes/index.ts 之外动态 import router',
+    rule: 'api-no-cross-router-import',
+    files: {
+      'packages/api/src/modules/chat/use-cases.ts':
+        "export const load = () => import('../agents/router.js');\n",
+    },
+    expected: [
+      'packages/api/src/modules/chat/use-cases.ts:1: 禁止在 routes/index.ts 之外导入 ../agents/router.js',
+    ],
+  },
+  {
+    name: 'api 禁止直接静态导入 hono/body-limit',
+    rule: 'api-no-raw-hono-bodylimit',
+    files: {
+      'packages/api/src/modules/chat/http.ts':
+        "import { bodyLimit } from 'hono/body-limit';\nexport const limit = bodyLimit;\n",
+    },
+    expected: [
+      'packages/api/src/modules/chat/http.ts:1: 禁止直接导入 hono/body-limit（改用 packages/api/src/http/body-limit.ts 的 requestBodyLimit）',
+    ],
+  },
+  {
+    name: 'api 禁止直接动态导入 hono/body-limit',
+    rule: 'api-no-raw-hono-bodylimit',
+    files: {
+      'packages/api/src/modules/chat/http.ts':
+        "export const load = () => import('hono/body-limit');\n",
+    },
+    expected: [
+      'packages/api/src/modules/chat/http.ts:1: 禁止直接导入 hono/body-limit（改用 packages/api/src/http/body-limit.ts 的 requestBodyLimit）',
+    ],
+  },
+  {
+    name: 'api config.ts 之外禁止直接访问 process.env 或 Bun.env',
+    rule: 'api-no-process-env',
+    files: {
+      'packages/api/src/modules/chat/http.ts': 'export const port = process.env.PORT;\n',
+      'packages/api/src/http/health.ts': 'export const env = Bun.env.NODE_ENV;\n',
+      'packages/api/src/lib/auth.ts':
+        'const { env } = globalThis.process;\nexport const x = env;\n',
+    },
+    expected: [
+      'packages/api/src/modules/chat/http.ts:1: 禁止在 config.ts 之外直接访问 process.env',
+      'packages/api/src/http/health.ts:1: 禁止在 config.ts 之外直接访问 Bun.env',
+      'packages/api/src/lib/auth.ts:1: 禁止在 config.ts 之外直接访问 process.env',
+    ],
+  },
+  {
+    name: 'api config.ts 之外通过 ESM 导入访问 process.env 或 Bun.env',
+    rule: 'api-no-process-env',
+    files: {
+      'packages/api/src/modules/chat/http.ts':
+        "import process from 'node:process';\nexport const port = process.env.PORT;\n",
+      'packages/api/src/modules/chat/use-cases.ts':
+        "import * as proc from 'process';\nexport const port = proc.env.PORT;\n",
+      'packages/api/src/modules/agents/http.ts':
+        "import { env } from 'node:process';\nexport const port = env.PORT;\n",
+      'packages/api/src/modules/agents/use-cases.ts':
+        "import { env as e } from 'process';\nexport const port = e.PORT;\n",
+      'packages/api/src/http/health.ts':
+        "import * as BunNS from 'bun';\nexport const mode = BunNS.env.NODE_ENV;\n",
+      'packages/api/src/http/security.ts':
+        "import BunDefault from 'bun';\nexport const { env } = BunDefault;\n",
+      'packages/api/src/lib/auth.ts':
+        "import { env as bunEnv } from 'bun';\nexport const mode = bunEnv.NODE_ENV;\n",
+    },
+    expected: [
+      'packages/api/src/modules/chat/http.ts:2: 禁止在 config.ts 之外直接访问 process.env',
+      'packages/api/src/modules/chat/use-cases.ts:2: 禁止在 config.ts 之外直接访问 process.env',
+      'packages/api/src/modules/agents/http.ts:2: 禁止在 config.ts 之外直接访问 process.env',
+      'packages/api/src/modules/agents/use-cases.ts:2: 禁止在 config.ts 之外直接访问 process.env',
+      'packages/api/src/http/health.ts:2: 禁止在 config.ts 之外直接访问 Bun.env',
+      'packages/api/src/http/security.ts:2: 禁止在 config.ts 之外直接访问 Bun.env',
+      'packages/api/src/lib/auth.ts:2: 禁止在 config.ts 之外直接访问 Bun.env',
+    ],
+  },
+  {
+    name: 'db 禁止直接访问 process.env 或 Bun.env',
+    rule: 'db-no-process-env',
+    files: {
+      'packages/db/src/index.ts': 'export const url = process.env.DATABASE_URL;\n',
+      'packages/db/src/repo/agents.ts': 'export const env = Bun?.env?.NODE_ENV;\n',
+    },
+    expected: [
+      'packages/db/src/index.ts:1: db 模块禁止直接访问 process.env',
+      'packages/db/src/repo/agents.ts:1: db 模块禁止直接访问 Bun.env',
+    ],
+  },
+  {
+    name: 'db 通过 ESM 导入访问 process.env 或 Bun.env',
+    rule: 'db-no-process-env',
+    files: {
+      'packages/db/src/index.ts':
+        "import * as proc from 'node:process';\nexport const url = proc.env.DATABASE_URL;\n",
+      'packages/db/src/repo/agents.ts':
+        "import { env as e } from 'node:process';\nexport const url = e.DATABASE_URL;\n",
+      'packages/db/src/repo/runs.ts':
+        "import * as BunNS from 'bun';\nexport const mode = BunNS.env.NODE_ENV;\n",
+      'packages/db/src/repo/skills.ts':
+        "import { env as bunEnv } from 'bun';\nexport const mode = bunEnv.NODE_ENV;\n",
+    },
+    expected: [
+      'packages/db/src/index.ts:2: db 模块禁止直接访问 process.env',
+      'packages/db/src/repo/agents.ts:2: db 模块禁止直接访问 process.env',
+      'packages/db/src/repo/runs.ts:2: db 模块禁止直接访问 Bun.env',
+      'packages/db/src/repo/skills.ts:2: db 模块禁止直接访问 Bun.env',
+    ],
+  },
+  {
+    name: 'worker 组合根之外禁止调用 createDb 或 new DockerSandboxProvider',
+    rule: 'worker-single-composition-root',
+    files: {
+      'packages/worker/src/handlers.ts':
+        "import { createDb } from '@agentport/db';\nexport const h = () => createDb('postgres://localhost/db');\n",
+      'packages/worker/src/sandbox/sessions.ts':
+        "import { DockerSandboxProvider } from './docker.js';\nexport const p = new DockerSandboxProvider({});\n",
+    },
+    expected: [
+      'packages/worker/src/handlers.ts:2: 禁止在组合根（index.ts / maintenance.ts）之外调用 createDb()',
+      'packages/worker/src/sandbox/sessions.ts:2: 禁止在组合根（index.ts / maintenance.ts）之外实例化 new DockerSandboxProvider()',
+    ],
+  },
+  {
+    name: 'worker 组合根之外通过别名或命名空间调用 createDb 或 new DockerSandboxProvider',
+    rule: 'worker-single-composition-root',
+    files: {
+      'packages/worker/src/handlers.ts':
+        "import { createDb as openDb } from '@agentport/db';\nexport const h = () => openDb('postgres://localhost/db');\n",
+      'packages/worker/src/jobs.ts':
+        "import * as dbMod from '@agentport/db';\nexport const h = () => dbMod.createDb('postgres://localhost/db');\n",
+      'packages/worker/src/sandbox/sessions.ts':
+        "import { DockerSandboxProvider as DSP } from './docker.js';\nexport const p = new DSP({});\n",
+      'packages/worker/src/sandbox/pool.ts':
+        "import * as dockerMod from './docker.js';\nexport const p = new dockerMod.DockerSandboxProvider({});\n",
+      'packages/worker/src/runs/dynamic.ts':
+        "export const run = async () => {\n  const { createDb: openDb } = await import('@agentport/db');\n  return openDb('postgres://localhost/db');\n};\n",
+    },
+    expected: [
+      'packages/worker/src/handlers.ts:2: 禁止在组合根（index.ts / maintenance.ts）之外调用 createDb()',
+      'packages/worker/src/jobs.ts:2: 禁止在组合根（index.ts / maintenance.ts）之外调用 createDb()',
+      'packages/worker/src/sandbox/sessions.ts:2: 禁止在组合根（index.ts / maintenance.ts）之外实例化 new DockerSandboxProvider()',
+      'packages/worker/src/sandbox/pool.ts:2: 禁止在组合根（index.ts / maintenance.ts）之外实例化 new DockerSandboxProvider()',
+      'packages/worker/src/runs/dynamic.ts:3: 禁止在组合根（index.ts / maintenance.ts）之外调用 createDb()',
+    ],
+  },
+  {
+    name: '多子包共享依赖未使用 catalog: 且未在根 catalog 声明',
+    rule: 'catalog-shared-deps',
+    files: {
+      'package.json': validRootPackageJson,
+      'packages/api/package.json': JSON.stringify({
+        dependencies: { zod: '^4.6.7', 'shared-lib': 'catalog:' },
+      }),
+      'packages/worker/package.json': JSON.stringify({
+        peerDependencies: { zod: 'catalog:', 'shared-lib': 'catalog:' },
+      }),
+    },
+    expected: [
+      'packages/api/package.json: dependencies["zod"] 为 "^4.6.7"',
+      'package.json: workspaces.catalog 缺少共享依赖 "zod"',
+      'package.json: workspaces.catalog 缺少共享依赖 "shared-lib"',
+    ],
   },
   {
     name: 'router 内 input.*.safeParse',
@@ -210,6 +605,46 @@ const fixtures = [
     },
     expected: [
       "DB check 'chat_status_check' 未从 @agentport/shared 的 *.options 派生",
+      `改用 \${schema}.options 派生枚举`,
+    ],
+  },
+  {
+    name: 'DB check <@ array 硬编码枚举',
+    rule: 'db-enum-check',
+    files: {
+      'packages/db/src/schema/integrations.ts':
+        "import { sql } from 'drizzle-orm';\nimport { check } from 'drizzle-orm/pg-core';\nexport const constraint = check('api_tokens_scopes_check', sql`scopes <@ array['read', 'write']::text[]`);\n",
+    },
+    expected: [
+      "DB check 'api_tokens_scopes_check' 未从 @agentport/shared 的 *.options 派生",
+      `改用 \${schema}.options 派生枚举`,
+    ],
+  },
+  {
+    name: 'DB check <@ array 未从 .options 派生',
+    rule: 'db-enum-check',
+    files: {
+      'packages/db/src/schema/integrations.ts':
+        "import { sql } from 'drizzle-orm';\nimport { check } from 'drizzle-orm/pg-core';\nexport const constraint = check('api_tokens_scopes_check', sql`scopes <@ array[" +
+        '$' +
+        "{sql.raw('SCOPES')}]::text[]`);\n",
+    },
+    expected: [
+      "DB check 'api_tokens_scopes_check' 未从 @agentport/shared 的 *.options 派生",
+      `改用 \${schema}.options 派生枚举`,
+    ],
+  },
+  {
+    name: 'DB check <@ array 混用 .options 与硬编码字面量',
+    rule: 'db-enum-check',
+    files: {
+      'packages/db/src/schema/integrations.ts':
+        "import { sql } from 'drizzle-orm';\nimport { check } from 'drizzle-orm/pg-core';\nexport const constraint = check('api_tokens_scopes_check', sql`scopes <@ array[" +
+        '$' +
+        "{sql.raw(integrationScopeSchema.options.join(','))}, 'extra']::text[]`);\n",
+    },
+    expected: [
+      "DB check 'api_tokens_scopes_check' 未从 @agentport/shared 的 *.options 派生",
       `改用 \${schema}.options 派生枚举`,
     ],
   },
@@ -418,6 +853,7 @@ const fixtures = [
     'knowledge/reconcile.ts',
     'data-domains/build.ts',
     'data-domains/enrich.ts',
+    'integrations/deliver.ts',
   ].map((file) => ({
     name: `${file} 直接调用 setInterval`,
     rule: 'worker-scheduler-setinterval',
@@ -440,6 +876,7 @@ const fixtures = [
         'let inFlight = sync();\ninFlight = null;',
       'packages/worker/src/data-domains/build.ts': 'let inFlight = null;\ninFlight = sync();',
       'packages/worker/src/data-domains/enrich.ts': 'let inFlight = null;\ninFlight ??= sync();',
+      'packages/worker/src/integrations/deliver.ts': 'let inFlight = null;\ninFlight = sync();',
     },
     expected: [
       'packages/worker/src/scheduling/scheduler.ts:2',
@@ -447,6 +884,7 @@ const fixtures = [
       'packages/worker/src/runtime-environments/reconcile.ts:1',
       'packages/worker/src/data-domains/build.ts:2',
       'packages/worker/src/data-domains/enrich.ts:2',
+      'packages/worker/src/integrations/deliver.ts:2',
       'packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight',
       'SchedulerSync.tla',
       'InFlight = {}',
@@ -781,12 +1219,10 @@ test.each([
   {
     name: '非调度路径即使导入 ticker 也可直接调用 setInterval',
     files: Object.fromEntries(
-      ['knowledge/queue.ts', 'runtime-environments/build.ts', 'integrations/deliver.ts'].map(
-        (file) => [
-          `packages/worker/src/${file}`,
-          "import { startIntervalTicker } from '../scheduling/interval-ticker.js';\nsetInterval(tick, 1000);",
-        ],
-      ),
+      ['knowledge/queue.ts', 'runtime-environments/build.ts'].map((file) => [
+        `packages/worker/src/${file}`,
+        "import { startIntervalTicker } from '../scheduling/interval-ticker.js';\nsetInterval(tick, 1000);",
+      ]),
     ),
   },
   {
@@ -874,6 +1310,112 @@ test.each([
       }),
       Dockerfile:
         'FROM oven/bun:1.4.5-alpine AS bun\nFROM --platform=linux/amd64 docker.io/library/node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS base\nFROM base AS sandbox\n',
+    },
+  },
+  {
+    name: 'core/worker/sandbox/api 合法依赖边界与 http -> lib 及非导入伪调用',
+    files: {
+      'packages/core/src/ok.ts':
+        "import { z } from 'zod';\nimport { idSchema } from '@agentport/shared';\nexport const s = z.string();\nexport const id = idSchema;\n",
+      'packages/worker/src/ok.ts':
+        "import { AppError } from '@agentport/core';\nimport { repo } from '@agentport/db';\nimport { idSchema } from '@agentport/shared';\nexport const ok = [AppError, repo, idSchema];\n",
+      'packages/sandbox/src/ok.ts':
+        "import { idSchema } from '@agentport/shared';\nexport const ok = idSchema;\n",
+      'packages/api/src/http/mid.ts':
+        "import { helper } from '../lib/helper.js';\nimport { contract } from '@agentport/contract';\nimport { repo } from '@agentport/db';\nimport { idSchema } from '@agentport/shared';\nexport const ok = [helper, contract, repo, idSchema];\n",
+      'packages/api/src/lib/helper.ts':
+        "const fake = { import: (x: string) => x, require: (x: string) => x };\nconst s = \"import('@agentport/worker')\";\nexport const helper = () => [fake.import('@agentport/worker'), fake.require('@agentport/sandbox'), s];\n",
+    },
+  },
+  {
+    name: 'api 与 db 导入 bun 或 node:process 未访问 env 或被局部同名变量与参数遮蔽',
+    files: {
+      'packages/api/src/index.ts':
+        "import * as Bun from 'bun';\nimport process from 'node:process';\nexport const runtime = [Bun.serve, process.exit];\n",
+      'packages/api/src/http/health.ts':
+        "import process from 'node:process';\nimport { env } from 'node:process';\nimport { env as bunEnv } from 'bun';\nexport type ET = typeof env;\nexport const pid = process.pid;\nexport const fn = (process: { env: string }) => process.env;\nexport const fn2 = (env: { PORT: string }) => env.PORT;\nexport const fn3 = () => { const bunEnv = { NODE_ENV: 'test' }; return bunEnv.NODE_ENV; };\nexport const out = [pid, fn, fn2, fn3];\n",
+      'packages/db/src/client.ts':
+        "import { SQL } from 'bun';\nimport * as proc from 'node:process';\nimport { env } from 'bun';\nexport type SqlType = typeof SQL;\nexport const pid = proc.pid;\nexport const fn = (Bun: { env: string }) => Bun.env;\nexport const fn2 = (env: { URL: string }) => env.URL;\nexport const ok = [pid, fn, fn2];\n",
+    },
+  },
+  {
+    name: 'worker 组合根之外局部遮蔽 createDb 与 DockerSandboxProvider 别名及参数注入',
+    files: {
+      'packages/worker/src/runs/execute.ts':
+        "import { type createDb as OpenDb } from '@agentport/db';\nexport type Db = ReturnType<typeof OpenDb>['db'];\n",
+      'packages/worker/src/handlers.ts':
+        "import { createDb as openDb } from '@agentport/db';\nimport { DockerSandboxProvider as DSP } from './sandbox/docker.js';\nexport const run = (openDb: (url: string) => string, DSP: new () => unknown) => [openDb('x'), new DSP()];\nexport const local = () => { const createDb = () => 1; class DockerSandboxProvider {} return [createDb(), new DockerSandboxProvider()]; };\nexport const injected = (deps: { createDb: () => number }) => { const { createDb: openDb } = deps; return openDb(); };\n",
+    },
+  },
+  {
+    name: '无环有向依赖与同域文件互引',
+    files: {
+      'packages/core/src/a.ts':
+        "import { b } from './b.js';\nimport { c } from './c.js';\nexport const a = [b, c];\n",
+      'packages/core/src/b.ts': "import { c } from './c.js';\nexport const b = c;\n",
+      'packages/core/src/c.ts': 'export const c = 1;\n',
+      'packages/api/src/modules/alpha/a.ts':
+        "import { b } from './b.js';\nimport { x } from '../beta/x.js';\nexport const a = [b, x];\n",
+      'packages/api/src/modules/alpha/b.ts': 'export const b = 1;\n',
+      'packages/api/src/modules/beta/x.ts': 'export const x = 2;\n',
+      'packages/worker/src/runs/a.ts':
+        "import { s } from '../scheduling/s.js';\nexport const a = s;\n",
+      'packages/worker/src/scheduling/s.ts': 'export const s = 1;\n',
+    },
+  },
+  {
+    name: 'api routes/index.ts 装配 router、http/body-limit.ts 与 config.ts 白名单入口',
+    files: {
+      'packages/api/src/routes/index.ts':
+        "import { chatRouter } from '../modules/chat/router.js';\nimport { requestBodyLimit } from '../http/body-limit.js';\nexport const mounted = [chatRouter, requestBodyLimit];\n",
+      'packages/api/src/http/body-limit.ts':
+        "import { bodyLimit } from 'hono/body-limit';\nexport const requestBodyLimit = bodyLimit;\n",
+      'packages/api/src/config.ts':
+        'export const cfg = { a: process.env.PORT, b: Bun.env.NODE_ENV };\n',
+      'packages/api/src/http/health.ts':
+        "const text = 'process.env.PORT Bun.env.NODE_ENV';\n// process.env.PORT\nexport type E = typeof process.env;\nexport const pid = process.pid;\nexport const fn = (process: { env: string }) => process.env;\nexport const out = [text, pid, fn];\n",
+      'packages/db/src/index.ts':
+        "const label = 'process.env.DATABASE_URL';\nexport type Env = NodeJS.ProcessEnv;\nexport const fn = (Bun: { env: string }) => Bun.env;\nexport const ok = [label, fn];\n",
+    },
+  },
+  {
+    name: 'worker 组合根实例与非组合根类型引用/类定义',
+    files: {
+      'packages/worker/src/index.ts':
+        "import { createDb } from '@agentport/db';\nimport { DockerSandboxProvider } from './sandbox/docker.js';\nexport const db = createDb('x');\nexport const p = new DockerSandboxProvider();\n",
+      'packages/worker/src/maintenance.ts':
+        "import { createDb } from '@agentport/db';\nexport const db = createDb('x');\n",
+      'packages/worker/src/sandbox/docker.ts': 'export class DockerSandboxProvider {}\n',
+      'packages/worker/src/runs/execute.ts':
+        "import { type createDb } from '@agentport/db';\nexport type Db = ReturnType<typeof createDb>['db'];\n",
+    },
+  },
+  {
+    name: 'DB check <@ array 从 .options 派生',
+    files: {
+      'packages/db/src/schema/integrations.ts':
+        "import { sql } from 'drizzle-orm';\nimport { check } from 'drizzle-orm/pg-core';\nexport const constraint = check('api_tokens_scopes_check', sql`cardinality(scopes) > 0 and scopes <@ array[" +
+        '$' +
+        "{sql.raw(integrationScopeSchema.options.map((o) => `'" +
+        '$' +
+        "{o}'`).join(', '))}]::text[]`);\n",
+    },
+  },
+  {
+    name: '单包依赖、workspace 协议、同包多字段与合法 catalog 共享依赖',
+    files: {
+      'package.json': JSON.stringify({
+        engines: { node: '>=24.22.2 <25' },
+        workspaces: { catalog: { '@types/node': '24.19.4', zod: '4.6.7' } },
+        devDependencies: { '@types/node': 'catalog:' },
+      }),
+      'packages/api/package.json': JSON.stringify({
+        dependencies: { '@agentport/shared': 'workspace:*', fflate: '0.8.3', zod: 'catalog:' },
+        peerDependencies: { fflate: '0.8.3' },
+      }),
+      'packages/worker/package.json': JSON.stringify({
+        dependencies: { '@agentport/shared': 'workspace:*', zod: 'catalog:' },
+      }),
     },
   },
 ])('$name 不触发违规', ({ files }) => {

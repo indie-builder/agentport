@@ -138,7 +138,12 @@
 | 禁硬编码 hex、禁逐个传 `strokeWidth`/`size`、禁直接拼接 `buttonVariants` | 架构 + Lint + CI | `packages/web/src/styles.css`、`packages/web/src/App.tsx`、`packages/web/src/components/ui/button.tsx` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 前端本地存储走统一封装，禁直接访问 `localStorage` | 架构 + Lint + CI | `packages/web/src/lib/storage.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 焦点与边框单层契约（禁叠环、`outline-none`、slider 焦点态） | Lint + CI | `scripts/check-focus-contract.mjs`（`bun run lint:focus`） |
-| 跨包分层边界（web 不引服务端包与 `@agentport/core` 根入口等） | 架构 + Lint + CI | `packages/web/package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 8 包跨包分层边界（`shared` / `contract` / `core` / `db` / `api` / `worker` / `web` / `sandbox` 单向依赖与纯子路径白名单） | 架构 + Lint + CI | `package.json`、`packages/*/package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 文件级、API 模块级与 Worker 子域级循环依赖禁止 | 架构 + Lint + CI | `packages/api/src/modules/`、`packages/worker/src/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| API 内部单向分层（`http`/`lib`/`queue` 不反向依赖 `modules/*`、禁跨模块 `router` 导入、禁散落 `process.env` 与裸 `bodyLimit`） | 架构 + Lint + CI | `packages/api/src/config.ts`、`packages/api/src/http/body-limit.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| DB 层禁读 `process.env`（连接与池上限由调用方经 `createDb(url, { max })` 传入） | 架构 + Lint + CI | `packages/db/src/client.ts`、`packages/shared/src/config.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| Worker 单组合根（`createDb` 与 `DockerSandboxProvider` 收口于主入口，独立 CLI 脚本除外） | 架构 + Lint + CI | `packages/worker/src/index.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 多包共享第三方依赖强制走 `workspaces.catalog` 单一版本源 | 架构 + Lint + CI | `package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 请求校验只在 oRPC 契约完成，handler/router 禁 `safeParse` | 架构 + Lint + CI | `packages/api/src/http/orpc.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 每条 oRPC 过程必须声明 `access` 元数据并经统一鉴权 | 架构 + 运行时 | `packages/api/src/http/orpc.ts`（`traverseContractProcedures`）+ `packages/api/src/http/middleware.ts`（`enforceAccess`） |
 | DB `LIKE`/`ILIKE` 必须转义通配符 | 架构 + Lint + CI | `packages/db/src/repo/like.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
