@@ -3,6 +3,7 @@ import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
+import { CursorListFooter } from '../../../components/cursor-list-footer.js';
 import {
   jobStatusLabel,
   sourceStatusLabel,
@@ -138,19 +139,10 @@ export function SourcesTab({
         ) : null}
       </PageToolbar>
       {sources.isPending ? <LoadingState rows={3} /> : null}
-      {sources.isError ? (
+      {sources.isError && !sources.isFetchNextPageError ? (
         <ErrorState error={sources.error} onRetry={() => void sources.refetch()} />
       ) : null}
-      {sources.isFetchNextPageError ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="self-start"
-          onClick={() => void sources.fetchNextPage()}
-        >
-          重试加载其余来源
-        </Button>
-      ) : null}
+      <CursorListFooter query={sources} autoDrain label="其余来源" className="justify-start" />
       {sources.data && sources.data.length === 0 ? (
         <EmptyState
           variant="stage"

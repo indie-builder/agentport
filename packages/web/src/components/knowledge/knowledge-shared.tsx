@@ -6,6 +6,7 @@ import type {
   KnowledgeLocator,
   KnowledgeVersionOrigin,
 } from '../../lib/api.js';
+import { cn } from '../../lib/cn.js';
 import { formatTimestamp } from '../../lib/format.js';
 
 export { DraftGuardDialogs, useDraftGuard } from '../draft-guard.js';
@@ -180,4 +181,61 @@ export function locatorLabel(locator: KnowledgeLocator | null | undefined): stri
 
 export function scoreKindLabel(scoreKind: 'rrf' | 'rerank' | undefined): string {
   return scoreKind === 'rerank' ? '重排分数' : 'RRF 分数';
+}
+
+function keyedDiffLines(lines: readonly string[], prefix: string) {
+  const counts = new Map<string, number>();
+  return lines.map((line) => {
+    const occurrence = (counts.get(line) ?? 0) + 1;
+    counts.set(line, occurrence);
+    return { key: `${prefix}-${line}-${occurrence}`, line };
+  });
+}
+
+export function LineDiffColumns({
+  addedLines,
+  removedLines,
+  addedLabel = '新增行',
+  removedLabel = '删除行',
+}: {
+  addedLines: readonly string[];
+  removedLines: readonly string[];
+  addedLabel?: string;
+  removedLabel?: string;
+}) {
+  return (
+    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+      {[
+        {
+          entries: keyedDiffLines(addedLines, 'added'),
+          label: addedLabel,
+          prefix: '+',
+          tone: 'text-success',
+          keyPrefix: 'added',
+        },
+        {
+          entries: keyedDiffLines(removedLines, 'removed'),
+          label: removedLabel,
+          prefix: '−',
+          tone: 'text-danger',
+          keyPrefix: 'removed',
+        },
+      ].map((column) => (
+        <div key={column.keyPrefix} className="flex min-w-0 flex-col gap-1">
+          <span className={cn('text-xs font-medium', column.tone)}>{column.label}</span>
+          {column.entries.length === 0 ? (
+            <span className="text-xs text-muted-foreground">无</span>
+          ) : (
+            <ul className="flex flex-col gap-0.5 font-mono text-2xs">
+              {column.entries.map((entry) => (
+                <li key={entry.key} className={cn('whitespace-pre-wrap break-words', column.tone)}>
+                  {column.prefix} {entry.line}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }

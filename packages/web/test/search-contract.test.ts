@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   evalSearchSchema,
   integrationsSearchSchema,
+  knowledgeDetailSearchSchema,
   personalWorkSearchSchema,
   runDetailSearchSchema,
   runsSearchSchema,
@@ -73,6 +74,50 @@ describe('shared search contract', () => {
 
     expect(evalSearchSchema.parse({ run: '', base: '', head: '' })).toEqual({});
     expect(evalSearchSchema.parse({ unknown: 'x' })).toEqual({});
+    expect(
+      evalSearchSchema.parse({
+        agent: 'agent-a',
+        tab: 'cases',
+        q: 'regression',
+        filter: 'tools',
+      }),
+    ).toEqual({
+      agent: 'agent-a',
+      tab: 'cases',
+      q: 'regression',
+      filter: 'tools',
+    });
+    expect(evalSearchSchema.parse({ filter: 'invalid', tab: 'cases' })).toEqual({ tab: 'cases' });
+  });
+
+  it('validates knowledge detail document filter and sort parameters', () => {
+    expect(
+      knowledgeDetailSearchSchema.parse({
+        panel: 'documents',
+        folder: 'kfd_1',
+        document: 'kdoc_1',
+        q: '上线',
+        status: 'failed',
+        tag: '流程',
+        sort: 'title',
+      }),
+    ).toEqual({
+      panel: 'documents',
+      folder: 'kfd_1',
+      document: 'kdoc_1',
+      q: '上线',
+      status: 'failed',
+      tag: '流程',
+      sort: 'title',
+    });
+    expect(
+      knowledgeDetailSearchSchema.parse({
+        status: 'bogus',
+        tag: '',
+        sort: 'invalid',
+        folder: 'null',
+      }),
+    ).toEqual({ folder: 'null' });
   });
 
   it('validates tab and view parameters for integrations, servers and personal work', () => {

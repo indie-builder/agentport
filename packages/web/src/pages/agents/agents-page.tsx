@@ -23,6 +23,7 @@ import { useMemo, useRef, useState } from 'react';
 import digitalTwinPortrait from '../../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../../components/agent/agent-avatar.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterPopover } from '../../components/filter-popover.js';
 import { FilterSelect } from '../../components/filter-select.js';
@@ -866,26 +867,7 @@ export function AgentsPage() {
             })}
           </ul>
         ) : null}
-        {agents.isFetchNextPageError ? (
-          <div className="flex justify-center">
-            <ErrorState
-              error={agents.error}
-              title="列表没有加载完"
-              onRetry={() => void agents.fetchNextPage()}
-            />
-          </div>
-        ) : agents.hasNextPage ? (
-          <div className="flex justify-center">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={agents.isFetchingNextPage}
-              onClick={() => void agents.fetchNextPage()}
-            >
-              {agents.isFetchingNextPage ? '加载中…' : '加载更多'}
-            </Button>
-          </div>
-        ) : null}
+        <CursorListFooter query={agents} errorTitle="列表没有加载完" />
       </PageBody>
       <Dialog
         open={badgeAgent !== null}

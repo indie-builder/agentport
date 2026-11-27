@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Hash, Lock, Plus } from 'lucide-react';
 import { useState } from 'react';
+import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../../components/draft-guard.js';
 import {
@@ -219,27 +220,7 @@ export function ChannelsPage() {
                 </Table>
               )}
             </PageSection>
-            {channels.isFetchNextPageError ? (
-              <div className="flex justify-center">
-                <ErrorState
-                  error={channels.error}
-                  title="列表没有加载完"
-                  onRetry={() => void channels.fetchNextPage()}
-                />
-              </div>
-            ) : channels.hasNextPage ? (
-              <div className="flex justify-center pt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={channels.isFetchingNextPage}
-                  aria-busy={channels.isFetchingNextPage}
-                  onClick={() => void channels.fetchNextPage()}
-                >
-                  {channels.isFetchingNextPage ? '加载中…' : '加载更多'}
-                </Button>
-              </div>
-            ) : null}
+            <CursorListFooter className="pt-2" query={channels} errorTitle="列表没有加载完" />
           </>
         )}
       </PageBody>

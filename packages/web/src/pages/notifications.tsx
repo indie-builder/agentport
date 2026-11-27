@@ -1,6 +1,7 @@
 import type { Notification, NotificationKind } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Bell, CheckCheck } from 'lucide-react';
+import { CursorListFooter } from '../components/cursor-list-footer.js';
 import {
   Page,
   PageBody,
@@ -221,33 +222,12 @@ export function NotificationsPage() {
                 />
               ))}
             </ul>
-            {notifications.isFetchNextPageError ? (
-              <PageNote
-                tone="danger"
-                title="更多通知没有加载出来"
-                action={
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void notifications.fetchNextPage()}
-                  >
-                    重试
-                  </Button>
-                }
-              />
-            ) : notifications.hasNextPage ? (
-              <div className="flex justify-center pt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={notifications.isFetchingNextPage}
-                  aria-busy={notifications.isFetchingNextPage}
-                  onClick={() => void notifications.fetchNextPage()}
-                >
-                  {notifications.isFetchingNextPage ? '加载中…' : '加载更多'}
-                </Button>
-              </div>
-            ) : null}
+            <CursorListFooter
+              className="pt-2"
+              query={notifications}
+              errorVariant="note"
+              errorTitle="更多通知没有加载出来"
+            />
           </>
         )}
       </PageBody>

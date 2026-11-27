@@ -15,6 +15,7 @@ import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { AgentPicker } from '../components/agent/agent-picker.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { CursorListFooter } from '../components/cursor-list-footer.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
 import {
@@ -513,29 +514,12 @@ export function SchedulesPage() {
           </PageSection>
         ) : null}
 
-        {schedules.isFetchNextPageError ? (
-          <PageNote
-            tone="danger"
-            title="更多定时任务没有加载出来"
-            action={
-              <Button variant="outline" size="sm" onClick={() => void schedules.fetchNextPage()}>
-                重试
-              </Button>
-            }
-          />
-        ) : schedules.hasNextPage ? (
-          <div className="flex justify-center pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={schedules.isFetchingNextPage}
-              aria-busy={schedules.isFetchingNextPage}
-              onClick={() => void schedules.fetchNextPage()}
-            >
-              {schedules.isFetchingNextPage ? '加载中…' : '加载更多'}
-            </Button>
-          </div>
-        ) : null}
+        <CursorListFooter
+          className="pt-2"
+          query={schedules}
+          errorVariant="note"
+          errorTitle="更多定时任务没有加载出来"
+        />
       </PageBody>
 
       {creating ? (

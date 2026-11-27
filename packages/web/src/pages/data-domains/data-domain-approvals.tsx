@@ -1,6 +1,7 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { RefreshCw, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
+import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import { PageSection, PageToolbar } from '../../components/page.js';
@@ -316,26 +317,12 @@ export function DataDomainApprovals({
           })}
         </ul>
       ) : null}
-      {approvals.isFetchNextPageError ? (
-        <ErrorState
-          error={approvals.error}
-          onRetry={() => void approvals.fetchNextPage()}
-          title="下一页加载失败，保留已加载的审批记录"
-        />
-      ) : approvals.hasNextPage ? (
-        <div className="flex justify-center">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={approvals.isFetching}
-            onClick={() => void approvals.fetchNextPage()}
-          >
-            {approvals.isFetchingNextPage ? '加载中…' : '加载更多'}
-          </Button>
-        </div>
-      ) : rows.length > 0 ? (
-        <div className="text-center text-xs text-muted-foreground">已到末尾</div>
-      ) : null}
+      <CursorListFooter
+        query={approvals}
+        errorTitle="下一页加载失败，保留已加载的审批记录"
+        disabled={approvals.isFetching}
+        showEndLabel={rows.length > 0}
+      />
 
       {deciding ? (
         <DecisionDialog

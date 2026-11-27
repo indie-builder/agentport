@@ -10,12 +10,14 @@ export function CopyButton({
   showLabel = false,
   variant,
   className,
+  onCopied,
 }: {
   value: string;
   label: string;
   showLabel?: boolean;
   variant?: 'outline' | 'ghost';
   className?: string;
+  onCopied?: () => void;
 }) {
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
@@ -35,6 +37,7 @@ export function CopyButton({
       setNonce((current) => current + 1);
       setCopiedValue(value);
       resetTimer.current = setTimeout(() => setCopiedValue(null), 2500);
+      onCopied?.();
     } catch {
       toastError(new Error('无法复制，请选择内容后手动复制。'));
     }

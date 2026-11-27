@@ -1,12 +1,13 @@
 import type { OutputShare } from '@agentport/shared';
-import { Copy, Share2 } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { Share2 } from 'lucide-react';
+import { useState } from 'react';
 import { formatDateTime } from '../lib/format.js';
 import { useCreateOutputShare, useOutputShares, useRevokeOutputShare } from '../lib/queries.js';
-import { toastError, toastSuccess } from '../lib/toast.js';
+import { toastSuccess } from '../lib/toast.js';
+import { CopyButton } from './copy-button.js';
 import { DialogShell } from './dialog-shell.js';
 import { ErrorState, LoadingState } from './states.js';
-import { Badge } from './ui/badge.js';
+import { StatusBadge } from './status-badge.js';
 import { Button } from './ui/button.js';
 import { Dialog, DialogTrigger } from './ui/dialog.js';
 
@@ -36,15 +37,6 @@ export function ShareDialog({
   const items = shares.data?.items ?? [];
   const active = items.filter((share) => share.revokedAt === null);
   const pending = create.isPending || revoke.isPending;
-
-  const copy = useCallback(async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      toastSuccess('链接已复制');
-    } catch {
-      toastError(new Error('无法复制，请手动选择链接复制。'));
-    }
-  }, []);
 
   const changeOpen = (next: boolean): void => {
     if (!next && pending) return;
@@ -84,7 +76,6 @@ export function ShareDialog({
                   key={share.id}
                   share={share}
                   pending={pending}
-                  onCopy={() => void copy(fullUrl(share.urlPath))}
                   onRevoke={() => revoke.mutate(share.id)}
                 />
               ))}
@@ -116,12 +107,10 @@ export function ShareDialog({
 function ShareRow({
   share,
   pending,
-  onCopy,
   onRevoke,
 }: {
   share: OutputShare;
   pending: boolean;
-  onCopy: () => void;
   onRevoke: () => void;
 }) {
   const revoked = share.revokedAt !== null;
@@ -132,21 +121,17 @@ function ShareRow({
         <code className="min-w-0 flex-1 break-all text-xs text-muted-foreground">
           {fullUrl(share.urlPath)}
         </code>
-        <Badge variant="outline" className={revoked ? 'text-muted-foreground' : undefined}>
+        <StatusBadge tone={revoked ? 'outline' : 'success'}>
           {revoked ? '已撤销' : '有效'}
-        </Badge>
+        </StatusBadge>
       </div>
       {revoked ? null : (
         <div className="flex justify-end gap-2">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`复制 ${version} 的链接`}
-            title={`复制 ${version} 的链接`}
-            onClick={onCopy}
-          >
-            <Copy />
-          </Button>
+          <CopyButton
+            value={fullUrl(share.urlPath)}
+            label={`复制 ${version} 的链接`}
+            onCopied={() => toastSuccess('链接已复制')}
+          />
           <Button
             variant="destructive"
             size="sm"

@@ -1,4 +1,5 @@
 import type { KnowledgeJob } from '@agentport/shared';
+import { CursorListFooter } from '../../../components/cursor-list-footer.js';
 import {
   jobStatusLabel,
   jobStatusTone,
@@ -177,25 +178,12 @@ export function JobsTab({
           </TableBody>
         </Table>
       ) : null}
-      {jobs.hasNextPage ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="self-start"
-          disabled={jobs.isFetchingNextPage}
-          aria-busy={jobs.isFetchingNextPage}
-          onClick={() => void jobs.fetchNextPage()}
-        >
-          {jobs.isFetchingNextPage ? '加载中…' : '加载更多处理记录'}
-        </Button>
-      ) : null}
-      {jobs.isFetchNextPageError ? (
-        <ErrorState
-          error={jobs.error}
-          title="更多处理记录没有加载出来"
-          onRetry={() => void jobs.fetchNextPage()}
-        />
-      ) : null}
+      <CursorListFooter
+        query={jobs}
+        label="处理记录"
+        errorTitle="更多处理记录没有加载出来"
+        className="justify-start"
+      />
     </div>
   );
 }

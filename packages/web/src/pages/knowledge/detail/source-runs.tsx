@@ -1,6 +1,7 @@
 import { ChevronRight, Clock } from 'lucide-react';
+import { CursorListFooter } from '../../../components/cursor-list-footer.js';
 import { jobStatusLabel, jobStatusTone } from '../../../components/knowledge/knowledge-shared.js';
-import { EmptyState, ErrorState } from '../../../components/states.js';
+import { EmptyState } from '../../../components/states.js';
 import { StatusBadge } from '../../../components/status-badge.js';
 import { Button } from '../../../components/ui/button.js';
 import {
@@ -98,19 +99,12 @@ function SyncRunItems({
           </li>
         ))}
       </ul>
-      {items.hasNextPage ? (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={items.isFetchingNextPage}
-          onClick={() => void items.fetchNextPage()}
-        >
-          {items.isFetchingNextPage ? '加载中…' : '加载更多逐项结果'}
-        </Button>
-      ) : null}
-      {items.isFetchNextPageError ? (
-        <ErrorState error={items.error} onRetry={() => void items.fetchNextPage()} />
-      ) : null}
+      <CursorListFooter
+        query={items}
+        label="逐项结果"
+        errorTitle="内容没有加载出来"
+        className="justify-start"
+      />
     </div>
   );
 }

@@ -19,6 +19,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import { BaseInfoDialog } from '../../components/knowledge/knowledge-base-info.js';
@@ -28,6 +29,7 @@ import {
   KnowledgeSettingsDialog,
 } from '../../components/knowledge/knowledge-settings.js';
 import { DraftGuardDialogs, useDraftGuard } from '../../components/knowledge/knowledge-shared.js';
+import { ProfileForm } from '../../components/knowledge/profile-form.js';
 import {
   Collapsible,
   CollapsibleContent,
@@ -85,7 +87,6 @@ import {
   meQuery,
   useAgents,
   useCreateKnowledgeBase,
-  useCreateKnowledgeModelProfile,
   useDeleteKnowledgeBase,
   useDrainPages,
   useExportKnowledgeBase,
@@ -342,7 +343,7 @@ export function KnowledgePage() {
   const pins = useKnowledgeBasePins();
   const pinnedIds = new Set(pins.data?.baseIds ?? []);
   const setPin = useSetKnowledgeBasePin();
-  const { hasNextPage, isFetchNextPageError, fetchNextPage } = bases;
+  const { hasNextPage, isFetchNextPageError } = bases;
   useDrainPages(bases);
   const agents = useAgents();
   const update = useUpdateKnowledgeBase();
@@ -685,18 +686,13 @@ export function KnowledgePage() {
           {renderRows('card')}
         </ul>
       ) : null}
-      {hasNextPage ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs text-muted-foreground">
-            还有更多知识库未加载（已加载 {baseItems.length} 个）
-          </span>
-          {isFetchNextPageError ? (
-            <Button variant="outline" size="sm" onClick={() => void fetchNextPage()}>
-              重试
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
+      <CursorListFooter
+        query={bases}
+        autoDrain
+        drainingLabel={`还有更多知识库未加载（已加载 ${baseItems.length} 个）`}
+        retryLabel="重试"
+        className="justify-start"
+      />
       {filteredEmpty ? (
         <EmptyState
           variant="filter"
@@ -1048,8 +1044,14 @@ function CreateBaseDialog({
                   )
                 ) : null}
                 {missingProfiles && canManageModels ? (
-                  <NewEmbeddingProfile
-                    onCreated={(profile) => {
+                  <ProfileForm
+                    lockedKind="embedding"
+                    nested
+                    idPrefix="profile"
+                    submitLabel="创建 embedding profile"
+                    pendingLabel="创建中…"
+                    submitVariant="outline"
+                    onSaved={(profile) => {
                       setProfilePending(false);
                       setProfileDirty(false);
                       form.setValue('embeddingProfileId', profile.id, { shouldValidate: true });
@@ -1220,100 +1222,5 @@ function CreateBaseDialog({
         <DraftGuardDialogs guard={guard} draft="新建知识库草稿会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
-  );
-}
-
-function NewEmbeddingProfile({
-  onCreated,
-  onDirtyChange,
-  onPendingChange,
-}: {
-  onCreated: (profile: { id: string }) => void;
-  onDirtyChange: (dirty: boolean) => void;
-  onPendingChange: (pending: boolean) => void;
-}) {
-  const create = useCreateKnowledgeModelProfile();
-  const [name, setName] = useState('');
-  const [endpointUrl, setEndpointUrl] = useState('');
-  const [model, setModel] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const pending = create.isPending;
-  const invalid = [name, endpointUrl, model].some((value) => value.trim() === '');
-  const dirty = [name, endpointUrl, model, apiKey].some((value) => value.trim() !== '');
-  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
-  useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
-  const save = async (): Promise<void> => {
-    try {
-      const profile = await create.mutateAsync({
-        kind: 'embedding',
-        name: name.trim(),
-        endpointUrl: endpointUrl.trim(),
-        model: model.trim(),
-        ...(apiKey === '' ? {} : { apiKey }),
-      });
-      toastSuccess('Embedding profile 已创建');
-      onCreated(profile);
-    } catch (error) {
-      toastError(error);
-    } finally {
-      onPendingChange(false);
-    }
-  };
-
-  return (
-    <FieldGroup className="grid gap-3 rounded-item border border-line p-3 sm:grid-cols-2">
-      <Field className="gap-1.5">
-        <FieldLabel htmlFor="profile-name">Embedding 名称</FieldLabel>
-        <Input
-          id="profile-name"
-          value={name}
-          disabled={pending}
-          onChange={(event) => setName(event.target.value)}
-        />
-      </Field>
-      <Field className="gap-1.5">
-        <FieldLabel htmlFor="profile-endpoint">Endpoint URL</FieldLabel>
-        <Input
-          id="profile-endpoint"
-          value={endpointUrl}
-          disabled={pending}
-          onChange={(event) => setEndpointUrl(event.target.value)}
-          placeholder="https://…"
-        />
-      </Field>
-      <Field className="gap-1.5">
-        <FieldLabel htmlFor="profile-model">模型</FieldLabel>
-        <Input
-          id="profile-model"
-          value={model}
-          disabled={pending}
-          onChange={(event) => setModel(event.target.value)}
-          className="font-mono"
-        />
-      </Field>
-      <Field className="gap-1.5">
-        <FieldLabel htmlFor="profile-api-key">API Key</FieldLabel>
-        <Input
-          id="profile-api-key"
-          type="password"
-          value={apiKey}
-          disabled={pending}
-          onChange={(event) => setApiKey(event.target.value)}
-        />
-      </Field>
-      <div className="flex justify-end sm:col-span-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={pending || invalid}
-          aria-busy={pending}
-          onClick={() => void save()}
-        >
-          {pending ? '创建中…' : '创建 embedding profile'}
-        </Button>
-      </div>
-    </FieldGroup>
   );
 }

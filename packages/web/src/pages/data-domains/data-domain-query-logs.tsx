@@ -1,5 +1,6 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { ScrollText } from 'lucide-react';
+import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import { PageSection, PageToolbar } from '../../components/page.js';
 import { SearchInput } from '../../components/search-input.js';
@@ -185,26 +186,12 @@ export function DataDomainQueryLogs({ dataDomainId }: { dataDomainId: string }) 
           </TableBody>
         </Table>
       ) : null}
-      {logs.isFetchNextPageError ? (
-        <ErrorState
-          error={logs.error}
-          onRetry={() => void logs.fetchNextPage()}
-          title="下一页加载失败，保留已加载的查询记录"
-        />
-      ) : logs.hasNextPage ? (
-        <div className="flex justify-center">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={logs.isFetching}
-            onClick={() => void logs.fetchNextPage()}
-          >
-            {logs.isFetchingNextPage ? '加载中…' : '加载更多'}
-          </Button>
-        </div>
-      ) : rows.length > 0 ? (
-        <div className="text-center text-xs text-muted-foreground">已到末尾</div>
-      ) : null}
+      <CursorListFooter
+        query={logs}
+        errorTitle="下一页加载失败，保留已加载的查询记录"
+        disabled={logs.isFetching}
+        showEndLabel={rows.length > 0}
+      />
     </PageSection>
   );
 }

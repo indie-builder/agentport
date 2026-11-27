@@ -1,5 +1,5 @@
 import { Download, EllipsisVertical, Plus, Shuffle, Upload } from 'lucide-react';
-import { type RefObject, useState } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 import { PageToolbar } from '../../components/page.js';
 import { SearchInput } from '../../components/search-input.js';
 import {
@@ -45,6 +45,9 @@ export function EvalCasesTab({
   caseItems,
   selectedCaseId,
   onSelectCase,
+  query,
+  filter,
+  onSearchChange,
   canManageEval,
   canReadEval,
   canReadRuns,
@@ -71,6 +74,9 @@ export function EvalCasesTab({
   caseItems: EvalCase[];
   selectedCaseId: string | null;
   onSelectCase: (caseId: string) => void;
+  query: string;
+  filter: CaseFilter;
+  onSearchChange: (patch: { q?: string | undefined; filter?: CaseFilter | undefined }) => void;
   canManageEval: boolean;
   canReadEval: boolean;
   canReadRuns: boolean;
@@ -85,13 +91,59 @@ export function EvalCasesTab({
   onEditCase: (testCase: EvalCase, trigger: HTMLElement) => void;
   onDeleteCase: (testCase: EvalCase, trigger: HTMLElement) => void;
 }) {
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<CaseFilter>('all');
+  const [queryDraft, setQueryDraft] = useState(query);
+  const [composing, setComposing] = useState(false);
+  const lastSyncedQuery = useRef(query);
+  const tabRootRef = useRef<HTMLDivElement>(null);
+  const onSearchChangeRef = useRef(onSearchChange);
+  onSearchChangeRef.current = onSearchChange;
 
-  const normalizedQuery = query.trim().toLowerCase();
+  useEffect(() => {
+    const node = tabRootRef.current;
+    if (!node) return;
+    const onStart = (): void => setComposing(true);
+    const onEnd = (): void => setComposing(false);
+    node.addEventListener('compositionstart', onStart);
+    node.addEventListener('compositionend', onEnd);
+    return () => {
+      node.removeEventListener('compositionstart', onStart);
+      node.removeEventListener('compositionend', onEnd);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (query === lastSyncedQuery.current) return;
+    lastSyncedQuery.current = query;
+    setQueryDraft(query);
+  }, [query]);
+
+  useEffect(() => {
+    if (composing) return;
+    const trimmed = queryDraft.trim();
+    if (trimmed === lastSyncedQuery.current) return;
+    const timer = window.setTimeout(() => {
+      lastSyncedQuery.current = trimmed;
+      onSearchChangeRef.current({ q: trimmed === '' ? undefined : trimmed });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [queryDraft, composing]);
+
+  const clearQuery = (): void => {
+    lastSyncedQuery.current = '';
+    setQueryDraft('');
+    onSearchChange({ q: undefined });
+  };
+
+  const clearAllFilters = (): void => {
+    lastSyncedQuery.current = '';
+    setQueryDraft('');
+    onSearchChange({ q: undefined, filter: undefined });
+  };
+
+  const normalizedQuery = queryDraft.trim().toLowerCase();
   const activeFilters: EmptyFilterChip[] = [
-    ...(query.trim()
-      ? [{ key: 'query', label: '搜索', value: query.trim(), onRemove: () => setQuery('') }]
+    ...(queryDraft.trim()
+      ? [{ key: 'query', label: '搜索', value: queryDraft.trim(), onRemove: clearQuery }]
       : []),
     ...(filter !== 'all'
       ? [
@@ -99,7 +151,7 @@ export function EvalCasesTab({
             key: 'filter',
             label: '类型',
             value: filterOptions.find((option) => option.value === filter)?.label ?? filter,
-            onRemove: () => setFilter('all'),
+            onRemove: () => onSearchChange({ filter: undefined }),
           },
         ]
       : []),
@@ -125,7 +177,7 @@ export function EvalCasesTab({
     filteredCases.find((item) => item.id === selectedCaseId) ?? filteredCases[0] ?? null;
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
+    <div ref={tabRootRef} className="flex min-w-0 flex-col gap-4">
       <PageToolbar>
         <input
           ref={importInputRef}
@@ -138,8 +190,8 @@ export function EvalCasesTab({
           })}
         />
         <SearchInput
-          value={query}
-          onChange={setQuery}
+          value={queryDraft}
+          onChange={setQueryDraft}
           label="搜索用例"
           placeholder="搜索用例名称或 Prompt…"
           className="w-full sm:w-56"
@@ -153,7 +205,9 @@ export function EvalCasesTab({
               key={option.value}
               type="button"
               aria-pressed={filter === option.value}
-              onClick={() => setFilter(option.value)}
+              onClick={() =>
+                onSearchChange({ filter: option.value === 'all' ? undefined : option.value })
+              }
               className={cn(
                 'rounded-pill px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 filter === option.value
@@ -266,14 +320,7 @@ export function EvalCasesTab({
           description="尝试调整搜索词或筛选条件。"
           activeFilters={activeFilters}
           action={
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setQuery('');
-                setFilter('all');
-              }}
-            >
+            <Button variant="outline" size="sm" onClick={clearAllFilters}>
               重置筛选
             </Button>
           }
