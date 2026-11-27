@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { KnowledgeFaq, KnowledgeFaqTransferEntry } from '@agentport/shared';
+import { zipSync } from 'fflate';
 import { parseFaqImport, serializeFaqExport } from '../src/modules/knowledge/faq.js';
 import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
@@ -936,28 +937,56 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
 
   it('supports xlsx import through the same route', async () => {
     const baseId = await createBase();
-    const { Workbook } = await import('exceljs');
-    const workbook = new Workbook();
-    const sheet = workbook.addWorksheet('FAQ');
-    sheet.addRow([
-      'question',
-      'similarQuestions',
-      'negativeQuestions',
-      'answers',
-      'answerStrategy',
-      'isRecommended',
-      'enabled',
-    ]);
-    sheet.addRow([
-      itemB.question,
-      '[]',
-      '[]',
-      JSON.stringify(itemB.answers),
-      'random',
-      'false',
-      'true',
-    ]);
-    const content = Buffer.from(await workbook.xlsx.writeBuffer()).toString('base64');
+    const escapeXml = (value: string) =>
+      value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&apos;');
+    const rows = [
+      [
+        'question',
+        'similarQuestions',
+        'negativeQuestions',
+        'answers',
+        'answerStrategy',
+        'isRecommended',
+        'enabled',
+      ],
+      [itemB.question, '[]', '[]', JSON.stringify(itemB.answers), 'random', 'false', 'true'],
+    ];
+    const rowsXml = rows
+      .map(
+        (cells, rowIdx) =>
+          `<row r="${rowIdx + 1}">${cells
+            .map(
+              (text, colIdx) =>
+                `<c r="${String.fromCharCode(65 + colIdx)}${rowIdx + 1}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(text)}</t></is></c>`,
+            )
+            .join('')}</row>`,
+      )
+      .join('');
+    const encoder = new TextEncoder();
+    const content = Buffer.from(
+      zipSync({
+        '[Content_Types].xml': encoder.encode(
+          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>',
+        ),
+        '_rels/.rels': encoder.encode(
+          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+        ),
+        'xl/workbook.xml': encoder.encode(
+          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="FAQ" sheetId="1" r:id="rId1"/></sheets></workbook>',
+        ),
+        'xl/_rels/workbook.xml.rels': encoder.encode(
+          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+        ),
+        'xl/worksheets/sheet1.xml': encoder.encode(
+          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rowsXml}</sheetData></worksheet>`,
+        ),
+      }),
+    ).toString('base64');
     const imported = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,

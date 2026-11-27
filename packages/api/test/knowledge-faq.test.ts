@@ -4,7 +4,6 @@ import {
   type KnowledgeFaqTransferEntry,
   type KnowledgeSearchHit,
 } from '@agentport/shared';
-import { Workbook } from 'exceljs';
 import { unzipSync, zipSync } from 'fflate';
 import {
   type FaqExistingEntry,
@@ -38,13 +37,100 @@ const tricky: KnowledgeFaqTransferEntry = {
   enabled: false,
 };
 
-async function xlsx(items: string[][], extraSheet = false): Promise<string> {
-  const workbook = new Workbook();
-  const sheet = workbook.addWorksheet('FAQ');
-  for (const row of items) sheet.addRow(row);
-  if (extraSheet) workbook.addWorksheet('额外').addRow(['不应存在']);
-  const buffer = await workbook.xlsx.writeBuffer();
-  return Buffer.from(buffer).toString('base64');
+type CellSpec = string | { formula: string; result?: string };
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
+function columnName(col: number): string {
+  let name = '';
+  let n = col;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    name = String.fromCharCode(65 + rem) + name;
+    n = Math.floor((n - 1) / 26);
+  }
+  return name;
+}
+
+function buildXlsxBuffer(sheets: Array<{ name: string; rows: CellSpec[][] }>): Buffer {
+  const sharedStrings: string[] = [];
+  const sharedIndex = new Map<string, number>();
+  const intern = (text: string): number => {
+    const existing = sharedIndex.get(text);
+    if (existing !== undefined) return existing;
+    const index = sharedStrings.length;
+    sharedStrings.push(text);
+    sharedIndex.set(text, index);
+    return index;
+  };
+
+  const encoder = new TextEncoder();
+  const files: Record<string, Uint8Array> = {};
+  const workbookSheets: string[] = [];
+  const rels: string[] = [
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>',
+  ];
+
+  sheets.forEach((sheet, idx) => {
+    const sheetNum = idx + 1;
+    const relId = `rId${sheetNum + 1}`;
+    workbookSheets.push(
+      `<sheet name="${escapeXml(sheet.name)}" sheetId="${sheetNum}" r:id="${relId}"/>`,
+    );
+    rels.push(
+      `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${sheetNum}.xml"/>`,
+    );
+    const rowsXml = sheet.rows
+      .map((cells, rIdx) => {
+        const rowNum = rIdx + 1;
+        const cellsXml = cells
+          .map((cell, cIdx) => {
+            const ref = `${columnName(cIdx + 1)}${rowNum}`;
+            if (typeof cell === 'string') {
+              return `<c r="${ref}" t="s"><v>${intern(cell)}</v></c>`;
+            }
+            const resultXml = cell.result !== undefined ? `<v>${escapeXml(cell.result)}</v>` : '';
+            return `<c r="${ref}"><f>${escapeXml(cell.formula)}</f>${resultXml}</c>`;
+          })
+          .join('');
+        return `<row r="${rowNum}">${cellsXml}</row>`;
+      })
+      .join('');
+    files[`xl/worksheets/sheet${sheetNum}.xml`] = encoder.encode(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rowsXml}</sheetData></worksheet>`,
+    );
+  });
+
+  files['[Content_Types].xml'] = encoder.encode(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>',
+  );
+  files['_rels/.rels'] = encoder.encode(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+  );
+  files['xl/workbook.xml'] = encoder.encode(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${workbookSheets.join('')}</sheets></workbook>`,
+  );
+  files['xl/_rels/workbook.xml.rels'] = encoder.encode(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join('')}</Relationships>`,
+  );
+  files['xl/sharedStrings.xml'] = encoder.encode(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${sharedStrings.length}" uniqueCount="${sharedStrings.length}">${sharedStrings.map((text) => `<si><t xml:space="preserve">${escapeXml(text)}</t></si>`).join('')}</sst>`,
+  );
+
+  return Buffer.from(zipSync(files));
+}
+
+function xlsx(items: string[][], extraSheet = false): string {
+  const sheets: Array<{ name: string; rows: CellSpec[][] }> = [{ name: 'FAQ', rows: items }];
+  if (extraSheet) sheets.push({ name: '额外', rows: [['不应存在']] });
+  return buildXlsxBuffer(sheets).toString('base64');
 }
 
 function patchLocalCompressedSize(archive: Buffer, name: string, size: number): Buffer {
@@ -298,22 +384,21 @@ describe('FAQ import/export roundtrip', () => {
   });
 
   it('parses xlsx constant cells and rejects formulas/non-empty extra sheets', async () => {
-    const content = await xlsx([header, row(faq), row(tricky)]);
+    const content = xlsx([header, row(faq), row(tricky)]);
     const parsed = await parseFaqImport({ format: 'xlsx', content });
     expect(parsed.map((item) => item.entry)).toEqual([faq, tricky]);
 
-    const formula = new Workbook();
-    const sheet = formula.addWorksheet('FAQ');
-    sheet.addRow(header);
-    sheet.addRow(row(faq));
-    sheet.getCell('A2').value = { formula: '1+1', result: 2 };
-    const formulaContent = Buffer.from(await formula.xlsx.writeBuffer()).toString('base64');
+    const formulaRows: CellSpec[][] = [
+      header,
+      [{ formula: '1+1', result: '2' }, ...row(faq).slice(1)],
+    ];
+    const formulaContent = buildXlsxBuffer([{ name: 'FAQ', rows: formulaRows }]).toString('base64');
     const rejected = await parseFaqImport({ format: 'xlsx', content: formulaContent });
     expect(rejected[0]?.entry).toBeNull();
     expect(rejected[0]?.issues[0]?.code).toBe('INVALID_CELL');
 
     await expect(
-      parseFaqImport({ format: 'xlsx', content: await xlsx([header, row(faq)], true) }),
+      parseFaqImport({ format: 'xlsx', content: xlsx([header, row(faq)], true) }),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
   });
 
@@ -324,10 +409,8 @@ describe('FAQ import/export roundtrip', () => {
     ).rejects.toMatchObject({ code: 'PAYLOAD_TOO_LARGE' });
   }, 30_000);
 
-  it('rejects local/central size mismatch before ExcelJS loads the workbook', async () => {
-    const workbook = new Workbook();
-    workbook.addWorksheet('FAQ').addRow(header);
-    const entries = unzipSync(Buffer.from(await workbook.xlsx.writeBuffer()));
+  it('rejects local/central size mismatch before loading the workbook', async () => {
+    const entries = unzipSync(buildXlsxBuffer([{ name: 'FAQ', rows: [header] }]));
     entries['first.txt'] = new Uint8Array(33 * 1024 * 1024);
     const archive = Buffer.from(zipSync(entries));
     expect(archive.length).toBeLessThan(2 * 1024 * 1024);

@@ -8,11 +8,9 @@ import type {
 } from '@agentport/shared';
 import { FAQ_ANSWER_REQUIRED_MESSAGE } from '@agentport/shared';
 import { parse as parseCsv } from 'csv-parse/sync';
-import type { Workbook as ExcelWorkbook } from 'exceljs';
-import ExcelJS from 'exceljs';
 import { Converter } from 'opencc-js';
 import type { z } from 'zod';
-import { decodeZipEntries, inspectZipEntries, type ZipReadLimits } from '../../lib/package-zip.js';
+import { decodeZipEntries, type ZipFileEntry, type ZipReadLimits } from '../../lib/package-zip.js';
 
 const FAQ_MAX_ITEMS = 500;
 export const FAQ_MAX_BYTES = 2 * 1024 * 1024;
@@ -22,7 +20,7 @@ const FAQ_XLSX_ZIP_LIMITS: ZipReadLimits = {
   maxEntries: 100,
   maxUncompressedBytes: FAQ_MAX_XLSX_DECOMPRESSED_BYTES,
 };
-const { Workbook } = ExcelJS;
+const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
 
 export type FaqEntry = KnowledgeFaq;
 export type FaqTransferEntry = KnowledgeFaqTransferEntry;
@@ -441,10 +439,9 @@ function parseCsvRows(content: string): RawRow[] {
   return records.map((record, index) => ({ row: index + 1, value: record }));
 }
 
-async function assertXlsxArchive(data: Buffer): Promise<void> {
+async function readXlsxEntries(data: Buffer): Promise<Map<string, ZipFileEntry>> {
   try {
-    await inspectZipEntries(data, FAQ_XLSX_ZIP_LIMITS);
-    await decodeZipEntries(data, FAQ_XLSX_ZIP_LIMITS);
+    return await decodeZipEntries(data, FAQ_XLSX_ZIP_LIMITS);
   } catch (err) {
     if (isAppError(err)) {
       if (err.message.includes('解压后总大小')) {
@@ -472,44 +469,336 @@ function decodeXlsxBase64(content: string): Buffer {
   return data;
 }
 
-function cellText(cell: {
-  isMerged: boolean;
-  value: unknown;
-}): { text: string } | { problem: string } {
-  if (cell.isMerged) return { problem: '合并单元格' };
-  const value = cell.value;
-  if (value === null || value === undefined) return { text: '' };
-  if (typeof value === 'string') return { text: value };
-  if (typeof value === 'boolean') return { text: value ? 'true' : 'false' };
+type XmlRecord = Record<string, unknown>;
+type SharedString = { text: string } | { rich: true };
+type MergedRange = { startRow: number; endRow: number; startCol: number; endCol: number };
+type ParsedWorksheet = {
+  rowsByNumber: Map<number, Map<number, XmlRecord>>;
+  mergedRanges: MergedRange[];
+};
+
+function asXmlRecord(value: unknown): XmlRecord | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as XmlRecord)
+    : null;
+}
+
+function asXmlList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : value === undefined ? [] : [value];
+}
+
+function xmlLocalName(key: string): string {
+  const colon = key.indexOf(':');
+  return colon < 0 ? key : key.slice(colon + 1);
+}
+
+function xmlChild(node: XmlRecord, name: string): unknown {
+  for (const [key, value] of Object.entries(node)) {
+    if (key.startsWith('@') || key.startsWith('?') || key === '#text') continue;
+    if (xmlLocalName(key) === name) return value;
+  }
+  return undefined;
+}
+
+function xmlAttr(node: XmlRecord, name: string, namespaced = false): string | undefined {
+  if (!namespaced) {
+    const value = node[`@${name}`];
+    return typeof value === 'string' ? value : undefined;
+  }
+  const rPrefixed = node[`@r:${name}`];
+  if (typeof rPrefixed === 'string') return rPrefixed;
+  for (const [key, value] of Object.entries(node)) {
+    if (!key.startsWith('@') || key.startsWith('@xmlns')) continue;
+    if (xmlLocalName(key.slice(1)) === name && typeof value === 'string') return value;
+  }
+  return undefined;
+}
+
+function xmlText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  const record = asXmlRecord(value);
+  if (record && typeof record['#text'] === 'string') return record['#text'];
+  return '';
+}
+
+function parseXmlEntry(entry: ZipFileEntry): XmlRecord {
+  let raw: string;
+  try {
+    raw = strictUtf8.decode(entry.data);
+  } catch {
+    fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+  }
+  if (/<!DOCTYPE|<!ENTITY/i.test(raw)) {
+    fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+  }
+  let parsed: unknown;
+  try {
+    parsed = Bun.XML.parse(raw);
+  } catch {
+    fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+  }
+  const root = asXmlRecord(parsed);
+  if (!root) fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+  return root;
+}
+
+function resolveWorkbookTarget(target: string): string {
+  const normalized = target.replace(/\\/g, '/');
+  const raw = normalized.startsWith('/') ? normalized.slice(1) : `xl/${normalized}`;
+  const parts: string[] = [];
+  for (const segment of raw.split('/')) {
+    if (segment === '' || segment === '.') continue;
+    if (segment === '..') {
+      if (parts.length === 0) fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+      parts.pop();
+      continue;
+    }
+    parts.push(segment);
+  }
+  return parts.join('/');
+}
+
+function columnLettersToIndex(letters: string): number {
+  let index = 0;
+  for (const char of letters.toUpperCase()) {
+    index = index * 26 + (char.charCodeAt(0) - 64);
+  }
+  return index;
+}
+
+function parseCellAddress(ref: string): { row: number; col: number } | null {
+  const match = /^([A-Za-z]+)(\d+)$/.exec(ref);
+  if (!match) return null;
+  const letters = match[1];
+  const digits = match[2];
+  if (!letters || !digits) return null;
+  const col = columnLettersToIndex(letters);
+  const row = Number(digits);
+  if (!Number.isSafeInteger(row) || row < 1 || !Number.isSafeInteger(col) || col < 1) return null;
+  return { row, col };
+}
+
+function parseMergedRanges(worksheet: XmlRecord): MergedRange[] {
+  const mergeCells = asXmlRecord(xmlChild(worksheet, 'mergeCells'));
+  if (!mergeCells) return [];
+  const ranges: MergedRange[] = [];
+  for (const item of asXmlList(xmlChild(mergeCells, 'mergeCell'))) {
+    const node = asXmlRecord(item);
+    const ref = node ? xmlAttr(node, 'ref') : undefined;
+    if (!ref) continue;
+    const [startRef, endRef = startRef] = ref.split(':');
+    const start = startRef ? parseCellAddress(startRef) : null;
+    const end = endRef ? parseCellAddress(endRef) : null;
+    if (!start || !end) fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+    ranges.push({
+      startRow: Math.min(start.row, end.row),
+      endRow: Math.max(start.row, end.row),
+      startCol: Math.min(start.col, end.col),
+      endCol: Math.max(start.col, end.col),
+    });
+  }
+  return ranges;
+}
+
+function parseSharedStrings(
+  entries: Map<string, ZipFileEntry>,
+  targetPath: string,
+): SharedString[] {
+  const entry = entries.get(targetPath);
+  if (!entry) return [];
+  const doc = parseXmlEntry(entry);
+  const rawSst = xmlChild(doc, 'sst');
+  if (typeof rawSst === 'string' && rawSst.trim() === '') return [];
+  const sst = asXmlRecord(rawSst);
+  if (!sst) fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+  return asXmlList(xmlChild(sst, 'si')).map((item): SharedString => {
+    const si = asXmlRecord(item);
+    if (!si) return { text: '' };
+    if (xmlChild(si, 'r') !== undefined) return { rich: true };
+    const t = xmlChild(si, 't');
+    return { text: t === undefined ? '' : xmlText(t) };
+  });
+}
+
+function parseWorksheet(entry: ZipFileEntry): ParsedWorksheet {
+  const doc = parseXmlEntry(entry);
+  const worksheet = asXmlRecord(xmlChild(doc, 'worksheet'));
+  if (!worksheet) fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+  const rowsByNumber = new Map<number, Map<number, XmlRecord>>();
+  const sheetData = asXmlRecord(xmlChild(worksheet, 'sheetData'));
+  let nextRow = 1;
+  for (const rowItem of asXmlList(sheetData ? xmlChild(sheetData, 'row') : undefined)) {
+    const rowNode = asXmlRecord(rowItem);
+    if (!rowNode) continue;
+    const rowAttr = xmlAttr(rowNode, 'r');
+    if (rowAttr !== undefined && !/^\d+$/.test(rowAttr)) {
+      fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+    }
+    const rowNum = rowAttr !== undefined ? Number(rowAttr) : nextRow;
+    if (!Number.isSafeInteger(rowNum) || rowNum < 1) {
+      fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+    }
+    nextRow = rowNum + 1;
+    let cells = rowsByNumber.get(rowNum);
+    if (!cells) {
+      cells = new Map();
+      rowsByNumber.set(rowNum, cells);
+    }
+    let nextCol = 1;
+    for (const cellItem of asXmlList(xmlChild(rowNode, 'c'))) {
+      const cellNode = asXmlRecord(cellItem);
+      if (!cellNode) continue;
+      const ref = xmlAttr(cellNode, 'r');
+      let colNum = nextCol;
+      if (ref !== undefined) {
+        const addr = parseCellAddress(ref);
+        if (!addr) fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+        colNum = addr.col;
+      }
+      nextCol = colNum + 1;
+      cells.set(colNum, cellNode);
+    }
+  }
+  return { rowsByNumber, mergedRanges: parseMergedRanges(worksheet) };
+}
+
+function hasNonEmptyCell(sheet: ParsedWorksheet): boolean {
+  for (const cells of sheet.rowsByNumber.values()) {
+    for (const cell of cells.values()) {
+      if (xmlChild(cell, 'f') !== undefined) return true;
+      const v = xmlChild(cell, 'v');
+      if (v !== undefined && xmlText(v) !== '') return true;
+      const isNode = asXmlRecord(xmlChild(cell, 'is'));
+      if (
+        isNode &&
+        (xmlChild(isNode, 'r') !== undefined || xmlText(xmlChild(isNode, 't')) !== '')
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function cellText(
+  cell: XmlRecord | undefined,
+  merged: boolean,
+  sharedStrings: readonly SharedString[],
+): { text: string } | { problem: string } {
+  if (merged) return { problem: '合并单元格' };
+  if (!cell) return { text: '' };
+  if (xmlChild(cell, 'f') !== undefined) return { problem: '只支持字符串或布尔常量单元格' };
+  const v = xmlChild(cell, 'v');
+  const inline = xmlChild(cell, 'is');
+  if (v === undefined && inline === undefined) return { text: '' };
+  const type = xmlAttr(cell, 't');
+  if (type === 's') {
+    if (v === undefined) return { text: '' };
+    const rawIndex = xmlText(v).trim();
+    if (!/^\d+$/.test(rawIndex)) return { problem: '只支持字符串或布尔常量单元格' };
+    const entry = sharedStrings[Number(rawIndex)];
+    if (!entry || 'rich' in entry) return { problem: '只支持字符串或布尔常量单元格' };
+    return { text: entry.text };
+  }
+  if (type === 'inlineStr') {
+    const isNode = asXmlRecord(inline);
+    if (!isNode) return { text: typeof inline === 'string' ? inline : '' };
+    if (xmlChild(isNode, 'r') !== undefined) return { problem: '只支持字符串或布尔常量单元格' };
+    const t = xmlChild(isNode, 't');
+    return { text: t === undefined ? '' : xmlText(t) };
+  }
+  if (type === 'str') {
+    return { text: v === undefined ? '' : xmlText(v) };
+  }
+  if (type === 'b') {
+    if (v === undefined) return { text: '' };
+    const raw = xmlText(v).trim();
+    if (raw === '1' || raw === 'true') return { text: 'true' };
+    if (raw === '0' || raw === 'false') return { text: 'false' };
+    return { problem: '只支持字符串或布尔常量单元格' };
+  }
   return { problem: '只支持字符串或布尔常量单元格' };
 }
 
 async function parseXlsxRows(content: string): Promise<RawRow[]> {
   const data = decodeXlsxBase64(content);
-  await assertXlsxArchive(data);
+  const entries = await readXlsxEntries(data);
 
-  const workbook = new Workbook();
-  // ExcelJS 的类型自带旧版 Buffer 定义，与仓库 Node 类型的泛型 Buffer 不兼容；运行时都是字节。
-  await workbook.xlsx.load(data as unknown as Parameters<ExcelWorkbook['xlsx']['load']>[0]);
-  const [sheet] = workbook.worksheets;
-  if (!sheet) fail('INVALID_INPUT', 'FAQ xlsx 没有工作表');
-  const extras = workbook.worksheets.filter((item) => item !== sheet && item.actualRowCount > 0);
-  if (extras.length > 0) {
-    fail(
-      'INVALID_INPUT',
-      `FAQ xlsx 只允许第一张工作表，额外非空工作表：${extras.map((item) => item.name).join(', ')}`,
-    );
+  const workbookEntry = entries.get('xl/workbook.xml');
+  if (!workbookEntry) fail('INVALID_INPUT', 'FAQ xlsx 没有工作表');
+  const workbookDoc = parseXmlEntry(workbookEntry);
+  const workbook = asXmlRecord(xmlChild(workbookDoc, 'workbook'));
+  if (!workbook) fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+  const sheetsContainer = asXmlRecord(xmlChild(workbook, 'sheets'));
+  const sheetRefs = asXmlList(sheetsContainer ? xmlChild(sheetsContainer, 'sheet') : undefined)
+    .map((item) => asXmlRecord(item))
+    .filter((item): item is XmlRecord => item !== null)
+    .map((item) => ({
+      name: xmlAttr(item, 'name') ?? '',
+      relId: xmlAttr(item, 'id', true),
+    }));
+  if (sheetRefs.length === 0) fail('INVALID_INPUT', 'FAQ xlsx 没有工作表');
+
+  const relsEntry = entries.get('xl/_rels/workbook.xml.rels');
+  if (!relsEntry) fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+  const relsDoc = parseXmlEntry(relsEntry);
+  const relationships = asXmlRecord(xmlChild(relsDoc, 'Relationships'));
+  if (!relationships) fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+  const relTargets = new Map<string, string>();
+  let sharedStringsTarget = 'xl/sharedStrings.xml';
+  for (const item of asXmlList(xmlChild(relationships, 'Relationship'))) {
+    const rel = asXmlRecord(item);
+    if (!rel) continue;
+    const id = xmlAttr(rel, 'Id');
+    const target = xmlAttr(rel, 'Target');
+    const relType = xmlAttr(rel, 'Type');
+    if (!id || !target) continue;
+    const resolved = resolveWorkbookTarget(target);
+    relTargets.set(id, resolved);
+    if (relType?.endsWith('/sharedStrings')) sharedStringsTarget = resolved;
   }
-  const header: string[] = [];
-  let headerProblem = false;
-  sheet.getRow(1).eachCell({ includeEmpty: false }, (cell) => {
-    const parsed = cellText(cell);
-    if ('problem' in parsed) {
-      headerProblem = true;
-      return;
-    }
-    header.push(parsed.text.trim());
+
+  const parsedSheets = sheetRefs.map((sheetRef) => {
+    const target = sheetRef.relId ? relTargets.get(sheetRef.relId) : undefined;
+    const sheetEntry = target ? entries.get(target) : undefined;
+    if (!sheetEntry) fail('INVALID_INPUT', 'FAQ xlsx 无法解析');
+    return { name: sheetRef.name, sheet: parseWorksheet(sheetEntry) };
   });
+
+  const [first, ...rest] = parsedSheets;
+  if (!first) fail('INVALID_INPUT', 'FAQ xlsx 没有工作表');
+  const extras = rest.filter((item) => hasNonEmptyCell(item.sheet)).map((item) => item.name);
+  if (extras.length > 0) {
+    fail('INVALID_INPUT', `FAQ xlsx 只允许第一张工作表，额外非空工作表：${extras.join(', ')}`);
+  }
+
+  const sharedStrings = parseSharedStrings(entries, sharedStringsTarget);
+  const firstSheet = first.sheet;
+  const headerCells = firstSheet.rowsByNumber.get(1);
+  const header: string[] = [];
+  let headerProblem = firstSheet.mergedRanges.some(
+    (range) => range.startRow <= 1 && range.endRow >= 1,
+  );
+  if (headerCells && !headerProblem) {
+    const sortedCols = [...headerCells.keys()].sort((a, b) => a - b);
+    for (const col of sortedCols) {
+      const cell = headerCells.get(col);
+      if (!cell) continue;
+      if (
+        xmlChild(cell, 'f') === undefined &&
+        xmlChild(cell, 'v') === undefined &&
+        xmlChild(cell, 'is') === undefined
+      ) {
+        continue;
+      }
+      const parsed = cellText(cell, false, sharedStrings);
+      if ('problem' in parsed) {
+        headerProblem = true;
+        break;
+      }
+      header.push(parsed.text.trim());
+    }
+  }
   if (headerProblem) {
     fail('INVALID_INPUT', 'FAQ xlsx 表头不允许公式、富文本或合并单元格');
   }
@@ -520,14 +809,44 @@ async function parseXlsxRows(content: string): Promise<RawRow[]> {
     fail('INVALID_INPUT', `FAQ xlsx 表头必须依次为：${FAQ_COLUMNS.join(', ')}`);
   }
 
+  const rowNumbers = new Set<number>();
+  for (const rowNumber of firstSheet.rowsByNumber.keys()) {
+    if (rowNumber >= 2) rowNumbers.add(rowNumber);
+  }
+  const seenMerged = new Set<string>();
+  const mergedColMaskByRow = new Map<number, number>();
+  for (const range of firstSheet.mergedRanges) {
+    if (range.endRow < 2 || range.startCol > FAQ_COLUMNS.length || range.endCol < 1) continue;
+    const colStart = Math.max(1, range.startCol);
+    const colEnd = Math.min(FAQ_COLUMNS.length, range.endCol);
+    const mask = ((1 << (colEnd - colStart + 1)) - 1) << (colStart - 1);
+    const startRow = Math.max(2, range.startRow);
+    const key = `${startRow}:${range.endRow}:${mask}`;
+    if (seenMerged.has(key)) continue;
+    seenMerged.add(key);
+    for (let rowNumber = startRow; rowNumber <= range.endRow; rowNumber += 1) {
+      mergedColMaskByRow.set(rowNumber, (mergedColMaskByRow.get(rowNumber) ?? 0) | mask);
+      rowNumbers.add(rowNumber);
+      if (mergedColMaskByRow.size > FAQ_MAX_ITEMS) {
+        fail('PAYLOAD_TOO_LARGE', `FAQ 导入最多 ${FAQ_MAX_ITEMS} 条`);
+      }
+    }
+  }
+
   const rows: RawRow[] = [];
-  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
-    const row = sheet.getRow(rowNumber);
+  for (const rowNumber of [...rowNumbers].sort((a, b) => a - b)) {
+    const rowCells = firstSheet.rowsByNumber.get(rowNumber);
+    const mergedMask = mergedColMaskByRow.get(rowNumber) ?? 0;
     const value: Record<string, unknown> = {};
     const problems: string[] = [];
     let nonEmpty = false;
     for (const [index, column] of FAQ_COLUMNS.entries()) {
-      const cell = cellText(row.getCell(index + 1));
+      const colNumber = index + 1;
+      const cell = cellText(
+        rowCells?.get(colNumber),
+        (mergedMask & (1 << index)) !== 0,
+        sharedStrings,
+      );
       if ('problem' in cell) {
         problems.push(`${column}: ${cell.problem}`);
         continue;
@@ -538,6 +857,7 @@ async function parseXlsxRows(content: string): Promise<RawRow[]> {
     if (!nonEmpty && problems.length === 0) continue;
     if (problems.length > 0) value.__problems = problems;
     rows.push({ row: rows.length + 1, value });
+    if (rows.length > FAQ_MAX_ITEMS) break;
   }
   return rows;
 }
