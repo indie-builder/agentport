@@ -1,4 +1,4 @@
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeModelProfiles } from '../../schema.js';
@@ -63,6 +63,27 @@ export async function getModelProfileWithSecret(
     .where(eq(knowledgeModelProfiles.id, id))
     .limit(1);
   return row ?? null;
+}
+
+export async function findModelProfileByName(
+  db: DbHandle,
+  kind: KnowledgeModelProfileRow['kind'],
+  name: string,
+): Promise<KnowledgeModelProfileRow | null> {
+  const [row] = await db
+    .select()
+    .from(knowledgeModelProfiles)
+    .where(and(eq(knowledgeModelProfiles.kind, kind), eq(knowledgeModelProfiles.name, name)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function deleteModelProfile(db: DbHandle, id: string): Promise<boolean> {
+  const rows = await db
+    .delete(knowledgeModelProfiles)
+    .where(eq(knowledgeModelProfiles.id, id))
+    .returning({ id: knowledgeModelProfiles.id });
+  return rows.length > 0;
 }
 
 export interface ModelProfilePatch {

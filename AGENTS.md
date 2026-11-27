@@ -145,6 +145,8 @@
 | Worker 单组合根（`createDb` 与 `DockerSandboxProvider` 收口于主入口，独立 CLI 脚本除外） | 架构 + Lint + CI | `packages/worker/src/index.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 多包共享第三方依赖强制走 `workspaces.catalog` 单一版本源 | 架构 + Lint + CI | `package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 请求校验只在 oRPC 契约完成，handler/router 禁 `safeParse` | 架构 + Lint + CI | `packages/api/src/http/orpc.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| API 业务模块禁直接抛 `new ORPCError()` / `new z.ZodError()`，统一走 `AppError` / `fail()` 与 `http/orpc.ts` 错误管道（`api-no-orpc-zod-throw`） | 架构 + Lint + CI | `packages/api/src/http/orpc.ts`、`packages/core/src/errors.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| API 层禁直接 Drizzle 表 DML（`.insert`/`.update`/`.delete`）及 `sql` 模板写操作，收口至 `packages/db/src/repo/`（`api-no-raw-dml`） | 架构 + Lint + CI | `packages/db/src/repo/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 每条 oRPC 过程必须声明 `access` 元数据并经统一鉴权 | 架构 + 运行时 | `packages/api/src/http/orpc.ts`（`traverseContractProcedures`）+ `packages/api/src/http/middleware.ts`（`enforceAccess`） |
 | DB `LIKE`/`ILIKE` 必须转义通配符 | 架构 + Lint + CI | `packages/db/src/repo/like.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | DB 枚举列与 `CHECK` 约束从 `@agentport/shared` schema `.options` 派生 | 架构 + 类型 + Lint + CI | `packages/db/src/schema/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |

@@ -1,4 +1,4 @@
-import { AppError, CONFIG_STALE_MESSAGE } from '@agentport/core';
+import { AppError, CONFIG_STALE_MESSAGE, fail } from '@agentport/core';
 import type {
   ApiToolInput,
   ResolvedRuntimeEnvironment,
@@ -127,6 +127,27 @@ export async function createServer(
     .returning();
   if (!row) throw new Error('server insert returned no row');
   return row;
+}
+
+export async function createServers(
+  db: DbHandle,
+  inputs: ServerWrite[],
+  ownerBusinessId: string | null,
+): Promise<ServerRow[]> {
+  if (inputs.length === 0) return [];
+  const names = inputs.map((item) => item.name);
+  return db.transaction(async (tx) => {
+    const existing = await tx
+      .select({ name: servers.name })
+      .from(servers)
+      .where(inArray(servers.name, names));
+    if (existing.length > 0) fail('CONFLICT', '已有同名连接器，未导入任何配置');
+
+    return tx
+      .insert(servers)
+      .values(inputs.map((item) => ({ id: newId('server'), ...item, ownerBusinessId })))
+      .returning();
+  });
 }
 
 export async function updateServer(

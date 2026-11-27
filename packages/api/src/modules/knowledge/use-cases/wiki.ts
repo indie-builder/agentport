@@ -268,22 +268,9 @@ export async function createWikiPage(
     baseId: base.id,
     slug: body.slug,
     title: body.title,
+    ...(body.parentId === undefined ? {} : { parentId: body.parentId }),
+    ...(body.position === undefined ? {} : { position: body.position }),
   });
-  if (body.parentId !== undefined || body.position !== undefined) {
-    try {
-      const updated = await repo.knowledge.updateWikiPageStructure(deps.db, row.id, {
-        ...(body.parentId === undefined ? {} : { parentId: body.parentId }),
-        ...(body.position === undefined ? {} : { position: body.position }),
-      });
-      return toWikiPage(updated ?? row);
-    } catch (err) {
-      await deps.db
-        .delete(schema.knowledgeWikiPages)
-        .where(eq(schema.knowledgeWikiPages.id, row.id))
-        .catch(() => undefined);
-      throw err;
-    }
-  }
   return toWikiPage(row);
 }
 

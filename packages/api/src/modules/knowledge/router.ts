@@ -1,12 +1,11 @@
 import { type KnowledgeContract, knowledgeContract } from '@agentport/contract/knowledge';
 
 import { AppError } from '@agentport/core';
-import { logEvent } from '@agentport/core/logger';
 import type { KnowledgeFaqImportResult } from '@agentport/shared';
-import { implement, ORPCError, type Router } from '@orpc/server';
+import { implement, type Router } from '@orpc/server';
 import { requirePermission, resourceAccessFilter } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { problem, toAppError } from '../../http/errors.js';
+import { publicErrorMessage, toAppError } from '../../http/errors.js';
 import {
   authorizeBase,
   authorizeChunk,
@@ -276,24 +275,22 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       } catch (err) {
         if (input.body.importBatchId === undefined) throw err;
         const appError = toAppError(err);
-        const body = problem(context.requestId, appError);
-        if (body.status >= 500) {
-          logEvent(context.log, 'unhandled error', { code: body.code }, 'error', { err });
-        } else if (body.status !== 401) {
-          context.log.warn({ err, code: body.code }, 'request rejected');
-        }
+        const message = publicErrorMessage(appError);
         const results: KnowledgeFaqImportResult[] = input.body.items.map((item, index) => ({
           row: index + 1,
           status: 'failed',
           operation: null,
           documentId: item.documentId,
-          issues: [{ field: 'batch', code: appError.code, message: body.message }],
+          issues: [{ field: 'batch', code: appError.code, message }],
         }));
-        throw new ORPCError(appError.code, {
-          status: appError.status,
-          message: body.message,
-          data: { ...body, results },
+        throw new AppError(appError.code, message, {
+          path: appError.path,
+          resource: appError.resource,
+          resourceId: appError.resourceId,
+          hint: appError.hint,
+          retryable: appError.retryable,
           cause: err,
+          extra: { ...appError.extra, results },
         });
       }
     }),

@@ -138,7 +138,7 @@ export type MemoryReviewProposal = z.infer<typeof memoryReviewProposalSchema>;
 
 export const INDEX_FILE_NAME = 'MEMORY.md';
 
-function escapeRegExp(value: string): string {
+export function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 

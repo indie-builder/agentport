@@ -5,7 +5,7 @@ import {
   encryptSecrets,
   fail,
 } from '@agentport/core';
-import { type CursorPage, type Database, newId, repo, schema } from '@agentport/db';
+import { type CursorPage, type Database, repo } from '@agentport/db';
 import {
   type ApiTool,
   type ApiToolInput,
@@ -15,7 +15,6 @@ import {
   type Server,
   type ServerInput,
 } from '@agentport/shared';
-import { inArray } from 'drizzle-orm';
 
 export function maskServer(s: Server): Server {
   if (s.kind === 'knowledge' || s.kind === 'data_domain') return s;
@@ -187,39 +186,36 @@ export async function createServers(
   key: string,
   ownerBusinessId: string,
 ): Promise<ImportedServerSummary[]> {
-  const names = inputs.map((input) => input.name);
-  return db.transaction(async (tx) => {
-    const existing = await tx
-      .select({ name: schema.servers.name })
-      .from(schema.servers)
-      .where(inArray(schema.servers.name, names));
-    if (existing.length > 0) fail('CONFLICT', '已有同名连接器，未导入任何配置');
-
-    const rows = await Promise.all(
-      inputs.map(async (input) => {
-        const id = newId('server');
-        const split = await splitInput(input, key);
-        return {
-          values: {
-            id,
-            name: input.name,
-            kind: input.kind,
-            description: input.description,
-            config: split.config,
-            secretsEncrypted: split.secretsEncrypted,
-            ownerBusinessId,
-          },
-          summary: {
-            id,
-            name: input.name,
-            kind: input.kind,
-            secretKeys: Object.keys(input.kind === 'stdio' ? input.env : input.headers),
-          } satisfies ImportedServerSummary,
-        };
-      }),
-    );
-    await tx.insert(schema.servers).values(rows.map((row) => row.values));
-    return rows.map((row) => row.summary);
+  if (inputs.length === 0) return [];
+  const prepared = await Promise.all(
+    inputs.map(async (input) => {
+      const split = await splitInput(input, key);
+      return {
+        write: {
+          name: input.name,
+          kind: input.kind,
+          description: input.description,
+          config: split.config,
+          secretsEncrypted: split.secretsEncrypted,
+        },
+        secretKeys: Object.keys(input.kind === 'stdio' ? input.env : input.headers),
+      };
+    }),
+  );
+  const byName = new Map(prepared.map((entry) => [entry.write.name, entry]));
+  const rows = await repo.servers.createServers(
+    db,
+    prepared.map((entry) => entry.write),
+    ownerBusinessId,
+  );
+  return rows.map((row) => {
+    const entry = byName.get(row.name);
+    return {
+      id: row.id,
+      name: row.name,
+      kind: entry?.write.kind ?? (row.kind as ServerInput['kind']),
+      secretKeys: entry?.secretKeys ?? [],
+    };
   });
 }
 

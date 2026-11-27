@@ -13,19 +13,28 @@ import {
 } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
-import { knowledgeDocuments, knowledgeDocumentTags, knowledgeTags } from '../../schema.js';
+import {
+  knowledgeDocuments,
+  knowledgeDocumentTags,
+  knowledgeDocumentVersions,
+  knowledgeTags,
+} from '../../schema.js';
+import { writeAuditInTx } from '../audit.js';
 import { containsPattern } from '../like.js';
 import { cursorValueSql, keysetPage } from '../pagination.js';
+import { insertChunks, type NewChunk } from './chunks.js';
 import {
   clampDocumentTitle,
   disableDocumentsBySourceTx,
   type KnowledgeDocumentRow,
+  type KnowledgeVersionRow,
   markWikiStaleByDocumentsTx,
   type Page,
   type PageOptions,
   pageLimit,
   readableDocumentSql,
 } from './shared.js';
+import { upsertTags } from './tags.js';
 
 export interface CreateDocumentInput {
   baseId: string;
@@ -456,5 +465,104 @@ export async function disableDocumentsBySource(
       rows.map((row) => row.id),
     );
     return rows;
+  });
+}
+
+export interface CopyDocumentSnapshotInput {
+  newDocumentId: string;
+  newVersionId: string;
+  sourceDocumentId: string;
+  baseId: string;
+  folderId: string | null;
+  title: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: KnowledgeDocumentRow['status'];
+  contentKind: KnowledgeDocumentRow['contentKind'];
+  disabledReason: KnowledgeDocumentRow['disabledReason'];
+  markdownSha256: string;
+  sourceVersion: Pick<
+    KnowledgeVersionRow,
+    | 'blobSha256'
+    | 'originalFilename'
+    | 'mimeType'
+    | 'sizeBytes'
+    | 'parseStatus'
+    | 'pageMap'
+    | 'images'
+    | 'embeddingProfileId'
+    | 'metadata'
+    | 'faq'
+  >;
+  chunks: NewChunk[];
+  tags: string[];
+  audit: { actor: string; requestId?: string | undefined };
+}
+
+export async function copyDocumentSnapshot(
+  db: Database,
+  input: CopyDocumentSnapshotInput,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.insert(knowledgeDocuments).values({
+      id: input.newDocumentId,
+      baseId: input.baseId,
+      folderId: input.folderId,
+      title: input.title,
+      sourceType: 'manual',
+      sourceId: null,
+      sourceUrl: null,
+      sourcePath: null,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      status: input.status,
+      contentKind: input.contentKind,
+      disabledReason: input.disabledReason,
+      sourceConnectionId: null,
+      currentVersionId: input.newVersionId,
+      contentHash: input.sourceVersion.blobSha256,
+      metadata: { originalFilename: input.sourceVersion.originalFilename },
+      lastSyncedAt: null,
+    });
+    await tx.insert(knowledgeDocumentVersions).values({
+      id: input.newVersionId,
+      documentId: input.newDocumentId,
+      version: 1,
+      blobSha256: input.sourceVersion.blobSha256,
+      markdownSha256: input.markdownSha256,
+      originalFilename: input.sourceVersion.originalFilename,
+      mimeType: input.sourceVersion.mimeType,
+      sizeBytes: input.sourceVersion.sizeBytes,
+      sourceRevision: null,
+      parseStatus: input.sourceVersion.parseStatus,
+      pageMap: input.sourceVersion.pageMap,
+      images: input.sourceVersion.images,
+      embeddingProfileId: input.sourceVersion.embeddingProfileId,
+      origin: 'manual',
+      parentVersionId: null,
+      metadata: input.sourceVersion.metadata,
+      faq: input.sourceVersion.faq,
+    });
+    await insertChunks(tx, {
+      baseId: input.baseId,
+      documentId: input.newDocumentId,
+      versionId: input.newVersionId,
+      folderId: input.folderId,
+      chunks: input.chunks,
+    });
+    if (input.tags.length > 0) {
+      const rows = await upsertTags(tx, input.baseId, input.tags);
+      await tx
+        .insert(knowledgeDocumentTags)
+        .values(rows.map((tag) => ({ documentId: input.newDocumentId, tagId: tag.id })));
+    }
+    await writeAuditInTx(tx, {
+      actor: input.audit.actor,
+      action: 'knowledge.document.copied',
+      target: input.newDocumentId,
+      input: { baseId: input.baseId, sourceDocumentId: input.sourceDocumentId },
+      status: 'ok',
+      ...(input.audit.requestId === undefined ? {} : { requestId: input.audit.requestId }),
+    });
   });
 }

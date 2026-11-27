@@ -1,16 +1,26 @@
 import {
+  AGENT_SELECTION_MISSING_MESSAGE,
   compareResults,
   type EvalComparisonRow,
   type EvalComparisonStatus,
   type EvalResultRow,
+  fail,
   type StoredEvalResult,
   toPublicResult,
 } from '@agentport/core';
-import type { AccessFilter, AgentDefinition, AgentResourceVersions } from '@agentport/shared';
+import type {
+  AccessFilter,
+  AgentDefinition,
+  AgentResourceVersions,
+  EvalDataset,
+  EvalDatasetImportResult,
+} from '@agentport/shared';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
+import { newId } from '../id.js';
 import {
   agentRuns,
+  agents,
   conversations,
   type EvalCaseSnapshot,
   evalCases,
@@ -20,8 +30,15 @@ import {
   runFeedback,
 } from '../schema.js';
 import { maintainedAgentScopeWhere, ownerScopeWhere } from './access.js';
+import { loadLiveDefinition } from './agent-definitions.js';
+import {
+  assertDefinitionResources,
+  getAgentVersion,
+  latestAgentVersion,
+} from './agent-versions.js';
 import { messageText } from './chat/messages.js';
 import { type CursorPage, keysetPage } from './pagination.js';
+import { isPgCode } from './pg-errors.js';
 
 export type EvalCase = typeof evalCases.$inferSelect;
 export type EvalRun = typeof evalRuns.$inferSelect;
@@ -122,6 +139,53 @@ export async function createCase(
     .returning();
   if (!row) throw new Error('eval case insert returned no row');
   return row;
+}
+
+export async function importCases(
+  db: Database,
+  agentId: string,
+  cases: EvalDataset['cases'],
+  createdBy: string,
+): Promise<EvalDatasetImportResult> {
+  const warnings: string[] = [];
+
+  return db.transaction(async (tx): Promise<EvalDatasetImportResult> => {
+    const [agent] = await tx
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .for('update');
+    if (!agent) fail('NOT_FOUND', AGENT_SELECTION_MISSING_MESSAGE);
+
+    const existing = await tx
+      .select({ name: evalCases.name })
+      .from(evalCases)
+      .where(
+        and(
+          eq(evalCases.agentId, agentId),
+          inArray(
+            evalCases.name,
+            cases.map((evalCase) => evalCase.name),
+          ),
+        ),
+      );
+    const taken = new Set(existing.map((row) => row.name));
+
+    const rows: Array<typeof evalCases.$inferInsert> = [];
+    let skipped = 0;
+    for (const evalCase of cases) {
+      if (taken.has(evalCase.name)) {
+        skipped += 1;
+        warnings.push(`用例「${evalCase.name}」已存在，已跳过`);
+        continue;
+      }
+      taken.add(evalCase.name);
+      rows.push({ id: newId('evalCase'), agentId, createdBy, ...evalCase });
+    }
+    if (rows.length > 0) await tx.insert(evalCases).values(rows);
+
+    return { imported: rows.length, skipped, warnings };
+  });
 }
 
 export interface EvalSampleCandidate {
@@ -251,6 +315,115 @@ export async function createEvalRun(
   const [row] = await db.insert(evalRuns).values(input).returning();
   if (!row) throw new Error('eval run insert returned no row');
   return row;
+}
+
+export async function startRun(
+  db: Database,
+  agentId: string,
+  createdBy: string,
+  target: 'published' | 'draft' = 'published',
+): Promise<EvalRun | undefined> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [lockedAgent] = await tx
+        .select({ id: agents.id, publishedVersion: agents.publishedVersion })
+        .from(agents)
+        .where(eq(agents.id, agentId))
+        .for('update');
+      if (!lockedAgent) fail('NOT_FOUND', AGENT_SELECTION_MISSING_MESSAGE);
+      const cases = await tx
+        .select({
+          id: evalCases.id,
+          name: evalCases.name,
+          prompt: evalCases.prompt,
+          expectation: evalCases.expectation,
+          judgeMode: evalCases.judgeMode,
+          expectedTools: evalCases.expectedTools,
+          forbiddenTools: evalCases.forbiddenTools,
+        })
+        .from(evalCases)
+        .where(eq(evalCases.agentId, agentId))
+        .orderBy(asc(evalCases.createdAt), asc(evalCases.id));
+      if (cases.length === 0) fail('INVALID_INPUT', '该智能体还没有用例');
+      const [running] = await tx
+        .select({ id: evalRuns.id })
+        .from(evalRuns)
+        .where(and(eq(evalRuns.agentId, agentId), eq(evalRuns.status, 'running')))
+        .limit(1);
+      if (running) return undefined;
+      const definition =
+        target === 'draft'
+          ? await loadLiveDefinition(tx, agentId)
+          : lockedAgent.publishedVersion === null
+            ? null
+            : ((await getAgentVersion(tx, agentId, lockedAgent.publishedVersion))?.definition ??
+              null);
+      if (target === 'draft' && definition) {
+        await assertDefinitionResources(tx, definition);
+      }
+      const agentVersion =
+        target === 'draft' ? await latestAgentVersion(tx, agentId) : lockedAgent.publishedVersion;
+      const [created] = await tx
+        .insert(evalRuns)
+        .values({
+          id: newId('evalRun'),
+          agentId,
+          createdBy,
+          total: cases.length,
+          caseSnapshot: cases.map(({ expectedTools, forbiddenTools, ...rest }) => ({
+            ...rest,
+            ...(expectedTools === null ? {} : { expectedTools }),
+            ...(forbiddenTools === null ? {} : { forbiddenTools }),
+          })),
+          agentVersion,
+          definitionSnapshot: definition,
+          resourceVersions:
+            definition === null
+              ? null
+              : {
+                  servers: definition.resources.servers.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  skills: definition.resources.skills.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  plugins: definition.resources.plugins.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  subAgents: definition.resources.subAgents.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  runtimeEnvironment: definition.resources.runtimeEnvironment,
+                },
+        })
+        .returning();
+      return created;
+    });
+  } catch (err) {
+    if (!isPgCode(err, '23505')) throw err;
+    return undefined;
+  }
+}
+
+export async function failUnclaimedEvalRun(
+  db: Database,
+  id: string,
+  error: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(evalRuns)
+    .set({ status: 'failed', error, finishedAt: new Date() })
+    .where(and(eq(evalRuns.id, id), eq(evalRuns.status, 'running'), isNull(evalRuns.claimedAt)))
+    .returning({ id: evalRuns.id });
+  return rows.length > 0;
 }
 
 export async function claimEvalRun(db: Database, id: string): Promise<boolean> {

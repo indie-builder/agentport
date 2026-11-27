@@ -1148,14 +1148,21 @@ function isModuleNamespaceExpr(path, seen = new Set()) {
   return false;
 }
 
-function destructuredPropertyName(pattern, identifierNode) {
+function destructuredPropertyPath(pattern, identifierNode) {
+  if (pattern === identifierNode) return [];
+  if (pattern?.type === 'AssignmentPattern') {
+    return destructuredPropertyPath(pattern.left, identifierNode);
+  }
+  if (pattern?.type !== 'ObjectPattern') return null;
   for (const prop of pattern.properties) {
     if (prop.type !== 'ObjectProperty') continue;
-    const target = prop.value.type === 'AssignmentPattern' ? prop.value.left : prop.value;
-    if (target !== identifierNode) continue;
-    if (!prop.computed && prop.key.type === 'Identifier') return prop.key.name;
-    return stringLiteral(prop.key);
+    const subPath = destructuredPropertyPath(prop.value, identifierNode);
+    if (!subPath) continue;
+    const key =
+      !prop.computed && prop.key.type === 'Identifier' ? prop.key.name : stringLiteral(prop.key);
+    return key === undefined ? null : [key, ...subPath];
   }
+  return null;
 }
 
 function matchesCompositionTarget(path, targetName, seen = new Set()) {
@@ -1173,13 +1180,243 @@ function matchesCompositionTarget(path, targetName, seen = new Set()) {
       return matchesCompositionTarget(binding.path.get('init'), targetName, seen);
     }
     if (binding.path.get('id').isObjectPattern()) {
+      const prop = destructuredPropertyPath(binding.path.node.id, binding.identifier);
       return (
-        destructuredPropertyName(binding.path.node.id, binding.identifier) === targetName &&
+        prop?.length === 1 &&
+        prop[0] === targetName &&
         isModuleNamespaceExpr(binding.path.get('init'))
       );
     }
   }
   return false;
+}
+
+function resolvePackageRef(path, seen = new Set()) {
+  path = unwrapNodePath(path);
+  if (path.isAwaitExpression()) {
+    return resolvePackageRef(path.get('argument'), seen);
+  }
+  if (path.isImportExpression()) {
+    const spec = stringLiteral(path.node.source);
+    return spec ? { source: spec, path: [] } : null;
+  }
+  if (
+    (path.isCallExpression() || path.isOptionalCallExpression()) &&
+    isUnboundGlobalOrMember(path.get('callee'), 'require')
+  ) {
+    const spec = stringLiteral(path.node.arguments[0]);
+    return spec ? { source: spec, path: [] } : null;
+  }
+  if (path.isMemberExpression() || path.isOptionalMemberExpression()) {
+    const prop = staticMemberName(path.node);
+    if (prop === undefined) return null;
+    const base = resolvePackageRef(path.get('object'), seen);
+    return base ? { source: base.source, path: [...base.path, prop] } : null;
+  }
+  if (!path.isIdentifier()) return null;
+  const binding = path.scope.getBinding(path.node.name);
+  if (!binding) return null;
+  const impPath = binding.path;
+  if (impPath.isImportNamespaceSpecifier() && impPath.parent.importKind !== 'type') {
+    return { source: impPath.parent.source.value, path: [] };
+  }
+  if (impPath.isImportDefaultSpecifier() && impPath.parent.importKind !== 'type') {
+    return { source: impPath.parent.source.value, path: ['default'] };
+  }
+  const imp = importedBinding(binding);
+  if (imp) return { source: imp.source, path: [imp.name] };
+  if (binding.constant && impPath.isVariableDeclarator() && impPath.node.init && !seen.has(binding)) {
+    seen.add(binding);
+    if (impPath.get('id').isIdentifier()) {
+      return resolvePackageRef(impPath.get('init'), seen);
+    }
+    if (impPath.get('id').isObjectPattern()) {
+      const prop = destructuredPropertyPath(impPath.node.id, binding.identifier);
+      if (!prop) return null;
+      const base = resolvePackageRef(impPath.get('init'), seen);
+      return base ? { source: base.source, path: [...base.path, ...prop] } : null;
+    }
+  }
+  return null;
+}
+
+function bannedThrownErrorKind(ref) {
+  if (!ref) return null;
+  if (
+    ref.source.startsWith('@orpc/') &&
+    ((ref.path.length === 1 && ref.path[0] === 'ORPCError') ||
+      (ref.path.length === 2 && ref.path[0] === 'default' && ref.path[1] === 'ORPCError'))
+  ) {
+    return 'ORPCError';
+  }
+  if (
+    matchesPackage(ref.source, 'zod') &&
+    ref.path.at(-1) === 'ZodError' &&
+    (ref.path.length === 1 ||
+      (ref.path.length === 2 && (ref.path[0] === 'z' || ref.path[0] === 'default')) ||
+      (ref.path.length === 3 && ref.path[0] === 'default' && ref.path[1] === 'z'))
+  ) {
+    return 'ZodError';
+  }
+  return null;
+}
+
+const dbNonTableExports = new Set([
+  'createDb',
+  'newId',
+  'idSuffix',
+  'idPrefixes',
+  'repo',
+  'schema',
+  'isCanonicalTimestamp',
+  'isPgCode',
+  'default',
+]);
+
+function isDbSchemaTableRef(ref) {
+  if (!ref) return false;
+  if (ref.source === '@agentport/db') {
+    return (
+      (ref.path.length === 2 && ref.path[0] === 'schema') ||
+      (ref.path.length === 1 && !dbNonTableExports.has(ref.path[0]))
+    );
+  }
+  if (matchesPackage(ref.source, '@agentport/db/schema')) {
+    return ref.path.length === 1 && ref.path[0] !== 'default';
+  }
+  return false;
+}
+
+function isDbRepoRef(ref) {
+  return ref?.source === '@agentport/db' && ref.path[0] === 'repo';
+}
+
+function isDrizzleSqlRef(ref) {
+  if (!ref || !matchesPackage(ref.source, 'drizzle-orm')) return false;
+  return (
+    (ref.path.length === 1 && ref.path[0] === 'sql') ||
+    (ref.path.length === 2 && ref.path[0] === 'default' && ref.path[1] === 'sql')
+  );
+}
+
+function stripSqlCommentsAndStrings(src) {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    const next = src[i + 1];
+    if (ch === '-' && next === '-') {
+      while (i < src.length && src[i] !== '\n') {
+        out += ' ';
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      out += '  ';
+      i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
+        out += src[i] === '\n' ? '\n' : ' ';
+        i += 1;
+      }
+      if (i < src.length) {
+        out += '  ';
+        i += 2;
+      }
+      continue;
+    }
+    if (ch === "'") {
+      out += ' ';
+      i += 1;
+      while (i < src.length) {
+        if (src[i] === "'" && src[i + 1] === "'") {
+          i += 2;
+          continue;
+        }
+        if (src[i] === "'") {
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+const sqlIdent = '(?:[a-z_][\\w$]*|"[^"]+"|__expr__)';
+const sqlInsertRe = /(?<![.\w$])insert\s+into\b/i;
+const sqlDeleteRe = /(?<![.\w$])delete\s+from\b/i;
+const sqlUpdateSetRe = new RegExp(
+  `(?<![.\\w$])update\\s+(?:only\\s+)?${sqlIdent}(?:\\s*\\.\\s*${sqlIdent})?(?:\\s+(?:as\\s+)?${sqlIdent})?\\s+set\\b`,
+  'i',
+);
+
+function findSqlDmlStatement(rawSqlText) {
+  const stripped = stripSqlCommentsAndStrings(rawSqlText);
+  if (sqlInsertRe.test(stripped)) return 'INSERT INTO';
+  if (sqlDeleteRe.test(stripped)) return 'DELETE FROM';
+  if (sqlUpdateSetRe.test(stripped)) return 'UPDATE ... SET';
+  return null;
+}
+
+const dmlMethods = ['insert', 'update', 'delete'];
+
+for (const file of apiFiles) {
+  const displayPath = rel(file);
+  const isApiModule = displayPath.startsWith('packages/api/src/modules/');
+  traverse(readModule(file).ast, {
+    NewExpression(path) {
+      if (!isApiModule) return;
+      const kind = bannedThrownErrorKind(resolvePackageRef(path.get('callee')));
+      if (!kind) return;
+      report(
+        'api-no-orpc-zod-throw',
+        `${displayPath}:${path.node.loc.start.line}: 业务模块禁止直接抛出 new ${kind}()（统一使用 @agentport/core 的 AppError / fail()（含 extra 扩展负载）走 http/orpc.ts 唯一错误与日志管道）`,
+      );
+    },
+    'CallExpression|OptionalCallExpression'(path) {
+      const { callee, arguments: args, loc } = path.node;
+      const line = loc.start.line;
+      if (
+        isMember(callee, 'raw') &&
+        isDrizzleSqlRef(resolvePackageRef(path.get('callee.object')))
+      ) {
+        const rawSql = stringLiteral(args[0]);
+        const stmt = rawSql === undefined ? null : findSqlDmlStatement(rawSql);
+        if (stmt) {
+          report(
+            'api-no-raw-dml',
+            `${displayPath}:${line}: 禁止在 API 层 sql.raw() 中直接执行 ${stmt}（全部写操作收口至 @agentport/db/src/repo/）`,
+          );
+        }
+        return;
+      }
+      const method = dmlMethods.find((name) => isMember(callee, name));
+      if (!method || args.length === 0) return;
+      if (isDbRepoRef(resolvePackageRef(path.get('callee.object')))) return;
+      if (!isDbSchemaTableRef(resolvePackageRef(path.get('arguments.0')))) return;
+      report(
+        'api-no-raw-dml',
+        `${displayPath}:${line}: 禁止在 API 层直接调用 Drizzle 表 DML .${method}()（全部写操作收口至 @agentport/db/src/repo/）`,
+      );
+    },
+    TaggedTemplateExpression(path) {
+      if (!isDrizzleSqlRef(resolvePackageRef(path.get('tag')))) return;
+      const rawSql = path.node.quasi.quasis
+        .map((quasi) => quasi.value.cooked ?? quasi.value.raw)
+        .join(' __expr__ ');
+      const stmt = findSqlDmlStatement(rawSql);
+      if (!stmt) return;
+      report(
+        'api-no-raw-dml',
+        `${displayPath}:${path.node.loc.start.line}: 禁止在 API 层 sql 模板中直接执行 ${stmt}（全部写操作收口至 @agentport/db/src/repo/）`,
+      );
+    },
+  });
 }
 
 const workerCompositionRoots = new Set([

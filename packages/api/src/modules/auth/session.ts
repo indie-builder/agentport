@@ -1,7 +1,6 @@
 import { AppError } from '@agentport/core';
-import { authSessions, repo } from '@agentport/db';
+import { repo } from '@agentport/db';
 import type { Principal } from '@agentport/shared';
-import { eq } from 'drizzle-orm';
 import { generateCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { AuthService } from '../../http/auth.js';
@@ -81,7 +80,7 @@ export async function revokeUserSessions(
   context: RequestContext,
   authUserId: string,
 ): Promise<void> {
-  await context.db.delete(authSessions).where(eq(authSessions.userId, authUserId));
+  await repo.accounts.revokeAuthUserSessions(context.db, authUserId);
 }
 
 export async function authenticate(context: RequestContext): Promise<void> {

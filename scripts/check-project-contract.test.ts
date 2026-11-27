@@ -396,6 +396,107 @@ const fixtures = [
     ],
   },
   {
+    name: 'api modules 禁止直接抛出 new ORPCError 与 new z.ZodError',
+    rule: 'api-no-orpc-zod-throw',
+    files: {
+      'packages/api/src/modules/knowledge/router.ts':
+        "import { ORPCError } from '@orpc/server';\nexport const run = () => { throw new ORPCError('CONFLICT', { message: 'bad' }); };\n",
+      'packages/api/src/modules/chat/use-cases.ts':
+        "import { ORPCError } from '@orpc/contract';\nexport const run = () => { throw new ORPCError('NOT_FOUND'); };\n",
+      'packages/api/src/modules/agents/use-cases.ts':
+        "import { z } from 'zod';\nexport const run = () => { throw new z.ZodError([]); };\n",
+    },
+    expected: [
+      'packages/api/src/modules/knowledge/router.ts:2: 业务模块禁止直接抛出 new ORPCError()',
+      'packages/api/src/modules/chat/use-cases.ts:2: 业务模块禁止直接抛出 new ORPCError()',
+      'packages/api/src/modules/agents/use-cases.ts:2: 业务模块禁止直接抛出 new ZodError()',
+      'AppError',
+      'fail()',
+      'extra',
+      'http/orpc.ts',
+    ],
+  },
+  {
+    name: 'api modules 通过别名、命名空间或动态导入抛出 ORPCError 与 ZodError',
+    rule: 'api-no-orpc-zod-throw',
+    files: {
+      'packages/api/src/modules/knowledge/router.ts':
+        "import { ORPCError as RpcErr } from '@orpc/server';\nconst Err = RpcErr;\nexport const run = () => { throw new Err('BAD_REQUEST'); };\n",
+      'packages/api/src/modules/chat/router.ts':
+        "import * as orpc from '@orpc/contract';\nexport const run = () => { throw new orpc.ORPCError('CONFLICT'); };\n",
+      'packages/api/src/modules/agents/router.ts':
+        "import { ZodError as ZErr } from 'zod';\nexport const run = () => { throw new ZErr([]); };\n",
+      'packages/api/src/modules/eval/router.ts':
+        "import { z as zod } from 'zod';\nexport const run = () => { throw new zod.ZodError([]); };\n",
+      'packages/api/src/modules/servers/router.ts':
+        "import zDefault from 'zod';\nexport const run = () => { throw new zDefault.ZodError([]); };\n",
+      'packages/api/src/modules/runs/router.ts':
+        "export const run = async () => {\n  const { ORPCError: DynamicRpcErr } = await import('@orpc/server');\n  throw new DynamicRpcErr('FORBIDDEN');\n};\n",
+      'packages/api/src/modules/auth/router.ts':
+        "import * as zNs from 'zod';\nexport const run = () => { throw new zNs.z.ZodError([]); };\n",
+    },
+    expected: [
+      'packages/api/src/modules/knowledge/router.ts:3: 业务模块禁止直接抛出 new ORPCError()',
+      'packages/api/src/modules/chat/router.ts:2: 业务模块禁止直接抛出 new ORPCError()',
+      'packages/api/src/modules/agents/router.ts:2: 业务模块禁止直接抛出 new ZodError()',
+      'packages/api/src/modules/eval/router.ts:2: 业务模块禁止直接抛出 new ZodError()',
+      'packages/api/src/modules/servers/router.ts:2: 业务模块禁止直接抛出 new ZodError()',
+      'packages/api/src/modules/runs/router.ts:3: 业务模块禁止直接抛出 new ORPCError()',
+      'packages/api/src/modules/auth/router.ts:2: 业务模块禁止直接抛出 new ZodError()',
+    ],
+  },
+  {
+    name: 'api 禁止直接调用 Drizzle 表 insert/update/delete（含 schema 成员、表导入与别名）',
+    rule: 'api-no-raw-dml',
+    files: {
+      'packages/api/src/modules/runs/cancel-run.ts':
+        "import { schema } from '@agentport/db';\nexport const run = (tx: { update: (t: unknown) => unknown }) => tx.update(schema.agentRuns);\n",
+      'packages/api/src/modules/auth/session.ts':
+        "import { authSessions } from '@agentport/db';\nexport const revoke = (db: { delete: (t: unknown) => unknown }) => db.delete(authSessions);\n",
+      'packages/api/src/modules/auth/bootstrap.ts':
+        "import { roles as roleTable, schema as dbSchema } from '@agentport/db';\nconst { agentRuns: runsTable } = dbSchema;\nexport const seed = (tx: { insert: (t: unknown) => unknown; delete: (t: unknown) => unknown }) => [tx.insert(roleTable), tx.delete(runsTable)];\n",
+      'packages/api/src/modules/agents/package.ts':
+        "import * as dbPkg from '@agentport/db';\nconst tbl = dbPkg.schema.agentRules;\nexport const write = (db: { insert: (t: unknown) => unknown; update: (t: unknown) => unknown }) => [db.insert(dbPkg.agents), db.update(tbl)];\n",
+      'packages/api/src/http/cleanup.ts':
+        "import { agents as agentsTbl } from '@agentport/db/schema';\nexport const clean = (db: { delete: (t: unknown) => unknown }) => db.delete(agentsTbl);\n",
+    },
+    expected: [
+      'packages/api/src/modules/runs/cancel-run.ts:2: 禁止在 API 层直接调用 Drizzle 表 DML .update()',
+      'packages/api/src/modules/auth/session.ts:2: 禁止在 API 层直接调用 Drizzle 表 DML .delete()',
+      'packages/api/src/modules/auth/bootstrap.ts:3: 禁止在 API 层直接调用 Drizzle 表 DML .insert()',
+      'packages/api/src/modules/auth/bootstrap.ts:3: 禁止在 API 层直接调用 Drizzle 表 DML .delete()',
+      'packages/api/src/modules/agents/package.ts:3: 禁止在 API 层直接调用 Drizzle 表 DML .insert()',
+      'packages/api/src/modules/agents/package.ts:3: 禁止在 API 层直接调用 Drizzle 表 DML .update()',
+      'packages/api/src/http/cleanup.ts:2: 禁止在 API 层直接调用 Drizzle 表 DML .delete()',
+      '全部写操作收口至 @agentport/db/src/repo/',
+    ],
+  },
+  {
+    name: 'api 禁止在 sql 模板与 sql.raw 中直接执行 INSERT INTO / DELETE FROM / UPDATE ... SET',
+    rule: 'api-no-raw-dml',
+    files: {
+      'packages/api/src/modules/knowledge/use-cases/model-profiles.ts':
+        "import { sql } from 'drizzle-orm';\nexport const del = (db: { execute: (q: unknown) => unknown }, id: string) => db.execute(sql`delete from knowledge_model_profiles where id = $" +
+        '{id}`);\n',
+      'packages/api/src/modules/knowledge/use-cases/jobs.ts':
+        "import { sql as rawSql } from 'drizzle-orm';\nimport { schema } from '@agentport/db';\nexport const ins = (db: { execute: (q: unknown) => unknown }, id: string) => db.execute(rawSql`INSERT INTO $" +
+        '{schema.knowledgeJobs} (id) VALUES ($' +
+        '{id})`);\n',
+      'packages/api/src/modules/eval/use-cases.ts':
+        "import * as orm from 'drizzle-orm';\nexport const upd = (db: { execute: (q: unknown) => unknown }, id: string) => db.execute(orm.sql`UPDATE eval_runs AS r SET status = 'failed' WHERE r.id = $" +
+        '{id}`);\n',
+      'packages/api/src/modules/servers/repo.ts':
+        "import { sql } from 'drizzle-orm';\nexport const rawDel = (db: { execute: (q: unknown) => unknown }) => db.execute(sql.raw('DELETE FROM servers'));\n",
+    },
+    expected: [
+      'packages/api/src/modules/knowledge/use-cases/model-profiles.ts:2: 禁止在 API 层 sql 模板中直接执行 DELETE FROM',
+      'packages/api/src/modules/knowledge/use-cases/jobs.ts:3: 禁止在 API 层 sql 模板中直接执行 INSERT INTO',
+      'packages/api/src/modules/eval/use-cases.ts:2: 禁止在 API 层 sql 模板中直接执行 UPDATE ... SET',
+      'packages/api/src/modules/servers/repo.ts:2: 禁止在 API 层 sql.raw() 中直接执行 DELETE FROM',
+      '全部写操作收口至 @agentport/db/src/repo/',
+    ],
+  },
+  {
     name: 'api config.ts 之外禁止直接访问 process.env 或 Bun.env',
     rule: 'api-no-process-env',
     files: {
@@ -1399,6 +1500,29 @@ test.each([
         "{sql.raw(integrationScopeSchema.options.map((o) => `'" +
         '$' +
         "{o}'`).join(', '))}]::text[]`);\n",
+    },
+  },
+  {
+    name: 'api http/orpc.ts 抛出 ORPCError、instanceof 检查、AppError/fail 及局部类遮蔽',
+    files: {
+      'packages/api/src/http/orpc.ts':
+        "import { ORPCError } from '@orpc/contract';\nexport const wrap = (err: unknown) => { if (err instanceof ORPCError || err instanceof z.ZodError) throw err; throw new ORPCError('INTERNAL_ERROR'); };\n",
+      'packages/api/src/modules/knowledge/router.ts':
+        "import { ORPCError } from '@orpc/server';\nimport { ZodError } from 'zod';\nexport const handle = (err: unknown) => {\n  if (err instanceof ORPCError || err instanceof ZodError || err instanceof z.ZodError) return null;\n  if (!err) fail('NOT_FOUND', 'missing');\n  throw new AppError('CONFLICT', 'msg', { extra: { results: [] } });\n};\nexport function shadowed() {\n  class ORPCError {}\n  class ZodError {}\n  const z = { ZodError };\n  return [new ORPCError(), new ZodError(), new z.ZodError()];\n}\n",
+    },
+  },
+  {
+    name: 'api 非 Drizzle 表 delete/update（Set/Map/CryptoHasher/repo）、只读查询与合法 sql select',
+    files: {
+      'packages/api/src/queue/producer.ts':
+        "const subscriptions = new Set<string>();\nsubscriptions.delete('redis');\nconst cache = new Map<string, number>();\ncache.delete('key');\n",
+      'packages/api/src/modules/integrations/signature.ts':
+        "const digest = new Bun.CryptoHasher('sha256').update('payload').digest('hex');\nconst hmac = { update: (v: string) => v };\nexport const out = [digest, hmac.update('body')];\n",
+      'packages/api/src/modules/security/router.ts':
+        "import { repo } from '@agentport/db';\nconst toolPolicies = repo.toolApprovalPolicies;\nconst { runs } = repo;\nexport const run = async (db: unknown) => [\n  await repo.memoryChanges.insert(db, {}),\n  await repo.agents.update(db, '1', {}),\n  await repo.agents.delete(db, '1'),\n  await toolPolicies.update(db, '1', {}),\n  await toolPolicies.delete(db, '1'),\n  await runs.delete(db, '1'),\n];\n",
+      'packages/api/src/modules/overview/router.ts':
+        "import { schema } from '@agentport/db';\nimport { sql } from 'drizzle-orm';\nconst fakeSchema = { agents: 'agents' };\nconst fakeDb = { delete: (x: string) => x, insert: (x: string) => x };\nexport const read = (db: { select: () => { from: (t: unknown) => unknown }; execute: (q: unknown) => unknown }, alias: string) => [\n  db.select().from(schema.agentRuns),\n  db.execute(sql`select 1 from $" +
+        "{schema.agentRuns} where status = 'update' and mode = 'set' and note = 'delete from agents'`),\n  db.execute(sql`select id, updated_at from agents -- delete from agents\n/* insert into agents */`),\n  db.execute(sql.raw(alias)),\n  fakeDb.delete(fakeSchema.agents),\n];\nexport function shadowed(schema: { agents: string }) {\n  return fakeDb.insert(schema.agents);\n}\n",
     },
   },
   {

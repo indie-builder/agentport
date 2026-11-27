@@ -208,10 +208,8 @@ export async function updateModelProfile(
 
 export async function deleteModelProfile(deps: KnowledgeDeps, profileId: string): Promise<void> {
   try {
-    const result = await deps.db.execute(
-      sql`delete from knowledge_model_profiles where id = ${profileId} returning id`,
-    );
-    if (result.length === 0) notFound('模型 profile');
+    const deleted = await repo.knowledge.deleteModelProfile(deps.db, profileId);
+    if (!deleted) notFound('模型 profile');
   } catch (err) {
     if (isPgCode(err, '23001') || isPgCode(err, '23503')) {
       throw new AppError('CONFLICT', '该 profile 仍被知识库使用，请先切换或删除知识库');

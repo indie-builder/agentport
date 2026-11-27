@@ -50,6 +50,7 @@ import { getRunChannelAccess } from './channels.js';
 import { enqueueWebhookEvent } from './integrations.js';
 import { markBySource } from './notifications.js';
 import { type CursorPage, cursorValueSql, isCanonicalTimestamp, keysetPage } from './pagination.js';
+import { requeueUndeliveredInstructionWakes } from './run-instructions.js';
 import { neverStartedFailureFilter } from './run-predicates.js';
 
 export interface RunListItem {
@@ -513,6 +514,39 @@ export async function failUnstartedRun(
       });
     }
     return failed;
+  });
+}
+
+export async function cancelQueuedRun(
+  db: DbHandle,
+  runId: string,
+): Promise<FailedUnstartedRunRow | undefined> {
+  return db.transaction(async (tx) => {
+    const [queued] = await tx
+      .update(agentRuns)
+      .set({ status: 'cancelled', endedAt: new Date() })
+      .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, 'queued')))
+      .returning({
+        id: agentRuns.id,
+        agentId: agentRuns.agentId,
+        conversationId: agentRuns.conversationId,
+        channelId: agentRuns.channelId,
+        initiatedBy: agentRuns.initiatedBy,
+      });
+    if (queued === undefined) return undefined;
+    if (queued.channelId !== null) {
+      await requeueUndeliveredInstructionWakes(tx, {
+        runId: queued.id,
+        agentId: queued.agentId,
+      });
+    }
+    if (queued.initiatedBy !== null) {
+      await enqueueWebhookEvent(tx, {
+        ...buildRunWebhookEvent({ status: 'cancelled', error: null }, queued),
+        ownerBusinessId: queued.initiatedBy,
+      });
+    }
+    return queued;
   });
 }
 

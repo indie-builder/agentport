@@ -11,7 +11,7 @@ import {
   segmentForSearch,
   sha256Hex,
 } from '@agentport/core';
-import { type Database, newId, repo, schema } from '@agentport/db';
+import { type Database, newId, repo } from '@agentport/db';
 import {
   knowledgeAudioMetadataSchema,
   knowledgeBaseSettingsSchema,
@@ -33,7 +33,6 @@ import {
   slugSchema,
   supportsKnowledgeImageVectors,
 } from '@agentport/shared';
-import { and, eq, inArray } from 'drizzle-orm';
 import { zipSync } from 'fflate';
 import { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
@@ -64,7 +63,6 @@ const MAX_FOLDERS = 2_000;
 const MAX_TAGS = 2_000;
 const MAX_DOCUMENTS = 2_000;
 const MAX_WIKI_PAGES = 1_000;
-const INSERT_BATCH = 500;
 const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
 const ZIP_READ_LIMITS: ZipReadLimits = {
@@ -482,18 +480,10 @@ export async function exportKnowledgePackage(db: Db, knowledgeDir: string, baseI
   const wikiPages = await collectPages((options) =>
     repo.knowledge.listWikiPages(db, baseId, options),
   );
-  const wikiSources =
-    wikiPages.length === 0
-      ? []
-      : await db
-          .select()
-          .from(schema.knowledgeWikiSources)
-          .where(
-            inArray(
-              schema.knowledgeWikiSources.pageId,
-              wikiPages.map((row) => row.id),
-            ),
-          );
+  const wikiSources = await repo.knowledge.listWikiSourcesByPageIds(
+    db,
+    wikiPages.map((row) => row.id),
+  );
 
   if (folders.length > MAX_FOLDERS) {
     fail('CONFLICT', `文件夹数量超过 ${MAX_FOLDERS} 个，请拆分知识库后重试`);
@@ -833,22 +823,11 @@ export async function importKnowledgePackage(
     return value;
   };
 
-  const [embedding] = await db
-    .select({
-      id: schema.knowledgeModelProfiles.id,
-      name: schema.knowledgeModelProfiles.name,
-      model: schema.knowledgeModelProfiles.model,
-      embeddingProtocol: schema.knowledgeModelProfiles.embeddingProtocol,
-      imageInputEnabled: schema.knowledgeModelProfiles.imageInputEnabled,
-    })
-    .from(schema.knowledgeModelProfiles)
-    .where(
-      and(
-        eq(schema.knowledgeModelProfiles.kind, 'embedding'),
-        eq(schema.knowledgeModelProfiles.name, manifest.base.embeddingProfileName),
-      ),
-    )
-    .limit(1);
+  const embedding = await repo.knowledge.findModelProfileByName(
+    db,
+    'embedding',
+    manifest.base.embeddingProfileName,
+  );
   if (!embedding) {
     fail(
       'CONFLICT',
@@ -884,16 +863,11 @@ export async function importKnowledgePackage(
   }
   let rerankId: string | null = null;
   if (manifest.base.rerankProfileName !== null) {
-    const [rerank] = await db
-      .select({ id: schema.knowledgeModelProfiles.id })
-      .from(schema.knowledgeModelProfiles)
-      .where(
-        and(
-          eq(schema.knowledgeModelProfiles.kind, 'rerank'),
-          eq(schema.knowledgeModelProfiles.name, manifest.base.rerankProfileName),
-        ),
-      )
-      .limit(1);
+    const rerank = await repo.knowledge.findModelProfileByName(
+      db,
+      'rerank',
+      manifest.base.rerankProfileName,
+    );
     if (!rerank) {
       fail(
         'CONFLICT',
@@ -908,20 +882,11 @@ export async function importKnowledgePackage(
     if (expectedModel === undefined) {
       fail('INVALID_INPUT', '包内 ASR profile 名称缺少协议与模型，无法匹配本机配置');
     }
-    const [asr] = await db
-      .select({
-        id: schema.knowledgeModelProfiles.id,
-        model: schema.knowledgeModelProfiles.model,
-        enabled: schema.knowledgeModelProfiles.enabled,
-      })
-      .from(schema.knowledgeModelProfiles)
-      .where(
-        and(
-          eq(schema.knowledgeModelProfiles.kind, 'asr'),
-          eq(schema.knowledgeModelProfiles.name, manifest.base.asrProfileName),
-        ),
-      )
-      .limit(1);
+    const asr = await repo.knowledge.findModelProfileByName(
+      db,
+      'asr',
+      manifest.base.asrProfileName,
+    );
     if (!asr?.enabled || asr.model !== expectedModel) {
       fail(
         'CONFLICT',
@@ -1024,52 +989,35 @@ export async function importKnowledgePackage(
       }
     }
 
-    await db.transaction(async (tx) => {
-      await repo.servers.upsertManagedServer(tx, {
-        kind: 'knowledge',
-        resourceId: baseId,
-        slug: manifest.base.slug,
-        ownerBusinessId: ownerBusinessId ?? null,
-        serverId,
-      });
-      await tx.insert(schema.knowledgeBases).values({
-        id: baseId,
+    const tagByName = new Map(manifest.tags.map((tag) => [tag.name, tagId.get(tag.id)]));
+    await repo.knowledge.importKnowledgePackage(db, {
+      baseId,
+      serverId,
+      ownerBusinessId: ownerBusinessId ?? null,
+      base: {
         slug: manifest.base.slug,
         name: manifest.base.name,
         description: manifest.base.description,
         status: manifest.base.status,
-        serverId,
+        settings: manifest.base.settings,
         embeddingProfileId: embedding.id,
         rerankProfileId: rerankId,
         asrProfileId: asrId,
-        settings: manifest.base.settings,
-        ownerBusinessId: ownerBusinessId ?? null,
-      });
-      await repo.governance.assertKnowledgeDocumentQuota(tx, baseId, manifest.documents.length);
-
-      for (const folder of [...manifest.folders].sort(
-        (a, b) => folderPath(a, manifest).length - folderPath(b, manifest).length,
-      )) {
-        await tx.insert(schema.knowledgeFolders).values({
-          id: requireEntry(folderId.get(folder.id), folder.id),
-          baseId,
-          parentId: folder.parentId === null ? null : folderId.get(folder.parentId),
-          name: folder.name,
-          path: folderPath(folder, manifest),
-        });
-      }
-      if (manifest.tags.length > 0) {
-        await tx.insert(schema.knowledgeTags).values(
-          manifest.tags.map((tag) => ({
-            id: requireEntry(tagId.get(tag.id), tag.id),
-            baseId,
-            name: tag.name,
-          })),
-        );
-      }
-      const tagByName = new Map(manifest.tags.map((tag) => [tag.name, tagId.get(tag.id)]));
-
-      for (const document of manifest.documents) {
+      },
+      folders: manifest.folders.map((folder) => ({
+        id: requireEntry(folderId.get(folder.id), folder.id),
+        parentId:
+          folder.parentId === null
+            ? null
+            : requireEntry(folderId.get(folder.parentId), folder.parentId),
+        name: folder.name,
+        path: folderPath(folder, manifest),
+      })),
+      tags: manifest.tags.map((tag) => ({
+        id: requireEntry(tagId.get(tag.id), tag.id),
+        name: tag.name,
+      })),
+      documents: manifest.documents.map((document) => {
         const newDocumentId = requireEntry(documentId.get(document.id), document.id);
         const currentPackage = document.versions.find(
           (version) => version.id === document.currentVersionId,
@@ -1080,10 +1028,12 @@ export async function importKnowledgePackage(
             : currentPackage && currentPackage.chunks.length > 0
               ? 'ready'
               : 'pending';
-        await tx.insert(schema.knowledgeDocuments).values({
+        return {
           id: newDocumentId,
-          baseId,
-          folderId: document.folderId === null ? null : folderId.get(document.folderId),
+          folderId:
+            document.folderId === null
+              ? null
+              : requireEntry(folderId.get(document.folderId), document.folderId),
           title: document.title,
           sourceType: document.sourceType,
           sourceId: document.sourceId,
@@ -1094,8 +1044,9 @@ export async function importKnowledgePackage(
           status,
           contentKind: document.contentKind,
           disabledReason: status === 'disabled' ? (document.disabledReason ?? 'manual') : null,
-          sourceConnectionId: null,
-          currentVersionId: null,
+          currentVersionId: currentPackage
+            ? requireEntry(versionId.get(currentPackage.id), currentPackage.id)
+            : null,
           contentHash: document.pending?.blobSha256 ?? currentPackage?.blobSha256 ?? null,
           metadata: remapMetadata(
             document.pending === null
@@ -1104,15 +1055,19 @@ export async function importKnowledgePackage(
             { wikiPageId },
           ),
           lastSyncedAt: document.lastSyncedAt === null ? null : new Date(document.lastSyncedAt),
-        });
-        for (const version of document.versions) {
-          const newVersionId = requireEntry(versionId.get(version.id), version.id);
-          await tx.insert(schema.knowledgeDocumentVersions).values({
-            id: newVersionId,
-            documentId: newDocumentId,
+          tagIds: [
+            ...new Set(
+              document.tags.map((name) => tagByName.get(name)).filter((id) => id !== undefined),
+            ),
+          ],
+          versions: document.versions.map((version) => ({
+            id: requireEntry(versionId.get(version.id), version.id),
             version: version.version,
             origin: version.origin,
-            parentVersionId: null,
+            parentVersionId:
+              version.parentVersionId === null
+                ? null
+                : requireEntry(versionId.get(version.parentVersionId), version.parentVersionId),
             metadata: importedVersionMetadata(version.metadata),
             faq: version.faq,
             blobSha256: version.blobSha256,
@@ -1124,122 +1079,73 @@ export async function importKnowledgePackage(
             parseStatus: version.parseStatus,
             pageMap: version.pageMap,
             images: version.images.map(({ path: _path, ...image }) => image),
-            embeddingProfileId: embedding.id,
-          });
-          for (let offset = 0; offset < version.chunks.length; offset += INSERT_BATCH) {
-            const batch = version.chunks.slice(offset, offset + INSERT_BATCH);
-            await tx.insert(schema.knowledgeChunks).values(
-              batch.map((chunk) => ({
-                id: requireEntry(chunkId.get(chunk.id), chunk.id),
-                baseId,
-                documentId: newDocumentId,
-                versionId: newVersionId,
-                folderId: document.folderId === null ? null : folderId.get(document.folderId),
-                ordinal: chunk.ordinal,
-                parentOrdinal: chunk.parentOrdinal,
-                indexRole: chunk.indexRole,
-                kind: chunk.kind,
-                heading: chunk.heading,
-                content: chunk.content,
-                searchText: isVectorRole(chunk.metadata) ? '' : segmentForSearch(chunk.content),
-                embedding: null,
-                enabled: chunk.enabled,
-                editedByUser: chunk.editedByUser,
-                pageFrom: chunk.pageFrom,
-                pageTo: chunk.pageTo,
-                locator: chunk.locator,
-                tokenCount: chunk.tokenCount,
-                metadata: chunk.metadata,
-              })),
-            );
-          }
-        }
-        for (const version of document.versions) {
-          if (version.parentVersionId === null) continue;
-          await tx
-            .update(schema.knowledgeDocumentVersions)
-            .set({ parentVersionId: versionId.get(version.parentVersionId) })
-            .where(
-              eq(
-                schema.knowledgeDocumentVersions.id,
-                requireEntry(versionId.get(version.id), version.id),
-              ),
-            );
-        }
-        if (currentPackage) {
-          await tx
-            .update(schema.knowledgeDocuments)
-            .set({ currentVersionId: versionId.get(currentPackage.id) ?? null })
-            .where(eq(schema.knowledgeDocuments.id, newDocumentId));
-        }
-        const tagIds = [
-          ...new Set(
-            document.tags.map((name) => tagByName.get(name)).filter((id) => id !== undefined),
-          ),
-        ];
-        if (tagIds.length > 0) {
-          await tx
-            .insert(schema.knowledgeDocumentTags)
-            .values(tagIds.map((id) => ({ documentId: newDocumentId, tagId: id })));
-        }
-      }
-
-      for (const page of manifest.wikiPages) {
-        const newPageId = requireEntry(wikiPageId.get(page.id), page.id);
-        await tx.insert(schema.knowledgeWikiPages).values({
-          id: newPageId,
-          baseId,
-          slug: page.slug,
-          title: page.title,
-          parentId: null,
-          position: page.position,
-          status: page.status,
-          currentVersionId: null,
-        });
-        for (const version of page.versions) {
-          await tx.insert(schema.knowledgeWikiVersions).values({
-            id: requireEntry(
-              wikiVersionId.get(`${page.id}/${version.id}`),
-              `${page.id}/${version.id}`,
-            ),
-            pageId: newPageId,
-            version: version.version,
-            markdown: version.markdown,
-            sourceChunkIds: [
-              ...version.sourceChunkIds.map((id) => requireEntry(chunkId.get(id), id)),
-              ...version.unresolvedSourceChunkIds,
-            ],
-            model: version.model,
-            generatedBy: version.generatedBy,
-          });
-        }
-        if (page.currentVersionId !== null) {
-          await tx
-            .update(schema.knowledgeWikiPages)
-            .set({
-              currentVersionId: wikiVersionId.get(`${page.id}/${page.currentVersionId}`) ?? null,
-            })
-            .where(eq(schema.knowledgeWikiPages.id, newPageId));
-        }
-        if (page.sources.length > 0) {
-          await tx.insert(schema.knowledgeWikiSources).values(
-            page.sources.map((source) => ({
-              pageId: newPageId,
-              documentId: source.documentId === null ? null : documentId.get(source.documentId),
-              versionId: source.versionId === null ? null : versionId.get(source.versionId),
-              chunkId: source.chunkId === null ? null : chunkId.get(source.chunkId),
-              stale: source.stale,
+            chunks: version.chunks.map((chunk) => ({
+              id: requireEntry(chunkId.get(chunk.id), chunk.id),
+              ordinal: chunk.ordinal,
+              parentOrdinal: chunk.parentOrdinal,
+              indexRole: chunk.indexRole,
+              kind: chunk.kind,
+              heading: chunk.heading,
+              content: chunk.content,
+              searchText: isVectorRole(chunk.metadata) ? '' : segmentForSearch(chunk.content),
+              enabled: chunk.enabled,
+              editedByUser: chunk.editedByUser,
+              pageFrom: chunk.pageFrom,
+              pageTo: chunk.pageTo,
+              locator: chunk.locator,
+              tokenCount: chunk.tokenCount,
+              metadata: chunk.metadata,
             })),
-          );
-        }
-      }
-      for (const page of manifest.wikiPages) {
-        if (page.parentId === null) continue;
-        await tx
-          .update(schema.knowledgeWikiPages)
-          .set({ parentId: wikiPageId.get(page.parentId) })
-          .where(eq(schema.knowledgeWikiPages.id, requireEntry(wikiPageId.get(page.id), page.id)));
-      }
+          })),
+        };
+      }),
+      wikiPages: manifest.wikiPages.map((page) => ({
+        id: requireEntry(wikiPageId.get(page.id), page.id),
+        slug: page.slug,
+        title: page.title,
+        parentId:
+          page.parentId === null
+            ? null
+            : requireEntry(wikiPageId.get(page.parentId), page.parentId),
+        position: page.position,
+        status: page.status,
+        currentVersionId:
+          page.currentVersionId === null
+            ? null
+            : requireEntry(
+                wikiVersionId.get(`${page.id}/${page.currentVersionId}`),
+                `${page.id}/${page.currentVersionId}`,
+              ),
+        versions: page.versions.map((version) => ({
+          id: requireEntry(
+            wikiVersionId.get(`${page.id}/${version.id}`),
+            `${page.id}/${version.id}`,
+          ),
+          version: version.version,
+          markdown: version.markdown,
+          sourceChunkIds: [
+            ...version.sourceChunkIds.map((id) => requireEntry(chunkId.get(id), id)),
+            ...version.unresolvedSourceChunkIds,
+          ],
+          model: version.model,
+          generatedBy: version.generatedBy,
+        })),
+        sources: page.sources.map((source) => ({
+          documentId:
+            source.documentId === null
+              ? null
+              : requireEntry(documentId.get(source.documentId), source.documentId),
+          versionId:
+            source.versionId === null
+              ? null
+              : requireEntry(versionId.get(source.versionId), source.versionId),
+          chunkId:
+            source.chunkId === null
+              ? null
+              : requireEntry(chunkId.get(source.chunkId), source.chunkId),
+          stale: source.stale,
+        })),
+      })),
     });
   } catch (err) {
     await Promise.all([...createdDirs].map((dir) => rm(dir, { recursive: true, force: true })));
