@@ -1428,6 +1428,7 @@ function RejectSkillDialog({
               variant="destructive"
               disabled={pending}
               aria-busy={pending}
+              data-agent-confirm={`驳回技能「${skill.name}」的发布审核`}
               onClick={submit}
             >
               {pending ? '提交中…' : '驳回'}

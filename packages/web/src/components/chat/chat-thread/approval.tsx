@@ -60,6 +60,7 @@ export const ApprovalCard = memo(function ApprovalCard({
               disabled={deciding}
               aria-busy={denyingThis}
               aria-label={`拒绝 ${item.serverName ?? item.serverId} / ${item.toolName}`}
+              data-agent-confirm={`拒绝 ${item.serverName ?? item.serverId} / ${item.toolName} 的工具调用`}
               onClick={() => onDeny(item)}
             >
               {denyingThis ? '拒绝中…' : '拒绝'}

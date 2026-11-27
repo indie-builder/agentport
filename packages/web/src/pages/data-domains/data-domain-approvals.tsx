@@ -106,6 +106,11 @@ function DecisionDialog({
               variant={decision === 'reject' ? 'destructive' : 'default'}
               disabled={pending}
               aria-busy={pending}
+              {...(decision === 'reject'
+                ? {
+                    'data-agent-confirm': `拒绝运行 ${shortId(approval.runId)} 的数据域查询请求`,
+                  }
+                : {})}
               onClick={() => void submit()}
             >
               {pending ? '提交中…' : decision === 'approve' ? '批准' : '拒绝'}

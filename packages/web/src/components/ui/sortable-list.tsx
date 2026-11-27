@@ -151,4 +151,4 @@ const {
   Handle: SortableListHandle,
 } = createParts(sortableList, { root: 'fieldset', item: 'div', handle: 'button' });
 
-export { SortableList, SortableListHandle, SortableListItem };
+export { SortableList, SortableListHandle, SortableListItem, sortableList };

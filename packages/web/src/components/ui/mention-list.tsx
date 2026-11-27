@@ -13,7 +13,7 @@ type MentionListOptions = {
   onClose: () => void;
 };
 
-const mentionList = definePrimitive({
+export const mentionList = definePrimitive({
   name: 'mention-list',
   options: { open: 'boolean', options: 'value', onSelect: 'callback', onClose: 'callback' },
   state: (options: MentionListOptions) => ({

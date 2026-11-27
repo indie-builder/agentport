@@ -1669,6 +1669,7 @@ function MemoryReviewDetail({
   const cancel = useCancelMemoryReview();
   const rollback = useRollbackMemoryChange();
   const target = targetDisplay(review.target, agents);
+  const targetLabel = target.detail ? `${target.label}（${target.detail}）` : target.label;
   const targetLinkLabel =
     review.target.kind === 'personal'
       ? review.decision === 'rejected'
@@ -1981,6 +1982,7 @@ function MemoryReviewDetail({
             variant="outline"
             disabled={pending}
             aria-busy={rollback.isPending}
+            data-agent-confirm={`回滚已采用的${targetLabel}变更，恢复为修改前内容`}
             onClick={rollbackChange}
           >
             <RotateCcw data-icon="inline-start" aria-hidden="true" />
@@ -2001,6 +2003,7 @@ function MemoryReviewDetail({
                 variant="outline"
                 disabled={pending}
                 aria-busy={reject.isPending}
+                data-agent-confirm={`拒绝这条${targetLabel}记忆提案，目标内容不会更改`}
                 onClick={rejectReview}
               >
                 {reject.isPending ? '处理中…' : '不采用'}

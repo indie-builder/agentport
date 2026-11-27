@@ -39,18 +39,20 @@ rg -n "@ui-sdk/" packages/web/src
 | 文件 | 用到的入口 | 升级时关注 |
 |---|---|---|
 | `packages/web/src/components/ui/*.tsx` | `@ui-sdk/react/<component>` | part 结构、`render` 签名、`data-slot`/状态属性名 |
-| `packages/web/src/components/chat/conversation-search.tsx` | `@ui-sdk/react/command` | Command 的 item/group 结构与键盘行为 |
-| `packages/web/src/components/ui/slider.tsx` | `@ui-sdk/core`、`@ui-sdk/core/slider`、`@ui-sdk/react/primitive`、`@ui-sdk/react/slider`、`@ui-sdk/react/field` | `createParts`/`usePart` 的 slot 映射、`useFieldControl` 的字段属性 |
+| `packages/web/src/components/ui/{alert-dialog,avatar,file-input,meter,password-input,rating,segmented-control}.tsx` | `@ui-sdk/react/{alert-dialog,avatar,file-input,meter,rating,segmented-control}` | 确认弹层 `value="confirm"` 与异步 `action`、`PasswordInput` 原生脱敏与显隐开关、`FileInput` 校验与控制器、`Meter`/`Rating`/`SegmentedControl` 指示器与状态属性、`Avatar` 回退态 |
+| `packages/web/src/lib/ui-agent.ts`、`packages/web/src/components/ui-agent-host.tsx`、`packages/web/src/App.tsx` | `@ui-sdk/react/agent`、`@ui-sdk/react/alert-dialog` | `createAgent`、`agentTools`、`registerTools`、`allow(step, { signal })` 中断信号、WebMCP 挂载卸载及 `data-agent-confirm`/`data-agent-secret`/`data-agent-hidden`（experimental，升级重点复测） |
+| `packages/web/src/components/chat/conversation-search.tsx`、`packages/web/src/components/command-palette.tsx`、`packages/web/src/components/keyboard-shortcuts-dialog.tsx` | `@ui-sdk/react/command`、`@ui-sdk/react/shortcuts` | Command 的 item/group 结构、键盘行为与 `useShortcut`/`shortcuts` 全局快捷键注册 |
+| `packages/web/src/pages/plugins/plugin-file-tree.tsx` | `@ui-sdk/react/tree` | `Tree`/`TreeGroup`/`TreeItem` 的展开状态、roving focus 与 `--tree-group-height` |
 | `packages/web/src/components/ui/sortable-list.tsx` | `@ui-sdk/core`（`definePrimitive`/`createReorder`）、`@ui-sdk/react/primitive` | 草稿/`data-moving`、`preview`、`message` 播报签名、`reorder.bind` 与手柄按键 |
 | `packages/web/src/components/ui/mention-list.tsx` | `@ui-sdk/core`（`definePrimitive`/`createListbox`/`selects`）、`@ui-sdk/react/primitive` | `focus: 'virtual'` 与 `bindInput` 的 `aria-activedescendant`/`aria-autocomplete`/`aria-haspopup`/`aria-controls` 契约（textarea 保持 `textbox`，不写 `role`/`aria-expanded`）；方向键与 Enter/Tab/Escape 由 primitive 接管 |
 | `packages/web/src/pages/servers/tool-editor-dialog.tsx`、`packages/web/src/pages/knowledge/detail/documents-tab.tsx`、`packages/web/src/components/knowledge/knowledge-faq.tsx` | `@ui-sdk/react/toolbar` | `Toolbar`/`ToolbarButton` 的 roving focus 与默认循环；禁用走 `aria-disabled`/`data-disabled`，外观用 `buttonVariants` 叠 class |
-| `packages/web/src/components/ui/{label,textarea}.tsx` | `@ui-sdk/react/{label,textarea}` | 包装层只叠 `data-slot` 与 class；核对根元素与字段属性 |
+| `packages/web/src/components/ui/{label,slider,textarea}.tsx` | `@ui-sdk/react/{label,slider,textarea}` | 包装层叠 `data-slot` 与 class；核对根元素、`SliderThumb` 焦点态及字段属性 |
 | `packages/web/src/components/ui/{badge,attachment,bubble,marker}.tsx` | `@ui-sdk/react/primitive` | `renderElement`、`PartProps` 的形状 |
-| `packages/web/src/lib/toast.ts`、`App.tsx` | `@ui-sdk/react/toast` | `createToaster` 选项、`ToastRegion` 的位置/`maxVisible`、`Toast*` part 的渲染函数签名 |
+| `packages/web/src/lib/toast.ts`、`packages/web/src/App.tsx` | `@ui-sdk/react/toast` | `createToaster` 选项、`ToastRegion` 的位置/`maxVisible`、`Toast*` part 的渲染函数签名 |
 | `packages/web/src/components/ui/{calendar,carousel}.tsx` | `@ui-sdk/react/{calendar,carousel}` | 日期值形状（ISO 字符串）、`CalendarDay` 状态字段、`CarouselViewport` 结构与 `aria-disabled` |
-| `packages/web/src/openui/components/{forms,data,shared,layout}.tsx` | 经 ui 组件间接使用 | 生成式 UI 里日历/轮播的取值与 DOM 断言 |
+| `packages/web/src/openui/components/{forms,data,shared,layout}.tsx` | `@ui-sdk/react/{button,toggle}` 及经 ui 组件间接使用 | 生成式 UI 里开关/轮播/日历的取值、动作签名与 DOM 断言 |
 | `packages/web/src/pages/{chat,plugins/plugin-detail}.tsx` | `@ui-sdk/react/resizable` | 尺寸单位（数字=百分比，像素用 `"240px"`）、`onLayoutChange/onLayoutCommit` 的 `reason`、`createResizableController` |
-| `packages/web/src/components/**` | 经 ui 组件间接使用 | 是否绕过 ui 组件直接 import |
+| `packages/web/src/{components,pages}/**` | `@ui-sdk/react/button`、`@ui-sdk/react/toggle` 及经 ui 组件间接使用 | 直接引用 `ButtonPrimitive`、`Toggle` 或 `motion-collapsible` 等状态类型时核对原生签名 |
 
 > 纪律：任何 `@ui-sdk/*` 的 import 都保持规范 specifier（`@ui-sdk/react/<component>`）。升级时用 `rg -n "@ui-sdk/"` 列全引用；本地变量或组件名可以另起，不影响按包路径检索。
 

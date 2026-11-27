@@ -2074,6 +2074,11 @@ function FaqHistoryDialog({
                       rollback.isPending
                     }
                     aria-busy={rollback.isPending}
+                    data-agent-confirm={
+                      selected
+                        ? `将 FAQ「${item.faq?.question ?? item.title}」回退到版本 ${versionLabel(selected)}`
+                        : `将 FAQ「${item.faq?.question ?? item.title}」回退到所选历史版本`
+                    }
                     onClick={() => {
                       if (!selected) return;
                       rollback.mutate(

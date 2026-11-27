@@ -1084,6 +1084,7 @@ function RunControls({
                     variant="destructive"
                     disabled={deciding}
                     aria-busy={deny.isPending && deny.variables === approval.id}
+                    data-agent-confirm={`拒绝 ${approval.serverName ?? approval.serverId} / ${approval.toolName} 的工具调用`}
                     onClick={() =>
                       deny.mutate(approval.id, {
                         onSuccess: () => toastSuccess('已拒绝'),

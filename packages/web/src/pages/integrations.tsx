@@ -529,6 +529,7 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
                   id="api-token-value"
                   readOnly
                   autoComplete="off"
+                  data-agent-secret
                   className="font-mono"
                   value={created.token}
                   onFocus={(event) => event.currentTarget.select()}
@@ -990,6 +991,7 @@ function WebhookDialog({ onClose: onClosed }: { onClose: () => void }) {
                   id="webhook-secret-value"
                   readOnly
                   autoComplete="off"
+                  data-agent-secret
                   className="font-mono"
                   value={created.secret}
                   onFocus={(event) => event.currentTarget.select()}
