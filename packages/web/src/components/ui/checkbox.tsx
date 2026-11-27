@@ -3,14 +3,25 @@ import { CheckIcon } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { cn } from '@/lib/cn';
 
+const checkboxClassName =
+  'peer relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-control-boundary transition-colors outline-none group-has-disabled/field:opacity-[0.35] group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:ring-0 group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:focus-visible:outline-none group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:not-aria-invalid:not-data-invalid:not-data-checked:border-control-boundary after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-checked:focus-visible:ring-0 data-checked:focus-visible:outline-2 data-checked:focus-visible:outline-solid data-checked:outline-ring data-checked:focus-visible:outline-offset-2 data-disabled:cursor-not-allowed data-disabled:opacity-[0.35] aria-invalid:border-destructive aria-invalid:data-checked:border-destructive data-invalid:border-destructive data-invalid:data-checked:border-destructive dark:bg-input/30 dark:data-invalid:border-destructive/50 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:not-aria-invalid:not-data-invalid:data-checked:border-primary dark:data-checked:bg-primary';
+
 type CheckboxProps = Omit<
   ComponentProps<typeof CheckboxPrimitive>,
-  'checked' | 'defaultChecked' | 'onCheckedChange'
+  'checked' | 'defaultChecked' | 'onCheckedChange' | 'className'
 > & {
-  checked?: boolean | undefined;
-  defaultChecked?: boolean | undefined;
+  checked?: ComponentProps<typeof CheckboxPrimitive>['checked'] | undefined;
+  defaultChecked?: ComponentProps<typeof CheckboxPrimitive>['defaultChecked'] | undefined;
   indeterminate?: boolean | undefined;
-  onCheckedChange?: ((checked: boolean) => void) | undefined;
+  className?: ComponentProps<typeof CheckboxPrimitive>['className'] | undefined;
+  onCheckedChange?:
+    | ((
+        checked: boolean,
+        details: Parameters<
+          NonNullable<ComponentProps<typeof CheckboxPrimitive>['onCheckedChange']>
+        >[1],
+      ) => void)
+    | undefined;
 };
 
 function Checkbox({
@@ -31,11 +42,14 @@ function Checkbox({
       {...(defaultChecked === undefined ? {} : { defaultChecked })}
       {...(onCheckedChange === undefined
         ? {}
-        : { onCheckedChange: (next: boolean | 'indeterminate') => onCheckedChange(next === true) })}
-      className={cn(
-        'peer relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-control-boundary transition-colors outline-none group-has-disabled/field:opacity-[0.35] group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:ring-0 group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:focus-visible:outline-none group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:not-aria-invalid:not-data-invalid:not-data-checked:border-control-boundary after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-checked:focus-visible:ring-0 data-checked:focus-visible:outline-2 data-checked:focus-visible:outline-solid data-checked:outline-ring data-checked:focus-visible:outline-offset-2 data-disabled:cursor-not-allowed data-disabled:opacity-[0.35] aria-invalid:border-destructive aria-invalid:data-checked:border-destructive data-invalid:border-destructive data-invalid:data-checked:border-destructive dark:bg-input/30 dark:data-invalid:border-destructive/50 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:not-aria-invalid:not-data-invalid:data-checked:border-primary dark:data-checked:bg-primary',
-        className,
-      )}
+        : {
+            onCheckedChange: (next, details) => onCheckedChange(next === true, details),
+          })}
+      className={
+        typeof className === 'function'
+          ? (state) => cn(checkboxClassName, className(state))
+          : cn(checkboxClassName, className)
+      }
       {...props}
     >
       <CheckboxIndicator className="grid place-content-center text-current transition-none [&>svg]:size-3.5">

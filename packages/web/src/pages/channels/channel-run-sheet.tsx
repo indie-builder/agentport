@@ -61,6 +61,7 @@ export function ChannelRunSheet({
   const dialog = useDialogClose(onClose, runId !== null);
   return (
     <Sheet
+      side="right"
       open={dialog.open}
       onOpenChange={(open) => {
         if (!open) dialog.close();
@@ -134,7 +135,7 @@ function ChannelRunSheetContent({
   );
 
   return (
-    <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-xl!">
+    <SheetContent className="w-full gap-0 p-0 sm:max-w-xl!">
       <div className="min-w-0 border-b px-5 py-3.5 pr-12">
         <SheetTitle>运行详情</SheetTitle>
         <SheetDescription className="mt-1 flex flex-wrap items-center gap-2">

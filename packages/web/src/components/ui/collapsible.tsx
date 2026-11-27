@@ -2,57 +2,38 @@
 
 import {
   CollapsiblePanel,
-  type CollapsiblePanelState,
   Collapsible as CollapsiblePrimitive,
   CollapsibleTrigger as CollapsibleTriggerPrimitive,
 } from '@ui-sdk/react/collapsible';
-import type { RenderProp } from '@ui-sdk/react/primitive';
-import { type ComponentProps, cloneElement, type ReactElement, type ReactNode } from 'react';
+import type { ComponentProps } from 'react';
 
-function Collapsible(props: ComponentProps<typeof CollapsiblePrimitive>) {
-  return <CollapsiblePrimitive {...props} />;
+function Collapsible({
+  className,
+  ...props
+}: Omit<ComponentProps<typeof CollapsiblePrimitive>, 'className'> & {
+  className?: ComponentProps<typeof CollapsiblePrimitive>['className'] | undefined;
+}) {
+  return <CollapsiblePrimitive {...(className === undefined ? {} : { className })} {...props} />;
 }
 
-type CollapsibleTriggerProps = Omit<
-  ComponentProps<typeof CollapsibleTriggerPrimitive>,
-  'children'
-> & {
-  children?: ReactNode;
-};
-
-function CollapsibleTrigger({ children, ...props }: CollapsibleTriggerProps) {
-  return <CollapsibleTriggerPrimitive {...props}>{children}</CollapsibleTriggerPrimitive>;
+function CollapsibleTrigger({
+  className,
+  ...props
+}: Omit<ComponentProps<typeof CollapsibleTriggerPrimitive>, 'className'> & {
+  className?: ComponentProps<typeof CollapsibleTriggerPrimitive>['className'] | undefined;
+}) {
+  return (
+    <CollapsibleTriggerPrimitive {...(className === undefined ? {} : { className })} {...props} />
+  );
 }
-
-type CollapsibleContentProps = Omit<ComponentProps<typeof CollapsiblePanel>, 'children'> & {
-  children?: ReactNode;
-  'data-slot'?: string | undefined;
-};
 
 function CollapsibleContent({
-  'data-slot': dataSlot,
-  children,
-  render,
+  className,
   ...props
-}: CollapsibleContentProps) {
-  const slot = dataSlot ?? 'collapsible-content';
-  const mark = (element: ReactElement) =>
-    cloneElement(element as ReactElement<Record<string, unknown>>, {
-      'data-slot': slot,
-    }) as ReactElement<Record<string, unknown>>;
-  const withSlot: RenderProp<CollapsiblePanelState> =
-    render === undefined ? (
-      <div data-slot={slot} />
-    ) : typeof render === 'function' ? (
-      (partProps, state) => mark(render(partProps, state))
-    ) : (
-      mark(render)
-    );
-  return (
-    <CollapsiblePanel render={withSlot} {...props}>
-      {children}
-    </CollapsiblePanel>
-  );
+}: Omit<ComponentProps<typeof CollapsiblePanel>, 'className'> & {
+  className?: ComponentProps<typeof CollapsiblePanel>['className'] | undefined;
+}) {
+  return <CollapsiblePanel {...(className === undefined ? {} : { className })} {...props} />;
 }
 
 export { Collapsible, CollapsibleContent, CollapsibleTrigger };

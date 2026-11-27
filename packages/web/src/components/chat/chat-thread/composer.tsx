@@ -124,7 +124,7 @@ export function Composer({
       }}
     >
       <div className="w-full">
-        <InputGroup className="h-auto rounded-[var(--radius-composer)] bg-surface shadow-composer hover:shadow-composer-hover has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:shadow-composer-focus">
+        <InputGroup className="h-auto rounded-[var(--radius-composer)] bg-surface shadow-composer hover:shadow-composer-hover has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:border-input has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:shadow-composer-focus">
           {outputRef ? (
             <div className="flex min-w-0 items-center gap-2 px-4 pt-3">
               <Badge variant="outline" className="min-w-0 max-w-full">

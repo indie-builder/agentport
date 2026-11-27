@@ -1164,130 +1164,132 @@ function CreateMemoryReviewDialog({
                   </Field>
 
                   {targetKind === 'agent_rule' ? (
-                    <Field
-                      className="gap-1.5"
-                      data-disabled={create.isPending}
-                      data-invalid={slugError ? true : undefined}
-                    >
-                      <FieldLabel htmlFor="memory-review-rule">规则</FieldLabel>
-                      <Select
-                        value={ruleChoice}
-                        items={ruleOptions}
-                        disabled={create.isPending}
-                        onValueChange={(next) => {
-                          if (next === null) return;
-                          rhf.setValue('ruleChoice', next, { shouldDirty: true });
-                          rhf.clearErrors('newRuleSlug');
-                          rhf.clearErrors('root');
-                        }}
-                      >
-                        <SelectTrigger
-                          id="memory-review-rule"
-                          className="w-full"
-                          aria-label="规则"
-                          aria-invalid={slugError ? true : undefined}
-                          aria-describedby={slugError ? 'memory-review-rule-error' : undefined}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {ruleOptions.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      {ruleChoice === '__new__' ? (
-                        <Input
-                          id="memory-review-rule-slug"
-                          value={newRuleSlug}
-                          aria-label="新规则 slug"
-                          aria-invalid={slugError ? true : undefined}
-                          aria-describedby={slugError ? 'memory-review-rule-error' : undefined}
-                          placeholder="新规则 slug，如 memory-review"
-                          className="mt-2 font-mono"
+                    <div className="flex flex-col gap-2">
+                      <Field className="gap-1.5" data-disabled={create.isPending}>
+                        <FieldLabel htmlFor="memory-review-rule">规则</FieldLabel>
+                        <Select
+                          value={ruleChoice}
+                          items={ruleOptions}
                           disabled={create.isPending}
-                          onChange={(event) => {
-                            rhf.setValue('newRuleSlug', event.target.value, { shouldDirty: true });
+                          onValueChange={(next) => {
+                            if (next === null) return;
+                            rhf.setValue('ruleChoice', next, { shouldDirty: true });
                             rhf.clearErrors('newRuleSlug');
                             rhf.clearErrors('root');
                           }}
-                        />
-                      ) : null}
-                      {slugError ? (
-                        <FieldError id="memory-review-rule-error">{slugError}</FieldError>
-                      ) : null}
-                    </Field>
-                  ) : targetKind === 'agent_memory' ? (
-                    <Field
-                      className="gap-1.5"
-                      data-disabled={create.isPending}
-                      data-invalid={memoryError ? true : undefined}
-                    >
-                      <FieldLabel htmlFor="memory-review-memory-file">记忆文件</FieldLabel>
-                      <Select
-                        value={memoryChoice}
-                        items={memoryOptions}
-                        disabled={create.isPending}
-                        onValueChange={(next) => {
-                          if (next === null) return;
-                          rhf.setValue('memoryChoice', next, { shouldDirty: true });
-                          rhf.clearErrors('newMemoryName');
-                          rhf.clearErrors('root');
-                        }}
-                      >
-                        <SelectTrigger
-                          id="memory-review-memory-file"
-                          className="w-full"
-                          aria-label="记忆文件"
-                          aria-invalid={memoryError ? true : undefined}
-                          aria-describedby={
-                            memoryError ? 'memory-review-memory-file-error' : undefined
-                          }
                         >
-                          <SelectValue placeholder="选择记忆文件" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {memoryOptions.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      {memory.isError ? (
-                        <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
+                          <SelectTrigger
+                            id="memory-review-rule"
+                            className="w-full"
+                            aria-label="规则"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {ruleOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      {ruleChoice === '__new__' ? (
+                        <Field
+                          className="gap-1.5"
+                          data-disabled={create.isPending}
+                          data-invalid={slugError ? true : undefined}
+                        >
+                          <Input
+                            id="memory-review-rule-slug"
+                            value={newRuleSlug}
+                            aria-label="新规则 slug"
+                            aria-invalid={slugError ? true : undefined}
+                            placeholder="新规则 slug，如 memory-review"
+                            className="font-mono"
+                            disabled={create.isPending}
+                            onChange={(event) => {
+                              rhf.setValue('newRuleSlug', event.target.value, {
+                                shouldDirty: true,
+                              });
+                              rhf.clearErrors('newRuleSlug');
+                              rhf.clearErrors('root');
+                            }}
+                          />
+                          {slugError ? (
+                            <FieldError id="memory-review-rule-error">{slugError}</FieldError>
+                          ) : null}
+                        </Field>
                       ) : null}
-                      {memoryChoice === NEW_MEMORY_CHOICE ? (
-                        <Input
-                          id="memory-review-new-file"
-                          value={newMemoryName}
-                          aria-label="新主题文件名"
-                          aria-invalid={memoryError ? true : undefined}
-                          aria-describedby={
-                            memoryError ? 'memory-review-memory-file-error' : undefined
-                          }
-                          placeholder="新主题文件名，如 deployment.md"
-                          className="mt-2 font-mono"
+                    </div>
+                  ) : targetKind === 'agent_memory' ? (
+                    <div className="flex flex-col gap-2">
+                      <Field className="gap-1.5" data-disabled={create.isPending}>
+                        <FieldLabel htmlFor="memory-review-memory-file">记忆文件</FieldLabel>
+                        <Select
+                          value={memoryChoice}
+                          items={memoryOptions}
                           disabled={create.isPending}
-                          onChange={(event) => {
-                            rhf.setValue('newMemoryName', event.target.value, {
-                              shouldDirty: true,
-                            });
+                          onValueChange={(next) => {
+                            if (next === null) return;
+                            rhf.setValue('memoryChoice', next, { shouldDirty: true });
                             rhf.clearErrors('newMemoryName');
                             rhf.clearErrors('root');
                           }}
-                        />
+                        >
+                          <SelectTrigger
+                            id="memory-review-memory-file"
+                            className="w-full"
+                            aria-label="记忆文件"
+                          >
+                            <SelectValue placeholder="选择记忆文件" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {memoryOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        {memory.isError ? (
+                          <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
+                        ) : null}
+                      </Field>
+                      {memoryChoice === NEW_MEMORY_CHOICE ? (
+                        <Field
+                          className="gap-1.5"
+                          data-disabled={create.isPending}
+                          data-invalid={memoryError ? true : undefined}
+                        >
+                          <Input
+                            id="memory-review-new-file"
+                            value={newMemoryName}
+                            aria-label="新主题文件名"
+                            aria-invalid={memoryError ? true : undefined}
+                            placeholder="新主题文件名，如 deployment.md"
+                            className="font-mono"
+                            disabled={create.isPending}
+                            onChange={(event) => {
+                              rhf.setValue('newMemoryName', event.target.value, {
+                                shouldDirty: true,
+                              });
+                              rhf.clearErrors('newMemoryName');
+                              rhf.clearErrors('root');
+                            }}
+                          />
+                          {memoryError ? (
+                            <FieldError id="memory-review-memory-file-error">
+                              {memoryError}
+                            </FieldError>
+                          ) : null}
+                        </Field>
                       ) : null}
-                      {memoryError ? (
-                        <FieldError id="memory-review-memory-file-error">{memoryError}</FieldError>
-                      ) : null}
-                    </Field>
+                    </div>
                   ) : null}
                 </div>
               ) : null}
@@ -1302,12 +1304,7 @@ function CreateMemoryReviewDialog({
                   先选来源专家，再从该专家的本人会话中选择最多 {MAX_SOURCES} 段。
                 </p>
               </div>
-              <Field
-                className="gap-1.5"
-                data-disabled={create.isPending}
-                data-invalid={sourcesError ? true : undefined}
-                aria-labelledby="memory-review-sources-label"
-              >
+              <div className="flex flex-col gap-1.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <FieldTitle id="memory-review-sources-label">来源会话</FieldTitle>
                   <span className="text-xs text-muted-foreground">
@@ -1315,13 +1312,15 @@ function CreateMemoryReviewDialog({
                   </span>
                 </div>
 
-                <FilterSelect
-                  value={sourceExpertId}
-                  onValueChange={changeSourceExpert}
-                  options={agentOptions}
-                  label="来源专家"
-                  className="w-full sm:w-56"
-                />
+                <Field data-disabled={create.isPending}>
+                  <FilterSelect
+                    value={sourceExpertId}
+                    onValueChange={changeSourceExpert}
+                    options={agentOptions}
+                    label="来源专家"
+                    className="w-full sm:w-56"
+                  />
+                </Field>
 
                 {sources.length > 0 ? (
                   <ul aria-label="已选来源会话" className="flex flex-wrap gap-2">
@@ -1360,75 +1359,83 @@ function CreateMemoryReviewDialog({
                   </ul>
                 ) : null}
 
-                <div
-                  ref={sourcesBoxRef}
-                  className="max-h-52 overflow-y-auto overscroll-contain rounded-lg border border-line"
-                  aria-invalid={sourcesError ? true : undefined}
-                  aria-describedby={sourcesError ? 'memory-review-sources-error' : undefined}
-                  tabIndex={sourcesError ? -1 : undefined}
+                <Field
+                  className="gap-1.5"
+                  data-disabled={create.isPending}
+                  data-invalid={sourcesError ? true : undefined}
+                  aria-labelledby="memory-review-sources-label"
                 >
-                  {conversations.isPending ? <LoadingState rows={3} /> : null}
-                  {conversations.isError ? (
-                    <div className="p-3">
-                      <ErrorState
-                        error={conversations.error}
-                        onRetry={() => void conversations.refetch()}
-                      />
-                    </div>
+                  <div
+                    ref={sourcesBoxRef}
+                    className="max-h-52 overflow-y-auto overscroll-contain rounded-lg border border-line"
+                    aria-invalid={sourcesError ? true : undefined}
+                    aria-describedby={sourcesError ? 'memory-review-sources-error' : undefined}
+                    tabIndex={sourcesError ? -1 : undefined}
+                  >
+                    {conversations.isPending ? <LoadingState rows={3} /> : null}
+                    {conversations.isError ? (
+                      <div className="p-3">
+                        <ErrorState
+                          error={conversations.error}
+                          onRetry={() => void conversations.refetch()}
+                        />
+                      </div>
+                    ) : null}
+                    {conversations.data ? (
+                      conversations.data.length === 0 ? (
+                        <EmptyState
+                          variant="idle"
+                          scale="inline"
+                          icon={<MessageSquare className="size-4" aria-hidden="true" />}
+                          title="还没有与这位专家的对话记录"
+                          description="先发起对话后再来整理记忆提案。"
+                          action={
+                            <Link
+                              to="/chat"
+                              search={sourceExpertId ? { agent: sourceExpertId } : {}}
+                              className={buttonVariants({ variant: 'link', size: 'sm' })}
+                            >
+                              去对话
+                            </Link>
+                          }
+                        />
+                      ) : (
+                        <ul className="divide-y">
+                          {conversations.data.map((conversation) => {
+                            const checked = sources.some(
+                              (source) => source.conversationId === conversation.id,
+                            );
+                            return (
+                              <li key={conversation.id}>
+                                <div className="flex items-center gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out-soft hover:bg-hover">
+                                  <Checkbox
+                                    id={`memory-review-source-${conversation.id}`}
+                                    checked={checked}
+                                    disabled={
+                                      create.isPending ||
+                                      (!checked && sources.length >= MAX_SOURCES)
+                                    }
+                                    onCheckedChange={() => toggleSource(conversation)}
+                                  />
+                                  <label
+                                    htmlFor={`memory-review-source-${conversation.id}`}
+                                    className="min-w-0 flex-1 cursor-pointer truncate text-fg"
+                                  >
+                                    {conversation.title || conversation.id}
+                                  </label>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )
+                    ) : null}
+                  </div>
+                  {sourcesError ? (
+                    <FieldError id="memory-review-sources-error">{sourcesError}</FieldError>
                   ) : null}
-                  {conversations.data ? (
-                    conversations.data.length === 0 ? (
-                      <EmptyState
-                        variant="idle"
-                        scale="inline"
-                        icon={<MessageSquare className="size-4" aria-hidden="true" />}
-                        title="还没有与这位专家的对话记录"
-                        description="先发起对话后再来整理记忆提案。"
-                        action={
-                          <Link
-                            to="/chat"
-                            search={sourceExpertId ? { agent: sourceExpertId } : {}}
-                            className={buttonVariants({ variant: 'link', size: 'sm' })}
-                          >
-                            去对话
-                          </Link>
-                        }
-                      />
-                    ) : (
-                      <ul className="divide-y">
-                        {conversations.data.map((conversation) => {
-                          const checked = sources.some(
-                            (source) => source.conversationId === conversation.id,
-                          );
-                          return (
-                            <li key={conversation.id}>
-                              <div className="flex items-center gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out-soft hover:bg-hover">
-                                <Checkbox
-                                  id={`memory-review-source-${conversation.id}`}
-                                  checked={checked}
-                                  disabled={
-                                    create.isPending || (!checked && sources.length >= MAX_SOURCES)
-                                  }
-                                  onCheckedChange={() => toggleSource(conversation)}
-                                />
-                                <label
-                                  htmlFor={`memory-review-source-${conversation.id}`}
-                                  className="min-w-0 flex-1 cursor-pointer truncate text-fg"
-                                >
-                                  {conversation.title || conversation.id}
-                                </label>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )
-                  ) : null}
-                </div>
-                {sourcesError ? (
-                  <FieldError id="memory-review-sources-error">{sourcesError}</FieldError>
-                ) : null}
-              </Field>
+                </Field>
+              </div>
             </>
           ) : null}
 
@@ -1458,11 +1465,7 @@ function CreateMemoryReviewDialog({
                   disabled={create.isPending}
                   placeholder="例如：只整理长期有效的偏好"
                   aria-invalid={instructionError ? true : undefined}
-                  aria-describedby={
-                    instructionError
-                      ? 'memory-review-instruction-count memory-review-instruction-error'
-                      : 'memory-review-instruction-count'
-                  }
+                  aria-describedby="memory-review-instruction-count"
                   onChange={(event) => {
                     rhf.setValue('instruction', event.target.value, { shouldDirty: true });
                     rhf.clearErrors('instruction');

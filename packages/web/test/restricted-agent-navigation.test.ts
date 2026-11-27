@@ -158,7 +158,7 @@ function menuItem(text: string): HTMLElement {
   return element;
 }
 function dialog(title: string): HTMLElement | undefined {
-  return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
+  return [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')].find(
     (item) => item.querySelector('h2')?.textContent === title,
   );
 }

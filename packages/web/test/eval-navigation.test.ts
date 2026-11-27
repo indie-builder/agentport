@@ -330,7 +330,7 @@ describe('evaluation draft navigation', () => {
       for (const id of ['eval-name', 'eval-prompt', 'eval-expectation']) {
         const field = document.getElementById(id) as HTMLInputElement;
         expect(field.disabled).toBe(true);
-        expect(field.closest('[data-slot="field"]')?.getAttribute('data-disabled')).toBe('true');
+        expect(field.closest('[data-slot="field"]')?.hasAttribute('data-disabled')).toBe(true);
       }
       expect(button('保存中…').disabled).toBe(true);
       expect(button('取消').disabled).toBe(true);

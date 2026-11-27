@@ -1116,7 +1116,6 @@ export function AgentEditor({
                             id="agent-name"
                             aria-required="true"
                             aria-invalid={Boolean(errors.name)}
-                            aria-describedby={errors.name ? 'agent-name-error' : undefined}
                           />
                           <FieldError id="agent-name-error">{errors.name?.message}</FieldError>
                         </Field>
@@ -1145,7 +1144,6 @@ export function AgentEditor({
                               id="agent-role"
                               className="w-full min-w-0"
                               aria-invalid={Boolean(errors.role)}
-                              aria-describedby={errors.role ? 'agent-role-error' : undefined}
                             >
                               <SelectValue />
                             </SelectTrigger>
@@ -1177,7 +1175,6 @@ export function AgentEditor({
                             disabled={configDisabled}
                             id="agent-desc"
                             aria-invalid={Boolean(errors.description)}
-                            aria-describedby={errors.description ? 'agent-desc-error' : undefined}
                             placeholder="一句话说明它擅长什么"
                           />
                           <FieldError id="agent-desc-error">
@@ -1222,7 +1219,6 @@ export function AgentEditor({
                             value={tagsField.value}
                             placeholder="客服、写作"
                             aria-invalid={Boolean(errors.tags)}
-                            aria-describedby={errors.tags ? 'agent-tags-error' : 'agent-tags-hint'}
                             onChange={(event) => tagsField.onChange(event.target.value)}
                           />
                           {errors.tags ? (
@@ -1240,7 +1236,6 @@ export function AgentEditor({
                             value={agent.slug}
                             className="font-mono"
                             disabled
-                            aria-describedby="agent-slug-hint"
                           />
                           <FieldDescription id="agent-slug-hint">创建后不可修改</FieldDescription>
                         </Field>
@@ -1955,11 +1950,7 @@ export function AgentEditor({
                             }}
                             items={permissionOptions}
                           >
-                            <SelectTrigger
-                              id="agent-perm"
-                              className="w-64"
-                              aria-describedby="agent-perm-hint"
-                            >
+                            <SelectTrigger id="agent-perm" className="w-64">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -1987,11 +1978,6 @@ export function AgentEditor({
                             className="font-mono leading-relaxed"
                             placeholder={'mcp__jsonplaceholder__get_user\nmcp__crm__*'}
                             aria-invalid={allowedInvalid}
-                            aria-describedby={
-                              allowedInvalid
-                                ? 'agent-allowed-tools-error'
-                                : 'agent-allowed-tools-hint'
-                            }
                           />
                           {allowedInvalid ? (
                             <FieldError id="agent-allowed-tools-error">
@@ -2137,7 +2123,6 @@ export function AgentEditor({
                             min={1}
                             inputMode="numeric"
                             aria-invalid={Boolean(errors.maxTurns)}
-                            aria-describedby={errors.maxTurns ? 'agent-turns-error' : undefined}
                             className="w-40"
                           />
                         </Field>
@@ -2162,9 +2147,6 @@ export function AgentEditor({
                             step={0.01}
                             inputMode="decimal"
                             aria-invalid={Boolean(errors.maxBudgetUsd)}
-                            aria-describedby={
-                              errors.maxBudgetUsd ? 'agent-budget-error' : undefined
-                            }
                             className="w-40"
                           />
                         </Field>
@@ -2199,14 +2181,6 @@ export function AgentEditor({
                                 step={0.01}
                                 inputMode="decimal"
                                 aria-invalid={Boolean(errors.monthlyBudgetUsd)}
-                                aria-describedby={
-                                  [
-                                    errors.monthlyBudgetUsd ? 'agent-monthly-budget-error' : null,
-                                    'agent-monthly-budget-hint',
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' ') || undefined
-                                }
                                 className="w-40"
                               />
                             </Field>
@@ -2246,14 +2220,6 @@ export function AgentEditor({
                                 }}
                                 onBlur={budgetAlertRatioField.onBlur}
                                 aria-invalid={Boolean(errors.budgetAlertRatio)}
-                                aria-describedby={
-                                  [
-                                    errors.budgetAlertRatio ? 'agent-budget-alert-error' : null,
-                                    'agent-budget-alert-hint',
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' ') || undefined
-                                }
                                 className="w-40"
                               />
                             </Field>
@@ -2285,11 +2251,6 @@ export function AgentEditor({
                             step={1000}
                             inputMode="numeric"
                             aria-invalid={Boolean(errors.timeoutMs)}
-                            aria-describedby={
-                              [errors.timeoutMs ? 'agent-timeout-error' : null, timeoutHintId]
-                                .filter(Boolean)
-                                .join(' ') || undefined
-                            }
                             className="w-40"
                           />
                         </Field>
@@ -2632,6 +2593,7 @@ export function AgentEditor({
       </Dialog>
 
       <Sheet
+        side="right"
         open={historyOpen}
         onOpenChange={(open, details) => {
           if (!open && pending) {
@@ -2642,7 +2604,6 @@ export function AgentEditor({
         }}
       >
         <SheetContent
-          side="right"
           showCloseButton={false}
           aria-describedby={undefined}
           className="w-full max-w-120! gap-0 p-0 shadow-overlay sm:max-w-120!"

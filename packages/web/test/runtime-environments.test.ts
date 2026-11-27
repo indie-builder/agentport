@@ -256,19 +256,26 @@ async function flush(): Promise<void> {
   });
 }
 
+const cleanups: Array<() => Promise<void>> = [];
+
 async function mountPage(page: ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  let unmounted = false;
+  const unmount = async () => {
+    if (unmounted) return;
+    unmounted = true;
+    await act(async () => root.unmount());
+    host.remove();
+  };
+  cleanups.push(unmount);
   await act(async () => root.render(withClient(page)));
   await flush();
   return {
     host,
     root,
-    async unmount() {
-      await act(async () => root.unmount());
-      host.remove();
-    },
+    unmount,
   };
 }
 
@@ -313,6 +320,15 @@ async function mountWithRouter(initialPath: string) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  let unmounted = false;
+  const unmount = async () => {
+    if (unmounted) return;
+    unmounted = true;
+    await act(async () => root.unmount());
+    host.remove();
+    history.destroy();
+  };
+  cleanups.push(unmount);
   await act(async () => {
     await router.load();
     root.render(withClient(createElement(RouterProvider, { router })));
@@ -322,11 +338,7 @@ async function mountWithRouter(initialPath: string) {
     router,
     host,
     blockedNavigations,
-    async unmount() {
-      await act(async () => root.unmount());
-      host.remove();
-      history.destroy();
-    },
+    unmount,
   };
 }
 
@@ -345,15 +357,15 @@ function button(label: string, scope: ParentNode = document): HTMLButtonElement 
 }
 
 function dialog(title: string): HTMLElement {
-  const element = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
-    (item) => item.querySelector('h2')?.textContent === title,
-  );
+  const element = [
+    ...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+  ].find((item) => item.querySelector('h2')?.textContent === title);
   if (!element) throw new Error(`Missing dialog: ${title}`);
   return element;
 }
 
 function hasDialog(title: string): boolean {
-  return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].some(
+  return [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')].some(
     (item) => item.querySelector('h2')?.textContent === title,
   );
 }
@@ -425,7 +437,10 @@ beforeEach(() => {
     },
   );
 });
-afterEach(() => {
+afterEach(async () => {
+  while (cleanups.length > 0) {
+    await cleanups.pop()?.();
+  }
   client.clear();
   vi.unstubAllGlobals();
 });
@@ -548,7 +563,7 @@ describe('create environment dialog', () => {
     await click(button('关闭', form));
     await click(button('取消', dialog('放弃未保存的更改？')));
 
-    const overlay = document.querySelector<HTMLElement>('[data-slot="dialog-overlay"]');
+    const overlay = document.querySelector<HTMLElement>('[data-slot="dialog-backdrop"]');
     if (!overlay) throw new Error('Missing dialog overlay');
     await press(overlay);
     expect(hasDialog('放弃未保存的更改？')).toBe(true);

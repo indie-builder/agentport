@@ -965,7 +965,6 @@ function CreateBaseDialog({
                 disabled={pending}
                 aria-required="true"
                 aria-invalid={Boolean(errors.name)}
-                aria-describedby={errors.name ? 'knowledge-name-error' : undefined}
               />
               <FieldError id="knowledge-name-error">{errors.name?.message}</FieldError>
             </Field>
@@ -977,7 +976,6 @@ function CreateBaseDialog({
                 disabled={pending}
                 rows={2}
                 aria-invalid={Boolean(errors.description)}
-                aria-describedby={errors.description ? 'knowledge-description-error' : undefined}
               />
               <FieldError id="knowledge-description-error">
                 {errors.description?.message}
@@ -1011,11 +1009,6 @@ function CreateBaseDialog({
                     id="knowledge-slug"
                     disabled={pending}
                     aria-invalid={Boolean(errors.slug)}
-                    aria-describedby={
-                      errors.slug
-                        ? 'knowledge-slug-hint knowledge-slug-error'
-                        : 'knowledge-slug-hint'
-                    }
                     className="font-mono"
                   />
                   <FieldDescription id="knowledge-slug-hint">留空时按名称生成</FieldDescription>
@@ -1076,9 +1069,6 @@ function CreateBaseDialog({
                         id="knowledge-embedding"
                         className="w-full"
                         aria-invalid={Boolean(errors.embeddingProfileId)}
-                        aria-describedby={
-                          errors.embeddingProfileId ? 'knowledge-embedding-error' : undefined
-                        }
                       >
                         <SelectValue />
                       </SelectTrigger>
@@ -1171,9 +1161,6 @@ function CreateBaseDialog({
                       inputMode="numeric"
                       disabled={pending}
                       aria-invalid={Boolean(errors.chunkTokens)}
-                      aria-describedby={
-                        errors.chunkTokens ? 'knowledge-chunk-tokens-error' : undefined
-                      }
                     />
                     <FieldError id="knowledge-chunk-tokens-error">
                       {errors.chunkTokens?.message}
@@ -1187,9 +1174,6 @@ function CreateBaseDialog({
                       inputMode="numeric"
                       disabled={pending}
                       aria-invalid={Boolean(errors.chunkOverlap)}
-                      aria-describedby={
-                        errors.chunkOverlap ? 'knowledge-chunk-overlap-error' : undefined
-                      }
                     />
                     <FieldError id="knowledge-chunk-overlap-error">
                       {errors.chunkOverlap?.message}

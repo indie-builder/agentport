@@ -175,7 +175,7 @@ describe('FormControl field wiring', () => {
     await act(async () => submit?.click());
 
     expect(input?.getAttribute('aria-invalid')).toBe('true');
-    expect(fieldFor(input as HTMLElement).getAttribute('data-invalid')).toBe('true');
+    expect(fieldFor(input as HTMLElement).hasAttribute('data-invalid')).toBe(true);
 
     const described = describedBy(input as HTMLElement);
     const texts = described.map((element) => element.textContent);
@@ -324,6 +324,6 @@ describe('FormControl field wiring', () => {
 
     const [input] = all<HTMLInputElement>('input[name="email"]');
     expect(input?.disabled).toBe(true);
-    expect(fieldFor(input as HTMLElement).getAttribute('data-disabled')).toBe('true');
+    expect(fieldFor(input as HTMLElement).hasAttribute('data-disabled')).toBe(true);
   });
 });

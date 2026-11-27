@@ -176,7 +176,6 @@ export function CreateAgentDialog({
                 id="new-agent-name"
                 aria-required="true"
                 aria-invalid={Boolean(errors.name)}
-                aria-describedby={errors.name ? 'new-agent-name-error' : undefined}
                 placeholder="客服助手"
               />
               <FieldError id="new-agent-name-error">{errors.name?.message}</FieldError>
@@ -205,7 +204,6 @@ export function CreateAgentDialog({
                   id="new-agent-role"
                   className="w-full min-w-0"
                   aria-invalid={Boolean(errors.role)}
-                  aria-describedby={errors.role ? 'new-agent-role-error' : undefined}
                 >
                   <SelectValue />
                 </SelectTrigger>
@@ -260,7 +258,6 @@ export function CreateAgentDialog({
                 value={tagsField.value}
                 placeholder="客服、写作"
                 aria-invalid={Boolean(errors.tags)}
-                aria-describedby={errors.tags ? 'new-agent-tags-error' : 'new-agent-tags-hint'}
                 onChange={(event) => tagsField.onChange(event.target.value)}
               />
               {errors.tags ? (
@@ -333,7 +330,6 @@ export function CreateAgentDialog({
                     placeholder="support-bot"
                     className="font-mono"
                     aria-invalid={Boolean(errors.slug)}
-                    aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
                   />
                   {errors.slug ? (
                     <FieldError id="new-agent-slug-error">{errors.slug?.message}</FieldError>
@@ -487,7 +483,6 @@ export function DuplicateAgentDialog({
                 id="duplicate-agent-name"
                 aria-required="true"
                 aria-invalid={Boolean(errors.name)}
-                aria-describedby={errors.name ? 'duplicate-agent-name-error' : undefined}
               />
               <FieldError id="duplicate-agent-name-error">{errors.name?.message}</FieldError>
             </Field>
@@ -507,7 +502,6 @@ export function DuplicateAgentDialog({
                 className="font-mono"
                 aria-required="true"
                 aria-invalid={Boolean(errors.slug)}
-                aria-describedby={errors.slug ? 'duplicate-agent-slug-error' : undefined}
               />
               <FieldError id="duplicate-agent-slug-error">{errors.slug?.message}</FieldError>
             </Field>

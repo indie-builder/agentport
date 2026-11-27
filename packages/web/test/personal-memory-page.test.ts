@@ -244,7 +244,7 @@ function editorValue(): string {
 }
 
 async function confirm(label: string) {
-  const dialog = document.querySelector('[role="dialog"]');
+  const dialog = document.querySelector('[role="dialog"], [role="alertdialog"]');
   if (!dialog) throw new Error('Missing dialog');
   await click(button(label, dialog));
 }
@@ -371,8 +371,15 @@ describe('个人记忆页', () => {
     await startEditing();
     await fillEditor('未保存的修改');
     await click(button('取消'));
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('放弃未保存的修改？');
-    await click(button('取消', document.querySelector('[role="dialog"]') as HTMLElement));
+    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent).toContain(
+      '放弃未保存的修改？',
+    );
+    await click(
+      button(
+        '取消',
+        document.querySelector('[role="dialog"], [role="alertdialog"]') as HTMLElement,
+      ),
+    );
     expect(editorValue()).toBe('未保存的修改');
 
     await click(button('取消'));
@@ -504,7 +511,7 @@ describe('个人记忆页', () => {
       updatedAt: '2026-10-03T00:00:00.000Z',
     });
     await click(button('重新加载'));
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent).toContain(
       '重新加载并放弃草稿？',
     );
     await confirm('放弃并重新加载');
@@ -543,7 +550,9 @@ describe('个人记忆页', () => {
       return match as HTMLButtonElement;
     });
     await click(rollback);
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('回滚这次保存？');
+    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent).toContain(
+      '回滚这次保存？',
+    );
     await confirm('回滚');
     expect(api.rollbackMemoryChange).toHaveBeenCalledWith('chg_1');
     await vi.waitFor(() => expect(api.personalMemoryVersions).toHaveBeenCalledTimes(2));
@@ -679,11 +688,16 @@ describe('个人记忆页', () => {
       router.history.back();
     });
     await vi.waitFor(() =>
-      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-        '放弃未保存的个人记忆？',
+      expect(
+        document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent,
+      ).toContain('放弃未保存的个人记忆？'),
+    );
+    await click(
+      button(
+        '取消',
+        document.querySelector('[role="dialog"], [role="alertdialog"]') as HTMLElement,
       ),
     );
-    await click(button('取消', document.querySelector('[role="dialog"]') as HTMLElement));
     await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
     expect(editorValue()).toBe('未保存的草稿');
     expect(host.textContent).toContain('未保存');
@@ -692,9 +706,9 @@ describe('个人记忆页', () => {
       router.history.back();
     });
     await vi.waitFor(() =>
-      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-        '放弃未保存的个人记忆？',
-      ),
+      expect(
+        document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent,
+      ).toContain('放弃未保存的个人记忆？'),
     );
     await confirm('放弃并离开');
     await vi.waitFor(() => expect(host.textContent).toContain('Destination'));
@@ -708,9 +722,9 @@ describe('个人记忆页', () => {
       void router.navigate({ to: '/personal/reviews' });
     });
     await vi.waitFor(() =>
-      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-        '放弃未保存的个人记忆？',
-      ),
+      expect(
+        document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent,
+      ).toContain('放弃未保存的个人记忆？'),
     );
     await confirm('放弃并离开');
     await vi.waitFor(() => expect(host.textContent).toContain('生成记忆提案'));
@@ -728,7 +742,7 @@ describe('个人记忆页', () => {
       void router.navigate({ to: '/chat' });
     });
     await flush();
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent).toContain(
       '放弃未保存的个人记忆？',
     );
     await confirm('放弃并离开');

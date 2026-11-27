@@ -772,9 +772,8 @@ export function AppShell() {
         {sidebar(false)}
       </motion.div>
 
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+      <Sheet side="left" open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent
-          side="left"
           finalFocus={() => navigationTrigger.current}
           showCloseButton={false}
           aria-describedby={undefined}

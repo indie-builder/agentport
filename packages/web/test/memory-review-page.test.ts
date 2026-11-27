@@ -208,7 +208,7 @@ function dialogButton(label: string): HTMLButtonElement {
 }
 
 function allDialogs(): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')];
+  return [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')];
 }
 
 function discardDialog(): HTMLElement | null {
@@ -223,7 +223,7 @@ async function pressEscape() {
 }
 
 async function pressOutside() {
-  const overlay = document.querySelector<HTMLElement>('[data-slot="dialog-overlay"]');
+  const overlay = document.querySelector<HTMLElement>('[data-slot="dialog-backdrop"]');
   if (!overlay) throw new Error('Missing dialog overlay');
   await act(async () => {
     overlay.dispatchEvent(
@@ -922,7 +922,9 @@ describe('记忆提案', () => {
     await browserBack();
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     await click(button('放弃并离开', discardDialog() as HTMLElement));
-    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull(),
+    );
     await vi.waitFor(() =>
       expect(new URLSearchParams(window.location.search).get('create')).toBeNull(),
     );
@@ -958,7 +960,7 @@ describe('记忆提案', () => {
     await click(button('放弃并离开', discardDialog() as HTMLElement));
     await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
     await vi.waitFor(() => expect(host.textContent).toContain('建立你的个人记忆'));
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull();
   });
 
   it('生成记忆提案提交中禁止离开，刷新前有离开保护', async () => {
@@ -1601,7 +1603,9 @@ describe('记忆提案', () => {
     await click(personalOption);
     await click(button('取消', createDialog));
     await click(button('放弃并关闭', discardDialog() as HTMLElement));
-    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull(),
+    );
     expect(api.agentMemory).not.toHaveBeenCalled();
     expect(api.agentRules).not.toHaveBeenCalled();
 

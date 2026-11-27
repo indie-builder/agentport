@@ -374,7 +374,7 @@ export function SliderRenderer({
         value={values}
         disabled={field.streaming}
         onValueChange={(next) => field.setValue(Array.isArray(next) ? next : [next])}
-        onValueCommitted={(next) => field.validate(Array.isArray(next) ? next : [next])}
+        onValueCommit={(next) => field.validate(Array.isArray(next) ? next : [next])}
       />
       <div className="flex justify-between font-mono text-xs tabular-nums text-muted-foreground">
         <span>{props.min}</span>

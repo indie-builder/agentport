@@ -1,12 +1,19 @@
 import { AlertTriangle } from 'lucide-react';
-import type { ComponentProps } from 'react';
-import { type ReactNode, useState } from 'react';
+import { type ComponentProps, type ReactNode, useRef, useState } from 'react';
 import { cn } from '../lib/cn.js';
-import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
+import { useDialogClose } from '../lib/dialog-guard.js';
 import { toastError } from '../lib/toast.js';
-import { DialogShell } from './dialog-shell.js';
-import { Button } from './ui/button.js';
-import { Dialog, DialogDescription } from './ui/dialog.js';
+import {
+  AlertDialog,
+  AlertDialogBackdrop,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog.js';
+import { Button, buttonVariants } from './ui/button.js';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -20,7 +27,7 @@ interface ConfirmDialogProps {
   onConfirm: () => Promise<unknown>;
   onError?: (error: unknown) => void;
   onCancel?: () => void;
-  finalFocus?: ComponentProps<typeof DialogShell>['finalFocus'];
+  finalFocus?: ComponentProps<typeof AlertDialogContent>['finalFocus'];
 }
 
 export function ConfirmDialog({
@@ -39,8 +46,11 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const dialog = useDialogClose(onClose, open);
   const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
 
   const confirm = async (): Promise<void> => {
+    if (confirmDisabled || pendingRef.current) return;
+    pendingRef.current = true;
     setPending(true);
     try {
       await onConfirm();
@@ -49,57 +59,76 @@ export function ConfirmDialog({
       if (onError) onError(error);
       else toastError(error);
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   };
 
   return (
-    <Dialog
+    <AlertDialog
       open={dialog.open}
-      onOpenChange={guardedOpenChange(pending, dialog.close, onCancel)}
+      dismissible={!pending}
+      onOpenChange={(next, details) => {
+        if (pendingRef.current) {
+          details.cancel();
+          return;
+        }
+        if (!next) {
+          onCancel?.();
+          dialog.close();
+        }
+      }}
       onOpenChangeComplete={dialog.onOpenChangeComplete}
     >
-      <DialogShell
-        title={title}
-        className="max-w-md sm:max-w-md"
-        closeDisabled={pending}
-        finalFocus={finalFocus}
+      <AlertDialogBackdrop />
+      <AlertDialogContent
+        className="flex max-h-[80dvh] w-[calc(100%-2rem)] max-w-md flex-col gap-0 overflow-hidden p-0 sm:max-w-md"
+        {...(finalFocus === undefined ? {} : { finalFocus })}
       >
-        <div className="flex gap-3">
-          <div
-            className={cn(
-              'flex size-10 shrink-0 items-center justify-center rounded-full',
-              tone === 'default' ? 'bg-sunken text-muted-foreground' : 'bg-danger-soft text-danger',
-            )}
-          >
-            <AlertTriangle className="size-5" />
+        <AlertDialogHeader className="shrink-0 border-b px-5 py-3.5">
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+        </AlertDialogHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+          <div className="flex gap-3">
+            <div
+              className={cn(
+                'flex size-10 shrink-0 items-center justify-center rounded-full',
+                tone === 'default'
+                  ? 'bg-sunken text-muted-foreground'
+                  : 'bg-danger-soft text-danger',
+              )}
+            >
+              <AlertTriangle className="size-5" aria-hidden="true" />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
+              <AlertDialogDescription className="leading-relaxed">
+                {description}
+              </AlertDialogDescription>
+              {children}
+            </div>
           </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
-            <DialogDescription className="leading-relaxed">{description}</DialogDescription>
-            {children}
-          </div>
+          <AlertDialogFooter className="mt-5">
+            <AlertDialogClose
+              disabled={pending}
+              data-disabled={pending ? '' : undefined}
+              className={buttonVariants({ variant: 'ghost' })}
+              data-variant="ghost"
+              data-size="default"
+            >
+              取消
+            </AlertDialogClose>
+            <Button
+              variant={tone === 'default' ? 'default' : 'destructive'}
+              disabled={pending || confirmDisabled}
+              aria-busy={pending}
+              data-agent-confirm={description}
+              onClick={() => void confirm()}
+            >
+              {pending ? '处理中…' : confirmLabel}
+            </Button>
+          </AlertDialogFooter>
         </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              onCancel?.();
-              dialog.close();
-            }}
-            disabled={pending}
-          >
-            取消
-          </Button>
-          <Button
-            variant={tone === 'default' ? 'default' : 'destructive'}
-            aria-busy={pending}
-            disabled={pending || confirmDisabled}
-            onClick={() => void confirm()}
-          >
-            {pending ? '处理中…' : confirmLabel}
-          </Button>
-        </div>
-      </DialogShell>
-    </Dialog>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
