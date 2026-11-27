@@ -197,6 +197,16 @@ function dialogByTitle(title: string): HTMLElement | null {
   );
 }
 
+async function clickDialogButton(title: string, label: string) {
+  const dialog = dialogByTitle(title);
+  if (!dialog) throw new Error(`Missing dialog: ${title}`);
+  const match = [...dialog.querySelectorAll('button')].find(
+    (element) => element.textContent?.trim() === label,
+  );
+  if (!match) throw new Error(`Missing button "${label}" in dialog: ${title}`);
+  await clickElement(match);
+}
+
 function unloadPrevented() {
   const event = new Event('beforeunload', { cancelable: true });
   window.dispatchEvent(event);
@@ -269,7 +279,8 @@ describe('schedule draft navigation', () => {
     });
     expect(document.body.textContent).toContain('放弃未保存的更改？');
     expect(router.state.location.pathname).toBe('/schedules');
-    await click('取消');
+    await clickDialogButton('放弃未保存的更改？', '取消');
+    await vi.waitFor(() => expect(dialogByTitle('放弃未保存的更改？')).toBeNull());
     expect(router.state.location.pathname).toBe('/schedules');
     expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
       'Unsaved name',
@@ -1075,7 +1086,7 @@ describe('schedule stale conflict recovery', () => {
     await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
 
     await click('重新加载');
-    await click('取消');
+    await clickDialogButton('放弃草稿并加载最新版本？', '取消');
     await vi.waitFor(() => expect(dialogByTitle('放弃草稿并加载最新版本？')).toBeNull());
     expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
       'Local draft',
@@ -1126,7 +1137,7 @@ describe('schedule stale conflict recovery', () => {
     await vi.waitFor(() =>
       expect(dialogByTitle('放弃草稿并加载最新版本？')?.textContent).toContain('已被删除'),
     );
-    await click('取消');
+    await clickDialogButton('放弃草稿并加载最新版本？', '取消');
     await vi.waitFor(() => expect(dialogByTitle('放弃草稿并加载最新版本？')).toBeNull());
     expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
       'Local draft',

@@ -24,6 +24,12 @@ import { shortId } from '../src/lib/format.js';
 import { EvalPage } from '../src/pages/eval/index.js';
 import { evalSearchSchema } from '../src/routes/-search.js';
 
+vi.mock('../src/lib/toast.js', () => ({
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
+
 let root: Root;
 let client: QueryClient;
 let container: HTMLDivElement;

@@ -60,9 +60,16 @@ async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
   return probe();
 }
 
+function isInert(element: Element): boolean {
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    if ((node as HTMLElement).inert || node.hasAttribute('inert')) return true;
+  }
+  return false;
+}
+
 function button(text: string): HTMLButtonElement {
   const found = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-    (item) => item.textContent?.trim() === text,
+    (item) => !isInert(item) && item.textContent?.trim() === text,
   );
   if (!found) throw new Error(`Missing button: ${text}`);
   return found;
@@ -221,6 +228,8 @@ describe('skill editor blocked navigation', () => {
 
     await click(button('取消'));
     expect(await settled(pending as Promise<boolean>)).toBe(true);
+    expect(document.body.textContent).not.toContain('放弃未保存的更改？');
+    await click(button('取消'));
     expect(document.body.textContent).toBe('已关闭');
   });
 });

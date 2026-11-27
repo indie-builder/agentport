@@ -181,212 +181,220 @@ export function ToolForm({
   ];
 
   return (
-    <form
-      className="grid gap-3 border-t pt-5 sm:grid-cols-6"
-      onSubmit={(event) => {
-        event.preventDefault();
-        submit();
-      }}
-      noValidate
-    >
-      <div className="flex items-baseline justify-between gap-2 sm:col-span-6">
-        <h3 className="text-base font-medium text-fg">
-          {tool ? `编辑工具 ${tool.name}` : '添加工具'}
-        </h3>
-        {tool ? (
-          <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={pending}>
-            取消编辑
+    <>
+      <form
+        className="grid gap-3 border-t pt-5 sm:grid-cols-6"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+        noValidate
+      >
+        <div className="flex items-baseline justify-between gap-2 sm:col-span-6">
+          <h3 className="text-base font-medium text-fg">
+            {tool ? `编辑工具 ${tool.name}` : '添加工具'}
+          </h3>
+          {tool ? (
+            <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={pending}>
+              取消编辑
+            </Button>
+          ) : null}
+        </div>
+        <Field
+          data-disabled={pending}
+          className="gap-1.5 sm:col-span-2"
+          data-invalid={Boolean(errors.name)}
+        >
+          <FieldLabel htmlFor={`tool-name-${serverId}`}>
+            名称
+            <RequiredMark />
+          </FieldLabel>
+          <Input
+            {...register('name')}
+            value={watched.name}
+            disabled={pending}
+            id={`tool-name-${serverId}`}
+            placeholder="list-users"
+            aria-required
+            aria-invalid={Boolean(errors.name)}
+            aria-describedby={errors.name ? `tool-name-error-${serverId}` : undefined}
+          />
+          <FieldError id={`tool-name-error-${serverId}`}>{errors.name?.message}</FieldError>
+        </Field>
+        <Field data-disabled={pending} className="gap-1.5">
+          <FieldLabel htmlFor={`tool-method-${serverId}`}>方法</FieldLabel>
+          <Controller
+            control={control}
+            name="method"
+            render={({ field }) => (
+              <Select
+                disabled={pending}
+                value={field.value}
+                onValueChange={(next) => {
+                  if (next !== null) field.onChange(next);
+                }}
+                items={methodOptions}
+              >
+                <SelectTrigger id={`tool-method-${serverId}`} ref={field.ref} onBlur={field.onBlur}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {methodOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </Field>
+        <Field
+          data-disabled={pending}
+          className="gap-1.5 sm:col-span-2"
+          data-invalid={Boolean(errors.pathTemplate)}
+        >
+          <FieldLabel htmlFor={`tool-path-${serverId}`}>
+            路径
+            <RequiredMark />
+          </FieldLabel>
+          <Input
+            {...register('pathTemplate')}
+            value={watched.pathTemplate}
+            disabled={pending}
+            id={`tool-path-${serverId}`}
+            placeholder="/users/{id}"
+            aria-required
+            aria-invalid={Boolean(errors.pathTemplate)}
+            aria-describedby={errors.pathTemplate ? `tool-path-error-${serverId}` : undefined}
+          />
+          <FieldError id={`tool-path-error-${serverId}`}>{errors.pathTemplate?.message}</FieldError>
+        </Field>
+        <Field data-disabled={pending} className="gap-1.5">
+          <FieldLabel htmlFor={`tool-params-${serverId}`}>参数位置</FieldLabel>
+          <Controller
+            control={control}
+            name="paramsIn"
+            render={({ field }) => (
+              <Select
+                disabled={pending}
+                value={field.value}
+                onValueChange={(next) => {
+                  if (next !== null) field.onChange(next);
+                }}
+                items={paramsOptions}
+              >
+                <SelectTrigger id={`tool-params-${serverId}`} ref={field.ref} onBlur={field.onBlur}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {paramsOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </Field>
+        <Field
+          data-disabled={pending}
+          className="gap-1.5 sm:col-span-5"
+          data-invalid={Boolean(errors.description)}
+        >
+          <FieldLabel htmlFor={`tool-desc-${serverId}`}>描述</FieldLabel>
+          <Input
+            {...register('description')}
+            value={watched.description}
+            disabled={pending}
+            id={`tool-desc-${serverId}`}
+            aria-invalid={Boolean(errors.description)}
+            aria-describedby={errors.description ? `tool-desc-error-${serverId}` : undefined}
+            placeholder="告诉智能体这个工具做什么、何时用"
+          />
+          <FieldError id={`tool-desc-error-${serverId}`}>{errors.description?.message}</FieldError>
+        </Field>
+        <Field
+          data-disabled={pending}
+          className="gap-1.5 sm:col-span-5"
+          data-invalid={Boolean(errors.inputSchema)}
+        >
+          <FieldLabel htmlFor={`tool-schema-${serverId}`}>inputSchema (JSON)</FieldLabel>
+          <Controller
+            control={control}
+            name="inputSchema"
+            render={({ field }) => (
+              <SourceEditor
+                id={`tool-schema-${serverId}`}
+                value={field.value}
+                onChange={field.onChange}
+                onBlur={field.onBlur}
+                language="json"
+                aria-label="inputSchema (JSON)"
+                aria-invalid={Boolean(errors.inputSchema)}
+                aria-describedby={errors.inputSchema ? `tool-schema-error-${serverId}` : undefined}
+                disabled={pending}
+                className="min-h-40"
+              />
+            )}
+          />
+          <FieldError id={`tool-schema-error-${serverId}`}>
+            {errors.inputSchema?.message}
+          </FieldError>
+        </Field>
+        <Field data-disabled={pending} className="gap-1.5 sm:col-span-2">
+          <FieldLabel htmlFor={`tool-approval-${serverId}`}>审批策略</FieldLabel>
+          <Controller
+            control={control}
+            name="approvalMode"
+            render={({ field }) => (
+              <Select
+                disabled={pending}
+                value={field.value}
+                onValueChange={(next) => {
+                  if (next !== null) field.onChange(next);
+                }}
+                items={approvalOptions}
+              >
+                <SelectTrigger
+                  id={`tool-approval-${serverId}`}
+                  ref={field.ref}
+                  onBlur={field.onBlur}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {approvalOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </Field>
+        <div className="flex items-start pt-2">
+          <Button type="submit" size="sm" disabled={pending || !watched.name}>
+            {pending ? (
+              '保存中…'
+            ) : tool ? (
+              '保存更改'
+            ) : (
+              <>
+                <Plus /> 添加
+              </>
+            )}
           </Button>
-        ) : null}
-      </div>
-      <Field
-        data-disabled={pending}
-        className="gap-1.5 sm:col-span-2"
-        data-invalid={Boolean(errors.name)}
-      >
-        <FieldLabel htmlFor={`tool-name-${serverId}`}>
-          名称
-          <RequiredMark />
-        </FieldLabel>
-        <Input
-          {...register('name')}
-          value={watched.name}
-          disabled={pending}
-          id={`tool-name-${serverId}`}
-          placeholder="list-users"
-          aria-required
-          aria-invalid={Boolean(errors.name)}
-          aria-describedby={errors.name ? `tool-name-error-${serverId}` : undefined}
-        />
-        <FieldError id={`tool-name-error-${serverId}`}>{errors.name?.message}</FieldError>
-      </Field>
-      <Field data-disabled={pending} className="gap-1.5">
-        <FieldLabel htmlFor={`tool-method-${serverId}`}>方法</FieldLabel>
-        <Controller
-          control={control}
-          name="method"
-          render={({ field }) => (
-            <Select
-              disabled={pending}
-              value={field.value}
-              onValueChange={(next) => {
-                if (next !== null) field.onChange(next);
-              }}
-              items={methodOptions}
-            >
-              <SelectTrigger id={`tool-method-${serverId}`} ref={field.ref} onBlur={field.onBlur}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {methodOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          )}
-        />
-      </Field>
-      <Field
-        data-disabled={pending}
-        className="gap-1.5 sm:col-span-2"
-        data-invalid={Boolean(errors.pathTemplate)}
-      >
-        <FieldLabel htmlFor={`tool-path-${serverId}`}>
-          路径
-          <RequiredMark />
-        </FieldLabel>
-        <Input
-          {...register('pathTemplate')}
-          value={watched.pathTemplate}
-          disabled={pending}
-          id={`tool-path-${serverId}`}
-          placeholder="/users/{id}"
-          aria-required
-          aria-invalid={Boolean(errors.pathTemplate)}
-          aria-describedby={errors.pathTemplate ? `tool-path-error-${serverId}` : undefined}
-        />
-        <FieldError id={`tool-path-error-${serverId}`}>{errors.pathTemplate?.message}</FieldError>
-      </Field>
-      <Field data-disabled={pending} className="gap-1.5">
-        <FieldLabel htmlFor={`tool-params-${serverId}`}>参数位置</FieldLabel>
-        <Controller
-          control={control}
-          name="paramsIn"
-          render={({ field }) => (
-            <Select
-              disabled={pending}
-              value={field.value}
-              onValueChange={(next) => {
-                if (next !== null) field.onChange(next);
-              }}
-              items={paramsOptions}
-            >
-              <SelectTrigger id={`tool-params-${serverId}`} ref={field.ref} onBlur={field.onBlur}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {paramsOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          )}
-        />
-      </Field>
-      <Field
-        data-disabled={pending}
-        className="gap-1.5 sm:col-span-5"
-        data-invalid={Boolean(errors.description)}
-      >
-        <FieldLabel htmlFor={`tool-desc-${serverId}`}>描述</FieldLabel>
-        <Input
-          {...register('description')}
-          value={watched.description}
-          disabled={pending}
-          id={`tool-desc-${serverId}`}
-          aria-invalid={Boolean(errors.description)}
-          aria-describedby={errors.description ? `tool-desc-error-${serverId}` : undefined}
-          placeholder="告诉智能体这个工具做什么、何时用"
-        />
-        <FieldError id={`tool-desc-error-${serverId}`}>{errors.description?.message}</FieldError>
-      </Field>
-      <Field
-        data-disabled={pending}
-        className="gap-1.5 sm:col-span-5"
-        data-invalid={Boolean(errors.inputSchema)}
-      >
-        <FieldLabel htmlFor={`tool-schema-${serverId}`}>inputSchema (JSON)</FieldLabel>
-        <Controller
-          control={control}
-          name="inputSchema"
-          render={({ field }) => (
-            <SourceEditor
-              id={`tool-schema-${serverId}`}
-              value={field.value}
-              onChange={field.onChange}
-              onBlur={field.onBlur}
-              language="json"
-              aria-label="inputSchema (JSON)"
-              aria-invalid={Boolean(errors.inputSchema)}
-              aria-describedby={errors.inputSchema ? `tool-schema-error-${serverId}` : undefined}
-              disabled={pending}
-              className="min-h-40"
-            />
-          )}
-        />
-        <FieldError id={`tool-schema-error-${serverId}`}>{errors.inputSchema?.message}</FieldError>
-      </Field>
-      <Field data-disabled={pending} className="gap-1.5 sm:col-span-2">
-        <FieldLabel htmlFor={`tool-approval-${serverId}`}>审批策略</FieldLabel>
-        <Controller
-          control={control}
-          name="approvalMode"
-          render={({ field }) => (
-            <Select
-              disabled={pending}
-              value={field.value}
-              onValueChange={(next) => {
-                if (next !== null) field.onChange(next);
-              }}
-              items={approvalOptions}
-            >
-              <SelectTrigger id={`tool-approval-${serverId}`} ref={field.ref} onBlur={field.onBlur}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {approvalOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          )}
-        />
-      </Field>
-      <div className="flex items-start pt-2">
-        <Button type="submit" size="sm" disabled={pending || !watched.name}>
-          {pending ? (
-            '保存中…'
-          ) : tool ? (
-            '保存更改'
-          ) : (
-            <>
-              <Plus /> 添加
-            </>
-          )}
-        </Button>
-      </div>
+        </div>
+      </form>
       <ConfirmDialog
         open={blocker.status === 'blocked'}
         onClose={() => blocker.reset?.()}
@@ -396,6 +404,6 @@ export function ToolForm({
         confirmDisabled={pending}
         onConfirm={async () => blocker.proceed()}
       />
-    </form>
+    </>
   );
 }

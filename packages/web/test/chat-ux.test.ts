@@ -923,7 +923,9 @@ describe('chat shell layout', () => {
     expect(sheet).not.toBeNull();
     expect(sheet?.querySelector('h1')).toBeNull();
     expect(sheet?.querySelector('[aria-label^="切换专家"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label^="切换专家"]')).toBeNull();
+    expect(
+      [...host.querySelectorAll('[aria-label^="切换专家"]')].filter((el) => !sheet?.contains(el)),
+    ).toHaveLength(0);
     expect(document.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
       '未命名会话',
@@ -1081,8 +1083,11 @@ describe('chat shell layout', () => {
 
     await act(async () => useChatStore.setState({ historyOpen: true }));
     await flush();
-    expect(document.querySelector('[role="dialog"] [aria-label^="切换专家"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label^="切换专家"]')).toBeNull();
+    const sheet = document.querySelector('[role="dialog"]');
+    expect(sheet?.querySelector('[aria-label^="切换专家"]')).not.toBeNull();
+    expect(
+      [...host.querySelectorAll('[aria-label^="切换专家"]')].filter((el) => !sheet?.contains(el)),
+    ).toHaveLength(0);
 
     await act(async () => resize(1024));
     await flush();
@@ -1097,8 +1102,13 @@ describe('chat shell layout', () => {
 
     await act(async () => resize(600));
     await flush();
-    expect(document.querySelector('[role="dialog"] [aria-label^="切换专家"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label^="切换专家"]')).toBeNull();
+    const narrowedSheet = document.querySelector('[role="dialog"]');
+    expect(narrowedSheet?.querySelector('[aria-label^="切换专家"]')).not.toBeNull();
+    expect(
+      [...host.querySelectorAll('[aria-label^="切换专家"]')].filter(
+        (el) => !narrowedSheet?.contains(el),
+      ),
+    ).toHaveLength(0);
     expect(document.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
   });
 
@@ -1527,8 +1537,8 @@ describe('conversation header menu', () => {
     );
   }
   function discardDialog() {
-    return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((element) =>
-      element.textContent?.includes('放弃未保存的更改？'),
+    return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].findLast(
+      (element) => element.querySelector('h2')?.textContent === '放弃未保存的更改？',
     );
   }
   function discardButton(label: string) {
