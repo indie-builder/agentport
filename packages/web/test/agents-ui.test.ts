@@ -1,4 +1,5 @@
 import { type Agent, PERMISSIONS } from '@agentport/shared';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import {
   act,
   type ComponentProps,
@@ -1506,7 +1507,7 @@ describe('expert editor regressions', () => {
       if (pass === 0) {
         const fan = tree.find(
           (node) =>
-            node.type === 'button' &&
+            (node.type === 'button' || node.type === ButtonPrimitive) &&
             elements(node.props.children as ReactNode).some(
               (child) => child.type === 'span' && child.props.children === '新建专家',
             ),

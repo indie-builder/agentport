@@ -1,4 +1,5 @@
 import { ACTION_STEPS, BuiltinActionType } from '@openuidev/react-lang';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Children, type CSSProperties, isValidElement, type ReactNode } from 'react';
 import {
   Carousel,
@@ -232,23 +233,15 @@ export function BlockCard({
   const fromInnerControl = (target: EventTarget) =>
     target instanceof Element && target.closest('button, a, input, textarea, select') !== null;
   return (
-    // biome-ignore lint/a11y/useSemanticElements: 卡片内可能含真实按钮，嵌套 <button> 非法。
-    <div
-      role="button"
-      tabIndex={0}
+    <ButtonPrimitive
+      render={<div />}
       className={base}
       onClick={(event) => {
         if (fromInnerControl(event.target)) return;
         onActivate?.();
       }}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        if (fromInnerControl(event.target)) return;
-        event.preventDefault();
-        onActivate?.();
-      }}
     >
       {children}
-    </div>
+    </ButtonPrimitive>
   );
 }

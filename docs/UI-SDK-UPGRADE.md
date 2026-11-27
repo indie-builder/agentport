@@ -58,6 +58,8 @@ rg -n "@ui-sdk/" packages/web/src
 
 **为何 `message-scroller` 保留官方 `@shadcn/react`**：`packages/web/src/components/ui/message-scroller.tsx`（聊天消息滚动容器）继续使用官方 `@shadcn/react/message-scroller`，属允许栈（packages/web 规则「只用 shadcn/ui」）。ui-sdk 无消息级等价物：`@ui-sdk/react/scroll-area` 只有 `stickToEnd`（跟随末尾）、`ScrollAreaScrollToEnd`（回到底部按钮）与 edge fades，缺聊天所需的可见消息追踪（`useMessageScrollerVisibility` 喂已读游标）、prepend 锚点保持（加载更早消息不跳）与 `scrollPreviousItemPeek`。整体替换等于把这些聊天特有语义手写进核心滚动路径，风险高、收益低，故保留。若将来聊天面板去掉已读游标与 prepend 需求，迁移路径是 ui-sdk `scroll-area`（`stickToEnd` + `ScrollAreaScrollToEnd`）。
 
+**为何分页列表（`accounts.tsx`、`personal/shares.tsx`、`personal/usage.tsx`）继续使用 `Button`**：`@ui-sdk/react/pagination` 严格以 1-based 数字页码（`pageCount`/`total` + 页码链接列表）建模，无法直接表达 `personal/shares.tsx` 与 `personal/usage.tsx` 这类仅返回不透明 `cursor`/`nextCursor`、无总页数的游标分页，也不适合 `accounts.tsx` 这类仅保留「上一页 / `page / pages` / 下一页」的两按钮轻量翻页条。强行接入要么伪造 `pageCount`，要么额外渲染不必要的页码列表，因此上述列表保持现有 `Button` 上/下一页实现。
+
 ## 升级步骤
 
 0. **留证据**：从根 `package.json` catalog / `bun.lock` 记下当前 `@ui-sdk/core`/`@ui-sdk/react` 版本，并备份随包文档 `node_modules/@ui-sdk/*/docs/`（该目录随版本发布；`skills/SKILL.md` 明确「读安装副本，它匹配当前版本」）。重装会覆盖它，升级前先留一份用于 diff。

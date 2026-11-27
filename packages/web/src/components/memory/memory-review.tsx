@@ -14,6 +14,7 @@ import {
 } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { CircleStop, LoaderCircle, MessageSquare, Plus, RotateCcw, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -1336,8 +1337,7 @@ function CreateMemoryReviewDialog({
                             {source.title || source.conversationId}
                             <span className="ml-1 text-muted-foreground">{agentName}</span>
                           </span>
-                          <button
-                            type="button"
+                          <ButtonPrimitive
                             aria-label={`移除来源会话 ${source.title || source.conversationId}`}
                             className="inline-flex size-6 shrink-0 items-center justify-center rounded-icon text-muted-foreground hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             disabled={create.isPending}
@@ -1352,7 +1352,7 @@ function CreateMemoryReviewDialog({
                             }
                           >
                             <X className="size-3" aria-hidden="true" />
-                          </button>
+                          </ButtonPrimitive>
                         </li>
                       );
                     })}

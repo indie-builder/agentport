@@ -51,6 +51,11 @@ import {
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
+  PasswordInput,
+  PasswordInputControl,
+  PasswordInputToggle,
+} from '../components/ui/password-input.js';
+import {
   Table,
   TableBody,
   TableCell,
@@ -688,6 +693,12 @@ function CreateAccountDialog({
   const usernameError = errors.username?.message;
   const nameError = errors.name?.message;
   const passwordError = errors.password?.message;
+  const {
+    name: createPasswordName,
+    ref: createPasswordRef,
+    onChange: onCreatePasswordChange,
+    onBlur: onCreatePasswordBlur,
+  } = register('password');
 
   const doCreate = async (values: AccountFormValues, asRestore: boolean): Promise<void> => {
     if (pending) return;
@@ -787,14 +798,20 @@ function CreateAccountDialog({
               <FieldLabel htmlFor="account-password">
                 初始密码 <RequiredMark />
               </FieldLabel>
-              <Input
-                id="account-password"
-                type="password"
+              <PasswordInput
+                name={createPasswordName}
                 autoComplete="new-password"
                 disabled={pending}
-                aria-invalid={Boolean(passwordError)}
-                {...register('password')}
-              />
+              >
+                <PasswordInputControl
+                  id="account-password"
+                  ref={createPasswordRef}
+                  onChange={onCreatePasswordChange}
+                  onBlur={onCreatePasswordBlur}
+                  aria-invalid={Boolean(passwordError)}
+                />
+                <PasswordInputToggle />
+              </PasswordInput>
               <FieldError id="account-password-error">{passwordError ?? undefined}</FieldError>
             </Field>
             {canAssignRoles ? (
@@ -1010,6 +1027,18 @@ function ResetPasswordDialog({
   const guard = useDraftGuard(dirty, pending, onClose);
   const passwordError = errors.password?.message;
   const confirmError = errors.confirm?.message;
+  const {
+    name: resetPasswordName,
+    ref: resetPasswordRef,
+    onChange: onResetPasswordChange,
+    onBlur: onResetPasswordBlur,
+  } = register('password', { deps: ['confirm'] });
+  const {
+    name: resetConfirmName,
+    ref: resetConfirmRef,
+    onChange: onResetConfirmChange,
+    onBlur: onResetConfirmBlur,
+  } = register('confirm');
 
   const submit = handleSubmit(
     async (values: ResetPasswordFormValues) => {
@@ -1043,28 +1072,36 @@ function ResetPasswordDialog({
           <FieldGroup className="gap-5">
             <Field data-invalid={Boolean(passwordError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-reset-password">新密码</FieldLabel>
-              <Input
-                id="account-reset-password"
-                type="password"
+              <PasswordInput
+                name={resetPasswordName}
                 autoComplete="new-password"
                 disabled={pending}
-                aria-invalid={Boolean(passwordError)}
-                {...register('password', { deps: ['confirm'] })}
-              />
+              >
+                <PasswordInputControl
+                  id="account-reset-password"
+                  ref={resetPasswordRef}
+                  onChange={onResetPasswordChange}
+                  onBlur={onResetPasswordBlur}
+                  aria-invalid={Boolean(passwordError)}
+                />
+                <PasswordInputToggle />
+              </PasswordInput>
               <FieldError id="account-reset-password-error">
                 {passwordError ?? undefined}
               </FieldError>
             </Field>
             <Field data-invalid={Boolean(confirmError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-reset-confirm">确认新密码</FieldLabel>
-              <Input
-                id="account-reset-confirm"
-                type="password"
-                autoComplete="new-password"
-                disabled={pending}
-                aria-invalid={Boolean(confirmError)}
-                {...register('confirm')}
-              />
+              <PasswordInput name={resetConfirmName} autoComplete="new-password" disabled={pending}>
+                <PasswordInputControl
+                  id="account-reset-confirm"
+                  ref={resetConfirmRef}
+                  onChange={onResetConfirmChange}
+                  onBlur={onResetConfirmBlur}
+                  aria-invalid={Boolean(confirmError)}
+                />
+                <PasswordInputToggle />
+              </PasswordInput>
               <FieldError id="account-reset-confirm-error">{confirmError ?? undefined}</FieldError>
             </Field>
             <FieldError>{error ?? undefined}</FieldError>

@@ -1,5 +1,6 @@
 import { isSafeOpenUrl } from '@agentport/shared';
 import { useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import type { LucideIcon } from 'lucide-react';
 import { icons } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -523,13 +524,12 @@ export function ListRenderer({
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表项由模型按顺序生成
           <li key={index} className="min-w-0">
             {clickable ? (
-              <button
-                type="button"
+              <ButtonPrimitive
                 className="flex w-full min-w-0 items-start gap-2.5 py-2 text-left transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => void trigger(itemProps.title, undefined, action)}
               >
                 {content}
-              </button>
+              </ButtonPrimitive>
             ) : (
               <div className="flex min-w-0 items-start gap-2.5 py-2">{content}</div>
             )}
@@ -551,16 +551,15 @@ export function FollowUpBlockRenderer({ props }: RenderProps<{ items: unknown[] 
         const text = String(childProps(item)?.text ?? '');
         if (!text) return null;
         return (
-          <button
+          <ButtonPrimitive
             // biome-ignore lint/suspicious/noArrayIndexKey: 追问项文本可能重复，位置即身份
             key={index}
-            type="button"
             disabled={streaming}
             className="rounded-full border border-line px-3 py-1.5 text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => void trigger(text)}
           >
             {text}
-          </button>
+          </ButtonPrimitive>
         );
       })}
     </div>

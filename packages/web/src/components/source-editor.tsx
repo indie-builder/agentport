@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { cn } from '../lib/cn.js';
 import type { SourceEditorProps } from './source-editor-props.js';
+import { Textarea } from './ui/textarea.js';
 
 const LazySourceEditor = lazy(() =>
   import('./source-editor-inner.js').then((module) => ({ default: module.SourceEditorInner })),
@@ -36,17 +37,17 @@ export function SourceEditor({
     >
       <Suspense
         fallback={
-          <textarea
+          <Textarea
             id={id}
             value={value}
-            onChange={(event) => onChange(event.target.value)}
+            onValueChange={onChange}
             onBlur={onBlur}
             aria-label={ariaLabel}
             aria-describedby={ariaDescribedBy}
             aria-invalid={ariaInvalid || undefined}
             disabled={disabled}
             readOnly={readOnly}
-            className="field-sizing-content block min-h-16 w-full resize-none bg-transparent px-2.5 py-2 text-inherit outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+            className="block resize-none rounded-none border-0 bg-transparent text-inherit focus-visible:border-transparent disabled:bg-transparent disabled:opacity-100 aria-invalid:border-transparent dark:bg-transparent dark:disabled:bg-transparent"
           />
         }
       >

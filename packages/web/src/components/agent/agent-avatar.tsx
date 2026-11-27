@@ -18,6 +18,7 @@ import qaEngineer from '../../assets/agents/qa-engineer.png';
 import supportBot from '../../assets/agents/support-bot.jpg';
 import uiDesigner from '../../assets/agents/ui-designer.jpg';
 import { cn } from '../../lib/cn.js';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar.js';
 
 const avatars = [
   frontendEngineer,
@@ -92,12 +93,11 @@ export function agentAvatar(agent: AgentDisplay): string {
 }
 
 export function AgentAvatar({ agent, className }: { agent: AgentDisplay; className?: string }) {
+  const initial = agent.name.trim().slice(0, 1).toUpperCase() || '?';
   return (
-    <img
-      src={agentAvatar(agent)}
-      alt=""
-      aria-hidden="true"
-      className={cn('size-10 shrink-0 rounded-full bg-muted object-cover', className)}
-    />
+    <Avatar aria-hidden="true" className={cn('size-10', className)}>
+      <AvatarImage src={agentAvatar(agent)} alt="" />
+      <AvatarFallback>{initial}</AvatarFallback>
+    </Avatar>
   );
 }

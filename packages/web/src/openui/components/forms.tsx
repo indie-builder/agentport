@@ -11,6 +11,7 @@ import {
   useStateField,
   useTriggerAction,
 } from '@openuidev/react-lang';
+import { Toggle } from '@ui-sdk/react/toggle';
 import { CalendarDays, CircleAlert } from 'lucide-react';
 import {
   createContext,
@@ -664,14 +665,13 @@ export function ChipsRenderer({
       {items.map((item) => {
         const selected = state.selection.includes(item.value);
         return (
-          <button
+          <Toggle
             key={item.value}
-            type="button"
-            aria-pressed={selected}
+            pressed={selected}
             aria-invalid={state.error ? true : undefined}
             aria-describedby={wiring?.describedBy}
-            disabled={state.streaming || item.disabled}
-            onClick={() => state.toggle(item.value)}
+            disabled={Boolean(state.streaming || item.disabled)}
+            onPressedChange={() => state.toggle(item.value)}
             className={cn(
               'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-colors duration-150 ease-out-soft',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -683,7 +683,7 @@ export function ChipsRenderer({
           >
             {item.icon ? renderNode(item.icon) : null}
             {item.label}
-          </button>
+          </Toggle>
         );
       })}
     </RangeGroup>
@@ -744,14 +744,13 @@ export function OptionCardsRenderer({
       {items.map((item) => {
         const selected = state.selection.includes(item.value);
         return (
-          <button
+          <Toggle
             key={item.value}
-            type="button"
-            aria-pressed={selected}
+            pressed={selected}
             aria-invalid={state.error ? true : undefined}
             aria-describedby={wiring?.describedBy}
-            disabled={state.streaming || item.disabled}
-            onClick={() => state.toggle(item.value)}
+            disabled={Boolean(state.streaming || item.disabled)}
+            onPressedChange={() => state.toggle(item.value)}
             className={cn(
               'cds-card-surface flex min-w-0 items-start gap-2 rounded-card border p-3 text-left',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -777,7 +776,7 @@ export function OptionCardsRenderer({
                 <span className="text-sm text-muted-foreground">{item.subtitle}</span>
               ) : null}
             </span>
-          </button>
+          </Toggle>
         );
       })}
     </RangeGroup>

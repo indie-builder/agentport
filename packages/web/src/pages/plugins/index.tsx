@@ -43,6 +43,11 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import {
+  createFileInputController,
+  FileInput,
+  FileInputTrigger,
+} from '../../components/ui/file-input.js';
 import { Input } from '../../components/ui/input.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
@@ -110,7 +115,7 @@ export function PluginsPage() {
   const [installing, setInstalling] = useState(false);
   const installButtonRef = useRef<HTMLButtonElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importController] = useState(createFileInputController);
   const importPlugin = useImportPlugin();
   const actionTriggerRef = useRef<HTMLElement | null>(null);
   const panelFocus = (): HTMLElement | null =>
@@ -175,14 +180,14 @@ export function PluginsPage() {
       status={plugins.status}
       actions={
         <>
-          <input
-            ref={importInputRef}
-            type="file"
+          <FileInput
+            controller={importController}
             accept=".zip,application/zip"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = '';
+            disabled={importPlugin.isPending}
+            className="contents"
+            onValueChange={(files, details) => {
+              details.cancel();
+              const file = files[0];
               if (file) void importZip(file);
             }}
           />
@@ -219,7 +224,7 @@ export function PluginsPage() {
                   <DropdownMenuItem
                     disabled={importPlugin.isPending}
                     aria-busy={importPlugin.isPending}
-                    onSelect={() => importInputRef.current?.click()}
+                    onSelect={() => importController.open()}
                   >
                     <Upload aria-hidden="true" />
                     {importPlugin.isPending ? '导入中…' : '导入插件 ZIP'}
@@ -295,16 +300,16 @@ export function PluginsPage() {
                 <PackagePlus data-icon="inline-start" aria-hidden="true" /> 安装插件
               </Button>
             ) : canImport ? (
-              <Button onClick={() => importInputRef.current?.click()}>
+              <FileInputTrigger controller={importController}>
                 <Upload data-icon="inline-start" aria-hidden="true" /> 导入 ZIP
-              </Button>
+              </FileInputTrigger>
             ) : undefined
           }
           secondaryAction={
             canInstall && canImport ? (
-              <Button variant="outline" onClick={() => importInputRef.current?.click()}>
+              <FileInputTrigger controller={importController} variant="outline">
                 <Upload data-icon="inline-start" aria-hidden="true" /> 导入 ZIP
-              </Button>
+              </FileInputTrigger>
             ) : undefined
           }
           footer={canImport || canInstall ? undefined : '当前账号没有导入或安装插件的权限。'}

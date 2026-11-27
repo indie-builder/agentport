@@ -11,6 +11,7 @@ import {
 } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link, useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import {
   Bot,
   Check,
@@ -1089,14 +1090,13 @@ export function AgentEditor({
               <ul className="flex flex-wrap gap-1 md:-mx-2 md:flex-col md:flex-nowrap md:gap-0.5">
                 {sectionItems.map((item) => (
                   <li key={item.id} className="min-w-0">
-                    <button
-                      type="button"
+                    <ButtonPrimitive
                       aria-current={activeSection === item.id ? 'true' : undefined}
                       onClick={() => focusSection(item.id)}
                       className={sectionButtonClass(activeSection === item.id)}
                     >
                       {item.label}
-                    </button>
+                    </ButtonPrimitive>
                   </li>
                 ))}
               </ul>
@@ -2335,8 +2335,7 @@ export function AgentEditor({
                         .filter((entry) => entry.group === group)
                         .map((entry) => (
                           <li key={entry.id} className="min-w-0">
-                            <button
-                              type="button"
+                            <ButtonPrimitive
                               aria-current={resolvedId === entry.id ? 'true' : undefined}
                               onClick={() => setActiveFile(entry.id)}
                               className={sectionButtonClass(resolvedId === entry.id)}
@@ -2357,7 +2356,7 @@ export function AgentEditor({
                                     : ''}
                                 </span>
                               </span>
-                            </button>
+                            </ButtonPrimitive>
                           </li>
                         ))}
                     </Fragment>

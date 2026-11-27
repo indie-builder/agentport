@@ -1,8 +1,10 @@
+import { Button as PrimitiveButton } from '@ui-sdk/react/button';
 import { GitCompare, Play, Plus, Shuffle } from 'lucide-react';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Card, CardContent } from '../../components/ui/card.js';
+import { Meter, MeterIndicator, MeterTrack } from '../../components/ui/meter.js';
 import type { EvalCase, EvalRun } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import {
@@ -243,7 +245,7 @@ export function EvalRunsTab({
                   run.total > 0 ? Math.min(100, Math.round((run.passed / run.total) * 100)) : 0;
                 return (
                   <li key={run.id}>
-                    <button
+                    <PrimitiveButton
                       type="button"
                       data-row={run.id}
                       aria-label={`${formatDateTime(run.createdAt)} · ${shortId(run.id)}`}
@@ -272,24 +274,30 @@ export function EvalRunsTab({
                         </span>
                       </div>
                       <div className="flex items-center gap-2.5">
-                        <div className="h-1.5 flex-1 overflow-hidden rounded-pill bg-sunken">
-                          <div
-                            className={cn(
-                              'h-full rounded-pill transition-[width] duration-150',
-                              run.status === 'failed'
-                                ? 'bg-danger'
-                                : run.status === 'running'
-                                  ? 'bg-fg'
-                                  : 'bg-success',
-                            )}
-                            style={{ width: `${passRatio}%` }}
-                          />
-                        </div>
+                        <Meter
+                          value={passRatio}
+                          min={0}
+                          max={100}
+                          aria-label={`通过率 ${run.passed} / ${run.total}`}
+                          className="flex-1"
+                        >
+                          <MeterTrack>
+                            <MeterIndicator
+                              className={
+                                run.status === 'failed'
+                                  ? 'bg-danger'
+                                  : run.status === 'running'
+                                    ? 'bg-fg'
+                                    : 'bg-success'
+                              }
+                            />
+                          </MeterTrack>
+                        </Meter>
                         <span className="font-mono text-xs tabular-nums text-fg">
                           {run.passed} / {run.total}
                         </span>
                       </div>
-                    </button>
+                    </PrimitiveButton>
                   </li>
                 );
               })}

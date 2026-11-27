@@ -1,4 +1,5 @@
 import { KNOWLEDGE_DOCUMENT_MAX_BYTES, type KnowledgeDocument } from '@agentport/shared';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
 import {
   ChevronDown,
@@ -15,7 +16,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
 import { FilterSelect } from '../../../components/filter-select.js';
 import { BatchActionDialog } from '../../../components/knowledge/knowledge-documents.js';
@@ -45,6 +46,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../../components/ui/dropdown-menu.js';
+import {
+  createFileInputController,
+  FileInput,
+  relativePath,
+} from '../../../components/ui/file-input.js';
 import {
   Table,
   TableBody,
@@ -122,8 +128,8 @@ export function DocumentsTab({
   const removeDocument = useDeleteKnowledgeDocument(baseId);
   const reprocessDocument = useReprocessKnowledgeDocument(baseId);
   const downloadDocuments = useDownloadKnowledgeDocuments(baseId);
-  const uploadInput = useRef<HTMLInputElement>(null);
-  const folderInput = useRef<HTMLInputElement>(null);
+  const [uploadController] = useState(createFileInputController);
+  const [folderController] = useState(createFileInputController);
   const [actionTrigger, setActionTrigger] = useState<HTMLElement | null>(null);
   const [confirmReprocess, setConfirmReprocess] = useState<KnowledgeDocument | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
@@ -222,7 +228,7 @@ export function DocumentsTab({
           mimeType: file.type || 'application/octet-stream',
           dataBase64,
           folderId: targetFolderId,
-          ...(file.webkitRelativePath ? { relativePath: path } : {}),
+          ...(path !== file.name ? { relativePath: path } : {}),
         });
       } catch {
         failed.push(file.name);
@@ -274,8 +280,7 @@ export function DocumentsTab({
                 : (folders.data ?? []).find((item) => item.id === folder.id);
             return (
               <li key={folder.id} className="group/folder flex items-center gap-0.5">
-                <button
-                  type="button"
+                <ButtonPrimitive
                   aria-current={active ? 'true' : undefined}
                   style={{ paddingLeft: `${8 + folder.depth * 12}px` }}
                   onClick={() => onFolderChange(folder.id === 'all' ? undefined : folder.id)}
@@ -292,7 +297,7 @@ export function DocumentsTab({
                     <Folder className="size-3.5 shrink-0" aria-hidden="true" />
                   )}
                   <span className="truncate">{folder.label}</span>
-                </button>
+                </ButtonPrimitive>
                 {entry && caps.content ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger
@@ -413,7 +418,7 @@ export function DocumentsTab({
                   />
                   <DropdownMenuContent align="end" sideOffset={4} className="w-44">
                     <DropdownMenuGroup>
-                      <DropdownMenuItem onSelect={() => folderInput.current?.click()}>
+                      <DropdownMenuItem onSelect={() => folderController.open()}>
                         <FolderOpen /> 上传文件夹
                       </DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => setManualOpen(true)}>
@@ -428,34 +433,29 @@ export function DocumentsTab({
                 <Button
                   disabled={uploading !== null}
                   aria-busy={uploading !== null}
-                  onClick={() => uploadInput.current?.click()}
+                  onClick={() => uploadController.open()}
                 >
                   <Upload data-icon="inline-start" aria-hidden="true" />
                   {uploading ? `上传中 ${uploading.done}/${uploading.total}` : '上传文件'}
                 </Button>
-                <input
-                  ref={uploadInput}
-                  type="file"
+                <FileInput
+                  controller={uploadController}
                   multiple
-                  className="hidden"
-                  aria-label="选择要上传的文件"
-                  onChange={(event) => {
-                    const files = [...(event.target.files ?? [])];
-                    event.target.value = '';
-                    void onFiles(files);
+                  disabled={uploading !== null}
+                  className="contents"
+                  onValueChange={(files, details) => {
+                    details.cancel();
+                    void onFiles([...files]);
                   }}
                 />
-                <input
-                  ref={folderInput}
-                  type="file"
-                  multiple
-                  webkitdirectory=""
-                  className="hidden"
-                  aria-label="选择要上传的文件夹"
-                  onChange={(event) => {
-                    const files = [...(event.target.files ?? [])];
-                    event.target.value = '';
-                    void onFiles(files);
+                <FileInput
+                  controller={folderController}
+                  directory
+                  disabled={uploading !== null}
+                  className="contents"
+                  onValueChange={(files, details) => {
+                    details.cancel();
+                    void onFiles([...files]);
                   }}
                 />
               </>
@@ -629,7 +629,7 @@ export function DocumentsTab({
               description="支持文件上传、文件夹导入、手写文档或抓取网页。"
               action={
                 caps.content ? (
-                  <Button onClick={() => uploadInput.current?.click()}>
+                  <Button onClick={() => uploadController.open()}>
                     <Upload data-icon="inline-start" aria-hidden="true" /> 上传文件
                   </Button>
                 ) : undefined
@@ -686,8 +686,7 @@ export function DocumentsTab({
                     </TableCell>
                   ) : null}
                   <TableCell className="max-w-0">
-                    <button
-                      type="button"
+                    <ButtonPrimitive
                       className="block w-full truncate text-left text-fg hover:underline"
                       title={document.title}
                       onClick={() => {
@@ -696,7 +695,7 @@ export function DocumentsTab({
                       }}
                     >
                       {document.title}
-                    </button>
+                    </ButtonPrimitive>
                     {document.tags.length > 0 ? (
                       <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                         {document.tags.join(' · ')}
@@ -928,8 +927,4 @@ export function DocumentsTab({
       </div>
     </div>
   );
-}
-
-function relativePath(file: File): string {
-  return file.webkitRelativePath || file.name;
 }

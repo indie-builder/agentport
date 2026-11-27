@@ -67,6 +67,9 @@ async function key(text: string, keyName: string): Promise<void> {
   const target = byText<HTMLElement>('[role="button"]', text);
   await act(async () => {
     target.dispatchEvent(new KeyboardEvent('keydown', { key: keyName, bubbles: true }));
+    if (keyName === ' ') {
+      target.dispatchEvent(new KeyboardEvent('keyup', { key: keyName, bubbles: true }));
+    }
   });
   await settle(2);
 }

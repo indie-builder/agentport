@@ -469,7 +469,7 @@ describe('agent overview', () => {
     expect(text).toContain(formatDuration(agentStats.latencyP50));
     expect(text).toContain(formatDuration(agentStats.latencyP99));
     expect(api.agentStats).toHaveBeenCalledWith(agent.id, 30);
-    expect(button('近 30 天').getAttribute('aria-pressed')).toBe('true');
+    expect(button('近 30 天').getAttribute('aria-checked')).toBe('true');
 
     await click(button('查看每日数据'));
     await waitFor(() => host.textContent?.includes('2026-03-01'));
@@ -479,7 +479,7 @@ describe('agent overview', () => {
     await click(button('近 7 天'));
     await waitFor(() => vi.mocked(api.agentStats).mock.calls.some(([, days]) => days === 7));
     expect(api.agentStats).toHaveBeenCalledWith(agent.id, 7);
-    expect(button('近 7 天').getAttribute('aria-pressed')).toBe('true');
+    expect(button('近 7 天').getAttribute('aria-checked')).toBe('true');
     expect(navigations).toEqual([{ usageDays: 7 }]);
   });
 
@@ -517,7 +517,7 @@ describe('agent overview', () => {
 
       await waitFor(() => vi.mocked(api.agentStats).mock.calls.length > 0);
       expect(api.agentStats).toHaveBeenCalledWith(agent.id, expectedDays);
-      expect(button(`近 ${expectedDays} 天`).getAttribute('aria-pressed')).toBe('true');
+      expect(button(`近 ${expectedDays} 天`).getAttribute('aria-checked')).toBe('true');
     },
   );
 

@@ -4,8 +4,12 @@ import { EmptyState, ErrorState, LoadingState } from '../../components/states.js
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
+import {
+  SegmentedControl,
+  SegmentedControlIndicator,
+  SegmentedControlItem,
+} from '../../components/ui/segmented-control.js';
 import type { EvalRun } from '../../lib/api.js';
-import { cn } from '../../lib/cn.js';
 import {
   evalComparisonStatusLabel,
   evalComparisonStatusVariant,
@@ -144,27 +148,25 @@ export function EvalCompareTab({
           />
         </div>
 
-        <fieldset
+        <SegmentedControl<EvalDiffFilter>
           aria-label="筛选对比结果"
-          className="inline-flex items-center rounded-pill border-0 bg-sunken p-0.5"
+          value={diff}
+          onValueChange={(next, details) => {
+            details.cancel();
+            if (next !== null && next !== diff) onChangeSearch({ diff: next });
+          }}
         >
+          <SegmentedControlIndicator />
           {diffOptions.map((option) => (
-            <button
+            <SegmentedControlItem
               key={option.value}
-              type="button"
-              aria-pressed={diff === option.value}
-              onClick={() => onChangeSearch({ diff: option.value })}
-              className={cn(
-                'rounded-pill px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                diff === option.value
-                  ? 'bg-surface text-fg shadow-sm'
-                  : 'text-muted-foreground hover:text-fg',
-              )}
+              value={option.value}
+              className="h-6 px-2.5 text-xs"
             >
               {option.label}
-            </button>
+            </SegmentedControlItem>
           ))}
-        </fieldset>
+        </SegmentedControl>
       </div>
 
       {comparison.isSuccess ? (

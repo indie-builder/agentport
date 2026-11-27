@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { Database, EllipsisVertical, Pencil, RotateCcw, Trash2, Upload, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BackLink } from '../../components/back-link.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
 import { Field, FieldDescription, FieldError, FieldLabel } from '../../components/ui/field.js';
+import { FileInput, FileInputTrigger, relativePath } from '../../components/ui/file-input.js';
 import {
   Table,
   TableBody,
@@ -93,8 +94,6 @@ export function DataDomainDetailPage() {
     setReading(false);
     setEditing(false);
   }
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const directoryInputRef = useRef<HTMLInputElement>(null);
   const editTriggerRef = useRef<HTMLButtonElement>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement>(null);
   const logTriggerRef = useRef<HTMLElement | null>(null);
@@ -120,10 +119,6 @@ export function DataDomainDetailPage() {
     () => updateSearch({ version: undefined }),
     search.version !== undefined,
   );
-  const setDirectoryInput = useCallback((node: HTMLInputElement | null) => {
-    directoryInputRef.current = node;
-    node?.setAttribute('webkitdirectory', '');
-  }, []);
   const shownVersions = useMemo(
     () =>
       [...(versions.data ?? [])].sort(
@@ -172,7 +167,7 @@ export function DataDomainDetailPage() {
     if (files.length === 0) return;
     const withPaths = files.map((file) => ({
       file,
-      path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+      path: relativePath(file),
     }));
     const roots = new Set(withPaths.map(({ path }) => path.split('/')[0] ?? ''));
     const stripRoot = roots.size === 1 && withPaths.every(({ path }) => path.includes('/'));
@@ -243,8 +238,6 @@ export function DataDomainDetailPage() {
     try {
       await createVersion.mutateAsync({ id: current.id, projectFiles });
       setProjectFiles({});
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      if (directoryInputRef.current) directoryInputRef.current.value = '';
       blockerRef.current.reset?.();
       toastSuccess('已提交构建');
     } catch (error) {
@@ -461,48 +454,34 @@ export function DataDomainDetailPage() {
         {canBuild ? (
           <PageSection title="导入 Wren 项目文件并构建">
             <Field data-disabled={interacting} data-invalid={Boolean(importError)}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept={buildFileAccept}
-                aria-label="选择 Wren 项目文件"
-                className="hidden"
-                onChange={(event) => {
-                  const files = Array.from(event.target.files ?? []);
-                  event.target.value = '';
-                  void addFiles(files);
-                }}
-              />
-              <input
-                ref={setDirectoryInput}
-                type="file"
-                multiple
-                aria-label="选择 Wren 项目文件夹"
-                className="hidden"
-                onChange={(event) => {
-                  const files = Array.from(event.target.files ?? []);
-                  event.target.value = '';
-                  void addFiles(files);
-                }}
-              />
               <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
+                <FileInput
+                  multiple
+                  accept={buildFileAccept}
                   disabled={interacting}
-                  onClick={() => fileInputRef.current?.click()}
+                  className="contents"
+                  onValueChange={(files, details) => {
+                    details.cancel();
+                    void addFiles(files);
+                  }}
                 >
-                  <Upload data-icon="inline-start" /> 选择文件
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
+                  <FileInputTrigger id={`${current.id}-project-files`} variant="outline">
+                    <Upload data-icon="inline-start" /> 选择文件
+                  </FileInputTrigger>
+                </FileInput>
+                <FileInput
+                  directory
                   disabled={interacting}
-                  onClick={() => directoryInputRef.current?.click()}
+                  className="contents"
+                  onValueChange={(files, details) => {
+                    details.cancel();
+                    void addFiles(files);
+                  }}
                 >
-                  选择文件夹
-                </Button>
+                  <FileInputTrigger id={`${current.id}-project-directory`} variant="outline">
+                    选择文件夹
+                  </FileInputTrigger>
+                </FileInput>
                 <Button
                   type="button"
                   disabled={

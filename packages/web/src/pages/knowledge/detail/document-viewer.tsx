@@ -3,6 +3,7 @@ import {
   type KnowledgeDocumentVersion,
   knowledgeAudioMetadataSchema,
 } from '@agentport/shared';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import {
   FileText,
   GitCompare,
@@ -224,9 +225,8 @@ export function DocumentViewer({
                 {documents.map((item) => {
                   const active = item.id === document.id;
                   return (
-                    <button
+                    <ButtonPrimitive
                       key={item.id}
-                      type="button"
                       aria-current={active ? 'true' : undefined}
                       onClick={() => onSelect(item)}
                       className={cn(
@@ -240,7 +240,7 @@ export function DocumentViewer({
                         {item.title}
                       </span>
                       <span className="truncate text-xs">{documentStatusLabel[item.status]}</span>
-                    </button>
+                    </ButtonPrimitive>
                   );
                 })}
               </nav>
