@@ -357,3 +357,42 @@ export function useChannelRunOutputBlob(
     staleTime: 5 * 60_000,
   });
 }
+
+export function useLoadOlderChannelMessages(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (before: number) =>
+      api.channelMessages(id, { before, limit: CHANNEL_MESSAGES_PAGE_SIZE }),
+    onSuccess: (page) => {
+      client.setQueryData<ChannelMessage[]>(channelKeys.messages(id), (previous) =>
+        mergeChannelMessages(previous ?? [], page),
+      );
+    },
+  });
+}
+
+export function usePostChannelMessage(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: {
+      createInput: () => Promise<Parameters<typeof api.postChannelMessage>[1]>;
+      optimistic: ChannelMessage;
+    }) => api.postChannelMessage(id, await vars.createInput()),
+    onMutate: (vars) => {
+      client.setQueryData<ChannelMessage[]>(channelKeys.messages(id), (previous) =>
+        mergeChannelMessages(previous ?? [], [vars.optimistic]),
+      );
+    },
+    onSuccess: (saved) => {
+      client.setQueryData<ChannelMessage[]>(channelKeys.messages(id), (previous) =>
+        mergeChannelMessages(previous ?? [], [saved]),
+      );
+      void client.invalidateQueries({ queryKey: channelKeys.all });
+    },
+    onError: (_error, vars) => {
+      client.setQueryData<ChannelMessage[]>(channelKeys.messages(id), (previous) =>
+        (previous ?? []).filter((item) => item.id !== vars.optimistic.id),
+      );
+    },
+  });
+}

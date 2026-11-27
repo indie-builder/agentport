@@ -65,6 +65,7 @@ import { can } from '../../lib/access.js';
 import { api } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
+import { badgeCreatedAt, formatLastUsed } from '../../lib/format.js';
 import {
   AGENTS_QUERY_KEY,
   meQuery,
@@ -82,7 +83,6 @@ import {
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { CreateAgentDialog } from './create-agent-dialog.js';
-import { badgeCreatedAt } from './shared.js';
 
 export function AgentsPage() {
   const me = useQuery(meQuery);
@@ -1058,19 +1058,6 @@ function ImportAgentDialog({
       </DialogShell>
     </Dialog>
   );
-}
-
-const lastUsedFormatter = new Intl.DateTimeFormat('zh-CN', {
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-});
-
-function formatLastUsed(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : lastUsedFormatter.format(date);
 }
 
 function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {

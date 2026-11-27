@@ -210,3 +210,97 @@ export function useCancelMemoryReview() {
     onSuccess: () => invalidateMemoryReviews(client),
   });
 }
+
+function invalidateAgentMemoryQueries(
+  client: ReturnType<typeof useQueryClient>,
+  agentId: string,
+): void {
+  void client.invalidateQueries({ queryKey: agentMemoryKeys.list(agentId) });
+  void client.invalidateQueries({ queryKey: agentMemoryKeys.file(agentId) });
+  void client.invalidateQueries({ queryKey: memoryKeys.versionsAll });
+  void client.invalidateQueries({ queryKey: memoryKeys.reviewsAll });
+}
+
+export function useWriteAgentMemoryFile(agentId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { name: string; content: string }) =>
+      api.writeAgentMemoryFile(agentId, vars.name, vars.content),
+    onSuccess: (file) => {
+      client.setQueryData(agentMemoryFileQuery(agentId, file.name).queryKey, file);
+      invalidateAgentMemoryQueries(client, agentId);
+    },
+  });
+}
+
+export function useDeleteAgentMemoryFile(agentId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (fileName: string) => api.deleteAgentMemoryFile(agentId, fileName),
+    onSuccess: (_data, fileName) => {
+      client.removeQueries({ queryKey: agentMemoryKeys.file(agentId, fileName) });
+      invalidateAgentMemoryQueries(client, agentId);
+    },
+  });
+}
+
+export function useWriteAgentRule(agentId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { slug: string; content: string; globs: string }) =>
+      api.writeAgentRule(agentId, vars.slug, { content: vars.content, globs: vars.globs }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: agentKeys.rules(agentId) });
+    },
+  });
+}
+
+export function useDeleteAgentRule(agentId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (slug: string) => api.deleteAgentRule(agentId, slug),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: agentKeys.rules(agentId) });
+    },
+  });
+}
+
+export function useWriteAgentOutputStyle(agentId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      slug: string;
+      description: string;
+      keepCodingInstructions: boolean;
+      body: string;
+    }) =>
+      api.writeAgentOutputStyle(agentId, vars.slug, {
+        description: vars.description,
+        keepCodingInstructions: vars.keepCodingInstructions,
+        body: vars.body,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: agentKeys.outputStyles(agentId) });
+    },
+  });
+}
+
+export function useUnselectAgentOutputStyle(agentId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (slug: string) => api.unselectAgentOutputStyle(agentId, slug),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: agentKeys.outputStyles(agentId) });
+    },
+  });
+}
+
+export function useDeleteAgentOutputStyle(agentId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (slug: string) => api.deleteAgentOutputStyle(agentId, slug),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: agentKeys.outputStyles(agentId) });
+    },
+  });
+}

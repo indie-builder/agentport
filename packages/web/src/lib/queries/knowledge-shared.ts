@@ -102,3 +102,19 @@ export const knowledgeJobQuery = (jobId: string | null) =>
         ? false
         : 2_000,
   });
+
+export async function findPagedVersion<T extends { id: string }>(
+  load: (cursor: string | undefined) => Promise<{ items: T[]; nextCursor: string | null }>,
+  versionId: string,
+): Promise<T | null> {
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await load(cursor);
+    const found = page.items.find((item) => item.id === versionId);
+    if (found) return found;
+    if (page.nextCursor === null || seen.has(page.nextCursor)) return null;
+    seen.add(page.nextCursor);
+    cursor = page.nextCursor;
+  }
+}

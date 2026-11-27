@@ -1,5 +1,4 @@
 import type {
-  CursorPage,
   PublicQuestionResponse,
   PublicRunQuestion,
   RunDetail,
@@ -25,20 +24,15 @@ export type {
   SubmitRunFeedback,
 } from '@agentport/shared';
 
-export type RunList = CursorPage<RunListItem>;
+export type RunList = ApiOutput<ApiClient['runs']['list']>;
 
 export type ApprovalRequestList = ApiOutput<ApiClient['runs']['approvals']>;
 
 export type ApprovalRequest = ApprovalRequestList['items'][number];
 
-export interface RunQuery {
-  agentId?: string;
-  status?: RunStatus;
-  trigger?: RunTrigger;
-  since?: string;
-  cursor?: string;
+export type RunQuery = Omit<Parameters<ApiClient['runs']['list']>[0]['query'], 'limit'> & {
   limit?: number;
-}
+};
 
 export default {
   runApprovals: (runId: string): Promise<ApprovalRequestList> =>

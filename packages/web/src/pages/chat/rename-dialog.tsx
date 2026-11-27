@@ -1,5 +1,4 @@
 import { conversationRenameSchema } from '@agentport/shared';
-import { useBlocker } from '@tanstack/react-router';
 import { type ComponentProps, type FormEvent, useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
@@ -9,31 +8,19 @@ import { Dialog } from '../../components/ui/dialog.js';
 import { Field, FieldError, FieldLabel } from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
-import { fieldErrors } from '../../lib/form.js';
+import { fieldErrors, useFormBlocker } from '../../lib/form.js';
 
 export function useRenameBlocker(dirty: boolean, pending: boolean) {
-  const blocker = useBlocker({
-    shouldBlockFn: ({ current, next }) => {
-      const sameSession =
-        current.pathname === next.pathname &&
-        'agent' in current.search &&
-        'agent' in next.search &&
-        current.search.agent === next.search.agent &&
-        'conversation' in current.search &&
-        'conversation' in next.search &&
-        current.search.conversation === next.search.conversation;
-      if (sameSession) return false;
-      return dirty || pending;
-    },
-    withResolver: true,
-    enableBeforeUnload: dirty || pending,
+  return useFormBlocker(dirty, pending, {
+    allowNavigation: ({ current, next }) =>
+      current.pathname === next.pathname &&
+      'agent' in current.search &&
+      'agent' in next.search &&
+      current.search.agent === next.search.agent &&
+      'conversation' in current.search &&
+      'conversation' in next.search &&
+      current.search.conversation === next.search.conversation,
   });
-  return {
-    ...blocker,
-    proceed: () => {
-      if (!pending) blocker.proceed?.();
-    },
-  };
 }
 
 export function RenameDialog({

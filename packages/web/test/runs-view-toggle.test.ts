@@ -176,10 +176,13 @@ describe('run list view toggle', () => {
         expect.any(AbortSignal),
       ),
     );
-    const clear = [...host.querySelectorAll('button')].find(
-      (element) => element.textContent?.trim() === '清除全部筛选',
-    );
-    if (!clear) throw new Error('Missing clear filters button');
+    const clear = await vi.waitFor(() => {
+      const target = [...host.querySelectorAll('button')].find(
+        (element) => element.textContent?.trim() === '清除全部筛选',
+      );
+      if (!target) throw new Error('Missing clear filters button');
+      return target;
+    });
 
     await act(async () => clear.click());
 

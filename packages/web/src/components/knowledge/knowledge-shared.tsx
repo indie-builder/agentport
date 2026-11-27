@@ -6,6 +6,7 @@ import type {
   KnowledgeLocator,
   KnowledgeVersionOrigin,
 } from '../../lib/api.js';
+import { formatTimestamp } from '../../lib/format.js';
 
 export { DraftGuardDialogs, useDraftGuard } from '../draft-guard.js';
 
@@ -142,17 +143,6 @@ export function folderOptions(folders: KnowledgeFolder[]): Array<{ value: string
 
 export function versionLabel(version: KnowledgeDocumentVersion): string {
   return `v${version.version} · ${originLabel[version.origin] ?? version.origin}`;
-}
-
-function formatTimestamp(ms: number, withHours: boolean): string {
-  const pad = (value: number, size = 2): string => String(value).padStart(size, '0');
-  const hours = Math.floor(ms / 3_600_000);
-  const minutes = Math.floor((ms % 3_600_000) / 60_000);
-  const seconds = Math.floor((ms % 60_000) / 1000);
-  const millis = ms % 1000;
-  return withHours
-    ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}.${pad(millis, 3)}`
-    : `${pad(minutes)}:${pad(seconds)}.${pad(millis, 3)}`;
 }
 
 function timeRangeLabel(fromMs: number, toMs: number): string {

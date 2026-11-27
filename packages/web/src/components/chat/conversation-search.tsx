@@ -1,7 +1,6 @@
 'use client';
 
 import type { ConversationSearchItem } from '@agentport/shared';
-import { useQueryClient } from '@tanstack/react-query';
 import {
   Command,
   CommandEmpty,
@@ -10,11 +9,10 @@ import {
   CommandList,
 } from '@ui-sdk/react/command';
 import { MessageSquare, Search, X } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { api } from '../../lib/api.js';
+import { useId, useMemo, useRef, useState } from 'react';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { formatRelative } from '../../lib/format.js';
-import { chatKeys, useCursorList } from '../../lib/queries.js';
+import { useConversationSearch } from '../../lib/queries.js';
 import { useDebouncedValue } from '../../lib/use-debounced-value.js';
 import { EmptyState, ErrorState, LoadingState } from '../states.js';
 import { Button } from '../ui/button.js';
@@ -45,31 +43,7 @@ export function ConversationSearch({
   const inputRef = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
   const hintsId = useId();
-  const client = useQueryClient();
-
-  const queryKey = useMemo(() => chatKeys.search({ ...(q ? { q } : {}), limit: LIMIT }), [q]);
-  const previousKey = useRef(queryKey);
-  useEffect(() => {
-    const previous = previousKey.current;
-    if (previous === queryKey) return;
-    previousKey.current = queryKey;
-    void client.cancelQueries({ queryKey: previous });
-  }, [client, queryKey]);
-
-  const search = useCursorList({
-    queryKey,
-    queryFn: (cursor, signal) =>
-      api.searchConversations(
-        {
-          ...(q ? { q } : {}),
-          limit: LIMIT,
-          ...(cursor === undefined ? {} : { cursor }),
-        },
-        signal,
-      ),
-    enabled: open,
-    staleTime: 0,
-  });
+  const search = useConversationSearch(q, open, LIMIT);
 
   const items = useMemo(
     () => search.data?.pages.flatMap((page) => page.items) ?? [],

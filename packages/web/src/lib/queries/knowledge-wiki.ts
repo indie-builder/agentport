@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { useCursorList } from './client.js';
-import { knowledgeKeys } from './knowledge-shared.js';
+import { findPagedVersion, knowledgeKeys } from './knowledge-shared.js';
 
 export function useKnowledgeWikiPages(baseId: string) {
   return useCursorList({
@@ -124,5 +124,14 @@ export function usePublishKnowledgeWikiVersion(baseId: string) {
     mutationFn: (vars: { pageId: string; versionId: string }) =>
       api.publishKnowledgeWikiVersion(vars.pageId, vars.versionId),
     onSuccess: (_data, vars) => invalidate(vars.pageId),
+  });
+}
+
+export function useKnowledgeWikiCitationVersion(pageId: string, versionId: string) {
+  return useQuery({
+    queryKey: knowledgeKeys.wikiCitationVersion(pageId, versionId),
+    queryFn: () =>
+      findPagedVersion((cursor) => api.knowledgeWikiVersions(pageId, cursor), versionId),
+    staleTime: 60_000,
   });
 }

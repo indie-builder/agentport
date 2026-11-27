@@ -14,14 +14,10 @@ import { ApiError, api } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
 import { formatBytes, formatDateTime } from '../lib/format.js';
 import { type SharePreviewKind, sharePreviewKind } from '../lib/output-preview.js';
+import { usePublicOutputShare, usePublicOutputSharePreview } from '../lib/queries.js';
 import { toastError } from '../lib/toast.js';
 
 type ShareFile = PublicOutputShare['file'];
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'invalid' }
-  | { status: 'error'; error: unknown }
-  | { status: 'ready'; file: ShareFile };
 
 function shareError(error: unknown): Error {
   let message = '请稍后重试，若仍失败请联系分享者确认链接是否可用。';
@@ -50,10 +46,14 @@ function SharePage() {
 }
 
 export function ShareView({ shareId, token }: { shareId: string; token: string | null }) {
-  const [state, setState] = useState<LoadState>(
-    token === null ? { status: 'invalid' } : { status: 'loading' },
-  );
-  const [attempt, setAttempt] = useState(0);
+  const share = usePublicOutputShare(shareId, token);
+  const isLoading =
+    !share.isInvalid && (share.isPending || (share.isFetching && share.data === undefined));
+  const titleName = share.isInvalid
+    ? '链接无效或已撤销'
+    : !isLoading && share.data !== undefined
+      ? share.data.file.name
+      : '共享文件';
 
   useEffect(() => {
     const meta = document.createElement('meta');
@@ -63,52 +63,20 @@ export function ShareView({ shareId, token }: { shareId: string; token: string |
     return () => meta.remove();
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt 只用于手动重试时重跑请求。
   useEffect(() => {
-    if (token === null) {
-      setState({ status: 'invalid' });
-      return;
-    }
-    let cancelled = false;
-    setState({ status: 'loading' });
-    api.publicOutputShare(shareId, token).then(
-      (data) => {
-        if (!cancelled) setState({ status: 'ready', file: data.file });
-      },
-      (error: unknown) => {
-        if (cancelled) return;
-        setState(
-          error instanceof ApiError && error.status === 404
-            ? { status: 'invalid' }
-            : { status: 'error', error },
-        );
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [shareId, token, attempt]);
-
-  useEffect(() => {
-    const name =
-      state.status === 'ready'
-        ? state.file.name
-        : state.status === 'invalid'
-          ? '链接无效或已撤销'
-          : '共享文件';
-    document.title = `${name} · PACE`;
-  }, [state]);
+    document.title = `${titleName} · PACE`;
+  }, [titleName]);
 
   return (
     <div className="flex min-h-dvh flex-col bg-canvas">
       <main className="mx-auto flex w-full max-w-182 flex-1 flex-col gap-4 px-6 py-6">
         <BrandMark className="size-6" />
-        {state.status === 'loading' ? (
+        {isLoading ? (
           <>
             <h1 className="sr-only">共享文件</h1>
             <LoadingState rows={4} />
           </>
-        ) : state.status === 'invalid' ? (
+        ) : share.isInvalid ? (
           <>
             <h1 className="sr-only">链接无效或已撤销</h1>
             <EmptyState
@@ -119,17 +87,17 @@ export function ShareView({ shareId, token }: { shareId: string; token: string |
               description="该分享可能已被关闭，请联系分享者获取新链接。"
             />
           </>
-        ) : state.status === 'error' ? (
+        ) : share.isError || share.data === undefined ? (
           <>
             <h1 className="sr-only">共享文件</h1>
             <ErrorState
               title="分享内容没有加载出来"
-              error={shareError(state.error)}
-              onRetry={() => setAttempt((value) => value + 1)}
+              error={shareError(share.error)}
+              onRetry={() => void share.refetch()}
             />
           </>
         ) : token === null ? null : (
-          <SharedFile shareId={shareId} token={token} file={state.file} />
+          <SharedFile shareId={shareId} token={token} file={share.data.file} />
         )}
         <p className="mt-auto pt-4 text-xs text-muted-foreground">由 PACE 分享</p>
       </main>
@@ -212,12 +180,6 @@ function SharedFile({ shareId, token, file }: { shareId: string; token: string; 
   );
 }
 
-type PreviewState =
-  | { status: 'loading' }
-  | { status: 'text'; content: string }
-  | { status: 'blob'; blob: Blob }
-  | { status: 'error'; error: unknown };
-
 function SharePreview({
   shareId,
   token,
@@ -229,50 +191,25 @@ function SharePreview({
   file: ShareFile;
   kind: Exclude<SharePreviewKind, 'none'>;
 }) {
-  const [state, setState] = useState<PreviewState>({ status: 'loading' });
-  const [attempt, setAttempt] = useState(0);
+  const preview = usePublicOutputSharePreview(shareId, token, kind);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt 只用于手动重试时重跑请求。
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: 'loading' });
-    const request =
-      kind === 'image' || kind === 'pdf'
-        ? api
-            .publicOutputShareDownload(shareId, token)
-            .then((blob) => ({ status: 'blob' as const, blob }))
-        : api.publicOutputShareContent(shareId, token).then((data) => ({
-            status: 'text' as const,
-            content: data.content,
-          }));
-    request.then(
-      (next) => {
-        if (!cancelled) setState(next);
-      },
-      (error: unknown) => {
-        if (!cancelled) setState({ status: 'error', error });
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [shareId, token, kind, attempt]);
-
-  if (state.status === 'loading') return <LoadingState rows={5} />;
-  if (state.status === 'error') {
+  if (preview.isPending || (preview.isFetching && preview.data === undefined)) {
+    return <LoadingState rows={5} />;
+  }
+  if (preview.isError) {
     return (
       <ErrorState
-        error={shareError(state.error)}
+        error={shareError(preview.error)}
         title="预览没有加载出来"
-        onRetry={() => setAttempt((value) => value + 1)}
+        onRetry={() => void preview.refetch()}
       />
     );
   }
 
   if (kind === 'image') {
-    return state.status === 'blob' ? (
+    return preview.data?.kind === 'blob' ? (
       <BlobImage
-        blob={state.blob}
+        blob={preview.data.blob}
         alt={file.name}
         className="mx-auto max-h-[70vh] max-w-full rounded-item object-contain"
       />
@@ -280,21 +217,21 @@ function SharePreview({
   }
 
   if (kind === 'pdf') {
-    return state.status === 'blob' ? (
+    return preview.data?.kind === 'blob' ? (
       <BlobPdf
-        blob={state.blob}
+        blob={preview.data.blob}
         title={file.name}
         className="h-[70vh] w-full rounded-item border"
       />
     ) : null;
   }
 
-  if (state.status !== 'text') return null;
+  if (preview.data?.kind !== 'text') return null;
   return kind === 'markdown' ? (
-    <Markdown text={state.content} staticContent />
+    <Markdown text={preview.data.content} staticContent />
   ) : (
     <CodeBlock
-      code={state.content}
+      code={preview.data.content}
       copyable={false}
       maxHeight="60vh"
       json={file.mediaType === 'application/json' || /\.json$/i.test(file.name)}

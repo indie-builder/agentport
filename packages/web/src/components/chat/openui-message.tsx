@@ -15,7 +15,7 @@ const OpenUiBlock = lazy(async () => {
   return { default: module.OpenUiBlock };
 });
 
-export interface AssistantTextProps {
+interface AssistantTextProps {
   text: string;
   openUi: boolean;
   streaming: boolean;

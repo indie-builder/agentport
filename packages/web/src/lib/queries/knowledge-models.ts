@@ -26,3 +26,28 @@ export function useCreateKnowledgeModelProfile() {
     onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.profiles }),
   });
 }
+
+export function useUpdateKnowledgeModelProfile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      id: string;
+      patch: Parameters<typeof api.updateKnowledgeModelProfile>[1];
+    }) => api.updateKnowledgeModelProfile(vars.id, vars.patch),
+    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.all }),
+  });
+}
+
+export function useDeleteKnowledgeModelProfile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteKnowledgeModelProfile(id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.all }),
+  });
+}
+
+export function useTestKnowledgeModelProfile() {
+  return useMutation({
+    mutationFn: (id: string) => api.testKnowledgeModelProfile(id),
+  });
+}

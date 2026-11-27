@@ -22,7 +22,7 @@ import { EmptyState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
-import { formatBytes, formatDuration } from '../lib/format.js';
+import { formatBytes, formatDuration, formatUptime } from '../lib/format.js';
 import { judgeQueue } from '../lib/health.js';
 import { healthLiveQuery, healthMetricsQuery, healthReadyQuery } from '../lib/queries.js';
 
@@ -94,15 +94,6 @@ function Unknown({ description }: { description?: string }) {
       description={description}
     />
   );
-}
-
-function formatUptime(seconds: number): string {
-  const days = Math.floor(seconds / 86_400);
-  const hours = Math.floor((seconds % 86_400) / 3_600);
-  const minutes = Math.floor((seconds % 3_600) / 60);
-  if (days > 0) return `${days} 天 ${hours} 小时`;
-  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
-  return `${minutes} 分 ${seconds % 60} 秒`;
 }
 
 function readyPassed(probe: HealthProbe<HealthReady>): boolean {

@@ -6,22 +6,25 @@ import {
   knowledgeModelProfileKindSchema,
   supportsKnowledgeImageVectors,
 } from '@agentport/shared';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Cpu } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { can } from '../../lib/access.js';
-import { api, errorMessage, type KnowledgeModelProfile } from '../../lib/api.js';
+import { errorMessage, type KnowledgeModelProfile } from '../../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import {
-  knowledgeKeys,
   meQuery,
   useCreateKnowledgeModelProfile,
+  useDeleteKnowledgeModelProfile,
   useKnowledgeModelProfileSelections,
   useKnowledgeModelProfiles,
   usePreviewKnowledgeChunks,
+  useRebuildKnowledgeBase,
+  useTestKnowledgeModelProfile,
   useUpdateKnowledgeBase,
+  useUpdateKnowledgeModelProfile,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
@@ -115,10 +118,10 @@ export function KnowledgeSettingsDialog({
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
   const update = useUpdateKnowledgeBase();
+  const rebuild = useRebuildKnowledgeBase(base.id);
   const profiles = useKnowledgeModelProfileSelections();
   const me = useQuery(meQuery);
   const canExecute = can(me.data, 'knowledge.execute');
-  const client = useQueryClient();
   const [settings, setSettings] = useState<KnowledgeBaseSettings>(() => ({
     ...base.settings,
     imageProcessing: base.settings.imageProcessing ?? knowledgeImageProcessingSchema.parse({}),
@@ -143,8 +146,7 @@ export function KnowledgeSettingsDialog({
     imageVectorMinScore?: string;
   }>({});
   const [confirming, setConfirming] = useState(false);
-  const [rebuilding, setRebuilding] = useState(false);
-  const pending = update.isPending || rebuilding;
+  const pending = update.isPending || rebuild.isPending;
   const initialSignature = useRef(
     JSON.stringify({
       settings,
@@ -695,10 +697,10 @@ export function KnowledgeSettingsDialog({
                   variant="outline"
                   size="sm"
                   disabled={pending || dirty}
-                  aria-busy={rebuilding}
+                  aria-busy={rebuild.isPending}
                   onClick={() => setConfirming(true)}
                 >
-                  {rebuilding ? '重建中…' : '重建全部索引'}
+                  {rebuild.isPending ? '重建中…' : '重建全部索引'}
                 </Button>
               </div>
               <FieldDescription>
@@ -718,17 +720,11 @@ export function KnowledgeSettingsDialog({
           confirmLabel="确认重建"
           onClose={() => setConfirming(false)}
           onConfirm={async () => {
-            setRebuilding(true);
-            try {
-              await api.rebuildKnowledgeBase(base.id, {
-                chunksOnly: false,
-                confirmOverwriteManualChunks: true,
-              });
-              void client.invalidateQueries({ queryKey: knowledgeKeys.all });
-              toastSuccess('已开始重建全部索引');
-            } finally {
-              setRebuilding(false);
-            }
+            await rebuild.mutateAsync({
+              chunksOnly: false,
+              confirmOverwriteManualChunks: true,
+            });
+            toastSuccess('已开始重建全部索引');
           }}
         />
       ) : null}
@@ -745,8 +741,9 @@ export function KnowledgeProfilesDialog({
 }) {
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
-  const client = useQueryClient();
   const profiles = useKnowledgeModelProfiles();
+  const deleteProfile = useDeleteKnowledgeModelProfile();
+  const testProfile = useTestKnowledgeModelProfile();
   const [editing, setEditing] = useState<KnowledgeModelProfile | 'new' | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeModelProfile | null>(null);
   const [results, setResults] = useState<Record<string, string>>({});
@@ -764,14 +761,10 @@ export function KnowledgeProfilesDialog({
     else apply();
   };
 
-  const refresh = (): void => {
-    void client.invalidateQueries({ queryKey: knowledgeKeys.all });
-  };
-
   const test = async (profile: KnowledgeModelProfile): Promise<void> => {
     setResults((prev) => ({ ...prev, [profile.id]: '测试中…' }));
     try {
-      const result = await api.testKnowledgeModelProfile(profile.id);
+      const result = await testProfile.mutateAsync(profile.id);
       setResults((prev) => ({
         ...prev,
         [profile.id]: result.ok
@@ -812,7 +805,6 @@ export function KnowledgeProfilesDialog({
                   setFormPending(false);
                   setFormDirty(false);
                   setEditing(null);
-                  refresh();
                 }}
                 onDirtyChange={setFormDirty}
                 onPendingChange={setFormPending}
@@ -933,8 +925,7 @@ export function KnowledgeProfilesDialog({
           confirmLabel="确认删除"
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
-            await api.deleteKnowledgeModelProfile(deleting.id);
-            refresh();
+            await deleteProfile.mutateAsync(deleting.id);
             toastSuccess('模型 profile 已删除');
           }}
         />
@@ -975,6 +966,7 @@ function ProfileForm({
   onPendingChange: (pending: boolean) => void;
 }) {
   const create = useCreateKnowledgeModelProfile();
+  const update = useUpdateKnowledgeModelProfile();
   const { register, control, handleSubmit, watch, formState } = useZodForm(profileFormSchema, {
     defaultValues: {
       kind: profile?.kind ?? 'embedding',
@@ -1022,7 +1014,7 @@ function ProfileForm({
       if (profile === null) {
         await create.mutateAsync({ kind: values.kind, ...input });
       } else {
-        await api.updateKnowledgeModelProfile(profile.id, input);
+        await update.mutateAsync({ id: profile.id, patch: input });
       }
       toastSuccess(profile === null ? '模型 profile 已创建' : '模型 profile 已保存');
       onSaved();

@@ -15,6 +15,29 @@ export function formatDateTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : dateFormatter.format(date);
 }
 
+export function formatLastUsed(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : dateFormatter.format(date);
+}
+
+const badgeTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZoneName: 'short',
+});
+
+export function badgeCreatedAt(value: string | undefined): { label: string; iso: string | null } {
+  if (!value) return { label: '未记录', iso: null };
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? { label: '未记录', iso: null }
+    : { label: badgeTimeFormatter.format(date), iso: value };
+}
+
 const utcDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
   month: '2-digit',
   day: '2-digit',
@@ -66,6 +89,32 @@ export function formatRelative(value: string | null | undefined): string {
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)} 小时前`;
   if (seconds < 604_800) return `${Math.floor(seconds / 86_400)} 天前`;
   return dateFormatter.format(date);
+}
+
+const tokenCountFormatter = new Intl.NumberFormat('zh-CN');
+
+export function formatTokenCount(value: number): string {
+  return tokenCountFormatter.format(value);
+}
+
+export function formatTimestamp(ms: number, withHours: boolean): string {
+  const pad = (value: number, size = 2): string => String(value).padStart(size, '0');
+  const hours = Math.floor(ms / 3_600_000);
+  const minutes = Math.floor((ms % 3_600_000) / 60_000);
+  const seconds = Math.floor((ms % 60_000) / 1000);
+  const millis = ms % 1000;
+  return withHours
+    ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}.${pad(millis, 3)}`
+    : `${pad(minutes)}:${pad(seconds)}.${pad(millis, 3)}`;
+}
+
+export function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  if (days > 0) return `${days} 天 ${hours} 小时`;
+  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
+  return `${minutes} 分 ${seconds % 60} 秒`;
 }
 
 export function formatDuration(ms: number | null | undefined): string {

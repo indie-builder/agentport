@@ -14,25 +14,23 @@ const state = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 
-vi.mock('../src/lib/queries.js', () => ({
-  meQuery: {
-    queryKey: ['me'],
-    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
-  },
-  skillKeys: {
-    all: ['skills'],
-    list: (status: string | undefined) => ['skills', status ?? 'all'],
-    files: (skillId: string) => ['skill-files', skillId],
-    market: (view: string, query: string) => ['market-skills', view, query],
-  },
-  useSkills: () => ({ data: [] }),
-  useMarketSkills: () => ({}),
-  useInstallMarketSkill: () => ({ mutate: vi.fn(), isPending: false }),
-  useCreateSkill: () => ({ isPending: false, mutate: vi.fn() }),
-  useUpdateSkill: () => ({ isPending: state.saving, mutate: state.update }),
-  useDeleteSkill: () => ({ mutate: vi.fn(), isPending: false }),
-  useImportSkillFile: () => ({ mutate: vi.fn(), isPending: false }),
-}));
+vi.mock('../src/lib/queries.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/queries.js')>();
+  return {
+    ...actual,
+    meQuery: {
+      queryKey: ['me'],
+      queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+    },
+    useSkills: () => ({ data: [] }),
+    useMarketSkills: () => ({}),
+    useInstallMarketSkill: () => ({ mutate: vi.fn(), isPending: false }),
+    useCreateSkill: () => ({ isPending: false, mutate: vi.fn() }),
+    useUpdateSkill: () => ({ isPending: state.saving, mutate: state.update }),
+    useDeleteSkill: () => ({ mutate: vi.fn(), isPending: false }),
+    useImportSkillFile: () => ({ mutate: vi.fn(), isPending: false }),
+  };
+});
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 vi.mock('@tanstack/react-router', () => ({
   Link: 'a',

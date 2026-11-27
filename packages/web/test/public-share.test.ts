@@ -1,4 +1,5 @@
 import type { PublicOutputShare } from '@agentport/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -39,6 +40,7 @@ function installFetch(handle: (url: string) => Response | Promise<Response>): Ca
   return calls;
 }
 
+let client: QueryClient;
 let host: HTMLDivElement;
 let root: Root;
 
@@ -50,7 +52,9 @@ async function flush() {
 
 async function mount(shareId: string, token: string | null) {
   await act(async () => {
-    root.render(createElement(ShareView, { shareId, token }));
+    root.render(
+      createElement(QueryClientProvider, { client }, createElement(ShareView, { shareId, token })),
+    );
   });
   await flush();
 }
@@ -60,6 +64,9 @@ function h1(): string | null | undefined {
 }
 
 beforeEach(() => {
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   window.history.replaceState(null, '', '/s/share-a#token-a');
   host = document.createElement('div');
   document.body.append(host);
@@ -68,6 +75,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  client.clear();
   host.remove();
   window.history.replaceState(null, '', '/');
   document.title = '控制台';

@@ -16,7 +16,7 @@ import {
 import { AgentAvatar } from '../../components/agent/agent-avatar.js';
 import { Badge } from '../../components/ui/badge.js';
 
-export interface WelcomeSuggestion {
+interface WelcomeSuggestion {
   readonly label: string;
   readonly icon: LucideIcon;
   readonly prompt: string;

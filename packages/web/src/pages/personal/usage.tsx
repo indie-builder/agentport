@@ -42,6 +42,7 @@ import {
   formatCost,
   formatDateTime,
   formatDuration,
+  formatTokenCount,
   formatTokens,
   formatUtcDateTime,
   runStatusLabel,
@@ -55,12 +56,6 @@ const triggers = runTriggerSchema.options;
 type Trigger = (typeof triggers)[number];
 
 const statuses = runStatusSchema.options;
-
-const tokenCountFormatter = new Intl.NumberFormat('zh-CN');
-
-function formatTokenCount(value: number): string {
-  return tokenCountFormatter.format(value);
-}
 
 function runDestination(
   run: PersonalRun,

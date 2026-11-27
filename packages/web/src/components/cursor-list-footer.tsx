@@ -2,7 +2,7 @@ import { cn } from '../lib/cn.js';
 import { ErrorState } from './states.js';
 import { Button } from './ui/button.js';
 
-export type CursorListFooterQuery = {
+type CursorListFooterQuery = {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   isFetchNextPageError: boolean;

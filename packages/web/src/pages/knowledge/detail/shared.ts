@@ -156,7 +156,7 @@ export function credentialField(
   }
 }
 
-export type SourceFieldKey =
+type SourceFieldKey =
   | 'appId'
   | 'baseUrl'
   | 'email'

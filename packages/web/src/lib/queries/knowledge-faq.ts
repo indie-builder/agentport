@@ -130,6 +130,18 @@ export function usePublishKnowledgeFaqBatch(baseId: string) {
   });
 }
 
+export function useBatchKnowledgeFaqs(baseId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof api.batchKnowledgeFaqs>[1]) =>
+      api.batchKnowledgeFaqs(baseId, input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+    },
+  });
+}
+
 type KnowledgeFaqVersion = NonNullable<KnowledgeFaqDetail['draftVersion']>;
 
 const FAQ_BATCH_SIZE = 100;
@@ -140,7 +152,7 @@ function chunk<T>(items: T[], size = FAQ_BATCH_SIZE): T[][] {
   return out;
 }
 
-export interface FaqDraftSummary {
+interface FaqDraftSummary {
   byDocumentId: Map<string, KnowledgeFaqVersion | null>;
   missing: Set<string>;
   complete: boolean;
@@ -191,7 +203,7 @@ export function useKnowledgeFaqDrafts(documentIds: string[], enabled: boolean) {
   return { chunkIds, results };
 }
 
-export interface FaqJobSummary {
+interface FaqJobSummary {
   statuses: Map<string, string | undefined>;
   missing: Set<string>;
   error: boolean;

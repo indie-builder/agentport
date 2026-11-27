@@ -7,7 +7,7 @@ import {
   scheduleInputSchema,
   scheduleMissedPolicySchema,
 } from '@agentport/shared';
-import { type InfiniteData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type InfiniteData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Clock, History, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
@@ -72,7 +72,7 @@ import { Textarea } from '../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
-import { ApiError, api, errorMessage } from '../lib/api.js';
+import { ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { fieldErrors } from '../lib/form.js';
@@ -80,11 +80,15 @@ import { formatCost, formatDuration, formatRelative, formatZonedDateTime } from 
 import {
   meQuery,
   opsKeys,
-  scheduleRunsQuery,
   useAgentsTruncated,
+  useCreateSchedule,
+  useDeleteSchedule,
   useExperts,
+  useRetryScheduleRun,
   useScheduleRuns,
   useSchedules,
+  useToggleSchedule,
+  useUpdateSchedule,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
@@ -273,59 +277,30 @@ export function SchedulesPage() {
   const me = useQuery(meQuery);
   const canManage = can(me.data, 'schedules.manage');
   const agentsError = agents.isError ? agents.error : null;
-  const client = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [deleting, setDeleting] = useState<Schedule | null>(null);
   const [historyOf, setHistoryOf] = useState<Schedule | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const deletedRef = useRef(false);
-  const invalidate = (): void => {
-    void client.invalidateQueries({ queryKey: opsKeys.schedules });
-  };
-  const toggle = useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      api.updateSchedule(id, { enabled }),
-    onMutate: async (vars) => {
-      await client.cancelQueries({ queryKey: opsKeys.schedules });
-      const prev = client.getQueryData<InfiniteData<CursorPage<Schedule>>>(opsKeys.schedules);
-      if (prev) {
-        client.setQueryData<InfiniteData<CursorPage<Schedule>>>(opsKeys.schedules, (old) =>
-          old
-            ? {
-                ...old,
-                pages: old.pages.map((page) => ({
-                  ...page,
-                  items: page.items.map((s) =>
-                    s.id === vars.id ? { ...s, enabled: vars.enabled } : s,
-                  ),
-                })),
-              }
-            : old,
-        );
-      }
-      return { prev };
-    },
-    onError: (error, _vars, ctx) => {
-      if (ctx?.prev !== undefined) {
-        client.setQueryData<InfiniteData<CursorPage<Schedule>>>(opsKeys.schedules, ctx.prev);
-      }
-      toastError(error);
-    },
-    onSuccess: (_schedule, vars) => {
-      toastSuccess(vars.enabled ? '定时任务已启用' : '定时任务已暂停');
-    },
-    onSettled: invalidate,
-  });
-  const remove = useMutation({
-    mutationFn: (id: string) => api.deleteSchedule(id),
-    onSuccess: () => toastSuccess('定时任务已删除'),
-    onError: toastError,
-    onSettled: invalidate,
-  });
+  const toggle = useToggleSchedule();
+  const remove = useDeleteSchedule();
 
   const items = schedules.data?.pages.flatMap((page) => page.items) ?? [];
   const rowBusy = toggle.isPending || remove.isPending || !canManage;
+
+  const toggleSchedule = (id: string, enabled: boolean): void => {
+    if (rowBusy) return;
+    toggle.mutate(
+      { id, enabled },
+      {
+        onSuccess: (_schedule, vars) => {
+          toastSuccess(vars.enabled ? '定时任务已启用' : '定时任务已暂停');
+        },
+        onError: toastError,
+      },
+    );
+  };
 
   return (
     <Page>
@@ -415,10 +390,7 @@ export function SchedulesPage() {
                     nextDue={nextDue}
                     busy={rowBusy}
                     onHistory={() => setHistoryOf(schedule)}
-                    onToggle={(enabled) => {
-                      if (rowBusy) return;
-                      toggle.mutate({ id: schedule.id, enabled });
-                    }}
+                    onToggle={(enabled) => toggleSchedule(schedule.id, enabled)}
                     onEdit={() => {
                       if (rowBusy) return;
                       setEditing(schedule);
@@ -504,10 +476,7 @@ export function SchedulesPage() {
                             checked={schedule.enabled}
                             disabled={rowBusy}
                             aria-label={`${schedule.enabled ? '暂停' : '启用'} ${schedule.name}`}
-                            onCheckedChange={(enabled) => {
-                              if (rowBusy) return;
-                              toggle.mutate({ id: schedule.id, enabled });
-                            }}
+                            onCheckedChange={(enabled) => toggleSchedule(schedule.id, enabled)}
                           />
                           <Button
                             variant="ghost"
@@ -603,6 +572,7 @@ export function SchedulesPage() {
           onConfirm={async () => {
             await remove.mutateAsync(deleting.id);
             deletedRef.current = true;
+            toastSuccess('定时任务已删除');
           }}
         />
       ) : null}
@@ -703,17 +673,8 @@ function ScheduleRunsDialog({
 }) {
   const dialog = useDialogClose(onClosed);
   const location = useLocation();
-  const client = useQueryClient();
   const runs = useScheduleRuns(schedule.id);
-  const retry = useMutation({
-    mutationFn: (runId: string) => api.retryScheduleRun(schedule.id, runId),
-    onSuccess: () => toastSuccess('已重新排队执行'),
-    onError: toastError,
-    onSettled: () => {
-      void client.invalidateQueries({ queryKey: scheduleRunsQuery(schedule.id).queryKey });
-      void client.invalidateQueries({ queryKey: opsKeys.schedules });
-    },
-  });
+  const retry = useRetryScheduleRun(schedule.id);
   return (
     <Dialog
       open={dialog.open}
@@ -796,7 +757,12 @@ function ScheduleRunsDialog({
                               size="sm"
                               disabled={retry.isPending}
                               aria-label={`重试 ${run.id}`}
-                              onClick={() => retry.mutate(run.id)}
+                              onClick={() =>
+                                retry.mutate(run.id, {
+                                  onSuccess: () => toastSuccess('已重新排队执行'),
+                                  onError: toastError,
+                                })
+                              }
                             >
                               重试
                             </Button>
@@ -863,41 +829,8 @@ function ScheduleDialog({
   const { errors, isDirty } = formState;
   const watched = watch();
   const dirty = isDirty;
-  const invalidate = (): void => {
-    void client.invalidateQueries({ queryKey: opsKeys.schedules });
-  };
-  const create = useMutation({
-    mutationFn: (input: ScheduleInput) => api.createSchedule(input),
-    onSuccess: () => {
-      toastSuccess('定时任务已创建');
-      guard.finish();
-    },
-    onError: toastError,
-    onSettled: invalidate,
-  });
-  const update = useMutation({
-    mutationFn: (input: Parameters<typeof api.updateSchedule>[1]) =>
-      api.updateSchedule(schedule?.id ?? '', input),
-    onSuccess: () => {
-      toastSuccess('定时任务已更新');
-      guard.finish();
-    },
-    onError: (error) => {
-      if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
-        setConflict(true);
-        toastError(new Error('定时任务已被修改；当前草稿已保留，请加载最新版本后重新编辑。'));
-        return;
-      }
-      if (error instanceof ApiError && error.code === 'NOT_FOUND') {
-        setConflict(true);
-        setDeleted(true);
-        toastError(new Error('该定时任务已被删除，当前草稿已保留；可另存为新建。'));
-        return;
-      }
-      toastError(error);
-    },
-    onSettled: invalidate,
-  });
+  const create = useCreateSchedule();
+  const update = useUpdateSchedule();
   const pending = create.isPending || update.isPending || reloading;
   const reload = async (): Promise<void> => {
     if (!schedule || pending) return;
@@ -975,27 +908,60 @@ function ScheduleDialog({
     setValue('frequency', next, { shouldDirty: true });
   };
 
+  const createCallbacks = {
+    onSuccess: () => {
+      toastSuccess('定时任务已创建');
+      guard.finish();
+    },
+    onError: toastError,
+  };
+
   const submit = handleSubmit((values) => {
     if (pending) return;
     const input = projectScheduleInput(values);
     if (schedule) {
-      update.mutate({
-        name: input.name,
-        cron: input.cron,
-        timezone: input.timezone,
-        missedPolicy: input.missedPolicy,
-        prompt: input.prompt,
-        enabled: input.enabled,
-        expectedUpdatedAt: baseline,
-      });
+      update.mutate(
+        {
+          id: schedule.id,
+          input: {
+            name: input.name,
+            cron: input.cron,
+            timezone: input.timezone,
+            missedPolicy: input.missedPolicy,
+            prompt: input.prompt,
+            enabled: input.enabled,
+            expectedUpdatedAt: baseline,
+          },
+        },
+        {
+          onSuccess: () => {
+            toastSuccess('定时任务已更新');
+            guard.finish();
+          },
+          onError: (error) => {
+            if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
+              setConflict(true);
+              toastError(new Error('定时任务已被修改；当前草稿已保留，请加载最新版本后重新编辑。'));
+              return;
+            }
+            if (error instanceof ApiError && error.code === 'NOT_FOUND') {
+              setConflict(true);
+              setDeleted(true);
+              toastError(new Error('该定时任务已被删除，当前草稿已保留；可另存为新建。'));
+              return;
+            }
+            toastError(error);
+          },
+        },
+      );
     } else {
-      create.mutate(input);
+      create.mutate(input, createCallbacks);
     }
   });
 
   const saveAsNew = handleSubmit((values) => {
     if (pending || !deleted) return;
-    create.mutate(projectScheduleInput(values));
+    create.mutate(projectScheduleInput(values), createCallbacks);
   });
 
   const primaryLabel = schedule

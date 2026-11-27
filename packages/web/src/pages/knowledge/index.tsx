@@ -1,4 +1,4 @@
-import type { KnowledgeBase } from '@agentport/shared';
+import { type KnowledgeBase, knowledgeBaseInputSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
@@ -79,6 +79,7 @@ import { downloadBlob } from '../../lib/browser-files.js';
 import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { onFilePick } from '../../lib/file-pick.js';
+import { withFieldMessages } from '../../lib/form.js';
 import { formatDateTime, formatRelative } from '../../lib/format.js';
 import {
   meQuery,
@@ -101,17 +102,22 @@ import { compareBySort } from '../../lib/sort.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 
+const baseInputShape = knowledgeBaseInputSchema.shape;
+
 const baseFormSchema = z.object({
-  slug: z
-    .string()
-    .trim()
-    .max(64, '最多 64 个字符，请精简后再保存')
-    .refine(
-      (value) => value === '' || /^[a-z0-9][a-z0-9-_]*$/.test(value),
-      '仅允许小写字母、数字、- 和 _',
-    ),
-  name: z.string().trim().min(1, '不能为空，请填写后再保存').max(120, '最多 120 个字符'),
-  description: z.string().max(500, '最多 500 个字符'),
+  slug: withFieldMessages(
+    z.string().trim(),
+    baseInputShape.slug,
+    { tooBig: '最多 64 个字符，请精简后再保存' },
+    { allowEmpty: true },
+  ),
+  name: withFieldMessages(z.string().trim(), baseInputShape.name, {
+    tooSmall: '不能为空，请填写后再保存',
+    tooBig: '最多 120 个字符',
+  }),
+  description: withFieldMessages(z.string(), baseInputShape.description.unwrap(), {
+    tooBig: '最多 500 个字符',
+  }),
   embeddingProfileId: z.string().min(1, '请选择 embedding profile'),
   rerankProfileId: z.string(),
   asrProfileId: z.string(),

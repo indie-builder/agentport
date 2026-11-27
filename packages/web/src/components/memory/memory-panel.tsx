@@ -1,6 +1,6 @@
 import type { MemoryChange, OutputStyle } from '@agentport/shared';
 import { memoryFileNameSchema, validateMemoryContent } from '@agentport/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Download, FileText, History, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../lib/api.js';
@@ -9,13 +9,18 @@ import { type MemoryView, memoryViews } from '../../lib/detail-tabs.js';
 import { formatDateTime } from '../../lib/format.js';
 import {
   agentMemoryFileQuery,
-  agentMemoryKeys,
   agentMemoryQuery,
   agentOutputStylesQuery,
   agentRulesQuery,
-  memoryKeys,
   memoryVersionsQuery,
+  useDeleteAgentMemoryFile,
+  useDeleteAgentOutputStyle,
+  useDeleteAgentRule,
   useRollbackMemoryChange,
+  useUnselectAgentOutputStyle,
+  useWriteAgentMemoryFile,
+  useWriteAgentOutputStyle,
+  useWriteAgentRule,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useEditStateNotify } from '../../lib/use-edit-state-notify.js';
@@ -44,16 +49,6 @@ import { MemoryPolicyPanel } from './memory-policy.js';
 interface DraftCallbacks {
   onDirtyChange?: (dirty: boolean) => void;
   onPendingChange?: (pending: boolean) => void;
-}
-
-function invalidateAgentMemoryQueries(
-  client: ReturnType<typeof useQueryClient>,
-  agentId: string,
-): void {
-  void client.invalidateQueries({ queryKey: agentMemoryKeys.list(agentId) });
-  void client.invalidateQueries({ queryKey: agentMemoryKeys.file(agentId) });
-  void client.invalidateQueries({ queryKey: memoryKeys.versionsAll });
-  void client.invalidateQueries({ queryKey: memoryKeys.reviewsAll });
 }
 
 function changeAfterContent(change: MemoryChange, name: string): string | null {
@@ -232,7 +227,6 @@ function MemoryFilesPanel({
   onDirtyChange,
   onPendingChange,
 }: { agentId: string; canWrite?: boolean } & DraftCallbacks) {
-  const client = useQueryClient();
   const memory = useQuery(agentMemoryQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -247,28 +241,23 @@ function MemoryFilesPanel({
     ? selected
     : (files.find((file) => file.name === 'MEMORY.md')?.name ?? files[0]?.name ?? null);
 
-  const create = useMutation({
-    mutationFn: (fileName: string) => api.writeAgentMemoryFile(agentId, fileName, ''),
-    onSuccess: (file) => {
-      client.setQueryData(agentMemoryFileQuery(agentId, file.name).queryKey, file);
-      invalidateAgentMemoryQueries(client, agentId);
-      toastSuccess(`已创建 ${file.name}`);
-      setCreating(false);
-      setName('');
-      setSelected(file.name);
-    },
-    onError: toastError,
-  });
+  const create = useWriteAgentMemoryFile(agentId);
+  const remove = useDeleteAgentMemoryFile(agentId);
 
-  const remove = useMutation({
-    mutationFn: (fileName: string) => api.deleteAgentMemoryFile(agentId, fileName),
-    onSuccess: (_data, fileName) => {
-      toastSuccess(`已删除 ${fileName}`);
-      if (selected === fileName) setSelected(null);
-      client.removeQueries({ queryKey: agentMemoryKeys.file(agentId, fileName) });
-      invalidateAgentMemoryQueries(client, agentId);
-    },
-  });
+  const createFile = (fileName: string): void => {
+    create.mutate(
+      { name: fileName, content: '' },
+      {
+        onSuccess: (file) => {
+          toastSuccess(`已创建 ${file.name}`);
+          setCreating(false);
+          setName('');
+          setSelected(file.name);
+        },
+        onError: toastError,
+      },
+    );
+  };
 
   const dirty = editorDirty || (creating && name.trim() !== '');
   const pending = editorPending || remove.isPending || create.isPending;
@@ -289,7 +278,7 @@ function MemoryFilesPanel({
       toastError(new Error('同名记忆文件已存在，请换一个名字。'));
       return;
     }
-    create.mutate(fileName);
+    createFile(fileName);
   };
 
   if (memory.isPending) {
@@ -326,7 +315,7 @@ function MemoryFilesPanel({
               <Button
                 disabled={create.isPending}
                 aria-busy={create.isPending}
-                onClick={() => create.mutate('MEMORY.md')}
+                onClick={() => createFile('MEMORY.md')}
               >
                 <Plus data-icon="inline-start" aria-hidden="true" /> 初始化 MEMORY.md
               </Button>
@@ -490,7 +479,14 @@ function MemoryFilesPanel({
           description={`将删除「${deleting ?? ''}」，并记入版本账本。`}
           confirmDisabled={pending}
           onConfirm={async () => {
-            if (deleting) await remove.mutateAsync(deleting);
+            if (deleting) {
+              await remove.mutateAsync(deleting, {
+                onSuccess: (_data, fileName) => {
+                  toastSuccess(`已删除 ${fileName}`);
+                  if (selected === fileName) setSelected(null);
+                },
+              });
+            }
           }}
         />
       </div>
@@ -513,7 +509,6 @@ function MemoryFileEditor({
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
 }) {
-  const client = useQueryClient();
   const file = useQuery(agentMemoryFileQuery(agentId, name));
   const versions = useQuery(memoryVersionsQuery({ kind: 'agent_memory', agentId, name }));
   const rollback = useRollbackMemoryChange();
@@ -524,16 +519,7 @@ function MemoryFileEditor({
   const content = draft ?? file.data?.content ?? '';
   const dirty = draft !== null && draft !== file.data?.content;
 
-  const save = useMutation({
-    mutationFn: () => api.writeAgentMemoryFile(agentId, name, content),
-    onSuccess: (next) => {
-      client.setQueryData(agentMemoryFileQuery(agentId, name).queryKey, next);
-      setDraft(null);
-      invalidateAgentMemoryQueries(client, agentId);
-      toastSuccess('记忆已保存');
-    },
-    onError: toastError,
-  });
+  const save = useWriteAgentMemoryFile(agentId);
   const pending = save.isPending || rollback.isPending;
 
   const rollbackTo = async (change: MemoryChange): Promise<void> => {
@@ -556,7 +542,16 @@ function MemoryFileEditor({
       toastError(new Error(problem));
       return;
     }
-    save.mutate();
+    save.mutate(
+      { name, content },
+      {
+        onSuccess: () => {
+          setDraft(null);
+          toastSuccess('记忆已保存');
+        },
+        onError: toastError,
+      },
+    );
   };
 
   useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
@@ -737,7 +732,6 @@ export function RulesPanel({
   onDirtyChange,
   onPendingChange,
 }: { agentId: string; canWrite?: boolean } & DraftCallbacks) {
-  const client = useQueryClient();
   const rules = useQuery(agentRulesQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
   const autoSelected = useRef(false);
@@ -748,8 +742,6 @@ export function RulesPanel({
   const [baseline, setBaseline] = useState<{ content: string; globs: string } | null>(null);
   const [confirming, setConfirming] = useState<RuleAction | null>(null);
 
-  const invalidate = (): void =>
-    void client.invalidateQueries({ queryKey: agentRulesQuery(agentId).queryKey });
   const current = rules.data?.find((r) => r.slug === selected) ?? null;
   const dirty = creating
     ? slug.trim() !== '' || draft !== '' || globs !== ''
@@ -772,32 +764,16 @@ export function RulesPanel({
     setBaseline(null);
   };
 
-  const save = useMutation({
-    mutationFn: (vars: { slug: string; content: string; globs: string }) =>
-      api.writeAgentRule(agentId, vars.slug, { content: vars.content, globs: vars.globs }),
-    onSuccess: (rule) => {
-      toastSuccess('规则已保存');
-      setSelected(rule.slug);
-      setDraft(rule.content);
-      setGlobs(rule.globs);
-      setBaseline({ content: rule.content, globs: rule.globs });
-      setCreating(false);
-      invalidate();
-    },
-    onError: (error) => toastError(error),
-  });
-
-  const remove = useMutation({
-    mutationFn: (s: string) => api.deleteAgentRule(agentId, s),
-    onSuccess: () => {
-      toastSuccess('规则已删除');
-      setSelected(null);
-      setBaseline(null);
-      invalidate();
-    },
-  });
+  const save = useWriteAgentRule(agentId);
+  const remove = useDeleteAgentRule(agentId);
 
   const pending = save.isPending || remove.isPending;
+
+  const onRuleDeleted = (): void => {
+    toastSuccess('规则已删除');
+    setSelected(null);
+    setBaseline(null);
+  };
 
   const apply = (action: RuleAction): void => {
     if (pending) return;
@@ -807,7 +783,7 @@ export function RulesPanel({
     }
     if (!canWrite) return;
     if (action.type === 'create') startCreate();
-    else remove.mutate(action.slug);
+    else remove.mutate(action.slug, { onSuccess: onRuleDeleted });
   };
 
   const guard = (action: RuleAction): void => {
@@ -835,7 +811,20 @@ export function RulesPanel({
     if (pending || !canWrite) return;
     const target = creating ? slug.trim() : selected;
     if (!target) return;
-    save.mutate({ slug: target, content: draft, globs });
+    save.mutate(
+      { slug: target, content: draft, globs },
+      {
+        onSuccess: (rule) => {
+          toastSuccess('规则已保存');
+          setSelected(rule.slug);
+          setDraft(rule.content);
+          setGlobs(rule.globs);
+          setBaseline({ content: rule.content, globs: rule.globs });
+          setCreating(false);
+        },
+        onError: (error) => toastError(error),
+      },
+    );
   };
 
   if (rules.isPending) return <LoadingState rows={2} />;
@@ -1021,7 +1010,7 @@ export function RulesPanel({
           if (!canWrite) return;
           const action = confirming;
           if (action?.type === 'delete') {
-            await remove.mutateAsync(action.slug);
+            await remove.mutateAsync(action.slug, { onSuccess: onRuleDeleted });
             setConfirming(null);
           } else {
             setConfirming(null);
@@ -1044,7 +1033,6 @@ export function OutputStylesPanel({
   onDirtyChange,
   onPendingChange,
 }: { agentId: string; canWrite?: boolean } & DraftCallbacks) {
-  const client = useQueryClient();
   const styles = useQuery(agentOutputStylesQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
   const autoSelected = useRef(false);
@@ -1061,8 +1049,6 @@ export function OutputStylesPanel({
   } | null>(null);
   const [confirming, setConfirming] = useState<StyleAction | null>(null);
 
-  const invalidate = (): void =>
-    void client.invalidateQueries({ queryKey: agentOutputStylesQuery(agentId).queryKey });
   const current = styles.data?.find((style) => style.slug === selected) ?? null;
   const dirty = creating
     ? slug.trim() !== '' || description !== '' || keepCodingInstructions || body !== ''
@@ -1094,53 +1080,9 @@ export function OutputStylesPanel({
     setBaseline(null);
   };
 
-  const save = useMutation({
-    mutationFn: (vars: {
-      slug: string;
-      description: string;
-      keepCodingInstructions: boolean;
-      body: string;
-    }) =>
-      api.writeAgentOutputStyle(agentId, vars.slug, {
-        description: vars.description,
-        keepCodingInstructions: vars.keepCodingInstructions,
-        body: vars.body,
-      }),
-    onSuccess: (style) => {
-      toastSuccess('输出风格已保存');
-      setSelected(style.slug);
-      setDescription(style.description);
-      setKeepCodingInstructions(style.keepCodingInstructions);
-      setBody(style.body);
-      setBaseline({
-        description: style.description,
-        keepCodingInstructions: style.keepCodingInstructions,
-        body: style.body,
-      });
-      setCreating(false);
-      invalidate();
-    },
-    onError: (error) => toastError(error),
-  });
-
-  const unselect = useMutation({
-    mutationFn: (s: string) => api.unselectAgentOutputStyle(agentId, s),
-    onSuccess: () => {
-      toastSuccess('已取消启用');
-      invalidate();
-    },
-    onError: (error) => toastError(error),
-  });
-
-  const remove = useMutation({
-    mutationFn: (s: string) => api.deleteAgentOutputStyle(agentId, s),
-    onSuccess: () => {
-      toastSuccess('输出风格已删除');
-      setSelected(null);
-      setBaseline(null);
-      invalidate();
-    },
-  });
+  const save = useWriteAgentOutputStyle(agentId);
+  const unselect = useUnselectAgentOutputStyle(agentId);
+  const remove = useDeleteAgentOutputStyle(agentId);
 
   const pending = save.isPending || unselect.isPending || remove.isPending;
 
@@ -1185,7 +1127,25 @@ export function OutputStylesPanel({
     if (pending || !canWrite) return;
     const target = creating ? slug.trim() : selected;
     if (!target) return;
-    save.mutate({ slug: target, description, keepCodingInstructions, body });
+    save.mutate(
+      { slug: target, description, keepCodingInstructions, body },
+      {
+        onSuccess: (style) => {
+          toastSuccess('输出风格已保存');
+          setSelected(style.slug);
+          setDescription(style.description);
+          setKeepCodingInstructions(style.keepCodingInstructions);
+          setBody(style.body);
+          setBaseline({
+            description: style.description,
+            keepCodingInstructions: style.keepCodingInstructions,
+            body: style.body,
+          });
+          setCreating(false);
+        },
+        onError: (error) => toastError(error),
+      },
+    );
   };
 
   if (styles.isPending) return <LoadingState rows={2} />;
@@ -1262,7 +1222,12 @@ export function OutputStylesPanel({
                 {current?.isSelected ? (
                   <Button
                     variant="outline"
-                    onClick={() => unselect.mutate(current.slug)}
+                    onClick={() =>
+                      unselect.mutate(current.slug, {
+                        onSuccess: () => toastSuccess('已取消启用'),
+                        onError: (error) => toastError(error),
+                      })
+                    }
                     disabled={pending || !canWrite}
                   >
                     取消启用
@@ -1390,7 +1355,15 @@ export function OutputStylesPanel({
         confirmDisabled={pending || !canWrite}
         onConfirm={async () => {
           if (!canWrite) return;
-          if (deleting) await remove.mutateAsync(deleting);
+          if (deleting) {
+            await remove.mutateAsync(deleting, {
+              onSuccess: () => {
+                toastSuccess('输出风格已删除');
+                setSelected(null);
+                setBaseline(null);
+              },
+            });
+          }
         }}
       />
     </div>

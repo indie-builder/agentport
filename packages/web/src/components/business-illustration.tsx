@@ -4,7 +4,7 @@ const sizes = {
   error: { className: 'size-36', pixels: 144 },
 } as const;
 
-export type BusinessIllustrationName =
+type BusinessIllustrationName =
   | 'knowledge'
   | 'documents'
   | 'tools'

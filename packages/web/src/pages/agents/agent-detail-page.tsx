@@ -1,13 +1,6 @@
 import type { AgentSummary, PermissionId } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Link,
-  useBlocker,
-  useLocation,
-  useNavigate,
-  useParams,
-  useSearch,
-} from '@tanstack/react-router';
+import { Link, useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { Archive, ArchiveRestore, ArrowLeft, Bot, EllipsisVertical, Trash2 } from 'lucide-react';
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { AgentAvatar } from '../../components/agent/agent-avatar.js';
@@ -36,6 +29,7 @@ import {
   type MemoryView,
   agentTabs as tabItems,
 } from '../../lib/detail-tabs.js';
+import { useFormBlocker } from '../../lib/form.js';
 import {
   meQuery,
   useAgentAccess,
@@ -491,27 +485,20 @@ function RestrictedAgentTabs({
     });
   }, [search.tab, navigate, agentId]);
 
-  const blocker = useBlocker({
-    shouldBlockFn: ({ current, next }) => {
-      if (current.pathname === next.pathname) {
-        const currentTab = permittedTab('tab' in current.search ? current.search.tab : undefined);
-        const nextTab = permittedTab('tab' in next.search ? next.search.tab : undefined);
-        if (currentTab === nextTab) {
-          const ci = 'instruction' in current.search ? current.search.instruction : undefined;
-          const ni = 'instruction' in next.search ? next.search.instruction : undefined;
-          const cv = 'view' in current.search ? current.search.view : undefined;
-          const nv = 'view' in next.search ? next.search.view : undefined;
-          if (ci === ni && cv === nv) return false;
-          const confirmed = confirmedChildSwitch.current;
-          if (confirmed && confirmed.instruction === ni && confirmed.view === nv) return false;
-          return childDirty || pending;
-        }
-        return childDirty || pending;
-      }
-      return childDirty || pending;
+  const blocker = useFormBlocker(childDirty, pending, {
+    allowNavigation: ({ current, next }) => {
+      if (current.pathname !== next.pathname) return false;
+      const currentTab = permittedTab('tab' in current.search ? current.search.tab : undefined);
+      const nextTab = permittedTab('tab' in next.search ? next.search.tab : undefined);
+      if (currentTab !== nextTab) return false;
+      const ci = 'instruction' in current.search ? current.search.instruction : undefined;
+      const ni = 'instruction' in next.search ? next.search.instruction : undefined;
+      const cv = 'view' in current.search ? current.search.view : undefined;
+      const nv = 'view' in next.search ? next.search.view : undefined;
+      if (ci === ni && cv === nv) return true;
+      const confirmed = confirmedChildSwitch.current;
+      return Boolean(confirmed && confirmed.instruction === ni && confirmed.view === nv);
     },
-    withResolver: true,
-    enableBeforeUnload: childDirty || pending,
   });
   useEffect(() => {
     confirmedChildSwitch.current = null;

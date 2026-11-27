@@ -3,13 +3,12 @@ import {
   type MarketSkill,
   type MarketView,
   type Skill,
-  type SkillFile,
   type SkillInput,
   type SkillWithAgentCount,
   skillFileInputSchema,
   skillInputSchema,
 } from '@agentport/shared';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import {
   Check,
@@ -64,24 +63,27 @@ import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { type ListView, SegmentedToggle, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
-import { ApiError, api, errorMessage } from '../lib/api.js';
+import { ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { onFilePick } from '../lib/file-pick.js';
+import { fieldErrors } from '../lib/form.js';
 import { formatTokens } from '../lib/format.js';
 import {
   meQuery,
-  skillKeys,
   useApproveSkill,
   useCreateSkill,
   useDeleteSkill,
+  useDeleteSkillFile,
   useImportSkillFile,
   useInstallMarketSkill,
   useMarketSkills,
   useRejectSkill,
+  useSkillFiles,
   useSkills,
   useSubmitSkill,
   useUpdateSkill,
+  useWriteSkillFile,
 } from '../lib/queries.js';
 import { matchesQuery } from '../lib/search.js';
 import { compareBySort } from '../lib/sort.js';
@@ -121,18 +123,28 @@ const marketViewOptions = [
   { value: 'hot', label: '新热' },
 ] as const;
 
-const skillFormSchema = skillInputSchema.extend({
-  slug: z
-    .string()
-    .min(1, '不能为空，请填写后再保存')
-    .max(64, '最多 64 个字符，请精简后再保存')
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '格式不正确，请检查后重新填写'),
-  name: z.string().min(1, '不能为空，请填写后再保存').max(128, '最多 128 个字符，请精简后再保存'),
-  description: z
-    .string()
-    .min(1, '不能为空，请填写后再保存')
-    .max(500, '最多 500 个字符，请精简后再保存'),
-});
+const skillFormSchema = z
+  .object({
+    slug: z.string(),
+    name: z.string(),
+    description: z.string(),
+    body: z.string(),
+  })
+  .superRefine((values, ctx) => {
+    const parsed = skillInputSchema.safeParse(values);
+    if (parsed.success) return;
+    const seen = new Set<string>();
+    for (const issue of parsed.error.issues) {
+      const key = String(issue.path[0] ?? 'form');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ctx.addIssue({
+        code: 'custom',
+        path: issue.path,
+        message: Object.values(fieldErrors([issue]))[0] ?? issue.message,
+      });
+    }
+  });
 
 const skillFileFormSchema = skillFileInputSchema.extend({
   path: z
@@ -1166,19 +1178,16 @@ function SkillFilesEditor({
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange: (saving: boolean) => void;
 }) {
-  const client = useQueryClient();
-  const filesKey = skillKeys.files(skillId);
-  const files = useQuery({
-    queryKey: filesKey,
-    queryFn: () => api.skillFiles(skillId),
-    enabled: canRead,
-  });
+  const files = useSkillFiles(skillId, canRead);
+  const writeFile = useWriteSkillFile(skillId);
+  const deleteFile = useDeleteSkillFile(skillId);
   const rhf = useZodForm(skillFileFormSchema, { defaultValues: emptySkillFile });
   const error = rhf.formState.errors.path?.message ?? rhf.formState.errors.content?.message ?? '';
   const [editingPath, setEditingPath] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [savingFile, setSavingFile] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
+  const busy = savingFile || writeFile.isPending || deleteFile.isPending;
   const pending = disabled || busy;
   const canReadRef = useRef(canRead);
   useEffect(() => {
@@ -1187,12 +1196,6 @@ function SkillFilesEditor({
 
   useEffect(() => onDirtyChange(rhf.formState.isDirty), [rhf.formState.isDirty, onDirtyChange]);
   useEffect(() => onSavingChange(busy), [busy, onSavingChange]);
-
-  const invalidate = (refetchType: 'active' | 'none' = 'active'): void =>
-    void client.invalidateQueries({ queryKey: filesKey, refetchType });
-  const writeToCache = (update: (current: SkillFile[]) => SkillFile[]): void => {
-    client.setQueryData<SkillFile[]>(filesKey, (current) => (current ? update(current) : current));
-  };
 
   const selectFile = (path: string, content: string): void => {
     setEditingPath(path);
@@ -1212,15 +1215,9 @@ function SkillFilesEditor({
 
   const save = rhf.handleSubmit(async (values) => {
     if (!canRead || readOnly || pending) return;
-    setBusy(true);
+    setSavingFile(true);
     try {
-      const saved = await api.writeSkillFile(skillId, values.path, values.content);
-      writeToCache((current) =>
-        current.some((file) => file.path === saved.path)
-          ? current.map((file) => (file.path === saved.path ? saved : file))
-          : [...current, saved],
-      );
-      invalidate('none');
+      await writeFile.mutateAsync({ path: values.path, content: values.content });
       if (canReadRef.current) {
         const refreshed = await files.refetch();
         if (refreshed.isError) {
@@ -1234,25 +1231,18 @@ function SkillFilesEditor({
     } catch (err) {
       toastError(err);
     } finally {
-      setBusy(false);
+      setSavingFile(false);
     }
   });
 
   const remove = async (target: string): Promise<void> => {
     if (!canRead || readOnly) return;
-    setBusy(true);
-    try {
-      await api.deleteSkillFile(skillId, target);
-      writeToCache((current) => current.filter((file) => file.path !== target));
-      if (editingPath === target) {
-        setEditingPath(null);
-        rhf.reset(emptySkillFile);
-      }
-      invalidate();
-      toastSuccess('已删除支持文件');
-    } finally {
-      setBusy(false);
+    await deleteFile.mutateAsync(target);
+    if (editingPath === target) {
+      setEditingPath(null);
+      rhf.reset(emptySkillFile);
     }
+    toastSuccess('已删除支持文件');
   };
 
   if (!canRead) return null;

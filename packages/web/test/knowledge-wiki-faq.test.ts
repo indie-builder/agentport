@@ -85,6 +85,7 @@ describe('knowledge wiki versions', () => {
     await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
     expect(document.body.textContent).toContain('v2');
     expect(document.body.textContent).toContain('v1');
+    await waitFor(() => findButton('回退到此版本') !== undefined);
     await click(button('回退到此版本'));
     await click(button('回退', dialog('回退 Wiki 版本')));
     expect(

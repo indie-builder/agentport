@@ -7,14 +7,14 @@ export interface DataDomainQueryResult {
   truncated: boolean;
 }
 
-export type ColumnType = 'number' | 'text';
+type ColumnType = 'number' | 'text';
 
 interface ChartColumn {
   index: number;
   name: string;
 }
 
-export interface ChartPlan {
+interface ChartPlan {
   dimensions: ChartColumn[];
   measures: ChartColumn[];
   canChart: boolean;
@@ -24,12 +24,12 @@ export type ChartType = 'bar' | 'line' | 'scatter';
 
 export type ChartAggregation = 'none' | 'sum' | 'avg' | 'count' | 'min' | 'max';
 
-export interface ChartPoint {
+interface ChartPoint {
   label: string;
   value: number | null;
 }
 
-export interface ScatterPoint {
+interface ScatterPoint {
   x: number;
   y: number;
 }

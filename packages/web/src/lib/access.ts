@@ -82,7 +82,7 @@ export type MenuItem = {
   navGroup?: 'resources';
 };
 
-export type RouteMeta = MenuItem & {
+type NavRouteMeta = MenuItem & {
   immersive?: boolean;
   selfService?: boolean;
   personal?: boolean;
@@ -229,10 +229,6 @@ export const PERSONAL_NAV_GROUPS: readonly {
   },
 ];
 
-export function isPersonalPath(pathname: string): boolean {
-  return /^\/personal(?:\/|$)/.test(pathname);
-}
-
 export const RESOURCE_SECTIONS = {
   skills: pages.skills,
   servers: pages.servers,
@@ -284,7 +280,7 @@ export function homePath(me: AuthMe | undefined): string | null {
   return HOME_ORDER.find((item) => canAny(me, item.permissionIds))?.to ?? null;
 }
 
-export const ROUTE_META: Readonly<Record<string, RouteMeta>> = {
+export const ROUTE_META: Readonly<Record<string, NavRouteMeta>> = {
   '/_shell/agents/': pages.agents,
   '/_shell/agents/$agentId': pages.agents,
   '/_shell/chat': { ...pages.chat, immersive: true },

@@ -1,3 +1,4 @@
+import type { RuntimeEnvironmentVersionStatus } from '@agentport/shared';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { CircleAlert, CircleCheck, Clock, LoaderCircle } from 'lucide-react';
 import type { ComponentProps } from 'react';
@@ -33,10 +34,8 @@ export function StatusBadge({
   );
 }
 
-type BuildStatus = 'queued' | 'building' | 'ready' | 'failed';
-
 const buildStatusMeta: Record<
-  BuildStatus,
+  RuntimeEnvironmentVersionStatus,
   { label: string; icon: typeof CircleCheck; className: string }
 > = {
   queued: { label: '排队中', icon: Clock, className: 'text-muted-foreground' },
@@ -45,7 +44,7 @@ const buildStatusMeta: Record<
   failed: { label: '失败', icon: CircleAlert, className: 'text-danger' },
 };
 
-export function BuildStatusLabel({ status }: { status: BuildStatus }) {
+export function BuildStatusLabel({ status }: { status: RuntimeEnvironmentVersionStatus }) {
   const meta = buildStatusMeta[status];
   const Icon = meta.icon;
   return (

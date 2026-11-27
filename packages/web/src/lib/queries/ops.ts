@@ -1,5 +1,19 @@
-import type { RetentionSettings, RetentionUpdate, ScheduleRun } from '@agentport/shared';
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type {
+  CursorPage,
+  RetentionSettings,
+  RetentionUpdate,
+  Schedule,
+  ScheduleInput,
+  SchedulePatch,
+  ScheduleRun,
+} from '@agentport/shared';
+import {
+  type InfiniteData,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import {
   api,
   type HealthLive,
@@ -89,6 +103,84 @@ export function useUpdateRetention() {
     mutationFn: (input: RetentionUpdate) => api.updateRetention(input),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: retentionQuery.queryKey });
+    },
+  });
+}
+
+export function useToggleSchedule() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api.updateSchedule(id, { enabled }),
+    onMutate: async (vars) => {
+      await client.cancelQueries({ queryKey: opsKeys.schedules });
+      const prev = client.getQueryData<InfiniteData<CursorPage<Schedule>>>(opsKeys.schedules);
+      if (prev) {
+        client.setQueryData<InfiniteData<CursorPage<Schedule>>>(opsKeys.schedules, (old) =>
+          old
+            ? {
+                ...old,
+                pages: old.pages.map((page) => ({
+                  ...page,
+                  items: page.items.map((s) =>
+                    s.id === vars.id ? { ...s, enabled: vars.enabled } : s,
+                  ),
+                })),
+              }
+            : old,
+        );
+      }
+      return { prev };
+    },
+    onError: (_error, _vars, ctx) => {
+      if (ctx?.prev !== undefined) {
+        client.setQueryData<InfiniteData<CursorPage<Schedule>>>(opsKeys.schedules, ctx.prev);
+      }
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: opsKeys.schedules });
+    },
+  });
+}
+
+export function useCreateSchedule() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ScheduleInput) => api.createSchedule(input),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: opsKeys.schedules });
+    },
+  });
+}
+
+export function useUpdateSchedule() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; input: SchedulePatch }) =>
+      api.updateSchedule(vars.id, vars.input),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: opsKeys.schedules });
+    },
+  });
+}
+
+export function useDeleteSchedule() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteSchedule(id),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: opsKeys.schedules });
+    },
+  });
+}
+
+export function useRetryScheduleRun(scheduleId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.retryScheduleRun(scheduleId, runId),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: scheduleRunsQuery(scheduleId).queryKey });
+      void client.invalidateQueries({ queryKey: opsKeys.schedules });
     },
   });
 }
