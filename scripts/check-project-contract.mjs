@@ -554,7 +554,7 @@ for (const file of errorFiles) {
       ) {
         report(
           'worker-scheduler-setinterval',
-          `${displayPath}:${line}: 调度器直接调用 setInterval（改用 packages/worker/src/scheduling/interval-ticker.ts 的 startIntervalTicker 管理定时与关停，双入口 sync 通过 packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight 共用单飞守卫）`,
+          `${displayPath}:${line}: 调度器直接调用 setInterval（改用 packages/worker/src/interval-ticker.ts 的 startIntervalTicker 管理定时与关停，双入口 sync 通过 packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight 共用单飞守卫）`,
         );
       }
 

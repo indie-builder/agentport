@@ -22,8 +22,7 @@ import {
   runOneShotSdkQuery,
 } from '../one-shot-sdk.js';
 import { startRedisWorker } from '../queue-worker.js';
-
-const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
+import { resolveTmpDir } from '../tmp.js';
 
 const ENRICH_TIMEOUT_MS = 5 * 60_000;
 const STALE_GENERATING_MS = 15 * 60_000;
@@ -90,7 +89,7 @@ export async function runDataDomainEnrichment(
   }
 
   try {
-    const cwd = await mkdtemp(join(tmpdir(), 'pace-data-domain-enrich-'));
+    const cwd = await mkdtemp(join(resolveTmpDir(), 'pace-data-domain-enrich-'));
     const timeout = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {

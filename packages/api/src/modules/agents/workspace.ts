@@ -3,6 +3,7 @@ import { renderPlugin, renderWorkspace, toOutputStyleSelection, unionById } from
 import { resolveWorkspaceMemoryPolicy, toWorkspaceInput } from '@agentport/core/workspace-input';
 import { repo, type schema } from '@agentport/db';
 import {
+  DEFAULT_SANDBOX_API_URL,
   generatedMcpEntry,
   knowledgeMcpEntry,
   type PreviewMcpJsonArtifactEntry,
@@ -15,7 +16,7 @@ import { decryptSecrets } from '../servers/secrets.js';
 type ServerRow = typeof schema.servers.$inferSelect;
 const RUNTIME_AUTH_NOTE = 'Authorization 由运行时注入，不在此显示。';
 function sandboxApiUrl(): string {
-  return process.env.SANDBOX_API_URL ?? 'http://host.docker.internal:3000';
+  return process.env.SANDBOX_API_URL ?? DEFAULT_SANDBOX_API_URL;
 }
 function maskValues(keys: string[], omitAuthorization = false): Record<string, string> {
   return Object.fromEntries(

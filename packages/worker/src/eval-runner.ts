@@ -27,8 +27,7 @@ import { checkRunPromptPolicy } from './content-policy.js';
 import { MESSAGES_NOT_SAVED_ERROR, MESSAGES_NOT_SAVED_MARKER } from './messages.js';
 import { hermeticQueryOptions, runOneShotSdkQuery } from './one-shot-sdk.js';
 import { loadUserAgentAccess } from './runs/run-access.js';
-
-const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
+import { resolveTmpDir } from './tmp.js';
 
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
@@ -46,7 +45,7 @@ export interface GradeDeps {
   signal?: AbortSignal;
 }
 
-export interface GradeInput {
+interface GradeInput {
   prompt: string;
   output: string;
   expectation: string;
@@ -148,7 +147,7 @@ export async function gradeCase(
     : { passed: verdict.pass, reason: verdict.reason };
 }
 
-export interface TrajectoryInput {
+interface TrajectoryInput {
   expectedTools?: string[] | null;
   forbiddenTools?: string[] | null;
 }
@@ -383,7 +382,7 @@ export async function executeEvalRun(input: {
   const { db, logger, redisUrl, evalRunId } = input;
   const gradeDeps: GradeDeps = {
     model: input.judgeConfig?.evalJudgeModel ?? input.judgeConfig?.summaryModel,
-    knowledgeDir: input.judgeConfig?.knowledgeDir ?? join(tmpdir(), 'agentport-eval-judge'),
+    knowledgeDir: input.judgeConfig?.knowledgeDir ?? join(resolveTmpDir(), 'agentport-eval-judge'),
     anthropicBaseUrl: input.judgeConfig?.anthropicBaseUrl,
   };
   const program = Effect.gen(function* () {

@@ -62,6 +62,7 @@ function config(repoId = REPO): SourceConfig {
     credentials: { apiToken: TOKEN },
     settings: { repoId },
     allowLoopback: true,
+    nodeEnv: 'test',
   };
 }
 

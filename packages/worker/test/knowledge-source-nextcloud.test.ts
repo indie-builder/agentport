@@ -105,6 +105,7 @@ function config(path = '/Documents', username = 'alice'): SourceConfig {
     credentials: { appPassword: '{{SECRET_4mdnus3f}}' },
     settings: { username, path },
     allowLoopback: true,
+    nodeEnv: 'test',
   };
 }
 

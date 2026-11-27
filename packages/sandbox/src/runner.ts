@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import {
   type ChatEvent,
   CONFIG_CONTAINER_DIR,
+  DEFAULT_SANDBOX_MAX_FIELD_BYTES,
   disallowedToolsFor,
   errorText,
   INPUTS_CONTAINER_DIR,
@@ -43,7 +44,6 @@ function log(message: string): void {
   process.stderr.write(`[runner] ${message}\n`);
 }
 
-const DEFAULT_MAX_FIELD_BYTES = 1024 * 1024;
 const TRUNCATED = '\n…[truncated]';
 
 function cap(value: string, maxBytes: number): { text: string; truncated: boolean } {
@@ -272,7 +272,7 @@ async function resolveSession(input: SandboxTask): Promise<{
 export async function runRunner(): Promise<void> {
   const { task, readLine, close: closeInput } = await openTaskInput();
   const channelRun = task.tokenAccounting === 'channel';
-  const maxFieldBytes = task.maxFieldBytes ?? DEFAULT_MAX_FIELD_BYTES;
+  const maxFieldBytes = task.maxFieldBytes ?? DEFAULT_SANDBOX_MAX_FIELD_BYTES;
   const permissionMode = task.permissionMode ?? 'dontAsk';
   const allowMemoryWrite = memoryWritable(task.memoryPolicy);
 

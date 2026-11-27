@@ -20,8 +20,7 @@ import {
   ONE_SHOT_NO_RESULT_MESSAGE,
   runOneShotSdkQuery,
 } from '../one-shot-sdk.js';
-
-const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
+import { resolveTmpDir } from '../tmp.js';
 
 type ImageDescription = {
   ocr: string | null;
@@ -93,7 +92,7 @@ async function runAction(input: {
   anthropicBaseUrl: string | undefined;
 }): Promise<{ text: string | null; warning: string | null }> {
   if (input.signal.aborted) throw new Error(IMAGE_DESCRIPTION_CANCELLED);
-  const cwd = await mkdtemp(join(tmpdir(), 'pace-knowledge-image-'));
+  const cwd = await mkdtemp(join(resolveTmpDir(), 'pace-knowledge-image-'));
 
   const prompt = async function* (): AsyncGenerator<SDKUserMessage, void> {
     yield {

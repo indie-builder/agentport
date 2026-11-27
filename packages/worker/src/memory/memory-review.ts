@@ -29,6 +29,7 @@ import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import { resolveAgentVersionSnapshot } from '../agent-snapshot.js';
 import { type Config, loadConfig } from '../config.js';
 import { checkOutboundPolicy } from '../content-policy.js';
 import { createWorkerLogger } from '../logger.js';
@@ -40,11 +41,9 @@ import {
   ONE_SHOT_NO_STRUCTURED_OUTPUT_MESSAGE,
   runOneShotSdkQuery,
 } from '../one-shot-sdk.js';
-import { resolveAgentVersionSnapshot } from '../runs/agent-snapshot.js';
-import { claimRunTerminal, notifyRunTerminal } from '../runs/run-finish.js';
+import { claimRunTerminal, notifyRunTerminal } from '../run-finish.js';
+import { resolveTmpDir } from '../tmp.js';
 import { modelProxyUpstream, sdkEnv } from '../upstream.js';
-
-const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
 
 export type MemoryReviewQueryFn = (params: {
   prompt: string;
@@ -390,7 +389,7 @@ export async function executeMemoryReview(
       const snapshot = await loadSnapshot(db, review.sources);
       const messagesById = new Map(snapshot.map((message) => [message.id, message]));
 
-      cwd = await mkdtemp(join(tmpdir(), 'pace-memory-review-'));
+      cwd = await mkdtemp(join(resolveTmpDir(), 'pace-memory-review-'));
       unwatch = await watchCancel(
         input.redisUrl,
         input.runId,

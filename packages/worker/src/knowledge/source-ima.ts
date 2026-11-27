@@ -1,9 +1,10 @@
+import { sha256Hex } from '@agentport/core';
 import { isRecord } from '@agentport/core/record';
 import { z } from 'zod';
 import { fetchDownload } from './source-download.js';
 import {
   declaredMime,
-  EXTENSION_BY_MIME,
+  extensionForMime,
   MIME_ALIASES,
   mimeForExtension,
 } from './source-formats.js';
@@ -13,6 +14,8 @@ import {
   redactUrls,
   rethrowAuth,
   SourceAuthError,
+  type SourceUrlOptions,
+  sourceNetworkOptions,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
@@ -20,6 +23,7 @@ import {
   extensionName,
   failureOf,
   isAbort,
+  paginateCursor,
   parseInitialCursor,
   signalOption,
   snapshotOf,
@@ -31,7 +35,6 @@ const BASE = 'https://ima.qq.com';
 const WIKI_PATH = '/openapi/wiki/v1';
 const NOTE_PATH = '/openapi/note/v1';
 const PAGE_SIZE = 50;
-const MAX_PAGES = 1000;
 
 const settingsSchema = z.object({
   clientId: z.string().trim().min(1),
@@ -100,9 +103,12 @@ const EXTENSIONS_BY_MEDIA_TYPE: Record<number, readonly string[]> = {
 const NOTEBOOK_MEDIA_TYPE = 11;
 const FOLDER_MEDIA_TYPE = 99;
 
+type Network = Pick<SourceUrlOptions, 'allowLoopback' | 'trustedHosts' | 'nodeEnv'>;
+
 type Auth = {
   knowledgeBaseId: string;
   headers: Record<string, string>;
+  network: Network;
 };
 
 type ListResult = z.infer<typeof listSchema>;
@@ -112,6 +118,7 @@ function options(auth: Auth, signal: AbortSignal | undefined) {
     method: 'POST' as const,
     headers: auth.headers,
     authOrigin: new URL(BASE).origin,
+    ...auth.network,
     ...signalOption(signal),
   };
 }
@@ -127,6 +134,7 @@ function authenticate(config: SourceConfig): Auth {
       'ima-openapi-apikey': apiKey,
       'content-type': 'application/json; charset=utf-8',
     },
+    network: sourceNetworkOptions(config),
   };
 }
 
@@ -193,13 +201,9 @@ function assertListPage(response: ListResult): void {
   }
 }
 
-function recordOf(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? value : undefined;
-}
-
 function extensionFromContentType(contentType: string | null): string {
   const mime = contentType?.split(';')[0]?.trim().toLowerCase() ?? '';
-  return EXTENSION_BY_MIME[MIME_ALIASES[mime] ?? mime] ?? '';
+  return extensionForMime(MIME_ALIASES[mime] ?? mime) ?? '';
 }
 
 function mediaExtension(mediaType: number, contentType: string | null, title: string): string {
@@ -367,12 +371,9 @@ async function readMedia(
 }
 
 function unknownFailureId(auth: Auth, raw: unknown): string {
-  const mediaId = textOf(recordOf(raw)?.media_id).trim();
+  const mediaId = textOf(isRecord(raw) ? raw.media_id : undefined).trim();
   if (mediaId) return `ima:media:${auth.knowledgeBaseId}:${mediaId}`;
-  const digest = new Bun.CryptoHasher('sha256')
-    .update(JSON.stringify(raw))
-    .digest('hex')
-    .slice(0, 16);
+  const digest = sha256Hex(JSON.stringify(raw)).slice(0, 16);
   return `ima:unknown:${auth.knowledgeBaseId}:${digest}`;
 }
 
@@ -393,84 +394,78 @@ export async function readIma(
   while (queue.length > 0) {
     const folder = queue.shift();
     if (!folder) break;
-    let pageCursor = '';
-    const seenCursors = new Set<string>();
+    await paginateCursor<never>({
+      label: 'ima get_knowledge_list',
+      cursorName: 'next_cursor',
+      initialCursor: '',
+      fetchPage: async (pageCursor) => {
+        const response = await listKnowledge(auth, folder.id, pageCursor, signal);
+        assertListPage(response);
+        for (const raw of response.knowledge_list) {
+          if (!isRecord(raw)) {
+            failures.push(
+              failureOf(
+                unknownFailureId(auth, raw),
+                'unknown item',
+                new ItemError('ima knowledge item was not an object', 'invalid_response', false),
+              ),
+            );
+            continue;
+          }
 
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const response = await listKnowledge(auth, folder.id, pageCursor, signal);
-      assertListPage(response);
-      for (const raw of response.knowledge_list) {
-        const record = recordOf(raw);
-        if (!record) {
-          failures.push(
-            failureOf(
-              unknownFailureId(auth, raw),
-              'unknown item',
-              new ItemError('ima knowledge item was not an object', 'invalid_response', false),
-            ),
+          let child: Folder | undefined;
+          try {
+            child = officialFolder(raw) ?? upstreamFolder(raw);
+          } catch (err) {
+            failures.push(failureOf(unknownFailureId(auth, raw), textOf(raw.title), err));
+            continue;
+          }
+          if (child) {
+            if (!visitedFolders.has(child.id)) {
+              visitedFolders.add(child.id);
+              queue.push({
+                id: child.id,
+                path: [...folder.path, sanitizeSegment(child.name, child.id)],
+              });
+            }
+            continue;
+          }
+
+          const candidate = mediaCandidate(raw);
+          if (!candidate) {
+            failures.push(
+              failureOf(
+                unknownFailureId(auth, raw),
+                'unknown item',
+                new ItemError('ima knowledge item had no media_id', 'invalid_response', false),
+              ),
+            );
+            continue;
+          }
+          const resolved = await readMedia(
+            config,
+            auth,
+            candidate,
+            folder.path,
+            usedPaths,
+            items,
+            failures,
+            signal,
           );
-          continue;
-        }
-
-        let child: Folder | undefined;
-        try {
-          child = officialFolder(record) ?? upstreamFolder(record);
-        } catch (err) {
-          failures.push(failureOf(unknownFailureId(auth, record), textOf(record.title), err));
-          continue;
-        }
-        if (child) {
-          if (!visitedFolders.has(child.id)) {
-            visitedFolders.add(child.id);
+          if (resolved && !visitedFolders.has(resolved.id)) {
+            visitedFolders.add(resolved.id);
             queue.push({
-              id: child.id,
-              path: [...folder.path, sanitizeSegment(child.name, child.id)],
+              id: resolved.id,
+              path: [...folder.path, sanitizeSegment(resolved.name, resolved.id)],
             });
           }
-          continue;
         }
 
-        const candidate = mediaCandidate(record);
-        if (!candidate) {
-          failures.push(
-            failureOf(
-              unknownFailureId(auth, record),
-              'unknown item',
-              new ItemError('ima knowledge item had no media_id', 'invalid_response', false),
-            ),
-          );
-          continue;
-        }
-        const resolved = await readMedia(
-          config,
-          auth,
-          candidate,
-          folder.path,
-          usedPaths,
-          items,
-          failures,
-          signal,
-        );
-        if (resolved && !visitedFolders.has(resolved.id)) {
-          visitedFolders.add(resolved.id);
-          queue.push({
-            id: resolved.id,
-            path: [...folder.path, sanitizeSegment(resolved.name, resolved.id)],
-          });
-        }
-      }
-
-      if (response.is_end) break;
-      const next = response.next_cursor?.trim() ?? '';
-      if (seenCursors.has(next)) {
-        throw new Error(`ima get_knowledge_list repeated next_cursor ${next}`);
-      }
-      seenCursors.add(next);
-      pageCursor = next;
-      if (page === MAX_PAGES - 1) {
-        throw new Error(`ima get_knowledge_list exceeded ${MAX_PAGES} pages`);
-      }
-    }
+        if (response.is_end) return { items: [], hasMore: false };
+        const next = response.next_cursor?.trim() ?? '';
+        return { items: [], ...(next ? { next } : {}), hasMore: true };
+      },
+    });
   }
 
   return snapshotOf(items, failures, previous);

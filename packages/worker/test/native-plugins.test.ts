@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,30 +9,14 @@ import {
 } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import type { Logger } from 'pino';
-import type { Config } from '../src/config.js';
-import { loadConfig } from '../src/config.js';
-import type { NativePluginsDeps } from '../src/native-plugins.js';
+import {
+  type NativePluginsDeps,
+  registerNativePlugins,
+  runNativePluginAction,
+} from '../src/native-plugins.js';
 import type { Sandbox, SandboxCreateOptions } from '../src/sandbox/provider.js';
 import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
-
-const docker = (() => ({
-  createImpl: mock<(options: SandboxCreateOptions) => Promise<Sandbox>>(),
-  destroy: mock(async (_sandbox: Sandbox) => undefined),
-  destroyAll: mock(async () => undefined),
-}))();
-
-const dockerActual = await import('../src/sandbox/docker.js');
-mock.module('../src/sandbox/docker.js', () => ({
-  ...dockerActual,
-  DockerSandboxProvider: class {
-    create = docker.createImpl;
-    destroy = docker.destroy;
-    destroyAll = docker.destroyAll;
-  },
-}));
-
-const { registerNativePlugins, runNativePluginAction } = await import('../src/native-plugins.js');
 
 let workspacesDir = '';
 
@@ -165,20 +149,6 @@ const redisUrl = (() => {
   return url.toString();
 })();
 const queueConnections: Array<ReturnType<typeof bunRedisConnection>> = [];
-
-function config(): Config {
-  return loadConfig({
-    DATABASE_URL: 'postgres://u:p@localhost:5432/db',
-    APP_SECRET_KEY: 'a'.repeat(32),
-    WORKSPACES_DIR: workspacesDir,
-    REDIS_URL: redisUrl,
-    LOG_LEVEL: 'error',
-  });
-}
-
-async function waitForCreate(): Promise<void> {
-  await waitFor(() => expect(docker.createImpl).toHaveBeenCalled(), { timeout: 10_000 });
-}
 
 async function enqueueInstall(): Promise<Queue<NativePluginAction>> {
   const redis = bunRedisConnection(redisUrl);
@@ -461,36 +431,39 @@ describe('registerNativePlugins close', () => {
 
   afterAll(obliterateQueue);
 
-  beforeEach(() => {
-    mock.clearAllMocks();
-  });
-
-  it('destroys the active install before waiting for the job to finish', async () => {
+  it('destroys the active install before close finishes', async () => {
     const child = hangingChild();
-    docker.createImpl.mockImplementation(
-      async () =>
-        ({
-          id: 'native-plugin-live',
-          child,
-        }) as unknown as Sandbox,
-    );
-    let jobFinished = false;
-    void child.exited.then(() => {
-      jobFinished = true;
+    let started: () => void = () => {};
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
     });
-    const finishedAtDestroy: boolean[] = [];
-    docker.destroyAll.mockImplementation(async () => {
-      finishedAtDestroy.push(jobFinished);
-      child.finish(137);
-    });
+    child.stdin.write = (() => {
+      started();
+      return 0;
+    }) as typeof child.stdin.write;
+    const destroyed: string[] = [];
+    const provider: NativePluginsDeps['provider'] = {
+      create: async () => ({ id: 'native-plugin-live', child }) as unknown as Sandbox,
+      destroy: async (sandbox) => {
+        destroyed.push(sandbox.id);
+      },
+    };
+    const closing = new AbortController();
     const queue = await enqueueInstall();
-    const handle = await registerNativePlugins(config(), async () => RUNTIME);
+    const handle = await registerNativePlugins({
+      provider,
+      resolveRuntimeEnvironment: async () => RUNTIME,
+      workspacesDir,
+      hostWorkspacesDir: workspacesDir,
+      logger: quietLogger,
+      redisUrl,
+      closingSignal: closing.signal,
+    });
     try {
-      await waitForCreate();
+      await startedPromise;
       await handle.close();
 
-      expect(finishedAtDestroy).toEqual([false]);
-      expect(docker.destroyAll).toHaveBeenCalledTimes(1);
+      expect(destroyed).toEqual(['native-plugin-live']);
       expect(child.signals).toContain('SIGKILL');
     } finally {
       await handle.close();
@@ -498,36 +471,74 @@ describe('registerNativePlugins close', () => {
     }
   });
 
-  it('reports cleanup failure instead of swallowing it', async () => {
-    docker.destroyAll.mockRejectedValueOnce(new Error('rm failed'));
-    const handle = await registerNativePlugins(config(), async () => RUNTIME);
+  it('aborts the active install when the shared closing signal aborts', async () => {
+    const child = hangingChild();
+    let started: () => void = () => {};
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    child.stdin.write = (() => {
+      started();
+      return 0;
+    }) as typeof child.stdin.write;
+    const fake = fakeProvider(() => child);
+    const closing = new AbortController();
+    const queue = await enqueueInstall();
+    const handle = await registerNativePlugins({
+      provider: fake.provider,
+      resolveRuntimeEnvironment: async () => RUNTIME,
+      workspacesDir,
+      hostWorkspacesDir: workspacesDir,
+      logger: quietLogger,
+      redisUrl,
+      closingSignal: closing.signal,
+    });
     try {
-      await expect(handle.close()).rejects.toMatchObject({
-        name: 'AggregateError',
-        errors: [expect.objectContaining({ message: 'rm failed' })],
-      });
+      await startedPromise;
+      closing.abort();
+      await handle.close();
+
+      expect(fake.destroyed).toEqual(['native-plugin-fake']);
+      expect(child.signals).toContain('SIGKILL');
     } finally {
       await handle.close();
+      await queue.close();
     }
   });
 
   it('does not wait for an install stuck in provider.create', async () => {
     let resolveCreate: (sandbox: Sandbox) => void = () => {};
-    docker.createImpl.mockImplementation(
-      () =>
-        new Promise<Sandbox>((resolve) => {
+    let createdCalled = false;
+    const destroyed: string[] = [];
+    const provider: NativePluginsDeps['provider'] = {
+      create: () => {
+        createdCalled = true;
+        return new Promise<Sandbox>((resolve) => {
           resolveCreate = resolve;
-        }),
-    );
+        });
+      },
+      destroy: async (sandbox) => {
+        destroyed.push(sandbox.id);
+      },
+    };
+    const closing = new AbortController();
     const queue = await enqueueInstall();
-    const handle = await registerNativePlugins(config(), async () => RUNTIME);
+    const handle = await registerNativePlugins({
+      provider,
+      resolveRuntimeEnvironment: async () => RUNTIME,
+      workspacesDir,
+      hostWorkspacesDir: workspacesDir,
+      logger: quietLogger,
+      redisUrl,
+      closingSignal: closing.signal,
+    });
     try {
-      await waitForCreate();
+      await waitFor(() => expect(createdCalled).toBe(true), { timeout: 10_000 });
       await handle.close();
 
       const child = hangingChild();
       resolveCreate({ id: 'native-plugin-late', child } as unknown as Sandbox);
-      await waitFor(() => expect(docker.destroy).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(destroyed).toEqual(['native-plugin-late']));
       expect(child.signals).toEqual([]);
     } finally {
       await handle.close();

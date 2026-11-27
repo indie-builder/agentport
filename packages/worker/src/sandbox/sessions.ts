@@ -23,9 +23,13 @@ import {
   USER_CONTAINER_DIR,
 } from '@agentport/shared';
 import type { Logger } from 'pino';
-import type { RuntimeEnvironmentResolver } from '../runtime-environments/resolve.js';
 import type { Sandbox, SandboxProvider } from './provider.js';
 import { SandboxCleanupError } from './provider.js';
+
+export type RuntimeEnvironmentResolver = (
+  environmentId: string | null,
+  versionId?: string | null,
+) => Promise<ResolvedRuntimeEnvironment>;
 
 export interface SessionSandboxSpec {
   agentId: string;
@@ -710,7 +714,17 @@ export class SessionSandboxes {
     }
     try {
       await this.destroyEntry(victim);
-    } catch {}
+    } catch (err) {
+      this.logger.warn(
+        {
+          err,
+          conversationId: victim.conversationId,
+          phase: sessionPhase(victim),
+          sandboxId: victim.sandbox?.id,
+        },
+        'session sandbox reclaim failed',
+      );
+    }
   }
 
   private reclaimable(entry: SessionEntry): boolean {
@@ -999,7 +1013,17 @@ export class SessionSandboxes {
     if (entry.active !== null) this.settle(entry, entry.active, unconfirmed(message));
     this.logger.warn({ conversationId: entry.conversationId, phase: sessionPhase(entry) }, message);
     if (!entry.leaseHeld) {
-      void this.destroyEntry(entry).catch(() => {});
+      void this.destroyEntry(entry).catch((err: unknown) => {
+        this.logger.warn(
+          {
+            err,
+            conversationId: entry.conversationId,
+            phase: sessionPhase(entry),
+            sandboxId: entry.sandbox?.id,
+          },
+          'session sandbox exit cleanup failed',
+        );
+      });
     }
   }
 

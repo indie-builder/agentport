@@ -238,6 +238,7 @@ const knowledgeWorker = await startKnowledgeWorker({
   trustedHosts: config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST.split(',')
     .map((host) => host.trim())
     .filter((host) => host !== ''),
+  nodeEnv: config.NODE_ENV,
 });
 
 const worker = new Worker(
@@ -339,8 +340,27 @@ const maintenanceWorker = await startMaintenanceWorker({
   workspacesDir: config.WORKSPACES_DIR,
 });
 
-const sandboxProbe = await registerSandboxProbe(config, resolveRuntimeEnvironment);
-const nativePlugins = await registerNativePlugins(config, resolveRuntimeEnvironment);
+const sandboxProbe = await registerSandboxProbe({
+  db,
+  logger,
+  provider,
+  resolveRuntimeEnvironment,
+  workspacesDir,
+  hostWorkspacesDir,
+  secretKey: config.APP_SECRET_KEY,
+  redisUrl: config.REDIS_URL,
+  concurrency: config.AGENT_MAX_CONCURRENT,
+  closingSignal: sandboxClosing.signal,
+});
+const nativePlugins = await registerNativePlugins({
+  provider,
+  resolveRuntimeEnvironment,
+  workspacesDir,
+  hostWorkspacesDir,
+  logger,
+  redisUrl: config.REDIS_URL,
+  closingSignal: sandboxClosing.signal,
+});
 
 const runtimeEnvironmentBuildStore = {
   claimBuild: async (versionId: string) => {

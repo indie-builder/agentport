@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import {
-  BINARY_MIME_BY_EXTENSION,
   declaredMime,
+  extensionForMime,
   extensionWithDot,
-  MIME_BY_EXTENSION,
   mimeForExtension,
 } from './source-formats.js';
 import {
@@ -18,11 +17,17 @@ import {
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
-import { failureOf, parseInitialCursor, SourceTruncatedError, snapshotOf } from './source-utils.js';
+import {
+  failureOf,
+  isAbort,
+  paginateCursor,
+  parseInitialCursor,
+  SourceTruncatedError,
+  snapshotOf,
+} from './source-utils.js';
 
 const NOTION_API = 'https://api.notion.com';
 const NOTION_VERSION = '2026-03-11';
-const MAX_PAGES = 1000;
 const MAX_BLOCKS = 50_000;
 const DATA_SOURCE_RESULT_LIMIT = 10_000;
 
@@ -187,12 +192,6 @@ type Property = z.infer<typeof propertySchema>;
 
 const UNSUPPORTED_TEXT_EXTENSIONS = new Set(['.mdx', '.rst', '.adoc']);
 
-const EXTENSION_BY_MIME: Record<string, string> = Object.fromEntries(
-  Object.entries({ ...MIME_BY_EXTENSION, ...BINARY_MIME_BY_EXTENSION })
-    .filter(([extension]) => !UNSUPPORTED_TEXT_EXTENSIONS.has(extension))
-    .map(([extension, mime]) => [mime, extension]),
-);
-
 function mimeForName(name: string, contentType: string | null): string {
   const extension = extensionWithDot(name);
   const byExtension = UNSUPPORTED_TEXT_EXTENSIONS.has(extension)
@@ -203,7 +202,7 @@ function mimeForName(name: string, contentType: string | null): string {
 
 function ensureExtension(name: string, mimeType: string): string {
   if (extensionWithDot(name)) return name;
-  return `${name}${EXTENSION_BY_MIME[mimeType] ?? '.bin'}`;
+  return `${name}${extensionForMime(mimeType, { dot: true }) ?? '.bin'}`;
 }
 
 function compactId(id: string): string {
@@ -283,10 +282,6 @@ function notionOptions(
 
 function notionBase(config: SourceConfig): string {
   return (config.url.trim() || NOTION_API).replace(/\/+$/, '');
-}
-
-function rethrowAbort(err: unknown, signal: AbortSignal | undefined): void {
-  if (signal?.aborted === true) throw signal.reason ?? err;
 }
 
 function richTextPlain(items: readonly { plain_text?: string | undefined }[] | undefined): string {
@@ -409,50 +404,47 @@ async function completePaginatedProperty(
     );
   }
   const inline = (property as Record<string, unknown>)[property.type];
-  const values: unknown[] = [];
-  const cursors = new Set<string>();
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const params = new URLSearchParams({ page_size: '100' });
-    if (cursor) params.set('start_cursor', cursor);
-    const response = await fetchJson(
-      `${ctx.base}/v1/pages/${encodeURIComponent(pageId)}/properties/${encodeURIComponent(property.id)}?${params.toString()}`,
-      propertyItemListSchema,
-      notionOptions(ctx.config, ctx.apiKey, ctx.signal),
-      'notion page property',
-    );
-    for (const item of response.results) {
-      if (item.type !== property.type) {
-        throw new Error(
-          `notion property ${name} on ${pageId} returned ${item.type} instead of ${property.type}`,
-        );
+  const propertyId = property.id;
+  const values = await paginateCursor<unknown>({
+    label: `notion property ${name} on ${pageId}`,
+    cursorName: 'next_cursor',
+    initialCursor: '',
+    fetchPage: async (cursor) => {
+      const params = new URLSearchParams({ page_size: '100' });
+      if (cursor) params.set('start_cursor', cursor);
+      const response = await fetchJson(
+        `${ctx.base}/v1/pages/${encodeURIComponent(pageId)}/properties/${encodeURIComponent(propertyId)}?${params.toString()}`,
+        propertyItemListSchema,
+        notionOptions(ctx.config, ctx.apiKey, ctx.signal),
+        'notion page property',
+      );
+      const pageValues: unknown[] = [];
+      for (const item of response.results) {
+        if (item.type !== property.type) {
+          throw new Error(
+            `notion property ${name} on ${pageId} returned ${item.type} instead of ${property.type}`,
+          );
+        }
+        const value = (item as Record<string, unknown>)[item.type];
+        if (value === undefined) {
+          throw new Error(`notion property ${name} on ${pageId} has no ${item.type} value`);
+        }
+        pageValues.push(value);
       }
-      const value = (item as Record<string, unknown>)[item.type];
-      if (value === undefined) {
-        throw new Error(`notion property ${name} on ${pageId} has no ${item.type} value`);
+      if (!response.has_more) {
+        return { items: pageValues, hasMore: false };
       }
-      values.push(value);
-    }
-    if (!response.has_more) {
-      if (values.length === 0 && Array.isArray(inline) && inline.length > 0) {
-        throw new Error(`notion property ${name} on ${pageId} returned no items`);
-      }
-      const merged = { ...property } as Record<string, unknown>;
-      merged[property.type] = values;
-      merged.has_more = false;
-      return merged as Property;
-    }
-    const next = response.next_cursor ?? '';
-    if (!next) throw new Error(`notion property ${name} on ${pageId} has no next_cursor`);
-    if (cursors.has(next)) {
-      throw new Error(`notion property ${name} on ${pageId} repeated cursor ${next}`);
-    }
-    cursors.add(next);
-    cursor = next;
+      const next = response.next_cursor ?? '';
+      return { items: pageValues, ...(next ? { next } : {}), hasMore: true };
+    },
+  });
+  if (values.length === 0 && Array.isArray(inline) && inline.length > 0) {
+    throw new Error(`notion property ${name} on ${pageId} returned no items`);
   }
-  throw new SourceTruncatedError(
-    `notion property ${name} on ${pageId} exceeded ${MAX_PAGES} pages`,
-  );
+  const merged = { ...property } as Record<string, unknown>;
+  merged[property.type] = values;
+  merged.has_more = false;
+  return merged as Property;
 }
 
 async function completePageProperties(
@@ -508,39 +500,34 @@ function downloadOptions(ctx: NotionContext): FetchOptions {
 }
 
 async function listBlockChildren(ctx: NotionContext, blockId: string): Promise<Block[]> {
-  const blocks: Block[] = [];
-  const seen = new Set<string>();
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const params = new URLSearchParams({ page_size: '100' });
-    if (cursor) params.set('start_cursor', cursor);
-    const response = await fetchJson(
-      `${ctx.base}/v1/blocks/${encodeURIComponent(blockId)}/children?${params.toString()}`,
-      blockListSchema,
-      notionOptions(ctx.config, ctx.apiKey, ctx.signal),
-      'notion block children',
-    );
-    if (response.request_status?.type === 'incomplete') {
-      throw new SourceTruncatedError(
-        `notion block children for ${blockId} are incomplete (${response.request_status.incomplete_reason ?? 'unknown reason'})`,
+  return paginateCursor<Block>({
+    label: `notion block pagination for ${blockId}`,
+    cursorName: 'next_cursor',
+    initialCursor: '',
+    fetchPage: async (cursor, { collected }) => {
+      const params = new URLSearchParams({ page_size: '100' });
+      if (cursor) params.set('start_cursor', cursor);
+      const response = await fetchJson(
+        `${ctx.base}/v1/blocks/${encodeURIComponent(blockId)}/children?${params.toString()}`,
+        blockListSchema,
+        notionOptions(ctx.config, ctx.apiKey, ctx.signal),
+        'notion block children',
       );
-    }
-    blocks.push(...response.results);
-    if (blocks.length > MAX_BLOCKS) {
-      throw new SourceTruncatedError(`notion block tree exceeded ${MAX_BLOCKS} blocks`);
-    }
-    if (!response.has_more) return blocks;
-    const next = response.next_cursor ?? '';
-    if (!next) throw new Error(`notion block pagination for ${blockId} has no next_cursor`);
-    if (seen.has(next)) {
-      throw new Error(`notion block pagination for ${blockId} repeated cursor ${next}`);
-    }
-    seen.add(next);
-    cursor = next;
-  }
-  throw new SourceTruncatedError(
-    `notion block pagination for ${blockId} exceeded ${MAX_PAGES} pages`,
-  );
+      if (response.request_status?.type === 'incomplete') {
+        throw new SourceTruncatedError(
+          `notion block children for ${blockId} are incomplete (${response.request_status.incomplete_reason ?? 'unknown reason'})`,
+        );
+      }
+      if (collected.length + response.results.length > MAX_BLOCKS) {
+        throw new SourceTruncatedError(`notion block tree exceeded ${MAX_BLOCKS} blocks`);
+      }
+      if (!response.has_more) {
+        return { items: response.results, hasMore: false };
+      }
+      const next = response.next_cursor ?? '';
+      return { items: response.results, ...(next ? { next } : {}), hasMore: true };
+    },
+  });
 }
 
 async function collectBlocks(ctx: NotionContext, rootId: string): Promise<Block[]> {
@@ -573,50 +560,45 @@ async function queryDataSource(ctx: NotionContext, dataSourceId: string): Promis
   if (ctx.visitedDataSources.has(sourceKey)) return [];
   ctx.visitedDataSources.add(sourceKey);
 
-  const rows: Page[] = [];
-  const seen = new Set<string>();
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const body: Record<string, unknown> = { page_size: 100 };
-    if (cursor) body.start_cursor = cursor;
-    const response = await fetchJson(
-      `${ctx.base}/v1/data_sources/${encodeURIComponent(dataSourceId)}/query`,
-      querySchema,
-      notionOptions(ctx.config, ctx.apiKey, ctx.signal, 'POST', JSON.stringify(body)),
-      'notion data source query',
-    );
-    if (response.request_status?.type === 'incomplete') {
-      throw new SourceTruncatedError(
-        `notion data source ${dataSourceId} query is incomplete (${response.request_status.incomplete_reason ?? 'unknown reason'}); split the range`,
+  return paginateCursor<Page>({
+    label: `notion data source ${dataSourceId} pagination`,
+    cursorName: 'next_cursor',
+    initialCursor: '',
+    fetchPage: async (cursor, { collected }) => {
+      const body: Record<string, unknown> = { page_size: 100 };
+      if (cursor) body.start_cursor = cursor;
+      const response = await fetchJson(
+        `${ctx.base}/v1/data_sources/${encodeURIComponent(dataSourceId)}/query`,
+        querySchema,
+        notionOptions(ctx.config, ctx.apiKey, ctx.signal, 'POST', JSON.stringify(body)),
+        'notion data source query',
       );
-    }
-    for (const result of response.results) {
-      // Wiki data source 的查询结果可以是子 data_source；按 object 递归，绝不能拿它的 ID 当 page 读。
-      if (result.object === 'data_source') {
-        rows.push(...(await queryDataSource(ctx, result.id)));
-      } else {
-        rows.push(result);
+      if (response.request_status?.type === 'incomplete') {
+        throw new SourceTruncatedError(
+          `notion data source ${dataSourceId} query is incomplete (${response.request_status.incomplete_reason ?? 'unknown reason'}); split the range`,
+        );
       }
-    }
-    if (rows.length >= DATA_SOURCE_RESULT_LIMIT) {
-      throw new SourceTruncatedError(
-        `notion data source ${dataSourceId} reached the ${DATA_SOURCE_RESULT_LIMIT} result limit; split the range`,
-      );
-    }
-    if (!response.has_more) return rows;
-    const next = response.next_cursor ?? '';
-    if (!next) {
-      throw new Error(`notion data source ${dataSourceId} pagination has no next_cursor`);
-    }
-    if (seen.has(next)) {
-      throw new Error(`notion data source ${dataSourceId} pagination repeated cursor ${next}`);
-    }
-    seen.add(next);
-    cursor = next;
-  }
-  throw new SourceTruncatedError(
-    `notion data source ${dataSourceId} pagination exceeded ${MAX_PAGES} pages`,
-  );
+      const pageRows: Page[] = [];
+      for (const result of response.results) {
+        // Wiki data source 的查询结果可以是子 data_source；按 object 递归，绝不能拿它的 ID 当 page 读。
+        if (result.object === 'data_source') {
+          pageRows.push(...(await queryDataSource(ctx, result.id)));
+        } else {
+          pageRows.push(result);
+        }
+      }
+      if (collected.length + pageRows.length >= DATA_SOURCE_RESULT_LIMIT) {
+        throw new SourceTruncatedError(
+          `notion data source ${dataSourceId} reached the ${DATA_SOURCE_RESULT_LIMIT} result limit; split the range`,
+        );
+      }
+      if (!response.has_more) {
+        return { items: pageRows, hasMore: false };
+      }
+      const next = response.next_cursor ?? '';
+      return { items: pageRows, ...(next ? { next } : {}), hasMore: true };
+    },
+  });
 }
 
 async function fetchPage(ctx: NotionContext, pageId: string): Promise<Page> {
@@ -757,7 +739,7 @@ async function emitBlockAttachment(
     });
   } catch (err) {
     rethrowAuth(err);
-    rethrowAbort(err, ctx.signal);
+    if (isAbort(err, ctx.signal)) throw err;
     ctx.failures.push(failureOf(externalId, title, err, true));
   }
 }
@@ -803,7 +785,7 @@ async function emitPropertyFiles(
         });
       } catch (err) {
         rethrowAuth(err);
-        rethrowAbort(err, ctx.signal);
+        if (isAbort(err, ctx.signal)) throw err;
         ctx.failures.push(failureOf(externalId, file.name ?? `${name} ${index}`, err, true));
       }
     }
@@ -827,7 +809,7 @@ async function walkPage(
       page = await fetchPage(ctx, pageId);
     } catch (err) {
       if (err instanceof SourceAuthError || options.root) throw err;
-      rethrowAbort(err, ctx.signal);
+      if (isAbort(err, ctx.signal)) throw err;
       ctx.failures.push(failureOf(externalId, pageId, err, true));
       return;
     }
@@ -841,7 +823,7 @@ async function walkPage(
     page = await completePageProperties(ctx, pageId, page);
   } catch (err) {
     rethrowAuth(err);
-    rethrowAbort(err, ctx.signal);
+    if (isAbort(err, ctx.signal)) throw err;
     ctx.failures.push(failureOf(externalId, pageTitle(page) || pageId, err, true));
     return;
   }
@@ -870,7 +852,7 @@ async function walkPage(
     markdown = response.markdown;
   } catch (err) {
     rethrowAuth(err);
-    rethrowAbort(err, ctx.signal);
+    if (isAbort(err, ctx.signal)) throw err;
     ctx.failures.push(failureOf(externalId, title, err, true));
   }
 
@@ -892,7 +874,7 @@ async function walkPage(
     blocks = await collectBlocks(ctx, pageId);
   } catch (err) {
     rethrowAuth(err);
-    rethrowAbort(err, ctx.signal);
+    if (isAbort(err, ctx.signal)) throw err;
     ctx.failures.push(failureOf(externalId, title, err, true));
     return;
   }

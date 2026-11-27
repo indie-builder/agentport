@@ -2,8 +2,8 @@ import { z } from 'zod';
 import {
   BINARY_MIME_BY_EXTENSION,
   declaredMime,
+  extensionForMime,
   extensionWithDot,
-  MIME_BY_EXTENSION,
   mimeForExtension,
   textContentType,
 } from './source-formats.js';
@@ -23,6 +23,7 @@ import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import {
   failureOf,
+  paginateCursor,
   parseCursor,
   SourceTruncatedError,
   snapshotOf,
@@ -34,14 +35,6 @@ import {
 const FEISHU_AUTH_CODES = new Set([99991661, 99991663, 99991668]);
 
 const MAX_FEISHU_BLOCKS = 50_000;
-
-const EXTENSION_BY_MIME: Record<string, string> = {};
-for (const [extension, mime] of Object.entries({
-  ...MIME_BY_EXTENSION,
-  ...BINARY_MIME_BY_EXTENSION,
-})) {
-  EXTENSION_BY_MIME[mime] ??= extension.slice(1);
-}
 
 type FeishuEmit =
   | {
@@ -511,9 +504,10 @@ function wikiDownloadFormat(
   contentType: string | null,
 ): DownloadFormat | 'conflict' | null {
   const named = downloadedName ? downloadFormat(extensionWithDot(downloadedName)) : null;
-  const mime = contentType?.split(';')[0]?.trim().toLowerCase() ?? '';
-  const declaredExtension = EXTENSION_BY_MIME[mime];
-  const declared = declaredExtension ? { extension: declaredExtension, mimeType: mime } : null;
+  const mime = declaredMime(contentType);
+  const declaredExtension = extensionForMime(mime);
+  const declared =
+    mime && declaredExtension ? { extension: declaredExtension, mimeType: mime } : null;
   if (!named) return declared;
   if (!declared || named.mimeType === declared.mimeType) return named;
   const namedText = textContentType(named.mimeType);
@@ -595,37 +589,34 @@ async function listWikiNodes(
   auth: FeishuAuth,
   spaceId: string,
   parentToken: string | undefined,
-  maxPages = 1000,
   firstPageOnly = false,
 ): Promise<WikiNode[]> {
-  const nodes: WikiNode[] = [];
-  const seen = new Set<string>();
-  let pageToken = '';
-  for (let page = 0; page < maxPages; page += 1) {
-    const params = new URLSearchParams({ page_size: '50' });
-    if (parentToken) params.set('parent_node_token', parentToken);
-    if (pageToken) params.set('page_token', pageToken);
-    const response = await fetchJson(
-      `${auth.base}/open-apis/wiki/v2/spaces/${encodeURIComponent(spaceId)}/nodes?${params.toString()}`,
-      wikiNodesSchema,
-      feishuFetchOptions(auth),
-      'feishu wiki nodes',
-    );
-    assertFeishuCode(response, 'wiki nodes');
-    const pageItems = response.data.items;
-    if (pageItems.length === 0 && response.data.has_more) {
-      throw new Error('feishu wiki pagination returned an empty page with has_more');
-    }
-    nodes.push(...pageItems);
-    if (firstPageOnly) return nodes;
-    if (!response.data.has_more) return nodes;
-    const next = response.data.page_token ?? '';
-    if (!next) throw new Error('feishu wiki pagination set has_more without a page_token');
-    if (seen.has(next)) throw new Error(`feishu wiki pagination repeated page token ${next}`);
-    seen.add(next);
-    pageToken = next;
-  }
-  throw new Error('feishu wiki pagination exceeded 1000 pages');
+  return paginateCursor<WikiNode>({
+    label: 'feishu wiki pagination',
+    cursorName: 'page_token',
+    initialCursor: '',
+    fetchPage: async (pageToken) => {
+      const params = new URLSearchParams({ page_size: '50' });
+      if (parentToken) params.set('parent_node_token', parentToken);
+      if (pageToken) params.set('page_token', pageToken);
+      const response = await fetchJson(
+        `${auth.base}/open-apis/wiki/v2/spaces/${encodeURIComponent(spaceId)}/nodes?${params.toString()}`,
+        wikiNodesSchema,
+        feishuFetchOptions(auth),
+        'feishu wiki nodes',
+      );
+      assertFeishuCode(response, 'wiki nodes');
+      const pageItems = response.data.items;
+      if (pageItems.length === 0 && response.data.has_more) {
+        throw new Error('feishu wiki pagination returned an empty page with has_more');
+      }
+      if (firstPageOnly || !response.data.has_more) {
+        return { items: pageItems, hasMore: false };
+      }
+      const next = response.data.page_token ?? '';
+      return { items: pageItems, ...(next ? { next } : {}), hasMore: true };
+    },
+  });
 }
 
 async function getWikiNode(auth: FeishuAuth, nodeToken: string): Promise<WikiNode> {
@@ -640,79 +631,76 @@ async function getWikiNode(auth: FeishuAuth, nodeToken: string): Promise<WikiNod
 }
 
 async function readDocxBlocks(auth: FeishuAuth, documentId: string): Promise<DocxBlock[]> {
-  const blocks: DocxBlock[] = [];
-  const seen = new Set<string>();
-  let pageToken = '';
-  for (let page = 0; page < 1000; page += 1) {
-    const params = new URLSearchParams({ page_size: '500', document_revision_id: '-1' });
-    if (pageToken) params.set('page_token', pageToken);
-    const response = await fetchJson(
-      `${auth.base}/open-apis/docx/v1/documents/${encodeURIComponent(documentId)}/blocks?${params.toString()}`,
-      docxBlocksSchema,
-      feishuFetchOptions(auth),
-      'feishu docx blocks',
-    );
-    assertFeishuCode(response, 'docx blocks');
-    if (response.data.items.length === 0) {
-      if (response.data.has_more) {
-        throw new SourceTruncatedError('feishu docx blocks returned an empty page with has_more');
-      }
-      return blocks;
-    }
-    blocks.push(...response.data.items);
-    if (!response.data.has_more) return blocks;
-    if (blocks.length >= MAX_FEISHU_BLOCKS) {
-      throw new SourceTruncatedError(
-        `feishu docx blocks truncated at the ${MAX_FEISHU_BLOCKS} block limit`,
+  return paginateCursor<DocxBlock>({
+    label: 'feishu docx pagination',
+    cursorName: 'page_token',
+    initialCursor: '',
+    fetchPage: async (pageToken, { collected }) => {
+      const params = new URLSearchParams({ page_size: '500', document_revision_id: '-1' });
+      if (pageToken) params.set('page_token', pageToken);
+      const response = await fetchJson(
+        `${auth.base}/open-apis/docx/v1/documents/${encodeURIComponent(documentId)}/blocks?${params.toString()}`,
+        docxBlocksSchema,
+        feishuFetchOptions(auth),
+        'feishu docx blocks',
       );
-    }
-    const next = response.data.page_token ?? '';
-    if (!next) throw new Error('feishu docx pagination set has_more without a page_token');
-    if (seen.has(next)) throw new Error(`feishu docx pagination repeated page token ${next}`);
-    seen.add(next);
-    pageToken = next;
-  }
-  throw new SourceTruncatedError('feishu docx pagination exceeded 1000 pages');
+      assertFeishuCode(response, 'docx blocks');
+      const pageItems = response.data.items;
+      if (pageItems.length === 0) {
+        if (response.data.has_more) {
+          throw new SourceTruncatedError('feishu docx blocks returned an empty page with has_more');
+        }
+        return { items: pageItems, hasMore: false };
+      }
+      if (!response.data.has_more) {
+        return { items: pageItems, hasMore: false };
+      }
+      if (collected.length + pageItems.length >= MAX_FEISHU_BLOCKS) {
+        throw new SourceTruncatedError(
+          `feishu docx blocks truncated at the ${MAX_FEISHU_BLOCKS} block limit`,
+        );
+      }
+      const next = response.data.page_token ?? '';
+      return { items: pageItems, ...(next ? { next } : {}), hasMore: true };
+    },
+  });
 }
 
 async function listDriveFiles(
   auth: FeishuAuth,
   folderToken: string,
-  maxPages = 1000,
   firstPageOnly = false,
 ): Promise<DriveFile[]> {
-  const files: DriveFile[] = [];
-  const seen = new Set<string>();
-  let pageToken = '';
-  for (let page = 0; page < maxPages; page += 1) {
-    const params = new URLSearchParams({
-      folder_token: folderToken,
-      page_size: '200',
-      order_by: 'EditedTime',
-      direction: 'DESC',
-    });
-    if (pageToken) params.set('page_token', pageToken);
-    const response = await fetchJson(
-      `${auth.base}/open-apis/drive/v1/files?${params.toString()}`,
-      driveFilesSchema,
-      feishuFetchOptions(auth),
-      'feishu drive files',
-    );
-    assertFeishuCode(response, 'drive files');
-    const pageFiles = response.data.files;
-    if (pageFiles.length === 0 && response.data.has_more) {
-      throw new Error('feishu drive pagination returned an empty page with has_more');
-    }
-    files.push(...pageFiles);
-    if (firstPageOnly) return files;
-    if (!response.data.has_more) return files;
-    const next = response.data.next_page_token ?? '';
-    if (!next) throw new Error('feishu drive pagination set has_more without a next_page_token');
-    if (seen.has(next)) throw new Error(`feishu drive pagination repeated page token ${next}`);
-    seen.add(next);
-    pageToken = next;
-  }
-  throw new Error('feishu drive pagination exceeded 1000 pages');
+  return paginateCursor<DriveFile>({
+    label: 'feishu drive pagination',
+    cursorName: 'next_page_token',
+    initialCursor: '',
+    fetchPage: async (pageToken) => {
+      const params = new URLSearchParams({
+        folder_token: folderToken,
+        page_size: '200',
+        order_by: 'EditedTime',
+        direction: 'DESC',
+      });
+      if (pageToken) params.set('page_token', pageToken);
+      const response = await fetchJson(
+        `${auth.base}/open-apis/drive/v1/files?${params.toString()}`,
+        driveFilesSchema,
+        feishuFetchOptions(auth),
+        'feishu drive files',
+      );
+      assertFeishuCode(response, 'drive files');
+      const pageFiles = response.data.files;
+      if (pageFiles.length === 0 && response.data.has_more) {
+        throw new Error('feishu drive pagination returned an empty page with has_more');
+      }
+      if (firstPageOnly || !response.data.has_more) {
+        return { items: pageFiles, hasMore: false };
+      }
+      const next = response.data.next_page_token ?? '';
+      return { items: pageFiles, ...(next ? { next } : {}), hasMore: true };
+    },
+  });
 }
 
 function wikiWebBase(apiBase: string): { wiki: string; docx: string } {
@@ -1075,7 +1063,7 @@ export async function probeFeishu(
     if (settings.spaceId || settings.nodeToken) {
       throw new Error('feishu settings must select either a wiki space/node or a drive folder');
     }
-    await listDriveFiles(auth, settings.folderToken, 1, true);
+    await listDriveFiles(auth, settings.folderToken, true);
     return;
   }
   if (settings.nodeToken) {
@@ -1083,7 +1071,7 @@ export async function probeFeishu(
     return;
   }
   if (settings.spaceId) {
-    await listWikiNodes(auth, settings.spaceId, undefined, 1, true);
+    await listWikiNodes(auth, settings.spaceId, undefined, true);
     return;
   }
   throw new Error('feishu settings need spaceId or folderToken');

@@ -48,7 +48,7 @@ export interface SandboxQuestionCallbacks {
   expireStale?(): Promise<void>;
 }
 
-export interface SandboxInstructionCallbacks {
+interface SandboxInstructionCallbacks {
   list(): Promise<Array<{ id: string; body: string }>>;
   markDelivered(id: string): Promise<void>;
 }

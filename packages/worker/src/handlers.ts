@@ -17,9 +17,10 @@ import type { Config } from './config.js';
 import { handleEvalJobFailed } from './eval-job.js';
 import { evalFailureDiagnostics } from './eval-runner.js';
 import type { ModelProxy } from './model-proxy.js';
+import { finalizeRun } from './run-finish.js';
 import type { RunAccessDenial } from './runs/run-access.js';
-import { finalizeRun } from './runs/run-finish.js';
 import { SandboxCleanupError } from './sandbox/provider.js';
+import { toDockerHostUrl } from './upstream.js';
 
 export async function toEntry(
   server: AgentDefinitionServer,
@@ -103,13 +104,6 @@ export function createLoadAgentPlugins(db: Database, logger: Logger) {
   };
 }
 
-function toHostUrl(value: string): string {
-  return value.replace(
-    /\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)(?=[:/]|$)/,
-    '//host.docker.internal',
-  );
-}
-
 export function createSandboxEnvFactory(
   config: Pick<Config, 'SANDBOX_EGRESS' | 'HTTPS_PROXY' | 'HTTP_PROXY' | 'NO_PROXY' | 'no_proxy'>,
   modelProxy: Pick<ModelProxy, 'url' | 'issueToken'>,
@@ -126,7 +120,7 @@ export function createSandboxEnvFactory(
     if (config.SANDBOX_EGRESS === 'proxy') {
       for (const key of ['HTTPS_PROXY', 'HTTP_PROXY'] as const) {
         const value = config[key];
-        if (value) env[key] = toHostUrl(value);
+        if (value) env[key] = toDockerHostUrl(value);
       }
       const noProxy = config.NO_PROXY ?? config.no_proxy;
       if (noProxy) env.NO_PROXY = noProxy;

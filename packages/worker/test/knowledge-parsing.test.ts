@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
+import { chunkDocument } from '@agentport/core';
 import {
-  chunkDocument,
   KnowledgeParseError,
   type ParsedDocument,
   parseDocument,

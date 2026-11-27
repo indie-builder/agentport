@@ -14,28 +14,15 @@ import {
 import { Queue } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import type { Config } from '../src/config.js';
-import { loadConfig } from '../src/config.js';
 import type { Sandbox } from '../src/sandbox/provider.js';
-import type { ProbeSandboxOptions, SandboxProbeDeps } from '../src/sandbox-probe.js';
+import {
+  type ProbeSandboxOptions,
+  registerSandboxProbe,
+  runSandboxProbe,
+  type SandboxProbeDeps,
+} from '../src/sandbox-probe.js';
 import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
-
-const docker = (() => ({ destroyAll: mock(async () => undefined) }))();
-
-const dockerActual = await import('../src/sandbox/docker.js');
-mock.module('../src/sandbox/docker.js', () => ({
-  ...dockerActual,
-  DockerSandboxProvider: class {
-    create = async () => {
-      throw new Error('unexpected create');
-    };
-    destroy = async () => undefined;
-    destroyAll = docker.destroyAll;
-  },
-}));
-
-const { registerSandboxProbe, runSandboxProbe } = await import('../src/sandbox-probe.js');
 
 const SECRET_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
@@ -494,28 +481,51 @@ async function obliterateQueue(): Promise<void> {
   }
 }
 
-function config(): Config {
-  return loadConfig({
-    DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://u:p@localhost:5432/db',
-    APP_SECRET_KEY: 'a'.repeat(32),
-    WORKSPACES_DIR: workspacesDir,
-    REDIS_URL: redisUrl,
-    LOG_LEVEL: 'error',
-  });
-}
-
 describe.skipIf(!ready)('registerSandboxProbe close', () => {
   beforeAll(obliterateQueue);
 
   afterAll(obliterateQueue);
 
-  it('reports cleanup failure instead of swallowing it', async () => {
-    docker.destroyAll.mockRejectedValueOnce(new Error('rm failed'));
-    const handle = await registerSandboxProbe(config(), async () => RUNTIME);
-
-    await expect(handle.close()).rejects.toMatchObject({
-      name: 'AggregateError',
-      errors: [expect.objectContaining({ message: 'rm failed' })],
+  it('aborts an active probe on shared closing signal without closing shared db', async () => {
+    const serverId = await seedStdio({});
+    const child = hangingChild();
+    let started: () => void = () => {};
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
     });
+    child.stdin.write = (() => {
+      started();
+      return true;
+    }) as typeof child.stdin.write;
+    const fake = fakeProvider(() => child);
+    const closing = new AbortController();
+    const redis = bunRedisConnection(redisUrl);
+    const queue = new Queue(SANDBOX_PROBES_QUEUE, { connection: redis.connection });
+    const handle = await registerSandboxProbe({
+      db,
+      logger: quietLogger,
+      provider: fake.provider,
+      resolveRuntimeEnvironment: async () => RUNTIME,
+      workspacesDir,
+      hostWorkspacesDir: workspacesDir,
+      secretKey: SECRET_KEY,
+      redisUrl,
+      concurrency: 1,
+      closingSignal: closing.signal,
+    });
+    try {
+      await queue.add('probe', { serverId });
+      await startedPromise;
+      closing.abort();
+      await handle.close();
+
+      expect(child.signals).toContain('SIGKILL');
+      expect(fake.destroyed).toEqual(['probe-fake']);
+      await expect(dbHandle.client.unsafe('select 1')).resolves.toBeDefined();
+    } finally {
+      await handle.close();
+      await queue.close();
+      await redis.close();
+    }
   });
 });

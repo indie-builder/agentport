@@ -35,7 +35,7 @@ import {
 import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import pLimit from 'p-limit';
 import type { Logger } from 'pino';
-import { ONE_SHOT_NO_RESULT_MESSAGE, type OneShotSdkOutcome } from '../one-shot-sdk.js';
+import type { Config } from '../config.js';
 import { describeKnowledgeImage, type ImageQueryFn } from './image-processing.js';
 import { KnowledgeParseError, type ParsedDocument, type ParsedImage } from './parsing.js';
 import { sourceNetworkOptions } from './source-http.js';
@@ -93,6 +93,7 @@ export interface SourceCheckpoint {
 export interface ConnectorNetwork {
   trustedHosts?: readonly string[];
   allowLoopback?: boolean;
+  nodeEnv?: Config['NODE_ENV'];
 }
 
 export interface KnowledgeConnector {
@@ -146,6 +147,7 @@ export interface KnowledgeDeps {
   onSummaryJobs?: (input: { baseId: string; jobIds: string[] }) => Promise<void>;
   trustedHosts?: readonly string[];
   allowLoopback?: boolean;
+  nodeEnv?: Config['NODE_ENV'] | undefined;
   imageQueryFn?: ImageQueryFn;
   anthropicBaseUrl: string | undefined;
 }
@@ -224,12 +226,6 @@ export class KnowledgeCancelled extends Error {
   constructor() {
     super('cancelled');
   }
-}
-
-export function requireOneShotSuccess(outcome: OneShotSdkOutcome): void {
-  if (outcome.status === 'aborted') throw new KnowledgeCancelled();
-  if (outcome.status === 'no_result') throw new Error(ONE_SHOT_NO_RESULT_MESSAGE);
-  if (outcome.status === 'failure') throw new Error(outcome.message);
 }
 
 class KnowledgeProfileMismatch extends Error {}
@@ -1624,10 +1620,9 @@ export async function runSync(
   if (ranges.length === 0) throw new Error('来源没有启用的范围');
 
   const secrets = snapshot.secretsEncrypted ? await deps.decrypt(snapshot.secretsEncrypted) : {};
+  const networkOptions = sourceNetworkOptions(deps);
   const network: ConnectorNetwork | undefined =
-    deps.trustedHosts?.length || deps.allowLoopback === true
-      ? sourceNetworkOptions(deps)
-      : undefined;
+    Object.keys(networkOptions).length > 0 ? networkOptions : undefined;
   const stats = { listed: 0, created: 0, updated: 0, disabled: 0, failed: 0 };
   const seen = new Set<string>();
   const rangeIdsByItem = new Map<string, Set<string>>();
@@ -1795,10 +1790,9 @@ export async function runSourceProbe(
   const ranges = snapshot.ranges.filter((range) => range.enabled);
   if (ranges.length === 0) throw new Error('来源没有启用的范围，无法探测');
   const secrets = snapshot.secretsEncrypted ? await deps.decrypt(snapshot.secretsEncrypted) : {};
+  const networkOptions = sourceNetworkOptions(deps);
   const network: ConnectorNetwork | undefined =
-    deps.trustedHosts?.length || deps.allowLoopback === true
-      ? sourceNetworkOptions(deps)
-      : undefined;
+    Object.keys(networkOptions).length > 0 ? networkOptions : undefined;
 
   const checks: KnowledgeSourceProbeResult['checks'] = [];
   for (const range of ranges) {

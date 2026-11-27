@@ -296,7 +296,7 @@ async function readWikiTarget(
   };
 }
 
-async function readKnowledgeTarget(
+export async function readKnowledgeTarget(
   input: KnowledgeServerInput,
   args: KnowledgeReadInput,
 ): Promise<KnowledgeReadResult> {

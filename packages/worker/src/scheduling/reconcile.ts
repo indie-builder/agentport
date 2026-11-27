@@ -8,7 +8,7 @@ import { Effect, Result, Schedule } from 'effect';
 import type { Logger } from 'pino';
 import { startIntervalTicker } from '../interval-ticker.js';
 import { queueState } from '../queue-state.js';
-import { finalizeRun, type RunFinishedEvent } from '../runs/run-finish.js';
+import { finalizeRun, type RunFinishedEvent } from '../run-finish.js';
 
 const RECONCILE_EVERY_MS = 5 * 60 * 1000;
 const GRACE_MS = 5 * 60 * 1000;

@@ -1,12 +1,15 @@
+import { sha256Hex } from '@agentport/core';
+import { isRecord } from '@agentport/core/record';
 import { errorText } from '@agentport/shared';
 import { z } from 'zod';
-import { EXTENSION_BY_MIME, extensionWithDot, mimeOf } from './source-formats.js';
+import { extensionForMime, extensionWithDot, mimeOf } from './source-formats.js';
 import {
   type FetchOptions,
   fetchChecked,
   SourceItemError as ItemError,
   readBytesCapped,
   rethrowAuth,
+  type SourceUrlOptions,
   sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
@@ -27,7 +30,7 @@ const settingsSchema = z.object({
   path: z.string().trim().min(1),
 });
 
-type Network = { allowLoopback?: boolean; trustedHosts?: readonly string[] };
+type Network = Pick<SourceUrlOptions, 'allowLoopback' | 'trustedHosts' | 'nodeEnv'>;
 
 type Auth = {
   username: string;
@@ -75,7 +78,7 @@ function safeSegment(segment: string): boolean {
 function titleOf(relative: string, mime: string | undefined): string {
   const name = relative.slice(relative.lastIndexOf('/') + 1);
   if (extensionWithDot(name)) return name;
-  const extension = mime ? EXTENSION_BY_MIME[mime] : undefined;
+  const extension = extensionForMime(mime);
   return extension ? `${name}.${extension}` : name;
 }
 
@@ -143,19 +146,14 @@ function propfindOptions(
   };
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-}
-
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : value === undefined ? [] : [value];
 }
 
 function textOf(value: unknown): string | undefined {
   if (typeof value === 'string') return value;
-  if (value === null || typeof value !== 'object') return undefined;
-  const text = (value as Record<string, unknown>)['#text'];
-  return typeof text === 'string' ? text : undefined;
+  if (!isRecord(value)) return undefined;
+  return typeof value['#text'] === 'string' ? value['#text'] : undefined;
 }
 
 function statusCode(value: unknown): number | undefined {
@@ -186,17 +184,15 @@ function scopedNamespaces(record: Record<string, unknown>, parent: Namespaces): 
 }
 
 function childrenOf(value: unknown, parent: Namespaces): XmlElement[] {
+  if (!isRecord(value)) return [];
   const elements: XmlElement[] = [];
-  for (const [key, raw] of Object.entries(asRecord(value))) {
+  for (const [key, raw] of Object.entries(value)) {
     if (key.startsWith('@') || key.startsWith('?') || key === '#text') continue;
     const colon = key.indexOf(':');
     const prefix = colon < 0 ? '' : key.slice(0, colon);
     const local = colon < 0 ? key : key.slice(colon + 1);
     for (const item of asArray(raw)) {
-      const namespaces =
-        item !== null && typeof item === 'object'
-          ? scopedNamespaces(item as Record<string, unknown>, parent)
-          : parent;
+      const namespaces = isRecord(item) ? scopedNamespaces(item, parent) : parent;
       elements.push({ uri: namespaces.get(prefix), local, value: item, namespaces });
     }
   }
@@ -549,7 +545,7 @@ async function walk(
   } catch (error) {
     if (isRoot) throw error;
     signal?.throwIfAborted();
-    failures.push(failureOf(`nextcloud:dir:${createPathDigest(relative)}`, relative, error));
+    failures.push(failureOf(`nextcloud:dir:${sha256Hex(relative).slice(0, 16)}`, relative, error));
     return;
   }
   if (!requireSelf(results, auth, relative).collection) {
@@ -563,13 +559,15 @@ async function walk(
       const href = result.href;
       if (href === undefined) {
         failures.push(
-          failureOf(`nextcloud:path:${createPathDigest(relative)}`, relative, result.error),
+          failureOf(`nextcloud:path:${sha256Hex(relative).slice(0, 16)}`, relative, result.error),
         );
         continue;
       }
       const child = relativeFromHref(href, auth, request, relative);
       if (child === relative) throw result.error;
-      failures.push(failureOf(`nextcloud:path:${createPathDigest(child)}`, child, result.error));
+      failures.push(
+        failureOf(`nextcloud:path:${sha256Hex(child).slice(0, 16)}`, child, result.error),
+      );
       continue;
     }
     const entry = result.entry;
@@ -578,7 +576,7 @@ async function walk(
     if (seenChildren.has(child)) {
       failures.push(
         failureOf(
-          `nextcloud:path:${createPathDigest(child)}`,
+          `nextcloud:path:${sha256Hex(child).slice(0, 16)}`,
           child,
           new ItemError(`duplicate DAV response for ${child}`, 'invalid_response', false),
         ),
@@ -602,10 +600,6 @@ async function walk(
       await emitFile(auth, child, entry, items, failures, signal);
     }
   }
-}
-
-function createPathDigest(value: string): string {
-  return new Bun.CryptoHasher('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
 }
 
 export async function readNextcloud(

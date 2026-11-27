@@ -6,7 +6,7 @@ type CapOptions = {
 };
 
 export async function readCappedBytes(
-  response: Response,
+  response: Pick<Response, 'headers' | 'body'>,
   limit: number,
   label: string,
   options: CapOptions = {},
@@ -43,7 +43,7 @@ export async function readCappedBytes(
 }
 
 export async function readCappedText(
-  response: Response,
+  response: Pick<Response, 'headers' | 'body'>,
   limit: number,
   label: string,
   options: CapOptions = {},

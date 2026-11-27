@@ -1,3 +1,4 @@
+import { sha256Hex } from '@agentport/core';
 import { parseFeed, parseJsonFeed } from 'feedsmith';
 import TurndownService from 'turndown';
 import { z } from 'zod';
@@ -30,6 +31,7 @@ import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './
 import {
   encodePathSegments,
   failureOf,
+  paginateCursor,
   parseCursor,
   signalOption,
   snapshotOf,
@@ -38,10 +40,6 @@ import {
 import { probeYuque, readYuque } from './source-yuque.js';
 
 export { SourceAuthError, validateSourceUrl } from './source-http.js';
-
-function contentHash(...parts: string[]): string {
-  return new Bun.CryptoHasher('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 16);
-}
 
 type FeedEntry = { id: string; title: string; link: string; html: string; summary: string };
 
@@ -195,7 +193,7 @@ async function readRss(
       usedPaths,
       entry.id,
     );
-    itemHashes[externalId] = contentHash(title, body);
+    itemHashes[externalId] = sha256Hex(`${title}\u0000${body}`).slice(0, 16);
     items.push({
       externalId,
       title,
@@ -335,23 +333,28 @@ async function readGitlab(
   const projectId = String(project.id);
   const webUrl = project.web_url ?? `${base.origin}/${settings.project}`;
 
-  const treeEntries: Array<z.infer<typeof gitlabTreeEntrySchema>> = [];
-  for (let page = 1; page <= 1000; page += 1) {
-    const response = await fetchChecked(
-      `${apiBase}/projects/${encodeURIComponent(projectId)}/repository/tree?ref=${encodeURIComponent(ref)}&recursive=true&per_page=100&page=${page}`,
-      fetchOptions(),
-    );
-    const parsed = z
-      .array(gitlabTreeEntrySchema)
-      .safeParse(JSON.parse(await readCapped(response, 'gitlab tree')));
-    if (!parsed.success) throw new Error('gitlab tree response does not match the expected schema');
-    treeEntries.push(...parsed.data);
-    const next = Number(response.headers.get('x-next-page') ?? '');
-    if (!next) break;
-    if (next <= page)
-      throw new Error(`gitlab pagination did not advance (page ${page} -> ${next})`);
-    if (page === 1000) throw new Error('gitlab tree exceeded 1000 pages');
-  }
+  const treeEntries = await paginateCursor<z.infer<typeof gitlabTreeEntrySchema>, number>({
+    label: 'gitlab tree',
+    cursorName: 'page',
+    initialCursor: 1,
+    fetchPage: async (page) => {
+      const response = await fetchChecked(
+        `${apiBase}/projects/${encodeURIComponent(projectId)}/repository/tree?ref=${encodeURIComponent(ref)}&recursive=true&per_page=100&page=${page}`,
+        fetchOptions(),
+      );
+      const parsed = z
+        .array(gitlabTreeEntrySchema)
+        .safeParse(JSON.parse(await readCapped(response, 'gitlab tree')));
+      if (!parsed.success)
+        throw new Error('gitlab tree response does not match the expected schema');
+      const next = Number(response.headers.get('x-next-page') ?? '');
+      if (!next) return { items: parsed.data, hasMore: false };
+      if (next <= page) {
+        throw new Error(`gitlab pagination did not advance (page ${page} -> ${next})`);
+      }
+      return { items: parsed.data, next, hasMore: true };
+    },
+  });
 
   const usedPaths = new Set<string>();
   const items: SourceItem[] = [];

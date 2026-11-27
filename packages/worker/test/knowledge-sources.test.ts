@@ -733,6 +733,7 @@ function rssConfig(url: string, settings: Record<string, unknown> = {}): SourceC
     url,
     credentials: { authorization: 'Bearer feed-secret' },
     allowLoopback: true,
+    nodeEnv: 'test',
     settings,
   };
 }
@@ -743,6 +744,7 @@ function gitlabConfig(settings: Record<string, unknown> = {}): SourceConfig {
     url: `${mainUrl}/gitlab`,
     credentials: { token: 'glpat-test' },
     allowLoopback: true,
+    nodeEnv: 'test',
     settings: {
       project: 'group/proj',
       paths: ['docs', 'src/b.txt'],
@@ -757,6 +759,7 @@ function githubConfig(settings: Record<string, unknown> = {}): SourceConfig {
     url: `${mainUrl}/github/api/v3`,
     credentials: { token: '{{SECRET_ghp_example}}' },
     allowLoopback: true,
+    nodeEnv: 'test',
     settings: {
       project: 'octo/proj',
       paths: ['docs', 'src/b.txt'],
@@ -771,6 +774,7 @@ function feishuConfig(settings: Record<string, unknown> = {}): SourceConfig {
     url: `${mainUrl}/feishu`,
     credentials: { appSecret: 'cli_secret' },
     allowLoopback: true,
+    nodeEnv: 'test',
     settings: { appId: 'cli_app', spaceId: 'spc1', ...settings },
   };
 }
@@ -781,6 +785,7 @@ function feishuDriveConfig(settings: Record<string, unknown> = {}): SourceConfig
     url: `${mainUrl}/feishu`,
     credentials: { appSecret: 'cli_secret' },
     allowLoopback: true,
+    nodeEnv: 'test',
     settings: { appId: 'cli_app', folderToken: 'fld1', ...settings },
   };
 }
@@ -805,7 +810,10 @@ describe('validateSourceUrl', () => {
   });
 
   it('allows loopback only when explicitly requested', async () => {
-    const parsed = await validateSourceUrl(`${mainUrl}/path`, { allowLoopback: true });
+    const parsed = await validateSourceUrl(`${mainUrl}/path`, {
+      allowLoopback: true,
+      nodeEnv: 'test',
+    });
     expect(parsed.origin).toBe(mainUrl);
   });
 
@@ -822,16 +830,13 @@ describe('validateSourceUrl', () => {
     ).rejects.toThrow(/private address/);
   });
 
-  it('never takes loopback from user config in production', async () => {
-    const previous = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
-      await expect(validateSourceUrl(`${mainUrl}/x`, { allowLoopback: true })).rejects.toThrow(
-        /private address/,
-      );
-    } finally {
-      process.env.NODE_ENV = previous;
-    }
+  it('never takes loopback from user config in production or when nodeEnv is omitted', async () => {
+    await expect(
+      validateSourceUrl(`${mainUrl}/x`, { allowLoopback: true, nodeEnv: 'production' }),
+    ).rejects.toThrow(/private address/);
+    await expect(validateSourceUrl(`${mainUrl}/x`, { allowLoopback: true })).rejects.toThrow(
+      /private address/,
+    );
   });
 });
 
@@ -925,6 +930,7 @@ describe('RSS/Atom/JSON sources', () => {
       url: `${mainUrl}/redirect-feed`,
       credentials: { authorization: 'Bearer redirect-secret' },
       allowLoopback: true,
+      nodeEnv: 'test',
       settings: {},
     });
 

@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+export const DEFAULT_SANDBOX_API_URL = 'http://host.docker.internal:3000';
+export const DEFAULT_SANDBOX_MAX_FIELD_BYTES = 1024 * 1024;
+
 export const commonEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),

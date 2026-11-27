@@ -14,13 +14,10 @@ import {
   redactSecrets,
 } from '@agentport/shared';
 import type { Logger } from 'pino';
-import type { Config } from './config.js';
-import { createWorkerLogger } from './logger.js';
 import { startRedisWorker } from './queue-worker.js';
-import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
-import { DockerSandboxProvider } from './sandbox/docker.js';
 import { runSandboxTask, SANDBOX_TASK_OUTPUT_MAX_BYTES } from './sandbox/one-shot.js';
 import type { SandboxCreateOptions, SandboxProvider } from './sandbox/provider.js';
+import type { RuntimeEnvironmentResolver } from './sandbox/sessions.js';
 
 const STDERR_TAIL_BYTES = 2 * 1024;
 
@@ -28,7 +25,7 @@ const ACTION_WORKSPACE = 'native-plugin-actions';
 const CACHE_DIR = 'plugin-cache';
 
 export interface NativePluginsDeps {
-  provider: SandboxProvider;
+  provider: Pick<SandboxProvider, 'create' | 'destroy'>;
   resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
   workspacesDir: string;
   hostWorkspacesDir: string;
@@ -167,49 +164,33 @@ export async function runNativePluginAction(
   );
 }
 
-export async function registerNativePlugins(
-  config: Config,
-  resolveRuntimeEnvironment: RuntimeEnvironmentResolver,
-): Promise<{ close(): Promise<void> }> {
-  const closing = new AbortController();
-  const provider = new DockerSandboxProvider({
-    memory: config.SANDBOX_MEMORY,
-    cpus: config.SANDBOX_CPUS,
-    pids: config.SANDBOX_PIDS,
-    egress: config.SANDBOX_EGRESS,
-    closing: closing.signal,
-  });
+export async function registerNativePlugins(input: {
+  provider: Pick<SandboxProvider, 'create' | 'destroy'>;
+  resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
+  workspacesDir: string;
+  hostWorkspacesDir: string;
+  logger: Logger;
+  redisUrl: string;
+  closingSignal: AbortSignal;
+}): Promise<{ close(): Promise<void> }> {
   const deps: NativePluginsDeps = {
-    provider,
-    resolveRuntimeEnvironment,
-    workspacesDir: config.WORKSPACES_DIR,
-    hostWorkspacesDir: config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR,
-    logger: createWorkerLogger(config),
+    provider: input.provider,
+    resolveRuntimeEnvironment: input.resolveRuntimeEnvironment,
+    workspacesDir: input.workspacesDir,
+    hostWorkspacesDir: input.hostWorkspacesDir,
+    logger: input.logger,
   };
 
-  const worker = startRedisWorker<NativePluginAction>({
+  return startRedisWorker<NativePluginAction>({
     queue: NATIVE_PLUGINS_QUEUE,
-    redisUrl: config.REDIS_URL,
-    logger: deps.logger,
+    redisUrl: input.redisUrl,
+    logger: input.logger,
     failureMessage: 'native plugin job failed',
-    externalSignal: closing.signal,
+    externalSignal: input.closingSignal,
     processor: (signal) => async (job) => {
       const parsed = nativePluginActionSchema.safeParse(job.data);
       if (!parsed.success) throw new Error('invalid native plugin payload');
       return runNativePluginAction({ ...deps, closing: signal }, parsed.data);
     },
   });
-
-  return {
-    close: async () => {
-      closing.abort();
-      const results = await Promise.allSettled([worker.close(), provider.destroyAll()]);
-      const failures = results.flatMap((result) =>
-        result.status === 'rejected' ? [result.reason] : [],
-      );
-      if (failures.length > 0) {
-        throw new AggregateError(failures, 'native plugin shutdown failed');
-      }
-    },
-  };
 }

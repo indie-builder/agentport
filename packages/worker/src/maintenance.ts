@@ -87,9 +87,7 @@ async function runOpsAlerts(input: {
       input.logger.error({ err }, 'ops alert queue counts failed');
       queueCounts = [];
     } finally {
-      await Promise.all(queues.map((queue) => queue.close())).finally(() =>
-        connection.disconnect(),
-      );
+      await Promise.all(queues.map((queue) => queue.close())).finally(() => connection.quit());
     }
   }
   const failed = queueCounts.reduce((total, queue) => total + queue.failed, 0);
@@ -324,7 +322,7 @@ export async function startMaintenanceWorker(input: {
   redisUrl: string;
   retain: Retention;
   workspacesDir: string;
-}): Promise<Worker> {
+}): Promise<{ close(): Promise<void> }> {
   const connection = createBunRedisClient(new RedisClient(input.redisUrl));
   const queue = new Queue(MAINTENANCE_QUEUE, { connection });
   await Promise.all([
@@ -348,11 +346,12 @@ export async function startMaintenanceWorker(input: {
         : runMaintenance(input.db, input.logger, input.retain, input.workspacesDir),
     { connection },
   );
-  worker.on('closed', () => connection.disconnect());
   worker.on('failed', (job, err) => {
     input.logger.error({ jobId: job?.id, err }, 'maintenance job failed');
   });
-  return worker;
+  return {
+    close: () => worker.close().finally(() => connection.quit()),
+  };
 }
 
 if (process.argv[1] && import.meta.url === Bun.pathToFileURL(process.argv[1]).href) {

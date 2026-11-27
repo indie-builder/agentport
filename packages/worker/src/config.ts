@@ -1,5 +1,12 @@
 import { isAbsolute, resolve } from 'node:path';
-import { commonEnvSchema, parseEnv, RETENTION_DEFAULTS, serviceEnvShape } from '@agentport/shared';
+import {
+  commonEnvSchema,
+  DEFAULT_SANDBOX_API_URL,
+  DEFAULT_SANDBOX_MAX_FIELD_BYTES,
+  parseEnv,
+  RETENTION_DEFAULTS,
+  serviceEnvShape,
+} from '@agentport/shared';
 import { z } from 'zod';
 
 const repoRoot = Bun.fileURLToPath(new URL('../../../', import.meta.url));
@@ -63,11 +70,11 @@ const envSchema = z
       .int()
       .positive()
       .max(
-        1024 * 1024,
+        DEFAULT_SANDBOX_MAX_FIELD_BYTES,
         'SANDBOX_MAX_FIELD_BYTES 不能超过 1MiB：JSON 转义后要落在宿主 8MiB 单行上限内',
       )
-      .default(1024 * 1024),
-    SANDBOX_API_URL: z.string().min(1).default('http://host.docker.internal:3000'),
+      .default(DEFAULT_SANDBOX_MAX_FIELD_BYTES),
+    SANDBOX_API_URL: z.string().min(1).default(DEFAULT_SANDBOX_API_URL),
     APP_SECRET_KEY: serviceEnvShape.APP_SECRET_KEY,
     ANTHROPIC_API_KEY: z.string().optional(),
     ANTHROPIC_AUTH_TOKEN: z.string().optional(),

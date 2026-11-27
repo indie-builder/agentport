@@ -31,6 +31,7 @@ import {
 import type { Job } from 'bullmq';
 import { and, asc, eq, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
+import { resolveAgentVersionSnapshot } from '../agent-snapshot.js';
 import type { Config } from '../config.js';
 import { executeMemoryReview } from '../memory/memory-review.js';
 import {
@@ -44,6 +45,12 @@ import {
   persistRunMessages,
 } from '../messages.js';
 import type { ModelProxy } from '../model-proxy.js';
+import {
+  finalizeRun,
+  handOffPendingFinish,
+  publishRunFinished,
+  type RunFinishedEvent,
+} from '../run-finish.js';
 import {
   acquireSessionSandbox,
   isRetryable,
@@ -60,7 +67,6 @@ import {
   runWorkspaceDir,
   toHostWorkspacePath,
 } from '../session-workspace.js';
-import { resolveAgentVersionSnapshot } from './agent-snapshot.js';
 import { promptWithAttachments } from './attachments.js';
 import { readForkUuidMap } from './fork-uuids.js';
 import { promptWithOpenUiAction } from './openui-action.js';
@@ -78,12 +84,6 @@ import {
   type RunAccessDenial,
   runExecutionSubject,
 } from './run-access.js';
-import {
-  finalizeRun,
-  handOffPendingFinish,
-  publishRunFinished,
-  type RunFinishedEvent,
-} from './run-finish.js';
 import type { WorkspaceAssemblyInput } from './workspace-assembly.js';
 
 type Db = ReturnType<typeof createDb>['db'];

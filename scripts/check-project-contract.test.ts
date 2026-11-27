@@ -425,7 +425,7 @@ const fixtures = [
       [`packages/worker/src/${file}`]: `${file.startsWith('data-domains/') ? 'import { startIntervalTicker } from "../scheduling/interval-ticker";\n' : ''}tick();\nconst timer = setInterval(tick, RECONCILE_MS);\ntimer.unref();\n`,
     },
     expected: [
-      '改用 packages/worker/src/scheduling/interval-ticker.ts 的 startIntervalTicker',
+      '改用 packages/worker/src/interval-ticker.ts 的 startIntervalTicker',
       'packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight',
     ],
   })),

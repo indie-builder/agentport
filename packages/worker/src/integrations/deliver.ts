@@ -2,6 +2,7 @@ import { decryptSecrets, isAppError } from '@agentport/core';
 import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { type Database, repo } from '@agentport/db';
 import type { Logger } from 'pino';
+import { startIntervalTicker } from '../interval-ticker.js';
 
 const TICK_MS = 1_000;
 const BATCH_SIZE = 20;
@@ -115,26 +116,11 @@ async function deliverBatch(deps: DeliveryDeps): Promise<void> {
 }
 
 export function startWebhookDeliveryReconciler(deps: DeliveryDeps): () => Promise<void> {
-  let stopped = false;
-  let busy = false;
-  let inFlight: Promise<void> = Promise.resolve();
-  const tick = (): void => {
-    if (stopped || busy) return;
-    busy = true;
-    inFlight = deliverBatch(deps)
-      .catch((err: unknown) => {
+  return startIntervalTicker(
+    () =>
+      deliverBatch(deps).catch((err: unknown) => {
         deps.logger.warn({ err }, 'webhook delivery tick failed');
-      })
-      .finally(() => {
-        busy = false;
-      });
-  };
-  tick();
-  const timer = setInterval(tick, TICK_MS);
-  timer.unref();
-  return async () => {
-    stopped = true;
-    clearInterval(timer);
-    await inFlight;
-  };
+      }),
+    TICK_MS,
+  );
 }

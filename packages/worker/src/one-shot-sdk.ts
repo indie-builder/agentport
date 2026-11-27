@@ -47,6 +47,15 @@ export type OneShotSdkOutcome =
 export const ONE_SHOT_NO_RESULT_MESSAGE = 'SDK 没有返回结果';
 export const ONE_SHOT_NO_STRUCTURED_OUTPUT_MESSAGE = '模型没有返回结构化结果';
 
+export function requireOneShotSuccess(
+  outcome: OneShotSdkOutcome,
+  onAborted: () => Error = () => new Error('aborted'),
+): void {
+  if (outcome.status === 'aborted') throw onAborted();
+  if (outcome.status === 'no_result') throw new Error(ONE_SHOT_NO_RESULT_MESSAGE);
+  if (outcome.status === 'failure') throw new Error(outcome.message);
+}
+
 export async function runOneShotSdkQuery(opts: {
   signal: AbortSignal;
   cwd: string;

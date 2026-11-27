@@ -1,3 +1,5 @@
+import type { Config } from '../config.js';
+
 export type SourceConfig = {
   type:
     | 'rss'
@@ -16,6 +18,7 @@ export type SourceConfig = {
   settings: Record<string, unknown>;
   trustedHosts?: readonly string[];
   allowLoopback?: boolean;
+  nodeEnv?: Config['NODE_ENV'];
 };
 
 export type SourceItem = {

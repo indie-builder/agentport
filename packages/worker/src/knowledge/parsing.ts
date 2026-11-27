@@ -23,7 +23,6 @@ import { assertUsableImage } from './image-processing.js';
 
 export type { ParsedBlock, ParsedDocument, ParsedImage } from '@agentport/core';
 export {
-  chunkDocument,
   isTableBlock,
   KnowledgeParseError,
   markdownBlocks,

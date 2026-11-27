@@ -15,10 +15,9 @@ import {
 import type { Job } from 'bullmq';
 import type { Logger } from 'pino';
 import { startRedisWorker } from '../queue-worker.js';
+import { resolveTmpDir } from '../tmp.js';
 import { keepTail, runDocker, type SpawnFn, spawnDocker } from './command.js';
 import { verifyRuntimeEnvironmentImage } from './verify.js';
-
-const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
 
 export const RUNTIME_ENVIRONMENT_BUILD_JOB = 'build';
 
@@ -162,7 +161,7 @@ export async function executeRuntimeEnvironmentBuild(
       return failure(log, `固定基座镜像失败${detail(tagged.stderr)}`, false);
     }
 
-    tempDir = await mkdtemp(join(tmpdir(), 'runtime-env-build-'));
+    tempDir = await mkdtemp(join(resolveTmpDir(), 'runtime-env-build-'));
     const iidFile = join(tempDir, 'image.iid');
     await Bun.write(join(tempDir, 'Dockerfile'), input.dockerfile);
     const imageTag = imageTagFor(input.baseImageId, input.versionId, input.sandboxImage);

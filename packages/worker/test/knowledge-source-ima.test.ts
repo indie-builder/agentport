@@ -100,6 +100,7 @@ function config(settings: Record<string, unknown> = {}): SourceConfig {
     settings: { clientId: 'client-id', knowledgeBaseId: 'kb1', ...settings },
     trustedHosts: ['ima.qq.com'],
     allowLoopback: true,
+    nodeEnv: 'test',
   };
 }
 
