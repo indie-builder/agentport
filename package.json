@@ -16,7 +16,7 @@
       "@ui-sdk/react": "0.1.0-beta.18",
       "bullmq": "6.7.10",
       "drizzle-orm": "0.45.4",
-      "effect": "4.1.6",
+      "effect": "4.1.7",
       "pino": "10.4.0",
       "typescript": "7.0.2",
       "zod": "4.6.7"
@@ -26,6 +26,15 @@
     "esbuild",
     "msgpackr-extract"
   ],
+  "overrides": {
+    "@hono/node-server": "2.1.11",
+    "body-parser": "2.4.0",
+    "fast-uri": "3.1.9",
+    "hono": "4.13.23",
+    "katex": "0.18.2",
+    "nodemon>minimatch": "11.0.9",
+    "uuid": "11.1.1"
+  },
   "engines": {
     "node": ">=24.22.2 <25",
     "bun": "1.4.5"
@@ -86,14 +95,14 @@
     "@biomejs/biome": "2.6.9",
     "@e2e-dev/web": "0.17.0",
     "@openuidev/cli": "0.6.3",
-    "@openuidev/react-ui": "0.20.0",
+    "@openuidev/react-ui": "0.20.1",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "ai": "^7.0.183",
     "drizzle-orm": "catalog:",
     "e2e": "0.25.0",
     "jsdom": "31.0.1",
-    "msw": "3.0.7",
+    "msw": "3.0.8",
     "portless": "0.18.1",
     "typescript": "catalog:",
     "vitest": "5.1.2"

@@ -8,6 +8,7 @@
 
 - 唯一实现：`createServiceLogger` 注入基字段并应用 `LOG_REDACT_PATHS` 脱敏；`requestScopedLogger` 生成带 `requestId` 的请求作用域 child，`runScopedLogger` 生成带 `runId`（及可选 `requestId` / `agentId` / `conversationId`）的运行作用域 child，用于该 run 的执行日志（含传给沙盒的 logger）。
 - 基字段、事件命名与脱敏的细节分别见下文「日志基字段」「事件命名」「脱敏」三节，此处不重复。
+- 容器日志：`docker-compose.yml` 各服务统一配置 `json-file` 轮转（`max-size: '20m'`、`max-file: '5'`）。
 
 ## 日志基字段
 
@@ -89,7 +90,6 @@ docker compose logs api worker | grep '"runId":"<id>"'
 - 事件名依赖 pino 的 `msg`，键名尚未统一。
 - eval、knowledge 等其它 job payload 未带 `requestId`。
 - 生产 `LOG_LEVEL=info` 会丢弃 runner / sandbox 的 stderr，仅失败时保留尾部。
-- compose 未声明日志轮转，需按实际部署核对。
 
 ## PostgreSQL 慢查询与锁等待
 
