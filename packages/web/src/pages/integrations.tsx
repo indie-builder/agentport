@@ -88,6 +88,7 @@ import {
   useWebhookEndpoints,
 } from '../lib/queries.js';
 import { toastSuccess } from '../lib/toast.js';
+import { useOptimisticValue } from '../lib/use-optimistic-value.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
 const SCOPE_OPTIONS: readonly { value: IntegrationScope; label: string }[] = [
@@ -179,6 +180,7 @@ export function IntegrationsPage() {
   const search = useSearch({ from: '/_shell/integrations' });
   const navigate = useNavigate({ from: '/integrations' });
   const tab = search.tab ?? 'tokens';
+  const [optimisticTab, commitTab] = useOptimisticValue(tab);
   const view = search.view ?? 'cards';
   const [creating, setCreating] = useState<'token' | 'webhook' | null>(null);
   const setView = (next: ListView): void => {
@@ -193,15 +195,19 @@ export function IntegrationsPage() {
   return (
     <Page>
       <Tabs
-        value={tab}
-        onValueChange={(next) => {
-          if (next === tab) return;
-          if (!TABS.some((item) => item.value === next)) return;
-          void navigate({
-            to: '/integrations',
-            search: { ...search, tab: next as (typeof TABS)[number]['value'] },
-            replace: true,
-          });
+        value={optimisticTab}
+        onValueChange={(next, details) => {
+          if (next === optimisticTab || !TABS.some((item) => item.value === next)) {
+            details.cancel();
+            return;
+          }
+          commitTab(next as (typeof TABS)[number]['value'], () =>
+            navigate({
+              to: '/integrations',
+              search: { ...search, tab: next as (typeof TABS)[number]['value'] },
+              replace: true,
+            }),
+          );
         }}
         className="min-h-0 flex-1 gap-4"
       >

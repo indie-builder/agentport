@@ -74,11 +74,11 @@ export function KnowledgeDetailPage() {
     });
   }, [tab, location.hash, baseId, navigate, search]);
 
-  const go = (patch: Partial<DetailSearch>, replace = false, hash?: string): void => {
+  const go = (patch: Partial<DetailSearch>, replace = false, hash?: string): Promise<void> => {
     const next = Object.fromEntries(
       Object.entries({ ...search, ...patch }).filter(([, value]) => value !== undefined),
     ) as DetailSearch;
-    void navigate({
+    return navigate({
       to: '/knowledge/$baseId',
       params: { baseId },
       search: next,
@@ -91,15 +91,17 @@ export function KnowledgeDetailPage() {
     <Tabs
       key={baseId}
       value={tab}
-      onValueChange={(next) =>
-        go(
+      onValueChange={(next, details) => {
+        details.cancel();
+        if (next === tab) return;
+        void go(
           {
             panel: next === 'documents' ? undefined : next,
             ...(next === 'jobs' ? {} : { document: undefined }),
           },
           true,
-        )
-      }
+        );
+      }}
       className="h-full min-h-0"
     >
       <Page>

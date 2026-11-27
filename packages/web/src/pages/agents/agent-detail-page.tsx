@@ -48,6 +48,7 @@ import {
   useUpdateAgent,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useOptimisticValue } from '../../lib/use-optimistic-value.js';
 import { AgentEditor } from './agent-editor.js';
 import { AgentInstructions } from './agent-instructions.js';
 import { AgentMembersDialog, TransferAgentDialog } from './agent-member-dialogs.js';
@@ -474,6 +475,7 @@ function RestrictedAgentTabs({
       : (available[0]?.id ?? 'overview');
   };
   const tab = permittedTab(search.tab);
+  const [optimisticTab, commitTab, resetTab] = useOptimisticValue(tab);
   const isSubAgent = (agent.parentId ?? null) !== null;
   const instruction = activeInstruction(
     asInstruction(search.tab) ?? search.instruction,
@@ -519,6 +521,9 @@ function RestrictedAgentTabs({
   useEffect(() => {
     settleNavigationRef.current = () => blocker.reset?.();
   }, [blocker, settleNavigationRef]);
+  useEffect(() => {
+    if (blocker.status === 'blocked') resetTab();
+  }, [blocker.status, resetTab]);
 
   if (available.length === 0) return null;
 
@@ -528,17 +533,19 @@ function RestrictedAgentTabs({
     view?: MemoryView | undefined;
     file?: string | undefined;
     usageDays?: 7 | 30 | 90 | undefined;
-  }): void => {
-    void navigate({
+  }): Promise<void> =>
+    navigate({
       to: '/agents/$agentId',
       params: { agentId },
       search: (current) => ({ ...current, ...next }),
       replace: true,
     });
-  };
-  const changeTab = (next: TabId): void => {
-    if (next === tab || pending) return;
-    navigateSearch({ tab: next });
+  const changeTab = (next: TabId, details?: { cancel: () => void }): void => {
+    if (next === optimisticTab || pending) {
+      details?.cancel();
+      return;
+    }
+    commitTab(next, () => navigateSearch({ tab: next }));
   };
   const proceedLeave = (): void => {
     if (!pending) blocker.proceed?.();
@@ -549,7 +556,10 @@ function RestrictedAgentTabs({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5">
       <PageTopbar>
-        <Tabs value={tab} onValueChange={(next) => changeTab(next as TabId)}>
+        <Tabs
+          value={optimisticTab}
+          onValueChange={(next, details) => changeTab(next as TabId, details)}
+        >
           <TabsList variant="line" aria-label="专家任务">
             {available.map((item) => (
               <TabsTrigger key={item.id} value={item.id}>

@@ -1505,7 +1505,11 @@ describe('expert editor regressions', () => {
       (toolbar.props.ref as { current: unknown }).current = fallback;
       if (pass === 0) {
         const fan = tree.find(
-          (node) => node.type === 'button' && node.props['aria-label'] === '新建专家',
+          (node) =>
+            node.type === 'button' &&
+            elements(node.props.children as ReactNode).some(
+              (child) => child.type === 'span' && child.props.children === '新建专家',
+            ),
         );
         if (!fan) throw new Error('Missing create trigger');
         (fan.props.onClick as (event: unknown) => void)({ currentTarget: trigger });

@@ -170,15 +170,17 @@ describe('run list view toggle', () => {
   it('maps the time range from the URL to since and clears it with the filters', async () => {
     const router = await mount('/runs?range=7');
 
-    await vi.waitFor(() =>
+    let clear: HTMLButtonElement | undefined;
+    await vi.waitFor(() => {
       expect(api.runs).toHaveBeenCalledWith(
         expect.objectContaining({ since: utcWindowStart(7).toISOString() }),
         expect.any(AbortSignal),
-      ),
-    );
-    const clear = [...host.querySelectorAll('button')].find(
-      (element) => element.textContent?.trim() === '清除全部筛选',
-    );
+      );
+      clear = [...host.querySelectorAll('button')].find(
+        (element) => element.textContent?.trim() === '清除全部筛选',
+      );
+      if (!clear) throw new Error('Missing clear filters button');
+    });
     if (!clear) throw new Error('Missing clear filters button');
 
     await act(async () => clear.click());

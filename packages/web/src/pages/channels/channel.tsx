@@ -519,6 +519,7 @@ function ChannelWorkspace({
   const mentionMenu = useMentionList(
     {
       open: mention !== null && mentionOptions.length > 0,
+      options: mentionOptions,
       onSelect: (agentId) => {
         const target = mentionOptions.find((option) => option.agentId === agentId);
         if (target !== undefined) pickMention(target);

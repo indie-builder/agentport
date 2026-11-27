@@ -27,6 +27,7 @@ import {
   usePersonalWorkConversations,
   usePersonalWorkOutputs,
 } from '../../lib/queries.js';
+import { useOptimisticValue } from '../../lib/use-optimistic-value.js';
 
 type WorkTab = 'conversations' | 'outputs';
 type ConversationSource = 'all' | 'manual' | 'scheduled';
@@ -82,6 +83,7 @@ export function PersonalWorkPage() {
   const search = useSearch({ from: '/_shell/personal/work' });
   const navigate = useNavigate({ from: '/personal/work' });
   const tab: WorkTab = search.tab ?? 'conversations';
+  const [optimisticTab, commitTab] = useOptimisticValue(tab);
   const query = search.q ?? '';
   const source: ConversationSource = search.source ?? 'all';
   const canReadConversations = can(me.data, 'conversations.read');
@@ -132,14 +134,18 @@ export function PersonalWorkPage() {
         </>
       ) : (
         <Tabs
-          value={tab}
-          onValueChange={(next) => {
-            if (next === tab) return;
-            if (!WORK_TABS.some((item) => item.value === next)) return;
-            void navigate({
-              to: '/personal/work',
-              search: next === 'conversations' ? {} : { tab: next as WorkTab },
-            });
+          value={optimisticTab}
+          onValueChange={(next, details) => {
+            if (next === optimisticTab || !WORK_TABS.some((item) => item.value === next)) {
+              details.cancel();
+              return;
+            }
+            commitTab(next as WorkTab, () =>
+              navigate({
+                to: '/personal/work',
+                search: next === 'conversations' ? {} : { tab: next as WorkTab },
+              }),
+            );
           }}
           className="min-h-0 flex-1 gap-4"
         >

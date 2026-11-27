@@ -233,6 +233,9 @@ export function TagDialog({ baseId, onClose: onClosed }: { baseId: string; onClo
                         submitRename();
                       }}
                     >
+                      <FieldLabel htmlFor="knowledge-tag-rename" className="sr-only">
+                        标签名称
+                      </FieldLabel>
                       <Input
                         id="knowledge-tag-rename"
                         className="min-w-0 flex-1"

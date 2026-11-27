@@ -569,7 +569,6 @@ export function AgentsPage() {
                 <li className="min-w-0">
                   <button
                     type="button"
-                    aria-label="新建专家"
                     disabled={importing}
                     onClick={(event) => {
                       editorTriggerRef.current = event.currentTarget;
@@ -594,7 +593,6 @@ export function AgentsPage() {
                 <li className="min-w-0">
                   <button
                     type="button"
-                    aria-label="创建数字分身"
                     disabled={importing}
                     onClick={(event) => {
                       editorTriggerRef.current = event.currentTarget;

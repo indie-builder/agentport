@@ -2,27 +2,56 @@
 
 import { createListbox, definePrimitive, selects } from '@ui-sdk/core';
 import { type PrimitiveHandle, usePart, usePrimitive } from '@ui-sdk/react/primitive';
-import { type RefObject, useEffect, useLayoutEffect } from 'react';
+import { type RefObject, useEffect } from 'react';
 
 type MentionOption = { agentId: string; name: string };
 
 type MentionListOptions = {
   open: boolean;
+  options: readonly MentionOption[];
   onSelect: (agentId: string) => void;
   onClose: () => void;
 };
 
 const mentionList = definePrimitive({
   name: 'mention-list',
-  options: { open: 'value', onSelect: 'callback', onClose: 'callback' },
+  options: { open: 'boolean', options: 'value', onSelect: 'callback', onClose: 'callback' },
   state: (options: MentionListOptions) => ({
-    highlighted: null as string | null,
+    highlighted: options.open ? (options.options[0]?.agentId ?? null) : null,
     shown: options.open,
   }),
   sync: (options) => ({ shown: options.open }),
   api: (context) => {
     const listbox = createListbox(context, { key: 'highlighted', focus: 'virtual' });
-    const choose = (key: string): void => context.options().onSelect(key);
+    context.onOptions((next) => {
+      const prev = context.store.get();
+      if (!next.open) {
+        if (prev.highlighted !== null) context.store.set({ highlighted: null });
+        return;
+      }
+      const hasHighlighted =
+        prev.highlighted !== null &&
+        next.options.some((option) => option.agentId === prev.highlighted);
+      if (!prev.shown || !hasHighlighted) {
+        const first = next.options[0]?.agentId ?? null;
+        if (prev.highlighted !== first) context.store.set({ highlighted: first });
+      }
+    });
+    const choose = (key: string): void => {
+      const { shown } = context.store.get();
+      const { options, onSelect } = context.options();
+      if (!shown) {
+        throw new Error('Mention list is closed.');
+      }
+      if (!options.some((option) => option.agentId === key)) {
+        throw new Error(
+          `Unknown mention "${key}". Options: ${options.map((option) => option.agentId).join(', ')}.`,
+        );
+      }
+      onSelect(key);
+    };
+    const items = () =>
+      context.options().options.map((option) => ({ value: option.agentId, label: option.name }));
     const keydown = (event: KeyboardEvent): boolean => {
       if (!context.store.get().shown) return false;
       if (event.key === 'Escape') {
@@ -70,11 +99,15 @@ const mentionList = definePrimitive({
         clear();
       };
     };
-    return { listbox, keydown, bindInput, choose };
+    return { listbox, keydown, bindInput, choose, items };
   },
   slots: (slot) => ({
+    root: slot({
+      present: (state) => state.shown,
+    }),
     list: slot({
       role: 'listbox',
+      present: (state) => state.shown,
       keys: { none: '输入框处理键盘导航。' },
       attrs: (_state, { id }) => ({ id: `${id}-list` }),
     }),
@@ -95,11 +128,14 @@ const mentionList = definePrimitive({
       bind: (el, part) => part.api.listbox.bind(el, part),
     }),
   }),
+  agent: {
+    actions: ['choose'],
+    shown: (state) => state.shown,
+    items: (api) => api.items(),
+  },
 });
 
-const mentionPrimitive = mentionList;
-
-type MentionListHandle = PrimitiveHandle<typeof mentionPrimitive>;
+type MentionListHandle = PrimitiveHandle<typeof mentionList>;
 
 function MentionListItem({
   handle,
@@ -134,7 +170,7 @@ export function useMentionList(
   options: MentionListOptions,
   input: RefObject<HTMLTextAreaElement | null>,
 ) {
-  const handle = usePrimitive(mentionPrimitive, options);
+  const handle = usePrimitive(mentionList, options);
   const { instance } = handle;
   useEffect(() => {
     const el = input.current;
@@ -152,11 +188,6 @@ export function MentionList({
   options: readonly MentionOption[];
   activeAgentIds: ReadonlySet<string>;
 }) {
-  const keys = options.map((option) => option.agentId).join('\n');
-  useLayoutEffect(() => {
-    if (!keys) return;
-    handle.instance.api.listbox.move('first');
-  }, [handle.instance, keys]);
   const list = usePart(
     handle,
     'list',
@@ -177,5 +208,14 @@ export function MentionList({
     },
     'div',
   );
-  return <div className="mx-auto w-full max-w-220 shrink-0 px-6">{list}</div>;
+  return usePart(
+    handle,
+    'root',
+    {},
+    {
+      className: 'mx-auto w-full max-w-220 shrink-0 px-6',
+      children: list,
+    },
+    'div',
+  );
 }

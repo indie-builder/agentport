@@ -29,7 +29,8 @@ export function SegmentedToggle<T extends string>({
       multiple={false}
       className="relative rounded-pill bg-sunken p-0.5 text-muted-foreground"
       value={[value]}
-      onValueChange={(values) => {
+      onValueChange={(values, details) => {
+        details.cancel();
         const next = options.find((option) => option.value === values[0]);
         if (next !== undefined) onChange(next.value);
       }}

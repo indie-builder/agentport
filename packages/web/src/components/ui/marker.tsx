@@ -3,6 +3,15 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import type * as React from 'react';
 import { cn } from '@/lib/cn';
 
+function mergeClassName<State>(
+  base: string,
+  className: string | ((state: State) => string | undefined) | undefined,
+) {
+  return typeof className === 'function'
+    ? (state: State) => cn(base, className(state))
+    : cn(base, className);
+}
+
 const markerVariants = cva(
   "group/marker relative flex min-h-4 w-full items-center gap-2 text-left text-sm text-muted-foreground [&_svg:not([class*='size-'])]:size-4 [a]:underline [a]:underline-offset-3 [a]:hover:text-foreground",
   {
@@ -17,51 +26,76 @@ const markerVariants = cva(
   },
 );
 
+type MarkerState = {
+  slot: 'marker';
+  variant: NonNullable<VariantProps<typeof markerVariants>['variant']>;
+};
+
+type ElementPartProps<Tag extends keyof React.JSX.IntrinsicElements, State> = Omit<
+  PartProps<Tag, State>,
+  'className' | 'style' | 'render' | 'children'
+> & {
+  className?: PartProps<Tag, State>['className'] | undefined;
+  style?: PartProps<Tag, State>['style'] | undefined;
+  render?: PartProps<Tag, State>['render'] | undefined;
+  children?: PartProps<Tag, State>['children'] | undefined;
+};
+
 function Marker({
   className,
   variant = 'default',
   render,
   ...props
-}: React.ComponentProps<'div'> & {
-  render?: PartProps<
-    'div',
-    { slot: 'marker'; variant: VariantProps<typeof markerVariants>['variant'] }
-  >['render'];
-} & VariantProps<typeof markerVariants>) {
+}: ElementPartProps<'div', MarkerState> & VariantProps<typeof markerVariants>) {
+  const resolvedVariant = variant ?? 'default';
   return renderElement(
     'div',
     {
       'data-slot': 'marker',
-      'data-variant': variant,
+      'data-variant': resolvedVariant,
       ...props,
-      className: cn(markerVariants({ variant, className })),
+      className: mergeClassName(markerVariants({ variant: resolvedVariant }), className),
     },
     render,
-    { slot: 'marker', variant },
+    { slot: 'marker', variant: resolvedVariant },
   );
 }
 
-function MarkerIcon({ className, ...props }: React.ComponentProps<'span'>) {
-  return (
-    <span
-      data-slot="marker-icon"
-      aria-hidden="true"
-      className={cn("size-4 shrink-0 [&_svg:not([class*='size-'])]:size-4", className)}
-      {...props}
-    />
+function MarkerIcon({
+  className,
+  render,
+  ...props
+}: ElementPartProps<'span', { slot: 'marker-icon' }>) {
+  return renderElement(
+    'span',
+    {
+      'data-slot': 'marker-icon',
+      'aria-hidden': true,
+      ...props,
+      className: mergeClassName("size-4 shrink-0 [&_svg:not([class*='size-'])]:size-4", className),
+    },
+    render,
+    { slot: 'marker-icon' },
   );
 }
 
-function MarkerContent({ className, ...props }: React.ComponentProps<'span'>) {
-  return (
-    <span
-      data-slot="marker-content"
-      className={cn(
+function MarkerContent({
+  className,
+  render,
+  ...props
+}: ElementPartProps<'span', { slot: 'marker-content' }>) {
+  return renderElement(
+    'span',
+    {
+      'data-slot': 'marker-content',
+      ...props,
+      className: mergeClassName(
         'min-w-0 wrap-break-word group-data-[variant=separator]/marker:flex-none group-data-[variant=separator]/marker:text-center *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
         className,
-      )}
-      {...props}
-    />
+      ),
+    },
+    render,
+    { slot: 'marker-content' },
   );
 }
 

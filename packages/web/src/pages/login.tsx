@@ -1,12 +1,16 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { animateBrand, Brand } from '../components/brand.js';
 import { Button } from '../components/ui/button.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
+import {
+  PasswordInput,
+  PasswordInputControl,
+  PasswordInputToggle,
+} from '../components/ui/password-input.js';
 import { ApiError, api, errorMessage } from '../lib/api.js';
 import { resolveReturnTo } from '../lib/auth-redirect.js';
 import { clearSessionQueries, meQuery, queryClient } from '../lib/queries.js';
@@ -38,7 +42,6 @@ export function LoginPage() {
     document.title = 'PACE';
   }, []);
   const [error, setError] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
   const [capsLock, setCapsLock] = useState(false);
   const describedBy =
     [expired ? 'login-expired' : null, error ? 'login-error' : null].filter(Boolean).join(' ') ||
@@ -48,6 +51,13 @@ export function LoginPage() {
     handleSubmit,
     formState: { errors },
   } = useZodForm(loginSchema, { defaultValues: { username: '', password: '' } });
+  const usernameField = register('username', { onChange: () => setError(null) });
+  const {
+    name: passwordName,
+    ref: passwordRef,
+    onChange: onPasswordChange,
+    onBlur: onPasswordBlur,
+  } = register('password', { onChange: () => setError(null) });
 
   const login = useMutation({
     mutationFn: ({ username, password }: z.infer<typeof loginSchema>) =>
@@ -144,41 +154,31 @@ export function LoginPage() {
                     autoFocus
                     disabled={login.isPending}
                     aria-invalid={Boolean(errors.username)}
-                    aria-describedby={errors.username ? 'username-error' : undefined}
-                    {...register('username', { onChange: () => setError(null) })}
+                    {...usernameField}
                   />
                   <FieldError id="username-error">{errors.username?.message}</FieldError>
                 </Field>
                 <Field data-disabled={login.isPending} data-invalid={Boolean(errors.password)}>
                   <FieldLabel htmlFor="password">密码</FieldLabel>
                   <div>
-                    <div className="relative">
-                      <Input
+                    <PasswordInput
+                      className="h-11"
+                      name={passwordName}
+                      required
+                      autoComplete="current-password"
+                      disabled={login.isPending}
+                    >
+                      <PasswordInputControl
                         id="password"
-                        className="h-11 pr-10"
-                        required
-                        type={showPassword ? 'text' : 'password'}
-                        autoComplete="current-password"
-                        disabled={login.isPending}
+                        ref={passwordRef}
+                        onChange={onPasswordChange}
+                        onBlur={onPasswordBlur}
                         aria-invalid={Boolean(errors.password)}
-                        aria-describedby={errors.password ? 'password-error' : undefined}
                         onKeyDown={(event) => setCapsLock(event.getModifierState('CapsLock'))}
                         onKeyUp={(event) => setCapsLock(event.getModifierState('CapsLock'))}
-                        {...register('password', { onChange: () => setError(null) })}
                       />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-0 text-muted-foreground"
-                        aria-label={showPassword ? '隐藏密码' : '显示密码'}
-                        aria-pressed={showPassword}
-                        disabled={login.isPending}
-                        onClick={() => setShowPassword((visible) => !visible)}
-                      >
-                        {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                      </Button>
-                    </div>
+                      <PasswordInputToggle />
+                    </PasswordInput>
                     {capsLock ? (
                       <p
                         role="status"
