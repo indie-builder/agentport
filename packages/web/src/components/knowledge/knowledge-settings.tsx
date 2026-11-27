@@ -33,6 +33,7 @@ import { Checkbox } from '../ui/checkbox.js';
 import { Dialog } from '../ui/dialog.js';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '../ui/field.js';
 import { Input } from '../ui/input.js';
+import { PasswordInput, PasswordInputControl, PasswordInputToggle } from '../ui/password-input.js';
 import {
   Select,
   SelectContent,
@@ -972,6 +973,12 @@ function ProfileForm({
     },
   });
   const { errors, dirtyFields, isSubmitting } = formState;
+  const {
+    name: apiKeyName,
+    ref: apiKeyRef,
+    onChange: onApiKeyChange,
+    onBlur: onApiKeyBlur,
+  } = register('apiKey');
   const [kind, protocol, model] = watch(['kind', 'protocol', 'model']);
   const busy = isSubmitting;
   const imageCapable = kind === 'embedding' && protocol === 'cohere_v2' && model === 'embed-v4.0';
@@ -1091,14 +1098,16 @@ function ProfileForm({
         </Field>
         <Field className="gap-1.5">
           <FieldLabel htmlFor="knowledge-profile-key">API Key</FieldLabel>
-          <Input
-            id="knowledge-profile-key"
-            type="password"
-            {...register('apiKey')}
-            autoComplete="off"
-            disabled={busy}
-            placeholder={profile?.hasSecret ? '留空保持原密钥' : '可选'}
-          />
+          <PasswordInput name={apiKeyName} autoComplete="off" disabled={busy}>
+            <PasswordInputControl
+              id="knowledge-profile-key"
+              ref={apiKeyRef}
+              onChange={onApiKeyChange}
+              onBlur={onApiKeyBlur}
+              placeholder={profile?.hasSecret ? '留空保持原密钥' : '可选'}
+            />
+            <PasswordInputToggle />
+          </PasswordInput>
         </Field>
         {kind === 'embedding' ? (
           <Field className="gap-1.5">

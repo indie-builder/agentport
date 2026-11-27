@@ -744,7 +744,7 @@ describe('knowledge UX guards', () => {
     const file = new File(['a'], 'good.txt', { type: 'text/plain' });
     await act(async () => {
       const input = document.querySelector<HTMLInputElement>(
-        'input[aria-label="选择要上传的文件"]',
+        'input[type="file"]:not([webkitdirectory])',
       );
       if (!input) throw new Error('Missing upload input');
       Object.defineProperty(input, 'files', { value: [file], configurable: true });
@@ -946,7 +946,7 @@ describe('knowledge UX guards', () => {
     const file = new File(['a'], 'good.txt', { type: 'text/plain' });
     await act(async () => {
       const input = document.querySelector<HTMLInputElement>(
-        'input[aria-label="选择要上传的文件"]',
+        'input[type="file"]:not([webkitdirectory])',
       );
       if (!input) throw new Error('Missing upload input');
       Object.defineProperty(input, 'files', { value: [file], configurable: true });

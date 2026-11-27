@@ -1,3 +1,5 @@
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
+import { Toggle } from '@ui-sdk/react/toggle';
 import { Download, EllipsisVertical, Plus, Shuffle, Upload } from 'lucide-react';
 import { type RefObject, useState } from 'react';
 import { PageToolbar } from '../../components/page.js';
@@ -18,9 +20,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
+import { createFileInputController, FileInput } from '../../components/ui/file-input.js';
 import { ApiError, type EvalCase } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
-import { onFilePick } from '../../lib/file-pick.js';
 import { CaseInspector } from './case-inspector.js';
 
 type CaseFilter = 'all' | 'llm' | 'contains' | 'tools';
@@ -49,7 +51,6 @@ export function EvalCasesTab({
   canReadEval,
   canReadRuns,
   createButtonRef,
-  importInputRef,
   importPending,
   exporting,
   onImportFile,
@@ -75,7 +76,6 @@ export function EvalCasesTab({
   canReadEval: boolean;
   canReadRuns: boolean;
   createButtonRef: RefObject<HTMLButtonElement | null>;
-  importInputRef: RefObject<HTMLInputElement | null>;
   importPending: boolean;
   exporting: boolean;
   onImportFile: (file: File) => void;
@@ -85,6 +85,7 @@ export function EvalCasesTab({
   onEditCase: (testCase: EvalCase, trigger: HTMLElement) => void;
   onDeleteCase: (testCase: EvalCase, trigger: HTMLElement) => void;
 }) {
+  const [importController] = useState(createFileInputController);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<CaseFilter>('all');
 
@@ -127,15 +128,16 @@ export function EvalCasesTab({
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <PageToolbar>
-        <input
-          ref={importInputRef}
-          type="file"
+        <FileInput
+          controller={importController}
           accept=".json,application/json"
-          className="hidden"
-          onChange={onFilePick((files) => {
+          disabled={importPending}
+          className="contents"
+          onValueChange={(files, details) => {
+            details.cancel();
             const file = files[0];
             if (file) onImportFile(file);
-          })}
+          }}
         />
         <SearchInput
           value={query}
@@ -149,11 +151,10 @@ export function EvalCasesTab({
           className="inline-flex items-center rounded-pill border-0 bg-sunken p-0.5"
         >
           {filterOptions.map((option) => (
-            <button
+            <Toggle
               key={option.value}
-              type="button"
-              aria-pressed={filter === option.value}
-              onClick={() => setFilter(option.value)}
+              pressed={filter === option.value}
+              onPressedChange={() => setFilter(option.value)}
               className={cn(
                 'rounded-pill px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 filter === option.value
@@ -162,7 +163,7 @@ export function EvalCasesTab({
               )}
             >
               {option.label}
-            </button>
+            </Toggle>
           ))}
         </fieldset>
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -207,7 +208,7 @@ export function EvalCasesTab({
                   {canManageEval ? (
                     <DropdownMenuItem
                       disabled={importPending}
-                      onSelect={() => importInputRef.current?.click()}
+                      onSelect={() => importController.open()}
                     >
                       <Upload aria-hidden="true" />
                       {importPending ? '导入中…' : '导入 JSON'}
@@ -290,8 +291,7 @@ export function EvalCasesTab({
                 const forbiddenCount = testCase.forbiddenTools?.length ?? 0;
                 return (
                   <li key={testCase.id}>
-                    <button
-                      type="button"
+                    <ButtonPrimitive
                       aria-current={isSelected ? 'true' : undefined}
                       onClick={() => onSelectCase(testCase.id)}
                       className={cn(
@@ -316,7 +316,7 @@ export function EvalCasesTab({
                       <p className="line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">
                         {testCase.prompt}
                       </p>
-                    </button>
+                    </ButtonPrimitive>
                   </li>
                 );
               })}

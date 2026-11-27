@@ -22,7 +22,11 @@ import {
   FieldGroup,
   FieldLabel,
 } from '../../components/ui/field.js';
-import { Input } from '../../components/ui/input.js';
+import {
+  PasswordInput,
+  PasswordInputControl,
+  PasswordInputToggle,
+} from '../../components/ui/password-input.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { ApiError, errorMessage } from '../../lib/api.js';
 import { useFormBlocker } from '../../lib/form.js';
@@ -76,6 +80,24 @@ export function PersonalSecurityPage() {
     defaultValues: { currentPassword: '', newPassword: '', confirmPassword: '' },
   });
   const { register, handleSubmit, reset, formState } = form;
+  const {
+    name: currentPasswordName,
+    ref: currentPasswordRef,
+    onChange: onCurrentPasswordChange,
+    onBlur: onCurrentPasswordBlur,
+  } = register('currentPassword');
+  const {
+    name: newPasswordName,
+    ref: newPasswordRef,
+    onChange: onNewPasswordChange,
+    onBlur: onNewPasswordBlur,
+  } = register('newPassword');
+  const {
+    name: confirmPasswordName,
+    ref: confirmPasswordRef,
+    onChange: onConfirmPasswordChange,
+    onBlur: onConfirmPasswordBlur,
+  } = register('confirmPassword');
   const blocker = useFormBlocker(formState.isDirty, change.isPending, { ignoreSamePath: true });
 
   const relogin = async (): Promise<void> => {
@@ -183,20 +205,26 @@ export function PersonalSecurityPage() {
                       <FieldLabel htmlFor="security-current-password">当前密码</FieldLabel>
                     </FieldContent>
                     <div className={FIELD_VALUE}>
-                      <Input
-                        id="security-current-password"
-                        type="password"
+                      <PasswordInput
+                        name={currentPasswordName}
                         autoComplete="current-password"
-                        autoFocus
                         disabled={change.isPending}
-                        aria-invalid={formState.errors.currentPassword ? true : undefined}
-                        aria-describedby={
-                          formState.errors.currentPassword
-                            ? 'security-current-password-error'
-                            : undefined
-                        }
-                        {...register('currentPassword')}
-                      />
+                      >
+                        <PasswordInputControl
+                          id="security-current-password"
+                          ref={currentPasswordRef}
+                          onChange={onCurrentPasswordChange}
+                          onBlur={onCurrentPasswordBlur}
+                          autoFocus
+                          aria-invalid={formState.errors.currentPassword ? true : undefined}
+                          aria-describedby={
+                            formState.errors.currentPassword
+                              ? 'security-current-password-error'
+                              : undefined
+                          }
+                        />
+                        <PasswordInputToggle />
+                      </PasswordInput>
                       <FieldError id="security-current-password-error">
                         {formState.errors.currentPassword?.message}
                       </FieldError>
@@ -212,17 +240,23 @@ export function PersonalSecurityPage() {
                       <FieldLabel htmlFor="security-new-password">新密码</FieldLabel>
                     </FieldContent>
                     <div className={FIELD_VALUE}>
-                      <Input
-                        id="security-new-password"
-                        type="password"
+                      <PasswordInput
+                        name={newPasswordName}
                         autoComplete="new-password"
                         disabled={change.isPending}
-                        aria-invalid={formState.errors.newPassword ? true : undefined}
-                        aria-describedby={
-                          formState.errors.newPassword ? 'security-new-password-error' : undefined
-                        }
-                        {...register('newPassword')}
-                      />
+                      >
+                        <PasswordInputControl
+                          id="security-new-password"
+                          ref={newPasswordRef}
+                          onChange={onNewPasswordChange}
+                          onBlur={onNewPasswordBlur}
+                          aria-invalid={formState.errors.newPassword ? true : undefined}
+                          aria-describedby={
+                            formState.errors.newPassword ? 'security-new-password-error' : undefined
+                          }
+                        />
+                        <PasswordInputToggle />
+                      </PasswordInput>
                       <FieldError id="security-new-password-error">
                         {formState.errors.newPassword?.message}
                       </FieldError>
@@ -238,19 +272,25 @@ export function PersonalSecurityPage() {
                       <FieldLabel htmlFor="security-confirm-password">确认新密码</FieldLabel>
                     </FieldContent>
                     <div className={FIELD_VALUE}>
-                      <Input
-                        id="security-confirm-password"
-                        type="password"
+                      <PasswordInput
+                        name={confirmPasswordName}
                         autoComplete="new-password"
                         disabled={change.isPending}
-                        aria-invalid={formState.errors.confirmPassword ? true : undefined}
-                        aria-describedby={
-                          formState.errors.confirmPassword
-                            ? 'security-confirm-password-error'
-                            : undefined
-                        }
-                        {...register('confirmPassword')}
-                      />
+                      >
+                        <PasswordInputControl
+                          id="security-confirm-password"
+                          ref={confirmPasswordRef}
+                          onChange={onConfirmPasswordChange}
+                          onBlur={onConfirmPasswordBlur}
+                          aria-invalid={formState.errors.confirmPassword ? true : undefined}
+                          aria-describedby={
+                            formState.errors.confirmPassword
+                              ? 'security-confirm-password-error'
+                              : undefined
+                          }
+                        />
+                        <PasswordInputToggle />
+                      </PasswordInput>
                       <FieldError id="security-confirm-password-error">
                         {formState.errors.confirmPassword?.message}
                       </FieldError>

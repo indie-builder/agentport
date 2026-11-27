@@ -583,9 +583,11 @@ describe('knowledge audio upload', () => {
     server.use(http.get('/api/knowledge/model-profiles', () => HttpResponse.json([asrProfile])));
     await mountRoute('/knowledge/kb_1');
     expect(document.body.textContent).toContain('上传后会调用已配置的转录模型');
-    const input = document.querySelector<HTMLInputElement>('input[aria-label="选择要上传的文件"]');
+    const input = document.querySelector<HTMLInputElement>(
+      'input[type="file"]:not([webkitdirectory])',
+    );
     const folderInput = document.querySelector<HTMLInputElement>(
-      'input[aria-label="选择要上传的文件夹"]',
+      'input[type="file"][webkitdirectory]',
     );
     if (!input || !folderInput) throw new Error('Missing upload inputs');
     expect(input.getAttribute('accept')).toBeNull();

@@ -62,7 +62,13 @@ import {
   FieldGroup,
   FieldLabel,
 } from '../../components/ui/field.js';
+import { createFileInputController, FileInput } from '../../components/ui/file-input.js';
 import { Input } from '../../components/ui/input.js';
+import {
+  PasswordInput,
+  PasswordInputControl,
+  PasswordInputToggle,
+} from '../../components/ui/password-input.js';
 import {
   Select,
   SelectContent,
@@ -78,7 +84,6 @@ import { errorMessage } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
 import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
-import { onFilePick } from '../../lib/file-pick.js';
 import { formatDateTime, formatRelative } from '../../lib/format.js';
 import {
   meQuery,
@@ -343,7 +348,7 @@ export function KnowledgePage() {
   const remove = useDeleteKnowledgeBase();
   const exporter = useExportKnowledgeBase();
   const importer = useImportKnowledgeBase();
-  const importInput = useRef<HTMLInputElement>(null);
+  const [importController] = useState(createFileInputController);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<KnowledgeBase | null>(null);
   const [duplicating, setDuplicating] = useState<KnowledgeBase | null>(null);
@@ -540,16 +545,16 @@ export function KnowledgePage() {
       }
       actions={
         <>
-          <input
-            ref={importInput}
-            type="file"
+          <FileInput
+            controller={importController}
             accept="application/zip,.zip"
-            className="hidden"
-            aria-label="选择知识包 ZIP"
-            onChange={onFilePick((files) => {
+            disabled={importer.isPending}
+            className="contents"
+            onValueChange={(files, details) => {
+              details.cancel();
               const file = files[0];
               if (file) onImportFile(file);
-            })}
+            }}
           />
           {canCreate && (bases.isPending || bases.isError || baseItems.length > 0) ? (
             <Button ref={createButtonRef} onClick={() => setCreating(true)}>
@@ -571,7 +576,7 @@ export function KnowledgePage() {
                     <DropdownMenuItem
                       disabled={importer.isPending}
                       aria-busy={importer.isPending}
-                      onSelect={() => importInput.current?.click()}
+                      onSelect={() => importController.open()}
                     >
                       <Upload aria-hidden="true" />
                       {importer.isPending ? '导入中…' : '导入知识包'}
@@ -1272,13 +1277,10 @@ function NewEmbeddingProfile({
       </Field>
       <Field className="gap-1.5">
         <FieldLabel htmlFor="profile-api-key">API Key</FieldLabel>
-        <Input
-          id="profile-api-key"
-          type="password"
-          value={apiKey}
-          disabled={pending}
-          onChange={(event) => setApiKey(event.target.value)}
-        />
+        <PasswordInput value={apiKey} disabled={pending} onValueChange={setApiKey}>
+          <PasswordInputControl id="profile-api-key" />
+          <PasswordInputToggle />
+        </PasswordInput>
       </Field>
       <div className="flex justify-end sm:col-span-2">
         <Button

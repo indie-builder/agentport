@@ -904,7 +904,9 @@ describe('knowledge document upload', () => {
   it('opens the file picker directly from the toolbar, not through the import menu', async () => {
     uploadHandlers();
     await mount('/knowledge/kb_1');
-    const input = document.querySelector<HTMLInputElement>('input[aria-label="选择要上传的文件"]');
+    const input = document.querySelector<HTMLInputElement>(
+      'input[type="file"]:not([webkitdirectory])',
+    );
     if (!input) throw new Error('Missing upload input');
     const open = vi.spyOn(input, 'click').mockImplementation(() => {});
     await click(button('上传文件'));
@@ -932,7 +934,7 @@ describe('knowledge document upload', () => {
     const bad = new File(['b'], 'bad.pdf', { type: 'application/pdf' });
     await act(async () => {
       const input = document.querySelector<HTMLInputElement>(
-        'input[aria-label="选择要上传的文件"]',
+        'input[type="file"]:not([webkitdirectory])',
       );
       if (!input) throw new Error('Missing upload input');
       Object.defineProperty(input, 'files', { value: [good, bad], configurable: true });
@@ -966,9 +968,7 @@ describe('knowledge document upload', () => {
     const nested = new File(['a'], 'spec.txt', { type: 'text/plain' });
     Object.defineProperty(nested, 'webkitRelativePath', { value: 'docs/spec.txt' });
     await act(async () => {
-      const input = document.querySelector<HTMLInputElement>(
-        'input[aria-label="选择要上传的文件夹"]',
-      );
+      const input = document.querySelector<HTMLInputElement>('input[type="file"][webkitdirectory]');
       if (!input) throw new Error('Missing folder input');
       Object.defineProperty(input, 'files', { value: [nested], configurable: true });
       input.dispatchEvent(new Event('change', { bubbles: true }));

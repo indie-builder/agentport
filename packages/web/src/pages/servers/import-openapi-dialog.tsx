@@ -1,12 +1,13 @@
 import type { Server } from '@agentport/shared';
 import { CircleAlert, Upload } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Checkbox } from '../../components/ui/checkbox.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import { Field, FieldDescription, FieldLabel } from '../../components/ui/field.js';
+import { FileInput, FileInputTrigger } from '../../components/ui/file-input.js';
 import {
   Table,
   TableBody,
@@ -34,7 +35,6 @@ export function ImportOpenApiDialog({
   const onClose = dialog.close;
   const preview = usePreviewOpenApi(server.id);
   const importTools = useImportOpenApi(server.id);
-  const fileRef = useRef<HTMLInputElement>(null);
   const [spec, setSpec] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -113,30 +113,24 @@ export function ImportOpenApiDialog({
           </Field>
 
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              ref={fileRef}
-              type="file"
+            <FileInput
               accept=".json,.yaml,.yml,application/json"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = '';
+              disabled={pending || preview.isPending}
+              className="contents"
+              onValueChange={(files, details) => {
+                details.cancel();
+                const file = files[0];
                 if (!file) return;
                 file
                   .text()
                   .then(replaceSpec)
                   .catch((error: unknown) => toastError(error));
               }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={pending || preview.isPending}
-              onClick={() => fileRef.current?.click()}
             >
-              <Upload data-icon="inline-start" aria-hidden="true" /> 选择文件
-            </Button>
+              <FileInputTrigger variant="outline" size="sm">
+                <Upload data-icon="inline-start" aria-hidden="true" /> 选择文件
+              </FileInputTrigger>
+            </FileInput>
             <Button
               type="button"
               size="sm"

@@ -1,6 +1,7 @@
 import type { Agent, AgentSummary, MemoryHealth, PermissionId } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { Button as PrimitiveButton } from '@ui-sdk/react/button';
 import { ChevronRight, CircleAlert } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { errorMessage } from '../../lib/api.js';
@@ -34,6 +35,7 @@ import { LoadingState } from '../states.js';
 import { StatusBadge } from '../status-badge.js';
 import { Button, buttonVariants } from '../ui/button.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible.js';
+import { Meter, MeterIndicator, MeterTrack } from '../ui/meter.js';
 import { Skeleton } from '../ui/skeleton.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip.js';
@@ -121,7 +123,7 @@ function LinkRow({
   onOpen: () => void;
 }) {
   return (
-    <button
+    <PrimitiveButton
       type="button"
       onClick={onOpen}
       className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-3 rounded-item px-2 py-2.5 text-left transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -132,7 +134,7 @@ function LinkRow({
       </span>
       {badge}
       <ChevronRight className="size-4 shrink-0 text-subtle" aria-hidden="true" />
-    </button>
+    </PrimitiveButton>
   );
 }
 
@@ -348,19 +350,18 @@ export function AgentOverview({
                     告警阈值 {Math.round(budget.data.budgetAlertRatio * 100)}%
                   </span>
                 </div>
-                <div
-                  role="progressbar"
+                <Meter
+                  value={Math.min(100, (budget.data.ratio ?? 0) * 100)}
+                  min={0}
+                  max={100}
                   aria-label="本月预算使用比例"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.min(100, Math.round((budget.data.ratio ?? 0) * 100))}
-                  className="h-1.5 w-full overflow-hidden rounded-full bg-sunken"
                 >
-                  <div
-                    className={`h-full rounded-full ${budget.data.state === 'exceeded' ? 'bg-danger' : 'bg-fg'}`}
-                    style={{ width: `${Math.min(100, (budget.data.ratio ?? 0) * 100)}%` }}
-                  />
-                </div>
+                  <MeterTrack>
+                    <MeterIndicator
+                      className={budget.data.state === 'exceeded' ? 'bg-danger' : 'bg-fg'}
+                    />
+                  </MeterTrack>
+                </Meter>
               </div>
             )
           ) : null}

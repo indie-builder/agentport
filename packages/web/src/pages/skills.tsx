@@ -60,6 +60,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from '../components/ui/field.js';
+import { createFileInputController, FileInput } from '../components/ui/file-input.js';
 import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { type ListView, SegmentedToggle, ViewToggle } from '../components/view-toggle.js';
@@ -67,7 +68,6 @@ import { can } from '../lib/access.js';
 import { ApiError, api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
-import { onFilePick } from '../lib/file-pick.js';
 import { formatTokens } from '../lib/format.js';
 import {
   meQuery,
@@ -175,7 +175,7 @@ export function SkillsPage() {
   const [deleting, setDeleting] = useState<SkillWithAgentCount | null>(null);
   const [rejecting, setRejecting] = useState<SkillWithAgentCount | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importController] = useState(createFileInputController);
   const importSkill = useImportSkillFile();
   const submitSkill = useSubmitSkill();
   const approveSkill = useApproveSkill();
@@ -303,15 +303,16 @@ export function SkillsPage() {
       activeFilterCount={(skillStatus === undefined ? 0 : 1) + (usage === 'all' ? 0 : 1)}
       actions={
         <>
-          <input
-            ref={importInputRef}
-            type="file"
+          <FileInput
+            controller={importController}
             accept=".md,text/markdown,text/plain"
-            className="hidden"
-            onChange={onFilePick((files) => {
+            disabled={importSkill.isPending}
+            className="contents"
+            onValueChange={(files, details) => {
+              details.cancel();
               const file = files[0];
               if (file) void importSkillMd(file);
-            })}
+            }}
           />
           {canCreateSkill ? (
             <Button
@@ -344,7 +345,7 @@ export function SkillsPage() {
                   <DropdownMenuItem
                     disabled={importSkill.isPending}
                     aria-busy={importSkill.isPending}
-                    onSelect={() => importInputRef.current?.click()}
+                    onSelect={() => importController.open()}
                   >
                     <Upload aria-hidden="true" />
                     {importSkill.isPending ? '导入中…' : '导入 SKILL.md'}

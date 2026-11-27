@@ -8,6 +8,7 @@ import {
   useParams,
   useSearch,
 } from '@tanstack/react-router';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Archive, ArchiveRestore, ArrowLeft, Bot, EllipsisVertical, Trash2 } from 'lucide-react';
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { AgentAvatar } from '../../components/agent/agent-avatar.js';
@@ -679,9 +680,8 @@ function ReadonlyAgentFiles({
             {entries
               .filter((entry) => entry.group === group)
               .map((entry) => (
-                <button
+                <ButtonPrimitive
                   key={entry.id}
-                  type="button"
                   aria-current={entry.id === current?.id ? 'true' : undefined}
                   onClick={() => onFileChange(entry.id)}
                   className={cn(
@@ -692,7 +692,7 @@ function ReadonlyAgentFiles({
                   )}
                 >
                   {entry.path}
-                </button>
+                </ButtonPrimitive>
               ))}
           </div>
         ))}

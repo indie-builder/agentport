@@ -1,6 +1,7 @@
 import type { MemoryChange, OutputStyle } from '@agentport/shared';
 import { memoryFileNameSchema, validateMemoryContent } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Download, FileText, History, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../lib/api.js';
@@ -358,8 +359,7 @@ function MemoryFilesPanel({
           <ul className="hidden flex-col gap-0.5 md:flex">
             {files.map((file) => (
               <li key={file.name} className="min-w-0 max-w-full">
-                <button
-                  type="button"
+                <ButtonPrimitive
                   aria-current={file.name === active ? 'true' : undefined}
                   disabled={pending}
                   onClick={() => {
@@ -377,7 +377,7 @@ function MemoryFilesPanel({
                   <span className="truncate" title={file.name}>
                     {file.name}
                   </span>
-                </button>
+                </ButtonPrimitive>
               </li>
             ))}
           </ul>
@@ -856,8 +856,7 @@ export function RulesPanel({
         <ul className="hidden flex-col gap-0.5 md:flex">
           {rules.data.map((rule) => (
             <li key={rule.id} className="min-w-0 max-w-full">
-              <button
-                type="button"
+              <ButtonPrimitive
                 disabled={pending}
                 onClick={() => guard({ type: 'open', rule })}
                 className={cn(
@@ -868,7 +867,7 @@ export function RulesPanel({
                 )}
               >
                 {rule.slug}
-              </button>
+              </ButtonPrimitive>
             </li>
           ))}
         </ul>
@@ -1206,8 +1205,7 @@ export function OutputStylesPanel({
         <ul className="hidden flex-col gap-0.5 md:flex">
           {styles.data.map((style) => (
             <li key={style.id} className="min-w-0 max-w-full">
-              <button
-                type="button"
+              <ButtonPrimitive
                 disabled={pending}
                 onClick={() => guard({ type: 'open', style })}
                 className={cn(
@@ -1221,7 +1219,7 @@ export function OutputStylesPanel({
                 {style.isSelected ? (
                   <span className="ml-auto shrink-0 text-2xs text-muted-foreground">已启用</span>
                 ) : null}
-              </button>
+              </ButtonPrimitive>
             </li>
           ))}
         </ul>

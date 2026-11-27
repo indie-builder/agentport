@@ -47,6 +47,11 @@ import {
   FieldLabel,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
+import {
+  PasswordInput,
+  PasswordInputControl,
+  PasswordInputToggle,
+} from '../components/ui/password-input.js';
 import { Switch } from '../components/ui/switch.js';
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
@@ -641,6 +646,12 @@ function ProviderDialog({
     formState,
   } = useZodForm(providerFormSchema, { defaultValues: defaults });
   const { errors, isDirty } = formState;
+  const {
+    name: credentialName,
+    ref: credentialRef,
+    onChange: onCredentialChange,
+    onBlur: onCredentialBlur,
+  } = register('credential');
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const pending = (create.isPending || update.isPending) && !saved;
@@ -750,17 +761,19 @@ function ProviderDialog({
               <FieldLabel htmlFor="provider-credential">
                 凭证 {provider ? null : <RequiredMark />}
               </FieldLabel>
-              <Input
-                id="provider-credential"
-                type="password"
-                autoComplete="new-password"
-                disabled={pending}
-                aria-invalid={Boolean(errors.credential)}
-                aria-describedby={
-                  errors.credential ? 'provider-credential-error' : 'provider-credential-hint'
-                }
-                {...register('credential')}
-              />
+              <PasswordInput name={credentialName} autoComplete="new-password" disabled={pending}>
+                <PasswordInputControl
+                  id="provider-credential"
+                  ref={credentialRef}
+                  onChange={onCredentialChange}
+                  onBlur={onCredentialBlur}
+                  aria-invalid={Boolean(errors.credential)}
+                  aria-describedby={
+                    errors.credential ? 'provider-credential-error' : 'provider-credential-hint'
+                  }
+                />
+                <PasswordInputToggle />
+              </PasswordInput>
               <FieldDescription id="provider-credential-hint">
                 {provider ? '留空保留当前凭证。' : '不会在界面回显。'}
               </FieldDescription>
