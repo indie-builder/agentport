@@ -1025,13 +1025,12 @@ export async function importKnowledgePackage(
     }
 
     await db.transaction(async (tx) => {
-      await tx.insert(schema.servers).values({
-        id: serverId,
-        name: `kb-${manifest.base.slug}`,
+      await repo.servers.upsertManagedServer(tx, {
         kind: 'knowledge',
-        config: {},
-        secretsEncrypted: null,
+        resourceId: baseId,
+        slug: manifest.base.slug,
         ownerBusinessId: ownerBusinessId ?? null,
+        serverId,
       });
       await tx.insert(schema.knowledgeBases).values({
         id: baseId,
@@ -1046,10 +1045,6 @@ export async function importKnowledgePackage(
         settings: manifest.base.settings,
         ownerBusinessId: ownerBusinessId ?? null,
       });
-      await tx
-        .update(schema.servers)
-        .set({ config: { knowledgeBaseId: baseId } })
-        .where(eq(schema.servers.id, serverId));
       await repo.governance.assertKnowledgeDocumentQuota(tx, baseId, manifest.documents.length);
 
       for (const folder of [...manifest.folders].sort(

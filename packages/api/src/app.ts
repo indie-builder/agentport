@@ -33,7 +33,7 @@ export async function buildApp(
   });
   configureQueueProducer(config.REDIS_URL, log);
   configureScheduleLogger(log);
-  const { db, client } = createDb(config.DATABASE_URL);
+  const { db, client } = createDb(config.DATABASE_URL, { max: config.DB_POOL_MAX });
   const app = new Hono<HttpEnv>();
   const runtimeFlags = resolveRuntimeFlags(config);
   const context: AppContext = {

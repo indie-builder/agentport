@@ -30,6 +30,7 @@ const envSchema = z
     NODE_ENV,
     LOG_LEVEL,
     DATABASE_URL: serviceEnvShape.DATABASE_URL,
+    DB_POOL_MAX: serviceEnvShape.DB_POOL_MAX,
     REDIS_URL,
     WORKSPACES_DIR: serviceEnvShape.WORKSPACES_DIR,
     /**

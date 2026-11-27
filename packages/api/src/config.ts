@@ -25,6 +25,7 @@ const envSchema = z
     PORT: z.coerce.number().int().positive().default(3000),
     SELF_URL: z.string().default('http://127.0.0.1:3000'),
     DATABASE_URL: serviceEnvShape.DATABASE_URL,
+    DB_POOL_MAX: serviceEnvShape.DB_POOL_MAX,
     REDIS_URL,
     APP_SECRET_KEY: serviceEnvShape.APP_SECRET_KEY,
     ANTHROPIC_BASE_URL: serviceEnvShape.ANTHROPIC_BASE_URL,

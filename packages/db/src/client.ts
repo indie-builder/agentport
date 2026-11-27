@@ -32,10 +32,10 @@ function withIsoDateParams<T extends SQL>(client: T): T {
   return client;
 }
 
-export function createDb(connectionString: string) {
-  const max = Number(process.env.DB_POOL_MAX ?? 10);
+export function createDb(connectionString: string, options?: { max?: number | undefined }) {
+  const max = options?.max ?? 10;
   const client = new SQL(connectionString, {
-    max: Number.isFinite(max) && max > 0 ? max : 10,
+    max,
     connectionTimeout: 5,
     prepare: false,
     connection: { statement_timeout: '15s', client_connection_check_interval: '1s' },

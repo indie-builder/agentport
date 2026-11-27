@@ -197,6 +197,281 @@ export interface PublishGuard {
   isAborted?: (() => boolean) | undefined;
 }
 
+type VersionActivationResult =
+  | { ok: true; document: KnowledgeDocumentRow | null }
+  | { ok: false; code: 'NOT_FOUND' | 'CONFLICT_STALE' | 'CONFLICT'; message: string };
+
+interface VersionActivationOptions {
+  documentId: string;
+  versionId: string;
+  expectedCurrentVersionId?: string | null;
+  forbidUnpublishedDraft?: boolean;
+  guard?: PublishGuard;
+  verifyWikiIndex: boolean;
+  allowDisabledDocument: boolean;
+  markWikiStale: boolean;
+}
+
+function rejectVersionActivation(
+  code: 'NOT_FOUND' | 'CONFLICT_STALE' | 'CONFLICT',
+  message: string,
+): VersionActivationResult {
+  return { ok: false, code, message };
+}
+
+async function verifyWikiIndexTx(
+  tx: Transaction,
+  documentId: string,
+  versionId: string,
+  preview: { baseId: string; metadata: Record<string, unknown> },
+): Promise<VersionActivationResult | null> {
+  const [wikiTarget] = await tx
+    .select({
+      documentId: knowledgeDocumentVersions.documentId,
+      metadata: knowledgeDocumentVersions.metadata,
+    })
+    .from(knowledgeDocumentVersions)
+    .where(eq(knowledgeDocumentVersions.id, versionId))
+    .limit(1);
+  if (wikiTarget?.documentId !== documentId) {
+    return rejectVersionActivation('NOT_FOUND', '版本文档不属于该文档');
+  }
+  if (wikiTarget.metadata?.publication === 'superseded') {
+    return rejectVersionActivation('CONFLICT', '该版本已被新草稿取代');
+  }
+  const { wikiPageId, wikiVersionId } = wikiTarget.metadata;
+  if (typeof wikiPageId !== 'string' || typeof wikiVersionId !== 'string') {
+    return rejectVersionActivation('CONFLICT', 'Wiki 索引版本缺少关联页面信息');
+  }
+  if (preview.metadata.wikiPageId !== wikiPageId) {
+    return rejectVersionActivation('CONFLICT', 'Wiki 索引版本与文档所属页面不一致');
+  }
+  const [wikiVersion] = await tx
+    .select()
+    .from(knowledgeWikiVersions)
+    .where(
+      and(
+        eq(knowledgeWikiVersions.id, wikiVersionId),
+        eq(knowledgeWikiVersions.pageId, wikiPageId),
+      ),
+    )
+    .limit(1);
+  if (!wikiVersion) return rejectVersionActivation('NOT_FOUND', 'Wiki 版本不存在');
+  await lockWikiSourceScope(tx, preview.baseId, wikiVersion.sourceChunkIds);
+  const [page] = await tx
+    .select()
+    .from(knowledgeWikiPages)
+    .where(eq(knowledgeWikiPages.id, wikiPageId))
+    .for('update');
+  if (
+    !page ||
+    page.baseId !== preview.baseId ||
+    page.status !== 'published' ||
+    page.currentVersionId !== wikiVersionId
+  ) {
+    return rejectVersionActivation('CONFLICT', 'Wiki 页面当前已发布版本已变化');
+  }
+  if ((await usableSourceChunks(tx, page, wikiVersion.sourceChunkIds)).unusable > 0) {
+    return rejectVersionActivation('CONFLICT', 'Wiki 引用来源已失效');
+  }
+  return null;
+}
+
+async function activateVersionTx(
+  tx: Transaction,
+  options: VersionActivationOptions,
+): Promise<VersionActivationResult> {
+  const { documentId, versionId, guard } = options;
+
+  const [preview] = await tx
+    .select({
+      sourceConnectionId: knowledgeDocuments.sourceConnectionId,
+      contentKind: knowledgeDocuments.contentKind,
+      baseId: knowledgeDocuments.baseId,
+      metadata: knowledgeDocuments.metadata,
+    })
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.id, documentId))
+    .limit(1);
+  if (!preview) return rejectVersionActivation('NOT_FOUND', KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE);
+
+  if (options.verifyWikiIndex && preview.contentKind === 'wiki') {
+    const wikiFailure = await verifyWikiIndexTx(tx, documentId, versionId, preview);
+    if (wikiFailure) return wikiFailure;
+  }
+
+  if (preview.sourceConnectionId) {
+    await tx
+      .select({ id: knowledgeSources.id })
+      .from(knowledgeSources)
+      .where(eq(knowledgeSources.id, preview.sourceConnectionId))
+      .for('share');
+  }
+
+  if (guard?.sourceSnapshot) {
+    if (preview.sourceConnectionId !== guard.sourceSnapshot.sourceId) {
+      return rejectVersionActivation('CONFLICT', '文档来源连接与读取快照不一致');
+    }
+    if (!(await sourceSnapshotMatchesTx(tx, guard.sourceSnapshot))) {
+      return rejectVersionActivation('CONFLICT', '来源读取快照已失效');
+    }
+  } else if (guard && preview.sourceConnectionId) {
+    return rejectVersionActivation('CONFLICT', '缺少来源读取快照');
+  }
+
+  const [document] = await tx
+    .select()
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.id, documentId))
+    .for('update');
+  if (!document) return rejectVersionActivation('NOT_FOUND', KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE);
+
+  if (
+    !options.allowDisabledDocument &&
+    (document.status === 'disabled' || document.disabledReason !== null)
+  ) {
+    return rejectVersionActivation('CONFLICT', '文档已停用');
+  }
+
+  if (guard) {
+    if (
+      guard.sourceSnapshot &&
+      (document.baseId !== guard.sourceSnapshot.baseId ||
+        document.sourceConnectionId !== guard.sourceSnapshot.sourceId)
+    ) {
+      return rejectVersionActivation('CONFLICT', '文档来源信息与读取快照不一致');
+    }
+    if (guard.isAborted?.()) return rejectVersionActivation('CONFLICT', '发布任务已取消');
+    if (document.currentVersionId !== guard.expectedCurrentVersionId) {
+      return rejectVersionActivation('CONFLICT_STALE', DOCUMENT_VERSION_STALE_MESSAGE);
+    }
+  }
+
+  if (
+    options.expectedCurrentVersionId !== undefined &&
+    document.currentVersionId !== options.expectedCurrentVersionId
+  ) {
+    return rejectVersionActivation('CONFLICT_STALE', DOCUMENT_VERSION_STALE_MESSAGE);
+  }
+
+  if (options.forbidUnpublishedDraft && (await hasUnpublishedDraft(tx, document))) {
+    return rejectVersionActivation('CONFLICT', '存在未发布的草稿');
+  }
+
+  const [version] = await tx
+    .select({
+      documentId: knowledgeDocumentVersions.documentId,
+      version: knowledgeDocumentVersions.version,
+      embeddingProfileId: knowledgeDocumentVersions.embeddingProfileId,
+      metadata: knowledgeDocumentVersions.metadata,
+      blobSha256: knowledgeDocumentVersions.blobSha256,
+      originalFilename: knowledgeDocumentVersions.originalFilename,
+      mimeType: knowledgeDocumentVersions.mimeType,
+      parentVersionId: knowledgeDocumentVersions.parentVersionId,
+    })
+    .from(knowledgeDocumentVersions)
+    .where(eq(knowledgeDocumentVersions.id, versionId))
+    .limit(1);
+  if (version?.documentId !== documentId) {
+    return rejectVersionActivation('NOT_FOUND', '版本文档不属于该文档');
+  }
+  if (version.metadata.publication === 'superseded') {
+    return rejectVersionActivation('CONFLICT', '该版本已被新草稿取代');
+  }
+  if (version.metadata.publication === 'draft') {
+    const latestDraft = await latestUnpublishedDraft(tx, document);
+    if (latestDraft && version.version < latestDraft.version) {
+      return rejectVersionActivation('CONFLICT_STALE', '存在更新的草稿，请先发布或放弃后再切换');
+    }
+  }
+  if (version.metadata.faqImport !== undefined && version.metadata.publication !== 'published') {
+    return rejectVersionActivation('CONFLICT', '该 FAQ 草稿尚未正式批发布，不能逐条上线');
+  }
+  if (
+    version.metadata.publication === 'draft' &&
+    version.metadata.faqImport === undefined &&
+    !(await draftIndexJobAllowsVersionTx(tx, document, version))
+  ) {
+    return rejectVersionActivation('CONFLICT', '草稿缺少本版本已成功的索引任务，不能发布');
+  }
+
+  const [base] = await tx
+    .select({
+      status: knowledgeBases.status,
+      embeddingProfileId: knowledgeBases.embeddingProfileId,
+      asrProfileId: knowledgeBases.asrProfileId,
+      settings: knowledgeBases.settings,
+    })
+    .from(knowledgeBases)
+    .where(eq(knowledgeBases.id, document.baseId))
+    .limit(1);
+  if (!base || base.embeddingProfileId !== version.embeddingProfileId) {
+    return rejectVersionActivation('CONFLICT', '版本来自不同的 embedding 模型空间，请重建后再回退');
+  }
+
+  if (!(await sourceScopeAllowsDocument(tx, document))) {
+    return rejectVersionActivation('CONFLICT', '来源权限已失效，不能切换到该版本');
+  }
+
+  if (guard) {
+    if (guard.asrProfileId !== undefined && (base.asrProfileId ?? null) !== guard.asrProfileId) {
+      return rejectVersionActivation('CONFLICT', 'ASR 配置已变化');
+    }
+    if (document.baseId !== guard.baseId) {
+      return rejectVersionActivation('CONFLICT', '文档所属知识库不匹配');
+    }
+    const [job] = await tx
+      .select({ status: knowledgeJobs.status })
+      .from(knowledgeJobs)
+      .where(eq(knowledgeJobs.id, guard.jobId))
+      .limit(1);
+    if (job?.status !== 'running') {
+      return rejectVersionActivation('CONFLICT', '索引任务未处于运行状态');
+    }
+    if (base.status !== 'active' || base.embeddingProfileId !== guard.embeddingProfileId) {
+      return rejectVersionActivation('CONFLICT', '知识库状态或 embedding 配置已变化');
+    }
+    if (
+      JSON.stringify(knowledgeBaseSettingsSchema.parse(base.settings).imageProcessing) !==
+      guard.imageProcessingJson
+    ) {
+      return rejectVersionActivation('CONFLICT', '知识库图片处理配置已变化');
+    }
+    if (guard.isAborted?.()) return rejectVersionActivation('CONFLICT', '发布任务已取消');
+  }
+
+  await tx
+    .update(knowledgeDocumentVersions)
+    .set({
+      metadata: sql`${knowledgeDocumentVersions.metadata} || '{"publication":"published"}'::jsonb`,
+    })
+    .where(
+      and(
+        eq(knowledgeDocumentVersions.id, versionId),
+        sql`${knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
+      ),
+    );
+  if (version.metadata.publication === 'draft') {
+    await supersedeDraftVersionsTx(tx, documentId, versionId);
+  }
+  const [row] = await tx
+    .update(knowledgeDocuments)
+    .set({
+      currentVersionId: versionId,
+      contentHash: version.blobSha256,
+      ...(options.allowDisabledDocument && document.status === 'disabled'
+        ? {}
+        : { status: 'ready' as const }),
+      updatedAt: new Date(),
+    })
+    .where(eq(knowledgeDocuments.id, documentId))
+    .returning();
+  if (row && options.markWikiStale && document.currentVersionId !== versionId) {
+    await markWikiStaleByDocumentsTx(tx, [documentId]);
+  }
+  return { ok: true, document: row ?? null };
+}
+
 export async function setCurrentVersion(
   db: DbHandle,
   documentId: string,
@@ -204,296 +479,42 @@ export async function setCurrentVersion(
   guard?: PublishGuard,
   options?: { expectedCurrentVersionId: string | null; forbidUnpublishedDraft?: boolean },
 ): Promise<KnowledgeDocumentRow | null> {
-  return db.transaction(async (tx) => {
-    const [version] = await tx
-      .select({
-        documentId: knowledgeDocumentVersions.documentId,
-        embeddingProfileId: knowledgeDocumentVersions.embeddingProfileId,
-        metadata: knowledgeDocumentVersions.metadata,
-        blobSha256: knowledgeDocumentVersions.blobSha256,
-        originalFilename: knowledgeDocumentVersions.originalFilename,
-        mimeType: knowledgeDocumentVersions.mimeType,
-        parentVersionId: knowledgeDocumentVersions.parentVersionId,
-      })
-      .from(knowledgeDocumentVersions)
-      .where(eq(knowledgeDocumentVersions.id, versionId))
-      .limit(1);
-    if (version?.documentId !== documentId) return null;
-    if (version.metadata?.publication === 'superseded') return null;
-    const [preview] = await tx
-      .select({
-        sourceConnectionId: knowledgeDocuments.sourceConnectionId,
-        contentKind: knowledgeDocuments.contentKind,
-        baseId: knowledgeDocuments.baseId,
-        metadata: knowledgeDocuments.metadata,
-      })
-      .from(knowledgeDocuments)
-      .where(eq(knowledgeDocuments.id, documentId))
-      .limit(1);
-    if (!preview) return null;
-    if (preview.contentKind === 'wiki') {
-      const { wikiPageId, wikiVersionId } = version.metadata;
-      if (typeof wikiPageId !== 'string' || typeof wikiVersionId !== 'string') return null;
-      if (preview.metadata.wikiPageId !== wikiPageId) return null;
-      const [wikiVersion] = await tx
-        .select()
-        .from(knowledgeWikiVersions)
-        .where(
-          and(
-            eq(knowledgeWikiVersions.id, wikiVersionId),
-            eq(knowledgeWikiVersions.pageId, wikiPageId),
-          ),
-        )
-        .limit(1);
-      if (!wikiVersion) return null;
-      await lockWikiSourceScope(tx, preview.baseId, wikiVersion.sourceChunkIds);
-      const [page] = await tx
-        .select()
-        .from(knowledgeWikiPages)
-        .where(eq(knowledgeWikiPages.id, wikiPageId))
-        .for('update');
-      if (
-        !page ||
-        page.baseId !== preview.baseId ||
-        page.status !== 'published' ||
-        page.currentVersionId !== wikiVersionId
-      )
-        return null;
-      if ((await usableSourceChunks(tx, page, wikiVersion.sourceChunkIds)).unusable > 0)
-        return null;
-    }
-    if (preview.sourceConnectionId) {
-      await tx
-        .select({ id: knowledgeSources.id })
-        .from(knowledgeSources)
-        .where(eq(knowledgeSources.id, preview.sourceConnectionId))
-        .for('share');
-    }
-    if (guard?.sourceSnapshot) {
-      if (preview.sourceConnectionId !== guard.sourceSnapshot.sourceId) return null;
-      if (!(await sourceSnapshotMatchesTx(tx, guard.sourceSnapshot))) return null;
-    } else if (guard && preview.sourceConnectionId) {
-      return null;
-    }
-    const [document] = await tx
-      .select()
-      .from(knowledgeDocuments)
-      .where(eq(knowledgeDocuments.id, documentId))
-      .for('update');
-    if (!document) return null;
-    const [lockedVersion] = await tx
-      .select({
-        version: knowledgeDocumentVersions.version,
-        metadata: knowledgeDocumentVersions.metadata,
-      })
-      .from(knowledgeDocumentVersions)
-      .where(eq(knowledgeDocumentVersions.id, versionId))
-      .limit(1);
-    if (!lockedVersion) return null;
-    if (lockedVersion.metadata.publication === 'superseded') return null;
-    if (lockedVersion.metadata.publication === 'draft') {
-      const latestDraft = await latestUnpublishedDraft(tx, document);
-      if (latestDraft && lockedVersion.version < latestDraft.version) return null;
-    }
-    if (document.status === 'disabled' || document.disabledReason !== null) return null;
-    if (
-      guard?.sourceSnapshot &&
-      (document.baseId !== guard.sourceSnapshot.baseId ||
-        document.sourceConnectionId !== guard.sourceSnapshot.sourceId)
-    ) {
-      return null;
-    }
-    if (guard) {
-      if (guard.isAborted?.()) return null;
-      if (document.currentVersionId !== guard.expectedCurrentVersionId) return null;
-    }
-    if (options !== undefined && document.currentVersionId !== options.expectedCurrentVersionId) {
-      return null;
-    }
-    if (options?.forbidUnpublishedDraft && (await hasUnpublishedDraft(tx, document))) {
-      return null;
-    }
-    if (
-      lockedVersion.metadata.faqImport !== undefined &&
-      lockedVersion.metadata.publication !== 'published'
-    ) {
-      return null;
-    }
-    if (
-      lockedVersion.metadata.publication === 'draft' &&
-      !(await draftIndexJobAllowsVersionTx(tx, document, {
-        ...version,
-        metadata: lockedVersion.metadata,
-      }))
-    ) {
-      return null;
-    }
-    if (!(await sourceScopeAllowsDocument(tx, document))) return null;
-    const [base] = await tx
-      .select({
-        status: knowledgeBases.status,
-        embeddingProfileId: knowledgeBases.embeddingProfileId,
-        asrProfileId: knowledgeBases.asrProfileId,
-        settings: knowledgeBases.settings,
-      })
-      .from(knowledgeBases)
-      .where(eq(knowledgeBases.id, document.baseId))
-      .limit(1);
-    if (!base || base.embeddingProfileId !== version.embeddingProfileId) return null;
-    if (guard?.asrProfileId !== undefined && (base.asrProfileId ?? null) !== guard.asrProfileId) {
-      return null;
-    }
-    if (guard) {
-      if (document.baseId !== guard.baseId) return null;
-      const [job] = await tx
-        .select({ status: knowledgeJobs.status })
-        .from(knowledgeJobs)
-        .where(eq(knowledgeJobs.id, guard.jobId))
-        .limit(1);
-      if (job?.status !== 'running') return null;
-      if (base.status !== 'active' || base.embeddingProfileId !== guard.embeddingProfileId) {
-        return null;
-      }
-      if (
-        JSON.stringify(knowledgeBaseSettingsSchema.parse(base.settings).imageProcessing) !==
-        guard.imageProcessingJson
-      ) {
-        return null;
-      }
-      if (guard.isAborted?.()) return null;
-    }
-    await tx
-      .update(knowledgeDocumentVersions)
-      .set({
-        metadata: sql`${knowledgeDocumentVersions.metadata} || '{"publication":"published"}'::jsonb`,
-      })
-      .where(
-        and(
-          eq(knowledgeDocumentVersions.id, versionId),
-          sql`${knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
-        ),
-      );
-    if (lockedVersion.metadata.publication === 'draft') {
-      await supersedeDraftVersionsTx(tx, documentId, versionId);
-    }
-    const [row] = await tx
-      .update(knowledgeDocuments)
-      .set({
-        currentVersionId: versionId,
-        contentHash: version.blobSha256,
-        status: 'ready',
-        updatedAt: new Date(),
-      })
-      .where(eq(knowledgeDocuments.id, documentId))
-      .returning();
-    return row ?? null;
-  });
+  const result = await db.transaction((tx) =>
+    activateVersionTx(tx, {
+      documentId,
+      versionId,
+      ...(options !== undefined
+        ? { expectedCurrentVersionId: options.expectedCurrentVersionId }
+        : {}),
+      ...(options?.forbidUnpublishedDraft !== undefined
+        ? { forbidUnpublishedDraft: options.forbidUnpublishedDraft }
+        : {}),
+      ...(guard !== undefined ? { guard } : {}),
+      verifyWikiIndex: true,
+      allowDisabledDocument: false,
+      markWikiStale: false,
+    }),
+  );
+  return result.ok ? result.document : null;
 }
 
 export async function activateDocumentVersion(
   db: Database,
   input: { documentId: string; versionId: string; expectedVersionId: string | null },
 ): Promise<KnowledgeDocumentRow> {
-  return db.transaction(async (tx) => {
-    const [preview] = await tx
-      .select({ sourceConnectionId: knowledgeDocuments.sourceConnectionId })
-      .from(knowledgeDocuments)
-      .where(eq(knowledgeDocuments.id, input.documentId))
-      .limit(1);
-    if (!preview) throw new AppError('NOT_FOUND', KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE);
-    if (preview.sourceConnectionId) {
-      await tx
-        .select({ id: knowledgeSources.id })
-        .from(knowledgeSources)
-        .where(eq(knowledgeSources.id, preview.sourceConnectionId))
-        .for('share');
-    }
-    const [document] = await tx
-      .select()
-      .from(knowledgeDocuments)
-      .where(eq(knowledgeDocuments.id, input.documentId))
-      .for('update');
-    if (!document) throw new AppError('NOT_FOUND', KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE);
-    if (document.currentVersionId !== input.expectedVersionId) {
-      throw new AppError('CONFLICT_STALE', DOCUMENT_VERSION_STALE_MESSAGE);
-    }
-    const [version] = await tx
-      .select({
-        documentId: knowledgeDocumentVersions.documentId,
-        version: knowledgeDocumentVersions.version,
-        embeddingProfileId: knowledgeDocumentVersions.embeddingProfileId,
-        metadata: knowledgeDocumentVersions.metadata,
-        blobSha256: knowledgeDocumentVersions.blobSha256,
-        originalFilename: knowledgeDocumentVersions.originalFilename,
-        mimeType: knowledgeDocumentVersions.mimeType,
-        parentVersionId: knowledgeDocumentVersions.parentVersionId,
-      })
-      .from(knowledgeDocumentVersions)
-      .where(eq(knowledgeDocumentVersions.id, input.versionId))
-      .limit(1);
-    if (version?.documentId !== input.documentId) {
-      throw new AppError('NOT_FOUND', '版本文档不属于该文档');
-    }
-    if (version.metadata.publication === 'superseded') {
-      throw new AppError('CONFLICT', '该版本已被新草稿取代');
-    }
-    if (version.metadata.publication === 'draft') {
-      const latestDraft = await latestUnpublishedDraft(tx, document);
-      if (latestDraft && version.version < latestDraft.version) {
-        throw new AppError('CONFLICT_STALE', '存在更新的草稿，请先发布或放弃后再切换');
-      }
-    }
-    if (version.metadata.faqImport !== undefined && version.metadata.publication !== 'published') {
-      throw new AppError('CONFLICT', '该 FAQ 草稿尚未正式批发布，不能逐条上线');
-    }
-    if (
-      version.metadata.publication === 'draft' &&
-      version.metadata.faqImport === undefined &&
-      !(await draftIndexJobAllowsVersionTx(tx, document, version))
-    ) {
-      throw new AppError('CONFLICT', '草稿缺少本版本已成功的索引任务，不能发布');
-    }
-    const [base] = await tx
-      .select({ embeddingProfileId: knowledgeBases.embeddingProfileId })
-      .from(knowledgeBases)
-      .where(eq(knowledgeBases.id, document.baseId))
-      .limit(1);
-    if (!base || base.embeddingProfileId !== version.embeddingProfileId) {
-      throw new AppError('CONFLICT', '版本来自不同的 embedding 模型空间，请重建后再回退');
-    }
-    if (!(await sourceScopeAllowsDocument(tx, document))) {
-      throw new AppError('CONFLICT', '来源权限已失效，不能切换到该版本');
-    }
-    await tx
-      .update(knowledgeDocumentVersions)
-      .set({
-        metadata: sql`${knowledgeDocumentVersions.metadata} || '{"publication":"published"}'::jsonb`,
-      })
-      .where(
-        and(
-          eq(knowledgeDocumentVersions.id, input.versionId),
-          sql`${knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
-        ),
-      );
-    if (version.metadata.publication === 'draft') {
-      await supersedeDraftVersionsTx(tx, input.documentId, input.versionId);
-    }
-    const [row] = await tx
-      .update(knowledgeDocuments)
-      .set({
-        currentVersionId: input.versionId,
-        contentHash: version.blobSha256,
-        ...(document.status === 'disabled' ? {} : { status: 'ready' }),
-        updatedAt: new Date(),
-      })
-      .where(eq(knowledgeDocuments.id, input.documentId))
-      .returning();
-    if (!row) throw new Error('knowledge document update returned no row');
-    if (document.currentVersionId !== input.versionId) {
-      await markWikiStaleByDocumentsTx(tx, [input.documentId]);
-    }
-    return row;
-  });
+  const result = await db.transaction((tx) =>
+    activateVersionTx(tx, {
+      documentId: input.documentId,
+      versionId: input.versionId,
+      expectedCurrentVersionId: input.expectedVersionId,
+      verifyWikiIndex: false,
+      allowDisabledDocument: true,
+      markWikiStale: true,
+    }),
+  );
+  if (!result.ok) throw new AppError(result.code, result.message);
+  if (!result.document) throw new Error('knowledge document update returned no row');
+  return result.document;
 }
 
 export async function listVersions(

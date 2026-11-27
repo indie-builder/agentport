@@ -1,12 +1,10 @@
 import { sha256Hex, visibleDocumentSummary, writeKnowledgeBlob } from '@agentport/core';
 import type { createServiceLogger } from '@agentport/core/logger';
-import { type Database, newId, repo, schema } from '@agentport/db';
+import { repo, type schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import { knowledgeEnqueueOptions } from '@agentport/shared';
-import { eq } from 'drizzle-orm';
 import { getKnowledgeQueue } from '../../queue/producer.js';
 
-type Db = Database;
 type Logger = ReturnType<typeof createServiceLogger>;
 type JobDb = Parameters<typeof repo.knowledge.createJob>[0];
 
@@ -81,45 +79,6 @@ export function createJob(
     sourceId: input.sourceId ?? null,
     payload: input.payload,
   });
-}
-
-export async function ensureKnowledgeServer(
-  db: Db,
-  base: { slug: string; id?: string; serverId?: string; ownerBusinessId?: string },
-) {
-  const name = `kb-${base.slug}`;
-  const config = base.id ? { knowledgeBaseId: base.id } : {};
-  const existing = base.serverId ? await repo.servers.getServer(db, base.serverId) : null;
-  if (existing) {
-    const owner =
-      existing.ownerBusinessId === null && base.ownerBusinessId !== undefined
-        ? base.ownerBusinessId
-        : null;
-    if (existing.name === name && existing.config.knowledgeBaseId === base.id && owner === null) {
-      return existing;
-    }
-    const updated = await repo.servers.updateServer(db, existing.id, { name, config });
-    if (owner !== null) {
-      await db
-        .update(schema.servers)
-        .set({ ownerBusinessId: owner })
-        .where(eq(schema.servers.id, existing.id));
-    }
-    return updated ?? existing;
-  }
-  const [row] = await db
-    .insert(schema.servers)
-    .values({
-      id: newId('server'),
-      name,
-      kind: 'knowledge',
-      config,
-      secretsEncrypted: null,
-      ownerBusinessId: base.ownerBusinessId ?? null,
-    })
-    .returning();
-  if (!row) throw new Error('knowledge server insert returned no row');
-  return row;
 }
 
 export async function storeBlob(knowledgeDir: string, data: Uint8Array): Promise<string> {

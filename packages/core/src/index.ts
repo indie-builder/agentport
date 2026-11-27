@@ -14,6 +14,17 @@ export {
 } from './attachments.js';
 export { canonicalJson } from './canonical-json.js';
 export {
+  comparePair,
+  compareResults,
+  type EvalCaseSnapshot,
+  type EvalComparisonRow,
+  type EvalComparisonStatus,
+  type EvalResultRow,
+  type StoredEvalResult,
+  snapshotInputs,
+  toPublicResult,
+} from './comparison.js';
+export {
   ACTION_RANK,
   CONTENT_BLOCKED_MESSAGE,
   type ContentPolicyDecision,
@@ -120,6 +131,7 @@ export {
   providerRouteDestination,
   providerRouteMatches,
 } from './provider-route.js';
+export { mergeToolSteps, messageText, toStep } from './run-steps.js';
 export { appendStreamEvent } from './run-stream.js';
 export { segmentForSearch } from './search-segment.js';
 export { decryptSecrets, encryptSecrets } from './secrets.js';

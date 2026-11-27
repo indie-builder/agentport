@@ -19,6 +19,7 @@ import {
   type Page,
   type PageOptions,
   pageLimit,
+  rangeCoversPathSql,
   type SourceDocumentPatch,
   type SourceReadSnapshot,
   sourceSnapshotMatchesTx,
@@ -200,19 +201,7 @@ async function pruneSourceRangeMemberships(tx: Transaction, sourceId: string): P
       and r.source_id = ${sourceId}
       and (
         d.source_connection_id is distinct from ${sourceId}
-        or not (
-          r.enabled
-          and (
-            jsonb_array_length(r.paths) = 0
-            or (
-              d.source_path is not null
-              and exists (
-                select 1 from jsonb_array_elements_text(r.paths) p
-                where d.source_path = p or left(d.source_path, char_length(p) + 1) = p || '/'
-              )
-            )
-          )
-        )
+        or not (r.enabled and ${rangeCoversPathSql(sql`d.source_path`)})
       )
   `);
 }
@@ -367,16 +356,7 @@ export async function replaceSourceScope(
       where r.source_id = ${sourceId}
         and d.source_connection_id = ${sourceId}
         and r.enabled
-        and (
-          jsonb_array_length(r.paths) = 0
-          or (
-            d.source_path is not null
-            and exists (
-              select 1 from jsonb_array_elements_text(r.paths) p
-              where d.source_path = p or left(d.source_path, char_length(p) + 1) = p || '/'
-            )
-          )
-        )
+        and ${rangeCoversPathSql(sql`d.source_path`)}
     `);
     const coveredIds = new Set(covered.map((row) => row.id));
     const statusAllowsRead = source.status === 'active' || source.status === 'paused';

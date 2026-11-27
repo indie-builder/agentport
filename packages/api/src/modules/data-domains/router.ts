@@ -13,10 +13,8 @@ import { authorize, authorizeResourceAccess, resourceAccessFilter } from '../../
 import { actorOf, type RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import {
-  deleteDataDomainServer,
   enqueueDataDomainBuild,
   enqueueDataDomainEnrichment,
-  ensureDataDomainServer,
   generateDataDomainMdl,
   testDataDomainConnection,
 } from './use-cases.js';
@@ -204,8 +202,9 @@ export const dataDomainsRouter = os.router({
         createdBy: ownerBusinessId,
         ownerBusinessId,
       });
-      await ensureDataDomainServer(tx, {
-        id: created.id,
+      await repo.servers.upsertManagedServer(tx, {
+        kind: 'data_domain',
+        resourceId: created.id,
         slug: created.slug,
         ownerBusinessId: created.ownerBusinessId,
       });
@@ -247,8 +246,9 @@ export const dataDomainsRouter = os.router({
             }),
       });
       if (!updated) return null;
-      await ensureDataDomainServer(tx, {
-        id: updated.id,
+      await repo.servers.upsertManagedServer(tx, {
+        kind: 'data_domain',
+        resourceId: updated.id,
         slug: updated.slug,
         ownerBusinessId: updated.ownerBusinessId,
       });
@@ -263,7 +263,10 @@ export const dataDomainsRouter = os.router({
     await authorizeDomain(context, 'data_domains.delete', existing, 'manage');
     const ok = await context.db.transaction(async (tx) => {
       if (!(await domains.deleteDataDomain(tx, input.params.id))) return false;
-      await deleteDataDomainServer(tx, existing.id);
+      await repo.servers.deleteManagedServer(tx, {
+        kind: 'data_domain',
+        resourceId: existing.id,
+      });
       return true;
     });
     if (!ok) fail('NOT_FOUND', NOT_FOUND_MESSAGES.dataDomain);

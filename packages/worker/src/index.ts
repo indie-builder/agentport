@@ -81,7 +81,7 @@ if (config.SANDBOX_EGRESS === 'none') {
   );
 }
 
-const { db, client } = createDb(config.DATABASE_URL);
+const { db, client } = createDb(config.DATABASE_URL, { max: config.DB_POOL_MAX });
 await repo.ops.ensureRetentionDefaults(db, {
   runDays: config.RETAIN_RUN_DAYS,
   messageDays: config.RETAIN_MESSAGE_DAYS,

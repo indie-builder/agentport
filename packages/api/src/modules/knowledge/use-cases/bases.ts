@@ -4,7 +4,7 @@ import {
   chunkBlocks,
   markdownBlocks,
 } from '@agentport/core';
-import { repo } from '@agentport/db';
+import { newId, repo } from '@agentport/db';
 import type {
   KnowledgeBaseSettings,
   KnowledgeBaseStatus,
@@ -15,7 +15,6 @@ import { knowledgeBaseSettingsSchema, supportsKnowledgeImageVectors } from '@age
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
 import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
-import { ensureKnowledgeServer } from '../service.js';
 import { CHUNK_OVERLAP_INVALID_MESSAGE, type KnowledgeDeps, notFound } from './shared.js';
 
 type BaseRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getBase>>>;
@@ -122,27 +121,30 @@ export async function createBase(
   const settingsProblem = await imageSettingsProblem(input.settings, embedding);
   if (settingsProblem !== null) throw new AppError('CONFLICT', settingsProblem);
   try {
-    const server = await ensureKnowledgeServer(deps.db, {
-      slug: input.slug,
-      ownerBusinessId: deps.businessId,
-    });
-    const row = await repo.knowledge.createBase(deps.db, {
-      slug: input.slug,
-      name: input.name,
-      description: input.description,
-      serverId: server.id,
-      embeddingProfileId: input.embeddingProfileId,
-      rerankProfileId: input.rerankProfileId,
-      asrProfileId: input.asrProfileId,
-      status: input.status,
-      settings: input.settings,
-      ownerBusinessId: deps.businessId,
-    });
-    await ensureKnowledgeServer(deps.db, {
-      slug: row.slug,
-      id: row.id,
-      serverId: server.id,
-      ownerBusinessId: deps.businessId,
+    const baseId = newId('knowledgeBase');
+    const row = await deps.db.transaction(async (tx) => {
+      if (await repo.knowledge.baseSlugExists(tx, input.slug)) {
+        throw new AppError('CONFLICT', '该 slug 已被占用，请换一个');
+      }
+      const server = await repo.servers.upsertManagedServer(tx, {
+        kind: 'knowledge',
+        resourceId: baseId,
+        slug: input.slug,
+        ownerBusinessId: deps.businessId,
+      });
+      return repo.knowledge.createBase(tx, {
+        id: baseId,
+        slug: input.slug,
+        name: input.name,
+        description: input.description,
+        serverId: server.id,
+        embeddingProfileId: input.embeddingProfileId,
+        rerankProfileId: input.rerankProfileId,
+        asrProfileId: input.asrProfileId,
+        status: input.status,
+        settings: input.settings,
+        ownerBusinessId: deps.businessId,
+      });
     });
     await repo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
@@ -301,10 +303,17 @@ export async function updateBase(deps: KnowledgeDeps, current: BaseRow, body: Up
 }
 
 export async function deleteBase(deps: KnowledgeDeps, row: BaseRow): Promise<void> {
-  const unbound = await deps.db.execute<{ agent_id: string }>(
-    sql`select agent_id from agent_servers where server_id = ${row.serverId}`,
-  );
-  await repo.servers.deleteServer(deps.db, row.serverId);
+  const unbound = await deps.db.transaction(async (tx) => {
+    const agents = await tx.execute<{ agent_id: string }>(
+      sql`select agent_id from agent_servers where server_id = ${row.serverId}`,
+    );
+    await repo.servers.deleteManagedServer(tx, {
+      kind: 'knowledge',
+      resourceId: row.id,
+      serverId: row.serverId,
+    });
+    return agents;
+  });
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.base.deleted',

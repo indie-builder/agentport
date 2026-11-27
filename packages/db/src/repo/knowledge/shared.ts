@@ -83,6 +83,20 @@ export function readableDocumentSql(alias: string): SQL {
     })})`;
 }
 
+export function rangeCoversPathSql(sourcePath: SQL, paths: SQL = sql`r.paths`): SQL {
+  return sql`(
+    jsonb_array_length(${paths}) = 0
+    or (
+      ${sourcePath} is not null
+      and exists (
+        select 1 from jsonb_array_elements_text(${paths}) p
+        where ${sourcePath} = p
+          or left(${sourcePath}, char_length(p) + 1) = p || '/'
+      )
+    )
+  )`;
+}
+
 function sourceScopeSql(document: {
   id: SQL;
   baseId: SQL;
@@ -100,14 +114,7 @@ function sourceScopeSql(document: {
         where dsr.document_id = ${document.id}
           and r.source_id = s.id
           and r.enabled
-          and (
-            jsonb_array_length(r.paths) = 0
-            or (${document.sourcePath} is not null and exists (
-              select 1 from jsonb_array_elements_text(r.paths) p
-              where ${document.sourcePath} = p
-                or left(${document.sourcePath}, char_length(p) + 1) = p || '/'
-            ))
-          )
+          and ${rangeCoversPathSql(document.sourcePath)}
       )
   )`;
 }

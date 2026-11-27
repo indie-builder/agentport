@@ -24,6 +24,7 @@ export const serviceEnvShape = {
   KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
   MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
   WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 };
 
 export function parseEnv<S extends z.ZodType>(

@@ -1,6 +1,6 @@
 import { AppError } from '@agentport/core';
 import type { ResourceAccessFilter } from '@agentport/shared';
-import { and, asc, desc, eq, inArray, lt, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, type SQL } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -12,6 +12,7 @@ import {
   dataDomainVersions,
 } from '../schema.js';
 import { resourceScopeWhere } from './access.js';
+import { logTailFields } from './log-tail.js';
 import { type CursorPage, keysetPage } from './pagination.js';
 import { isPgCode } from './pg-errors.js';
 
@@ -22,26 +23,17 @@ export type DataDomainQueryLogRow = typeof dataDomainQueryLogs.$inferSelect;
 export type DataDomainQueryApprovalRow = typeof dataDomainQueryApprovals.$inferSelect;
 export type DataDomainEnrichmentProposalRow = typeof dataDomainEnrichmentProposals.$inferSelect;
 
-const DATA_DOMAIN_VERSION_LOG_LIMIT = 64 * 1024;
-
-function logTailFields(
+function versionLogTail(
   chunk: string,
   sourceTruncated: boolean,
 ): { logTail: SQL; logTruncated: SQL } {
-  const joined = sql`${dataDomainVersions.logTail} || ${chunk}`;
-  const slice = sql`substring(convert_to(${joined}, 'UTF8') from greatest(1, octet_length(convert_to(${joined}, 'UTF8')) - ${DATA_DOMAIN_VERSION_LOG_LIMIT} + 1))`;
-  return {
-    logTail: sql`(select convert_from(substring(tail.bytes from case
-      when octet_length(tail.bytes) = 0 then 1
-      when get_byte(tail.bytes, 0) < 128 or get_byte(tail.bytes, 0) >= 192 then 1
-      when octet_length(tail.bytes) <= 1 then 2
-      when get_byte(tail.bytes, 1) < 128 or get_byte(tail.bytes, 1) >= 192 then 2
-      when octet_length(tail.bytes) <= 2 then 3
-      when get_byte(tail.bytes, 2) < 128 or get_byte(tail.bytes, 2) >= 192 then 3
-      else 4
-    end), 'UTF8') from (select ${slice} as bytes) tail)`,
-    logTruncated: sql`${dataDomainVersions.logTruncated} or ${sourceTruncated} or octet_length(${joined}) > ${DATA_DOMAIN_VERSION_LOG_LIMIT}`,
-  };
+  const { tail, truncated } = logTailFields({
+    tailColumn: dataDomainVersions.logTail,
+    truncatedColumn: dataDomainVersions.logTruncated,
+    chunk,
+    sourceTruncated,
+  });
+  return { logTail: tail, logTruncated: truncated };
 }
 
 export type DataDomainInput = Pick<
@@ -273,7 +265,7 @@ export async function failStaleDataDomainVersionBuild(
 ): Promise<DataDomainVersionRow | null> {
   const [row] = await db
     .update(dataDomainVersions)
-    .set({ status: 'failed', ...logTailFields(text, false), updatedAt: new Date() })
+    .set({ status: 'failed', ...versionLogTail(text, false), updatedAt: new Date() })
     .where(
       and(
         eq(dataDomainVersions.id, versionId),
@@ -294,7 +286,7 @@ export async function appendDataDomainVersionLog(
   if (chunk === '' && !sourceTruncated) return;
   await db
     .update(dataDomainVersions)
-    .set({ ...logTailFields(chunk, sourceTruncated), updatedAt: new Date() })
+    .set({ ...versionLogTail(chunk, sourceTruncated), updatedAt: new Date() })
     .where(and(eq(dataDomainVersions.id, versionId), eq(dataDomainVersions.status, 'building')));
 }
 

@@ -20,6 +20,7 @@ import {
 } from './shared.js';
 
 export interface CreateBaseInput {
+  id?: string | undefined;
   slug: string;
   name: string;
   description: string;
@@ -50,9 +51,10 @@ export async function createBase(db: DbHandle, input: CreateBaseInput): Promise<
   if (input.asrProfileId !== null && input.asrProfileId !== undefined) {
     await assertUsableAsrProfile(db, input.asrProfileId);
   }
+  const { id, ...rest } = input;
   const [row] = await db
     .insert(knowledgeBases)
-    .values({ id: newId('knowledgeBase'), ...input })
+    .values({ id: id ?? newId('knowledgeBase'), ...rest })
     .returning();
   if (!row) throw new Error('knowledge base insert returned no row');
   return row;
@@ -147,7 +149,7 @@ export async function setBasePin(
     .where(and(eq(knowledgeBasePins.businessId, businessId), eq(knowledgeBasePins.baseId, baseId)));
 }
 
-export async function baseSlugExists(db: Database, slug: string): Promise<boolean> {
+export async function baseSlugExists(db: DbHandle, slug: string): Promise<boolean> {
   const [row] = await db
     .select({ id: knowledgeBases.id })
     .from(knowledgeBases)

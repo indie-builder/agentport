@@ -357,7 +357,7 @@ export async function startMaintenanceWorker(input: {
 if (process.argv[1] && import.meta.url === Bun.pathToFileURL(process.argv[1]).href) {
   const config = loadConfig();
   const logger = createWorkerLogger(config);
-  const { db, client } = createDb(config.DATABASE_URL);
+  const { db, client } = createDb(config.DATABASE_URL, { max: config.DB_POOL_MAX });
   try {
     await runMaintenance(
       db,
