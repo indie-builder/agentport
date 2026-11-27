@@ -239,9 +239,10 @@
     },
     "ui-sdk": {
       "source": "vercel-labs/ui",
+      "commit": "cd8bf5a55c9be8826e236fda55e482d76f79859f",
       "sourceType": "github",
       "skillPath": "packages/core/skills/ui-sdk/SKILL.md",
-      "computedHash": "eb97c7bee8d312d062ab419e621835c9e8293cb321e3087f3430ac1cdf634fc4"
+      "computedHash": "780dfb7ccc0917df009a10faee5dc13118d67b168d90b5befba9b86340688587"
     },
     "unslop": {
       "source": "heydamir/unslop",

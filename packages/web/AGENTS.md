@@ -40,6 +40,7 @@
 ## 组件库升级
 
 - 已接入 ui-sdk（`@ui-sdk/*`），用原生 API 直连、不套封装层；升级按 [../../docs/UI-SDK-UPGRADE.md](../../docs/UI-SDK-UPGRADE.md) 执行，版本只在根 `catalog` 精确 pin。
+- 使用或改动 ui-sdk 组件前遵循 `ui-sdk` 技能，并优先查阅已安装的 `packages/web/node_modules/@ui-sdk/react/docs/llms.txt` 与对应 `components/<name>.md`；编写自定义 primitive 时按标题查阅同目录 `core.md` 与 `rendering.md`。
 
 ## 验证
 

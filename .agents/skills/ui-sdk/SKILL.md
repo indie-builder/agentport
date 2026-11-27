@@ -20,7 +20,7 @@ The same docs are online at https://ui-sdk.dev/docs. Prefer the installed copy: 
 
 A page with no build step, like an Artifact, installs nothing: it loads `https://ui-sdk.dev/web.js` and `web.css` with two tags. Read https://ui-sdk.dev/web.md instead of `llms.txt`. It's the web components docs in one file, for that page, and [references/web-components.md](references/web-components.md#without-a-bundler) has the rest.
 
-Otherwise, if no `@ui-sdk` package is installed yet, install `@ui-sdk/core` and the framework's package with the project's package manager.
+Otherwise, if no `@ui-sdk` package is installed yet, install `@ui-sdk/core` and the framework's package with the project's package manager. In a Nuxt 4 or newer app using `@ui-sdk/vue`, also add `"@ui-sdk/vue"` to `modules` in `nuxt.config.ts`.
 
 ## Pick your path
 
@@ -36,7 +36,7 @@ Every path ends the same way:
 
 ## Rules for every path
 
-- **Import from entries.** Each component has its own entry, like `@ui-sdk/react/select`. There's no root import from a framework package. Never import `@ui-sdk/core/internal/*`.
+- **Import from entries.** Each component has its own entry, like `@ui-sdk/react/select`. Import components from there, not from a package root. Never import `@ui-sdk/core/internal/*`.
 - **One shape everywhere.** A root and its parts, nested as the component page's Composition shows. Change a part's element with `render`, never an `as` prop.
 - **Default or controlled.** `defaultValue` to start, or `value` with `onValueChange(value, details)` to control it (each framework's idiom: `v-model` in Vue, `bind:value` in Svelte, properties and events in web components). `details` has `reason`, `source` and `cancel()`.
 - **Name every control.** Use the component's label part (`FieldLabel`, `SelectLabel`, `DialogTitle`), or `aria-label` when there's no visible text. People using screen readers and agents both find controls by name.
@@ -54,3 +54,11 @@ Every path ends the same way:
 2. **Write and run tests** (see testing.md). Every task gets tests, and every interface gets at least the agent test from agent-ready.md. If a test finds a bug in code you were asked only to test, mark it `test.fails` (or `it.fails`) with a one-line reason, report the bug, and leave the suite green.
 3. **Read every comment in your diff.** Delete it unless it names a browser quirk, an APG rule or a trade-off, and cut what's left to two lines. Turn JSDoc on app code into a plain comment or delete it. Never tell the reader to replace something.
 4. **Report** each command you ran with its exit code, anything you couldn't check, and anything the docs or types got wrong or left out.
+
+## When ui-sdk has a bug
+
+Sometimes the problem isn't in the app: a component does something its docs page says it won't, an error comes from inside `@ui-sdk/*`, or a type and its page disagree. Work around it so the task still finishes, then offer to report it:
+
+> This looks like a bug in ui-sdk: <one sentence>. Want me to report it? I'll show you the issue before I file it.
+
+Offer once for each bug. Never file an issue, or comment on one, without a yes from the user. [references/report-a-bug.md](references/report-a-bug.md) has the steps: check it's ours, look for an existing issue, write it, show it, then file it.

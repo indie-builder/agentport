@@ -251,6 +251,10 @@ async function importFile(warnings: string[]) {
 }
 
 beforeEach(() => {
+  vi.spyOn(toast, 'success').mockImplementation(() => '');
+  vi.spyOn(toast, 'error').mockImplementation(() => '');
+  vi.spyOn(toast, 'info').mockImplementation(() => '');
+  vi.spyOn(toast, 'warning').mockImplementation(() => '');
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
     configurable: true,

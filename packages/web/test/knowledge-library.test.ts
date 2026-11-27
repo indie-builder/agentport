@@ -36,6 +36,8 @@ vi.mock('../src/lib/toast.js', () => ({
   toastSuccess: vi.fn(),
 }));
 
+const initialResizeObserver = globalThis.ResizeObserver;
+
 registerKnowledgeHarness();
 
 describe('knowledge polling window', () => {
@@ -625,7 +627,7 @@ describe('msw cleanup fault injection', () => {
 
   function expectRestored() {
     expect(server.listHandlers()).toHaveLength(0);
-    expect('ResizeObserver' in globalThis).toBe(false);
+    expect(globalThis.ResizeObserver).toBe(initialResizeObserver);
     expect(vi.isMockFunction(window.scrollTo)).toBe(false);
     const { root, client, host } = mountState;
     expect(root).toBeUndefined();

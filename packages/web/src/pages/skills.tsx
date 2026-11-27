@@ -1031,98 +1031,104 @@ export function SkillDialog({
           </div>
         }
       >
-        <form
-          id={formId}
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (readOnly) return;
-            return submit();
-          }}
-          className="flex flex-col gap-4"
-          noValidate
-        >
-          <FieldGroup className="grid gap-3 sm:grid-cols-2">
-            <Field data-disabled={pending} className="gap-1.5" data-invalid={Boolean(errors.name)}>
-              <FieldLabel htmlFor="skill-name">
-                名称 <RequiredMark />
+        <div className="flex flex-col gap-4">
+          <form
+            id={formId}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (readOnly) return;
+              return submit();
+            }}
+            className="flex flex-col gap-4"
+            noValidate
+          >
+            <FieldGroup className="grid gap-3 sm:grid-cols-2">
+              <Field
+                data-disabled={pending}
+                className="gap-1.5"
+                data-invalid={Boolean(errors.name)}
+              >
+                <FieldLabel htmlFor="skill-name">
+                  名称 <RequiredMark />
+                </FieldLabel>
+                <Input
+                  {...rhf.register('name')}
+                  id="skill-name"
+                  disabled={pending}
+                  readOnly={readOnly}
+                  aria-required="true"
+                  aria-invalid={Boolean(errors.name)}
+                  aria-describedby={errors.name ? 'skill-name-error' : undefined}
+                />
+                <FieldError id="skill-name-error">{errors.name?.message}</FieldError>
+              </Field>
+              <Field
+                className="gap-1.5"
+                data-invalid={Boolean(errors.slug)}
+                data-disabled={pending || Boolean(skill)}
+              >
+                <FieldLabel htmlFor="skill-slug">
+                  Slug <RequiredMark />
+                </FieldLabel>
+                <Input
+                  {...rhf.register('slug')}
+                  id="skill-slug"
+                  disabled={pending || Boolean(skill)}
+                  aria-required="true"
+                  aria-invalid={Boolean(errors.slug)}
+                  aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
+                  className="font-mono"
+                />
+                {skill ? (
+                  <FieldDescription id="skill-slug-hint">创建后不可修改。</FieldDescription>
+                ) : (
+                  <FieldError id="skill-slug-error">{errors.slug?.message}</FieldError>
+                )}
+              </Field>
+            </FieldGroup>
+            <Field
+              data-disabled={pending}
+              className="gap-1.5"
+              data-invalid={Boolean(errors.description)}
+            >
+              <FieldLabel htmlFor="skill-desc">
+                描述 <RequiredMark />
               </FieldLabel>
               <Input
-                {...rhf.register('name')}
-                id="skill-name"
+                {...rhf.register('description')}
+                id="skill-desc"
                 disabled={pending}
                 readOnly={readOnly}
                 aria-required="true"
-                aria-invalid={Boolean(errors.name)}
-                aria-describedby={errors.name ? 'skill-name-error' : undefined}
+                aria-invalid={Boolean(errors.description)}
+                aria-describedby={errors.description ? 'skill-desc-error' : undefined}
+                placeholder="一句话说明这个技能解决什么问题"
               />
-              <FieldError id="skill-name-error">{errors.name?.message}</FieldError>
+              <FieldError id="skill-desc-error">{errors.description?.message}</FieldError>
             </Field>
-            <Field
-              className="gap-1.5"
-              data-invalid={Boolean(errors.slug)}
-              data-disabled={pending || Boolean(skill)}
-            >
-              <FieldLabel htmlFor="skill-slug">
-                Slug <RequiredMark />
-              </FieldLabel>
-              <Input
-                {...rhf.register('slug')}
-                id="skill-slug"
-                disabled={pending || Boolean(skill)}
-                aria-required="true"
-                aria-invalid={Boolean(errors.slug)}
-                aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
-                className="font-mono"
+            <Field data-disabled={pending} className="gap-1.5">
+              <FieldLabel htmlFor="skill-body">步骤</FieldLabel>
+              <Controller
+                control={rhf.control}
+                name="body"
+                render={({ field }) => (
+                  <SourceEditor
+                    id="skill-body"
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    language="markdown"
+                    // label[for] 对 contenteditable 无效，可访问名称落在编辑器表面。
+                    aria-label="步骤"
+                    disabled={pending}
+                    readOnly={readOnly}
+                    className="min-h-64"
+                  />
+                )}
               />
-              {skill ? (
-                <FieldDescription id="skill-slug-hint">创建后不可修改。</FieldDescription>
-              ) : (
-                <FieldError id="skill-slug-error">{errors.slug?.message}</FieldError>
-              )}
+              <FieldDescription>支持 Markdown。</FieldDescription>
             </Field>
-          </FieldGroup>
-          <Field
-            data-disabled={pending}
-            className="gap-1.5"
-            data-invalid={Boolean(errors.description)}
-          >
-            <FieldLabel htmlFor="skill-desc">
-              描述 <RequiredMark />
-            </FieldLabel>
-            <Input
-              {...rhf.register('description')}
-              id="skill-desc"
-              disabled={pending}
-              readOnly={readOnly}
-              aria-required="true"
-              aria-invalid={Boolean(errors.description)}
-              aria-describedby={errors.description ? 'skill-desc-error' : undefined}
-              placeholder="一句话说明这个技能解决什么问题"
-            />
-            <FieldError id="skill-desc-error">{errors.description?.message}</FieldError>
-          </Field>
-          <Field data-disabled={pending} className="gap-1.5">
-            <FieldLabel htmlFor="skill-body">步骤</FieldLabel>
-            <Controller
-              control={rhf.control}
-              name="body"
-              render={({ field }) => (
-                <SourceEditor
-                  id="skill-body"
-                  value={field.value ?? ''}
-                  onChange={field.onChange}
-                  onBlur={field.onBlur}
-                  language="markdown"
-                  // label[for] 对 contenteditable 无效，可访问名称落在编辑器表面。
-                  aria-label="步骤"
-                  disabled={pending}
-                  readOnly={readOnly}
-                  className="min-h-64"
-                />
-              )}
-            />
-            <FieldDescription>支持 Markdown。</FieldDescription>
-          </Field>
+          </form>
           {skill ? (
             <SkillFilesEditor
               skillId={skill.id}
@@ -1133,7 +1139,7 @@ export function SkillDialog({
               onSavingChange={setFilesSaving}
             />
           ) : null}
-        </form>
+        </div>
         <DraftGuardDialogs
           guard={guard}
           draft="技能内容与支持文件草稿会丢失。"

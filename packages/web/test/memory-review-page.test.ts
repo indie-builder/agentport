@@ -19,6 +19,12 @@ import { PersonalMemoryPage, PersonalReviewsPage } from '../src/pages/personal/m
 import { chatSearchSchema, personalReviewsSearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
 
+vi.mock('../src/lib/toast.js', () => ({
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
+
 const agentA: Agent = {
   id: 'agent-a',
   slug: 'agent-a',
