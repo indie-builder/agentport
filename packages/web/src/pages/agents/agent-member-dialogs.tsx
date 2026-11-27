@@ -122,6 +122,7 @@ export function AgentMembersDialog({
                   className="text-danger"
                   disabled={removeMember.isPending}
                   aria-label={`移除成员 ${member.name || member.businessId}`}
+                  data-agent-confirm={`从「${agentName}」移除成员 ${member.name || member.businessId}`}
                   onClick={() =>
                     removeMember.mutate(
                       { agentId, businessId: member.businessId },
@@ -284,6 +285,7 @@ export function TransferAgentDialog({
             <Button
               disabled={target === null || target === currentOwner || transfer.isPending}
               aria-busy={transfer.isPending}
+              data-agent-confirm={`将「${agentName}」的所有权转交给选定负责人，原负责人不会自动保留成员权限`}
               onClick={() => {
                 if (!target) return;
                 transfer.mutate(

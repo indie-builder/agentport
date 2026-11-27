@@ -1109,7 +1109,12 @@ function ResetPasswordDialog({
               <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>
                 取消
               </Button>
-              <Button type="submit" disabled={pending} aria-busy={pending}>
+              <Button
+                type="submit"
+                disabled={pending}
+                aria-busy={pending}
+                data-agent-confirm={`重置「${account.name}」的密码并立即撤销全部旧会话`}
+              >
                 {pending ? '正在重置…' : '重置密码'}
               </Button>
             </div>

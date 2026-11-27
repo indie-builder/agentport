@@ -1112,6 +1112,7 @@ function ApprovalDialog({
                   variant="destructive"
                   disabled={pending}
                   aria-busy={pending}
+                  data-agent-confirm="拒绝这条外发审批请求"
                   onClick={() => void submit('reject')}
                 >
                   拒绝

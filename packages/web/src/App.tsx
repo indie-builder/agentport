@@ -9,6 +9,7 @@ import {
   ToastTitle,
 } from '@ui-sdk/react/toast';
 import { CircleAlert, CircleCheck, Info, LucideProvider, TriangleAlert, X } from 'lucide-react';
+import { UiAgentHost } from './components/ui-agent-host.js';
 import { queryClient } from './lib/queries.js';
 import { toaster } from './lib/toast.js';
 import { router } from './router.js';
@@ -63,6 +64,7 @@ export function App() {
             </Toast>
           )}
         </ToastRegion>
+        <UiAgentHost />
       </QueryClientProvider>
     </LucideProvider>
   );

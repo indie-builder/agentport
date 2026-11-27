@@ -494,6 +494,7 @@ export function ServerFormDialog({
                       disabled={pending}
                       readOnly={viewOnly}
                       id="server-env"
+                      data-agent-secret
                       aria-invalid={Boolean(errors.pairs)}
                       aria-describedby={errors.pairs ? 'server-env-error' : 'server-env-hint'}
                       rows={2}
@@ -555,6 +556,7 @@ export function ServerFormDialog({
                       disabled={pending}
                       readOnly={viewOnly}
                       id="server-headers"
+                      data-agent-secret
                       aria-invalid={Boolean(errors.pairs)}
                       aria-describedby={
                         errors.pairs ? 'server-headers-error' : 'server-headers-hint'
