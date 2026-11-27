@@ -5,10 +5,8 @@ import {
   CircleAlert,
   CircleCheck,
   EllipsisVertical,
-  Globe,
   LibraryBig,
   LoaderCircle,
-  Plug,
   Plus,
   Upload,
 } from 'lucide-react';
@@ -55,7 +53,7 @@ import { ConnectorCatalogDialog } from './connector-catalog-dialog.js';
 import { DeleteServerDialog } from './delete-server-dialog.js';
 import { ServerActions } from './server-actions.js';
 import { ServerFormDialog } from './server-form-dialog.js';
-import { type Kind, kindMeta, type LastTest } from './shared.js';
+import { kindMeta, type LastTest } from './shared.js';
 import { TestEnvironmentDialog } from './test-environment-dialog.js';
 import { ToolCatalogDialog } from './tool-catalog-dialog.js';
 import { ToolEditorDialog } from './tool-editor-dialog.js';
@@ -126,7 +124,6 @@ export function ServersPage() {
   const [catalogServer, setCatalogServer] = useState<Server | null>(null);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogInitial, setCatalogInitial] = useState<ConnectorCatalogItem | null>(null);
-  const [initialKind, setInitialKind] = useState<Kind | null>(null);
   const [tested, setTested] = useState<Map<string, LastTest>>(() => new Map());
   const [testingServer, setTestingServer] = useState<Server | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
@@ -193,11 +190,10 @@ export function ServersPage() {
     return names;
   }, [agents.data]);
 
-  const openCreate = (trigger: HTMLElement | null, presetKind: Kind | null = null): void => {
+  const openCreate = (trigger: HTMLElement | null): void => {
     triggerRef.current = trigger;
     setEditing(null);
     setCatalogInitial(null);
-    setInitialKind(presetKind);
     setFormOpen(true);
   };
 
@@ -574,8 +570,8 @@ export function ServersPage() {
           variant="stage"
           scale="page"
           specimen="connectors"
-          title="接入你的第一个连接器"
-          description="连接 MCP 服务或外部 HTTP API，让专家安全调用业务系统。"
+          title="还没有连接器"
+          description="连接 MCP 服务或外部 HTTP API，让专家调用真实工具。"
           action={
             canCreate ? (
               <Button onClick={(event) => openCreate(event.currentTarget)}>
@@ -583,35 +579,18 @@ export function ServersPage() {
               </Button>
             ) : undefined
           }
-          starters={
-            canCreate
-              ? [
-                  {
-                    id: 'mcp',
-                    icon: <Plug aria-hidden="true" />,
-                    title: 'MCP 服务',
-                    description: '连接远程或本地 MCP 工具服务',
-                    onClick: () => openCreate(createButtonRef.current, 'http'),
-                  },
-                  {
-                    id: 'http',
-                    icon: <Globe aria-hidden="true" />,
-                    title: '自定义 HTTP 端点',
-                    description: '声明业务 API 自动生成 MCP 工具',
-                    onClick: () => openCreate(createButtonRef.current, 'generated'),
-                  },
-                  {
-                    id: 'catalog',
-                    icon: <LibraryBig aria-hidden="true" />,
-                    title: '从目录快速接入',
-                    description: '选择常用服务模板一键预填',
-                    onClick: () => {
-                      triggerRef.current = moreTriggerRef.current;
-                      setCatalogOpen(true);
-                    },
-                  },
-                ]
-              : undefined
+          secondaryAction={
+            canCreate ? (
+              <Button
+                variant="outline"
+                onClick={(event) => {
+                  triggerRef.current = event.currentTarget;
+                  setCatalogOpen(true);
+                }}
+              >
+                从目录浏览
+              </Button>
+            ) : undefined
           }
           footer={canCreate ? undefined : '当前账户没有创建连接器的权限。'}
         />
@@ -775,7 +754,6 @@ export function ServersPage() {
           onPick={(item) => {
             setCatalogOpen(false);
             setEditing(null);
-            setInitialKind(null);
             setCatalogInitial(item);
             setFormOpen(true);
           }}
@@ -784,30 +762,20 @@ export function ServersPage() {
 
       {formOpen ? (
         <ServerFormDialog
-          key={
-            editing?.id ??
-            (catalogInitial
-              ? `catalog-${catalogInitial.slug}`
-              : initialKind
-                ? `kind-${initialKind}`
-                : 'new')
-          }
+          key={editing?.id ?? (catalogInitial ? `catalog-${catalogInitial.slug}` : 'new')}
           getReturnFocus={focusTrigger}
           server={editing}
           initial={catalogInitial}
-          initialKind={initialKind}
           readOnly={editing !== null && !canUpdate}
           onClose={() => {
             setFormOpen(false);
             setEditing(null);
             setCatalogInitial(null);
-            setInitialKind(null);
           }}
           onSaved={(saved, created) => {
             setFormOpen(false);
             setEditing(null);
             setCatalogInitial(null);
-            setInitialKind(null);
             setTested((previous) => {
               const next = new Map(previous);
               next.delete(saved.id);

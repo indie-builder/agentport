@@ -8,17 +8,7 @@ import {
 } from '@agentport/shared';
 import { type InfiniteData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import {
-  CalendarDays,
-  Clock,
-  History,
-  Lock,
-  Pencil,
-  Plus,
-  Sun,
-  Terminal,
-  Trash2,
-} from 'lucide-react';
+import { Clock, History, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -283,7 +273,7 @@ export function SchedulesPage() {
   const canManage = can(me.data, 'schedules.manage');
   const agentsError = agents.isError ? agents.error : null;
   const client = useQueryClient();
-  const [createPreset, setCreatePreset] = useState<ScheduleFrequency | null>(null);
+  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [deleting, setDeleting] = useState<Schedule | null>(null);
   const [historyOf, setHistoryOf] = useState<Schedule | null>(null);
@@ -352,7 +342,7 @@ export function SchedulesPage() {
             <>
               {items.length > 0 ? <ViewToggle value={view} onChange={setView} /> : null}
               {canManage ? (
-                <Button ref={createButtonRef} onClick={() => setCreatePreset('daily')}>
+                <Button ref={createButtonRef} onClick={() => setCreating(true)}>
                   <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务
                 </Button>
               ) : null}
@@ -386,42 +376,15 @@ export function SchedulesPage() {
             variant="stage"
             scale="page"
             specimen="schedules"
-            title="让专家按计划自动工作"
-            description="设定每日、每周或 Cron 周期，自动触发专家执行并沉淀结果。"
+            title="还没有定时任务"
+            description="按计划自动触发专家运行，结果会沉淀到运行记录。"
             action={
               canManage ? (
-                <Button onClick={() => setCreatePreset('daily')}>
+                <Button onClick={() => setCreating(true)}>
                   <Plus data-icon="inline-start" aria-hidden="true" />
                   新建定时任务
                 </Button>
               ) : undefined
-            }
-            starters={
-              canManage
-                ? [
-                    {
-                      id: 'daily',
-                      icon: <Sun className="size-3.5" aria-hidden="true" />,
-                      title: '每日晨报与巡检',
-                      description: '每天固定时间触发专家汇总动态或巡检指标',
-                      onClick: () => setCreatePreset('daily'),
-                    },
-                    {
-                      id: 'weekly',
-                      icon: <CalendarDays className="size-3.5" aria-hidden="true" />,
-                      title: '每周固定复盘',
-                      description: '按工作日或指定星期自动生成周报与复盘',
-                      onClick: () => setCreatePreset('weekly'),
-                    },
-                    {
-                      id: 'custom',
-                      icon: <Terminal className="size-3.5" aria-hidden="true" />,
-                      title: '自定义 Cron',
-                      description: '使用标准五段 Cron 表达式灵活定义任意周期',
-                      onClick: () => setCreatePreset('custom'),
-                    },
-                  ]
-                : undefined
             }
             footer={
               !canManage ? (
@@ -605,13 +568,12 @@ export function SchedulesPage() {
         ) : null}
       </PageBody>
 
-      {createPreset !== null ? (
+      {creating ? (
         <ScheduleDialog
-          initialFrequency={createPreset}
           agents={agents.data ?? []}
           agentsError={agentsError}
           onRetryAgents={() => void agents.refetch()}
-          onClose={() => setCreatePreset(null)}
+          onClose={() => setCreating(false)}
         />
       ) : null}
       {editing ? (
@@ -862,14 +824,12 @@ function ScheduleRunsDialog({
 
 function ScheduleDialog({
   schedule,
-  initialFrequency,
   agents,
   agentsError,
   onRetryAgents,
   onClose: onClosed,
 }: {
   schedule?: Schedule;
-  initialFrequency?: ScheduleFrequency;
   agents: AgentSummary[];
   agentsError: unknown;
   onRetryAgents: () => void;
@@ -896,15 +856,9 @@ function ScheduleDialog({
     setValue,
     clearErrors,
   } = useZodForm(scheduleFormSchema, {
-    defaultValues: schedule
-      ? draftFromSchedule(schedule)
-      : {
-          ...emptyScheduleForm,
-          frequency: initialFrequency ?? 'daily',
-          weekdays: initialFrequency === 'weekly' ? [...defaultWeekdays] : [],
-        },
+    defaultValues: schedule ? draftFromSchedule(schedule) : emptyScheduleForm,
   });
-  const firstWeekly = useRef(initialFrequency !== 'weekly');
+  const firstWeekly = useRef(true);
   const { errors, isDirty } = formState;
   const watched = watch();
   const dirty = isDirty;

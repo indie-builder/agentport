@@ -166,7 +166,6 @@ function catalogToForm(item: ConnectorCatalogItem): ServerFormValues {
 export function ServerFormDialog({
   server,
   initial = null,
-  initialKind = null,
   onClose: onClosed,
   onSaved,
   getReturnFocus,
@@ -174,7 +173,6 @@ export function ServerFormDialog({
 }: {
   server: Server | null;
   initial?: ConnectorCatalogItem | null;
-  initialKind?: Kind | null;
   onClose: () => void;
   onSaved: (server: Server, created: boolean) => void;
   getReturnFocus: () => HTMLElement | null;
@@ -188,13 +186,7 @@ export function ServerFormDialog({
   const create = useCreateServer();
   const update = useUpdateServer();
   const form = useZodForm(serverFormSchema, {
-    defaultValues: server
-      ? serverToForm(server)
-      : prefill
-        ? prefill
-        : initialKind
-          ? { ...emptyForm, kind: initialKind }
-          : emptyForm,
+    defaultValues: server ? serverToForm(server) : (prefill ?? emptyForm),
   });
   const { register, handleSubmit, reset, setValue, clearErrors, watch, formState } = form;
   const { errors, isDirty } = formState;

@@ -4,10 +4,8 @@ import { Button } from './ui/button.js';
 import { Skeleton } from './ui/skeleton.js';
 
 export {
-  type EmptyChecklistStep,
   type EmptyFilterChip,
   type EmptySpecimenName,
-  type EmptyStarter,
   EmptyState,
   type EmptyStateProps,
   type EmptyStateScale,

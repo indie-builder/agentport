@@ -1,6 +1,5 @@
 import type { KnowledgeBaseActivityItem } from '@agentport/contract/knowledge';
 import type { KnowledgeBase } from '@agentport/shared';
-import { Link } from '@tanstack/react-router';
 import { Copy } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { formatDateTime, formatRelative } from '../../lib/format.js';
@@ -10,9 +9,9 @@ import {
   useKnowledgeModelProfileSelections,
 } from '../../lib/queries.js';
 import { PageSection } from '../page.js';
-import { type EmptyChecklistStep, EmptyState, ErrorState, LoadingState } from '../states.js';
+import { EmptyState, ErrorState, LoadingState } from '../states.js';
 import { StatusBadge } from '../status-badge.js';
-import { Button, buttonVariants } from '../ui/button.js';
+import { Button } from '../ui/button.js';
 import { DuplicateBaseDialog } from './knowledge-duplicate-dialog.js';
 import { ExpertUsage } from './knowledge-expert-usage.js';
 import { jobStatusLabel, jobStatusTone, jobTypeLabel } from './knowledge-shared.js';
@@ -96,7 +95,6 @@ export function KnowledgeOverview({
   canReadAgents,
   onOpenJobs,
   onOpenDocuments,
-  onOpenSearch,
   onDuplicated,
 }: {
   base: KnowledgeBase;
@@ -230,57 +228,17 @@ export function KnowledgeOverview({
             </dl>
             {emptyContent ? (
               <EmptyState
-                variant="checklist"
+                variant="stage"
                 scale="section"
+                specimen="documents"
                 title="这个知识库还是空的"
-                description="完成以下步骤，让专家能够检索并引用此库内容。"
-                steps={
-                  [
-                    {
-                      id: 'upload',
-                      title: '上传文档',
-                      description: '支持文件上传、文件夹导入、手写文档或网页抓取。',
-                      status: 'current',
-                      ...(canUpload
-                        ? {
-                            action: (
-                              <Button size="sm" onClick={onOpenDocuments}>
-                                上传文档
-                              </Button>
-                            ),
-                          }
-                        : {}),
-                    },
-                    {
-                      id: 'search',
-                      title: '检索测试',
-                      description: '验证分块切分与向量召回效果。',
-                      status: 'upcoming',
-                      ...(onOpenSearch
-                        ? {
-                            action: (
-                              <Button variant="outline" size="sm" onClick={onOpenSearch}>
-                                前往检索
-                              </Button>
-                            ),
-                          }
-                        : {}),
-                    },
-                    {
-                      id: 'bind',
-                      title: '绑定专家',
-                      description: '在专家的能力配置中勾选此知识库即可启用检索。',
-                      status: 'upcoming',
-                      action: (
-                        <Link
-                          to="/agents"
-                          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                        >
-                          前往找专家
-                        </Link>
-                      ),
-                    },
-                  ] satisfies EmptyChecklistStep[]
+                description="上传文档后即可测试检索效果，并绑定给专家使用。"
+                action={
+                  canUpload ? (
+                    <Button size="sm" onClick={onOpenDocuments}>
+                      上传文档
+                    </Button>
+                  ) : undefined
                 }
               />
             ) : null}

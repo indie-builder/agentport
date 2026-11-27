@@ -12,21 +12,11 @@ import {
 } from '../components/page.js';
 import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
+import { Button } from '../components/ui/button.js';
 import { formatDateTime } from '../lib/format.js';
 import { searchQuery } from '../lib/queries.js';
 import { SEARCH_KIND_META, SEARCH_KIND_ORDER, searchItemHref } from '../lib/search-meta.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
-
-const SEARCH_KIND_ROUTES: Record<SearchItem['kind'], string> = {
-  agent: '/agents',
-  conversation: '/chat',
-  knowledge: '/knowledge',
-  server: '/servers',
-  skill: '/skills',
-  plugin: '/plugins',
-  output: '/personal/work',
-};
 
 function ResultRow({ item }: { item: SearchItem }) {
   const meta = SEARCH_KIND_META[item.kind];
@@ -92,28 +82,10 @@ export function SearchPage() {
           <EmptyState
             variant="idle"
             scale="page"
-            icon={<Search className="size-5" aria-hidden="true" />}
-            title="搜索工作区内的全部内容"
-            description="支持按名称、标题或正文即时跨模块检索。"
-            action={
-              <div className="flex max-w-[440px] flex-wrap items-center justify-center gap-2">
-                {SEARCH_KIND_ORDER.map((kind) => {
-                  const meta = SEARCH_KIND_META[kind];
-                  const Icon = meta.icon;
-                  return (
-                    <Link
-                      key={kind}
-                      to={SEARCH_KIND_ROUTES[kind]}
-                      className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                    >
-                      <Icon data-icon="inline-start" aria-hidden="true" />
-                      {meta.label}
-                    </Link>
-                  );
-                })}
-              </div>
-            }
-            footer="提示：随时按 ⌘K 呼出全局命令面板"
+            icon={<Search aria-hidden="true" />}
+            title="输入关键词开始搜索"
+            description="可检索专家、会话、知识库、技能、连接器、插件与成果。"
+            footer="随时按 ⌘K 呼出命令面板"
           />
         ) : results.isError ? (
           <ErrorState error={results.error} onRetry={() => void results.refetch()} />
