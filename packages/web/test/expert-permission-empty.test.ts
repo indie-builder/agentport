@@ -185,7 +185,11 @@ describe('agent list empty state follows agent permissions', () => {
     });
     await mount(AgentsPage, '/agents');
     await waitFor(() => host.textContent?.includes('新建专家'));
-    expect(host.querySelector('button[aria-label="新建专家"]')).not.toBeNull();
+    expect(
+      [...host.querySelectorAll('button.agent-create-fan')].some((item) =>
+        item.textContent?.includes('新建专家'),
+      ),
+    ).toBe(true);
     expect(host.textContent).toContain('创建数字分身');
     expect(host.textContent).not.toContain('还没有专家');
     expect(host.textContent).not.toContain('创建第一位专家');
@@ -238,7 +242,11 @@ describe('agent list empty state follows agent permissions', () => {
       host.querySelector<HTMLButtonElement>('button[aria-label="查看 客服专家 工牌"]'),
     );
     if (!trigger) throw new Error('Missing badge trigger');
-    expect(host.querySelector('button[aria-label="新建专家"]')).toBeNull();
+    expect(
+      [...host.querySelectorAll('button.agent-create-fan')].some((item) =>
+        item.textContent?.includes('新建专家'),
+      ),
+    ).toBe(false);
     expect(host.textContent).not.toContain('创建数字分身');
     await click(trigger);
     const panel = await waitFor(() =>

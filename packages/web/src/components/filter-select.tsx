@@ -25,7 +25,8 @@ export function FilterSelect({
   return (
     <Select
       value={value}
-      onValueChange={(next) => {
+      onValueChange={(next, details) => {
+        details.cancel();
         if (next !== null) onValueChange(next);
       }}
       items={[...options]}

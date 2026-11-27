@@ -30,6 +30,7 @@ import {
   useStartEvalRun,
 } from '../../lib/queries.js';
 import { toast, toastError, toastSuccess } from '../../lib/toast.js';
+import { useOptimisticValue } from '../../lib/use-optimistic-value.js';
 import { CaseDialog } from './case-dialog.js';
 import { EvalCasesTab } from './cases-tab.js';
 import { EvalCompareTab } from './compare-tab.js';
@@ -69,6 +70,7 @@ export function EvalPage() {
   const headId = search.head ?? null;
   const activeTab: EvalTab =
     search.tab ?? (baseId !== null && headId !== null && baseId !== headId ? 'compare' : 'runs');
+  const [optimisticTab, commitTab] = useOptimisticValue(activeTab);
   const diffFilter = search.diff ?? 'changed';
 
   const setSearch = (patch: EvalSearchPatch): void => {
@@ -333,7 +335,21 @@ export function EvalPage() {
         />
 
         <div className="border-b">
-          <Tabs<EvalTab> value={activeTab} onValueChange={(next) => setSearch({ tab: next })}>
+          <Tabs<EvalTab>
+            value={optimisticTab}
+            onValueChange={(next, details) => {
+              if (next === optimisticTab) {
+                details.cancel();
+                return;
+              }
+              commitTab(next, () =>
+                navigate({
+                  to: '/eval',
+                  search: { ...search, tab: next },
+                }),
+              );
+            }}
+          >
             <TabsList variant="line">
               <TabsTrigger value="runs">
                 {runningRun ? (

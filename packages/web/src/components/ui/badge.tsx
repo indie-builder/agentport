@@ -1,6 +1,5 @@
 import { type PartProps, renderElement } from '@ui-sdk/react/primitive';
 import { cva, type VariantProps } from 'class-variance-authority';
-import type * as React from 'react';
 import { cn } from '@/lib/cn';
 
 const badgeVariants = cva(
@@ -24,27 +23,41 @@ const badgeVariants = cva(
   },
 );
 
+type BadgeState = {
+  slot: 'badge';
+  variant: NonNullable<VariantProps<typeof badgeVariants>['variant']>;
+};
+
+type BadgePartProps = Omit<
+  PartProps<'span', BadgeState>,
+  'className' | 'style' | 'render' | 'children'
+> & {
+  className?: PartProps<'span', BadgeState>['className'] | undefined;
+  style?: PartProps<'span', BadgeState>['style'] | undefined;
+  render?: PartProps<'span', BadgeState>['render'] | undefined;
+  children?: PartProps<'span', BadgeState>['children'] | undefined;
+};
+
 function Badge({
   className,
   variant = 'default',
   render,
   ...props
-}: React.ComponentProps<'span'> & {
-  render?: PartProps<
-    'span',
-    { slot: 'badge'; variant: VariantProps<typeof badgeVariants>['variant'] }
-  >['render'];
-} & VariantProps<typeof badgeVariants>) {
+}: BadgePartProps & VariantProps<typeof badgeVariants>) {
+  const resolvedVariant = variant ?? 'default';
   return renderElement(
     'span',
     {
       'data-slot': 'badge',
-      'data-variant': variant,
+      'data-variant': resolvedVariant,
       ...props,
-      className: cn(badgeVariants({ variant }), className),
+      className:
+        typeof className === 'function'
+          ? (state: BadgeState) => cn(badgeVariants({ variant: resolvedVariant }), className(state))
+          : cn(badgeVariants({ variant: resolvedVariant }), className),
     },
     render,
-    { slot: 'badge', variant },
+    { slot: 'badge', variant: resolvedVariant },
   );
 }
 

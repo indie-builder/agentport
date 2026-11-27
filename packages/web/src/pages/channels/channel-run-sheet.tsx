@@ -228,31 +228,43 @@ function ChannelRunSheetContent({
                   title="本次运行尚未产生步骤事件"
                 />
               ) : (
-                <Accordion>
-                  {steps.map((step, index) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: 步骤没有稳定 id，位置即身份
-                    <AccordionItem key={`${index}-${step.at}`} value={String(index)}>
-                      <AccordionTrigger className="min-w-0 gap-2">
-                        <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
-                          <span className="w-5 shrink-0 text-right font-mono text-2xs tabular-nums text-muted-foreground">
-                            {index + 1}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">
-                            {stepName(step)}
-                          </span>
-                          <span
-                            className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground"
-                            title={`事件时间：${formatDateTime(step.at)}`}
-                          >
-                            {formatDateTime(step.at)}
-                          </span>
-                        </span>
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <StepInspector step={step} index={index} live={canRespond} />
-                      </AccordionContent>
-                    </AccordionItem>
-                  ))}
+                <Accordion aria-label="执行步骤">
+                  {(() => {
+                    const seenStepKeys = new Map<string, number>();
+                    return steps.map((step, index) => {
+                      const identity =
+                        step.kind === 'tool'
+                          ? (step.toolUseId ?? step.name ?? 'tool')
+                          : (step.messageId ?? step.kind);
+                      const baseKey = `${step.at}:${step.kind}:${identity}`;
+                      const count = (seenStepKeys.get(baseKey) ?? 0) + 1;
+                      seenStepKeys.set(baseKey, count);
+                      const itemKey = count === 1 ? baseKey : `${baseKey}-${count}`;
+                      return (
+                        <AccordionItem key={itemKey} value={itemKey}>
+                          <AccordionTrigger className="min-w-0 gap-2">
+                            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
+                              <span className="w-5 shrink-0 text-right font-mono text-2xs tabular-nums text-muted-foreground">
+                                {index + 1}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">
+                                {stepName(step)}
+                              </span>
+                              <span
+                                className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground"
+                                title={`事件时间：${formatDateTime(step.at)}`}
+                              >
+                                {formatDateTime(step.at)}
+                              </span>
+                            </span>
+                          </AccordionTrigger>
+                          <AccordionContent>
+                            <StepInspector step={step} index={index} live={canRespond} />
+                          </AccordionContent>
+                        </AccordionItem>
+                      );
+                    });
+                  })()}
                 </Accordion>
               )}
             </section>

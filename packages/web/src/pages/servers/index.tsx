@@ -333,6 +333,7 @@ export function ServersPage() {
     return (
       <Popover>
         <PopoverTrigger
+          onClick={(event) => event.stopPropagation()}
           render={
             <Button
               variant="ghost"
@@ -344,7 +345,7 @@ export function ServersPage() {
             </Button>
           }
         />
-        <PopoverContent align="end" className="w-64">
+        <PopoverContent align="end" className="w-64" onClick={(event) => event.stopPropagation()}>
           <p className="text-xs text-muted-foreground">使用该连接器的专家</p>
           <ul className="flex flex-col gap-1">
             {names.map((name) => (

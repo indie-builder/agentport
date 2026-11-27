@@ -121,6 +121,7 @@ import {
   useUpdateAgent,
 } from '../../lib/queries.js';
 import { toast, toastError, toastSuccess } from '../../lib/toast.js';
+import { useOptimisticValue } from '../../lib/use-optimistic-value.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 import { AgentInstructions } from './agent-instructions.js';
 import { DuplicateAgentDialog } from './create-agent-dialog.js';
@@ -335,24 +336,26 @@ export function AgentEditor({
     view?: MemoryView | undefined;
     file?: string | undefined;
     usageDays?: 7 | 30 | 90 | undefined;
-  }): void => {
-    void navigate({
+  }): Promise<void> =>
+    navigate({
       to: '/agents/$agentId',
       params: { agentId: agent.id },
       search: (current) => ({ ...current, ...next }),
       replace: true,
     });
-  };
-  const setTab = (next: TabId): void => navigateSearch({ tab: next });
+  const [optimisticTab, commitTab, resetTab] = useOptimisticValue(tab);
+  const setTab = (next: TabId): void => commitTab(next, () => navigateSearch({ tab: next }));
   const setActiveSection = (next: SectionId): void => {
     setActiveSectionState(next);
-    navigateSearch({ section: next });
+    void navigateSearch({ section: next });
   };
-  const setActiveFile = (next: string): void => navigateSearch({ file: next });
   const files = useAgentFiles(agent.id, tab === 'files');
   const fileEntries = files.data ? listWorkspaceFiles(files.data) : baseFileEntries;
   const resolvedEntry = fileEntries.find((entry) => entry.id === activeFile) ?? fileEntries[0];
   const resolvedId = resolvedEntry?.id;
+  const [optimisticFileId, commitFileId] = useOptimisticValue(resolvedId ?? null);
+  const setActiveFile = (next: string): void =>
+    commitFileId(next, () => navigateSearch({ file: next }));
   const fileGroups = [...new Set(fileEntries.map((entry) => entry.group))];
   const [exporting, setExporting] = useState(false);
   const rhf = useZodForm(agentFormSchema, { defaultValues: draftFromInput(toInput(agent)) });
@@ -472,6 +475,9 @@ export function AgentEditor({
   };
   const blockedTabSwitch =
     blocker.status === 'blocked' && blocker.current?.pathname === blocker.next?.pathname;
+  useEffect(() => {
+    if (blocker.status === 'blocked') resetTab();
+  }, [blocker.status, resetTab]);
 
   useEffect(() => {
     onDirtyChange?.(guarded || locked);
@@ -483,8 +489,11 @@ export function AgentEditor({
     return () => onPendingChange(false);
   }, [locked, onPendingChange]);
 
-  const changeTab = (next: TabId): void => {
-    if (next === tab || locked) return;
+  const changeTab = (next: TabId, details?: { cancel: () => void }): void => {
+    if (next === optimisticTab || locked) {
+      details?.cancel();
+      return;
+    }
     setTab(next);
   };
 
@@ -875,8 +884,8 @@ export function AgentEditor({
       <PageTopbar>
         <div className="flex min-w-0 flex-wrap items-center gap-3 border-b pb-3">
           <Tabs
-            value={tab}
-            onValueChange={(next) => changeTab(next as TabId)}
+            value={optimisticTab}
+            onValueChange={(next, details) => changeTab(next as TabId, details)}
             className="hidden min-w-0 md:flex"
           >
             <TabsList variant="line" aria-label="配置任务">
@@ -888,11 +897,15 @@ export function AgentEditor({
             </TabsList>
           </Tabs>
           <Select
-            value={tab}
+            value={optimisticTab}
             disabled={locked}
             items={availableTabOptions}
-            onValueChange={(next) => {
-              if (next !== null) changeTab(next as TabId);
+            onValueChange={(next, details) => {
+              if (next === null) {
+                details.cancel();
+                return;
+              }
+              changeTab(next as TabId, details);
             }}
           >
             <SelectTrigger className="w-full md:hidden" aria-label="配置任务">
@@ -2353,10 +2366,14 @@ export function AgentEditor({
               </nav>
               <div className="flex min-w-0 flex-col gap-3 md:hidden">
                 <Select
-                  value={resolvedId ?? null}
+                  value={optimisticFileId}
                   items={fileEntries.map((entry) => ({ value: entry.id, label: entry.path }))}
-                  onValueChange={(next) => {
-                    if (next !== null) setActiveFile(next);
+                  onValueChange={(next, details) => {
+                    if (next === null) {
+                      details.cancel();
+                      return;
+                    }
+                    setActiveFile(next);
                   }}
                 >
                   <SelectTrigger className="w-full min-w-0" aria-label="当前文件">
