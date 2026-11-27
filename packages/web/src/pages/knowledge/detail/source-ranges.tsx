@@ -105,11 +105,6 @@ export function RangeRows({
                 value={range.externalId}
                 disabled={disabled}
                 aria-invalid={errors[index]?.externalId !== null}
-                aria-describedby={
-                  errors[index]?.externalId !== null
-                    ? `source-range-${index}-external-error`
-                    : undefined
-                }
                 onChange={(event) => patch(index, { externalId: event.target.value })}
                 placeholder={
                   range.kind === 'github_repo'
@@ -135,9 +130,6 @@ export function RangeRows({
                     value={range.ref ?? ''}
                     disabled={disabled}
                     aria-invalid={errors[index]?.ref !== null}
-                    aria-describedby={
-                      errors[index]?.ref !== null ? `source-range-${index}-ref-error` : undefined
-                    }
                     onChange={(event) => patch(index, { ref: event.target.value.trim() || null })}
                     placeholder={type === 'github' ? '留空使用默认分支' : '例如 main'}
                     className="font-mono"
@@ -182,9 +174,6 @@ export function RangeRows({
                   value={range.paths.join(', ')}
                   disabled={disabled}
                   aria-invalid={errors[index]?.paths !== null}
-                  aria-describedby={
-                    errors[index]?.paths !== null ? `source-range-${index}-paths-error` : undefined
-                  }
                   onChange={(event) =>
                     patch(index, {
                       paths: event.target.value.split(',').map((path) => path.trim()),

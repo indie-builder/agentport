@@ -334,9 +334,6 @@ export function KnowledgeSettingsDialog({
                   value={chunkTokens}
                   disabled={pending}
                   aria-invalid={Boolean(errors.chunkTokens)}
-                  aria-describedby={
-                    errors.chunkTokens ? 'knowledge-settings-chunk-tokens-error' : undefined
-                  }
                   onChange={(event) => setChunkTokens(event.target.value)}
                 />
                 <FieldError id="knowledge-settings-chunk-tokens-error">
@@ -353,9 +350,6 @@ export function KnowledgeSettingsDialog({
                   value={chunkOverlap}
                   disabled={pending}
                   aria-invalid={Boolean(errors.chunkOverlap)}
-                  aria-describedby={
-                    errors.chunkOverlap ? 'knowledge-settings-chunk-overlap-error' : undefined
-                  }
                   onChange={(event) => setChunkOverlap(event.target.value)}
                 />
                 <FieldError id="knowledge-settings-chunk-overlap-error">
@@ -554,9 +548,6 @@ export function KnowledgeSettingsDialog({
                         className="font-mono"
                         placeholder="网关支持的模型 ID"
                         aria-invalid={Boolean(errors.imageModel)}
-                        aria-describedby={
-                          errors.imageModel ? 'knowledge-settings-image-model-error' : undefined
-                        }
                         onChange={(event) => patchImage({ model: event.target.value || null })}
                       />
                       <FieldError id="knowledge-settings-image-model-error">
@@ -646,11 +637,6 @@ export function KnowledgeSettingsDialog({
                         value={imageVectorMinScore}
                         disabled={pending || (imageVectorsBlocked && !image.imageVectorEnabled)}
                         aria-invalid={Boolean(errors.imageVectorMinScore)}
-                        aria-describedby={
-                          errors.imageVectorMinScore
-                            ? 'knowledge-settings-image-min-score-error'
-                            : undefined
-                        }
                         onChange={(event) => setImageVectorMinScore(event.target.value)}
                       />
                       <FieldError id="knowledge-settings-image-min-score-error">
@@ -1072,7 +1058,6 @@ function ProfileForm({
             {...register('name')}
             disabled={busy}
             aria-invalid={Boolean(errors.name)}
-            aria-describedby={errors.name ? 'knowledge-profile-name-error' : undefined}
           />
           <FieldError id="knowledge-profile-name-error">{errors.name?.message}</FieldError>
         </Field>
@@ -1086,7 +1071,6 @@ function ProfileForm({
             disabled={busy}
             placeholder="https://…"
             aria-invalid={Boolean(errors.endpointUrl)}
-            aria-describedby={errors.endpointUrl ? 'knowledge-profile-endpoint-error' : undefined}
           />
           <FieldError id="knowledge-profile-endpoint-error">
             {errors.endpointUrl?.message}
@@ -1102,7 +1086,6 @@ function ProfileForm({
             disabled={busy}
             className="font-mono"
             aria-invalid={Boolean(errors.model)}
-            aria-describedby={errors.model ? 'knowledge-profile-model-error' : undefined}
           />
           <FieldError id="knowledge-profile-model-error">{errors.model?.message}</FieldError>
         </Field>

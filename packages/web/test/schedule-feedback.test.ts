@@ -191,7 +191,7 @@ function weekdayGroup(): HTMLElement {
 
 function dialogByTitle(title: string): HTMLElement | null {
   return (
-    [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
+    [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')].find(
       (element) => element.querySelector('h2')?.textContent === title,
     ) ?? null
   );

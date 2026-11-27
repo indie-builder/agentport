@@ -71,13 +71,20 @@ function TraceDescription({ className, ...props }: React.ComponentProps<'span'>)
   );
 }
 
+const traceCollapsibleTriggerClassName =
+  'group/trace-collapsible-trigger flex w-fit max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-left text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 has-[[data-status=error]]:text-destructive';
+
+const traceCollapsibleContentInnerClassName =
+  'mt-2 mb-1 ml-[calc(--spacing(2)-1px)] min-w-0 border-l pr-1 pl-4 leading-relaxed wrap-break-word text-muted-foreground';
+
 function TraceCollapsible({
   className,
   open,
   onOpenChange,
   ...props
-}: Omit<React.ComponentProps<typeof Collapsible>, 'open'> &
-  (
+}: Omit<React.ComponentProps<typeof Collapsible>, 'open' | 'className'> & {
+  className?: React.ComponentProps<typeof Collapsible>['className'] | undefined;
+} & (
     | { open?: undefined }
     | {
         open: boolean;
@@ -86,8 +93,11 @@ function TraceCollapsible({
   )) {
   return (
     <Collapsible
-      data-slot="trace-collapsible"
-      className={cn('flex w-full min-w-0 flex-col', className)}
+      className={
+        typeof className === 'function'
+          ? (state) => cn('flex w-full min-w-0 flex-col', className(state))
+          : cn('flex w-full min-w-0 flex-col', className)
+      }
       {...(open === undefined ? {} : { open })}
       {...(onOpenChange === undefined ? {} : { onOpenChange })}
       {...props}
@@ -99,20 +109,36 @@ function TraceCollapsibleTrigger({
   className,
   children,
   ...props
-}: React.ComponentProps<typeof CollapsibleTrigger>) {
+}: Omit<React.ComponentProps<typeof CollapsibleTrigger>, 'className'> & {
+  className?: React.ComponentProps<typeof CollapsibleTrigger>['className'] | undefined;
+}) {
+  const icon = (
+    <TraceIcon className="transition-transform group-aria-expanded/trace-collapsible-trigger:rotate-90">
+      <ChevronRightIcon />
+    </TraceIcon>
+  );
   return (
     <CollapsibleTrigger
-      data-slot="trace-collapsible-trigger"
-      className={cn(
-        'group/trace-collapsible-trigger flex w-fit max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-left text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 has-[[data-status=error]]:text-destructive',
-        className,
-      )}
+      className={
+        typeof className === 'function'
+          ? (state) => cn(traceCollapsibleTriggerClassName, className(state))
+          : cn(traceCollapsibleTriggerClassName, className)
+      }
       {...props}
     >
-      {children}
-      <TraceIcon className="transition-transform group-aria-expanded/trace-collapsible-trigger:rotate-90">
-        <ChevronRightIcon />
-      </TraceIcon>
+      {typeof children === 'function' ? (
+        (state) => (
+          <>
+            {children(state)}
+            {icon}
+          </>
+        )
+      ) : (
+        <>
+          {children}
+          {icon}
+        </>
+      )}
     </CollapsibleTrigger>
   );
 }
@@ -121,22 +147,25 @@ function TraceCollapsibleContent({
   className,
   children,
   ...props
-}: React.ComponentProps<typeof CollapsibleContent>) {
+}: Omit<React.ComponentProps<typeof CollapsibleContent>, 'className'> & {
+  className?: React.ComponentProps<typeof CollapsibleContent>['className'] | undefined;
+}) {
   return (
     <CollapsibleContent
-      data-slot="trace-collapsible-content"
       className="h-(--collapsible-panel-height) min-w-0 overflow-hidden transition-[height] duration-200 data-ending-style:h-0 data-starting-style:h-0"
       {...props}
     >
-      <div
-        data-slot="trace-collapsible-content-inner"
-        className={cn(
-          'mt-2 mb-1 ml-[calc(--spacing(2)-1px)] min-w-0 border-l pr-1 pl-4 leading-relaxed wrap-break-word text-muted-foreground',
-          className,
-        )}
-      >
-        {children}
-      </div>
+      {(state) => (
+        <div
+          data-slot="trace-collapsible-content-inner"
+          className={cn(
+            traceCollapsibleContentInnerClassName,
+            typeof className === 'function' ? className(state) : className,
+          )}
+        >
+          {typeof children === 'function' ? children(state) : children}
+        </div>
+      )}
     </CollapsibleContent>
   );
 }

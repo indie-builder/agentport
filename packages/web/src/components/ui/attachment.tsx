@@ -134,15 +134,7 @@ function AttachmentAction({
   size = 'icon-xs',
   ...props
 }: React.ComponentProps<typeof Button>) {
-  return (
-    <Button
-      data-slot="attachment-action"
-      variant={variant ?? 'ghost'}
-      size={size}
-      className={cn(className)}
-      {...props}
-    />
-  );
+  return <Button variant={variant ?? 'ghost'} size={size} className={cn(className)} {...props} />;
 }
 
 function AttachmentTrigger({

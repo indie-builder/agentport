@@ -126,8 +126,8 @@ function button(text: string, scope: ParentNode = document): HTMLButtonElement {
 }
 function maybeDialog(titlePrefix: string): HTMLElement | null {
   return (
-    [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((item) =>
-      item.querySelector('h2')?.textContent?.trim().startsWith(titlePrefix),
+    [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')].find(
+      (item) => item.querySelector('h2')?.textContent?.trim().startsWith(titlePrefix),
     ) ?? null
   );
 }

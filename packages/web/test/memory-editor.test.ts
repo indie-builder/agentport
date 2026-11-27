@@ -306,7 +306,9 @@ describe('memory file editor', () => {
     await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
 
     await click(button('回滚'));
-    const confirm = await waitFor(() => document.querySelector<HTMLElement>('[role="dialog"]'));
+    const confirm = await waitFor(() =>
+      document.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+    );
     await click(button('回滚', confirm as HTMLElement));
     await waitFor(() => expect(rollback).toHaveBeenCalledWith('chg_1'));
   });
@@ -399,7 +401,9 @@ describe('memory file editor', () => {
     await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
 
     await click(button('回滚'));
-    const confirm = await waitFor(() => document.querySelector<HTMLElement>('[role="dialog"]'));
+    const confirm = await waitFor(() =>
+      document.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+    );
     expect(confirm?.textContent).toContain('删除新建的主题「topic.md」');
     expect(confirm?.textContent).toContain('MEMORY.md');
   });
@@ -414,14 +418,16 @@ describe('memory subview switching', () => {
 
     await click(button('策略'));
     const dialog = await waitFor(() =>
-      [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((item) =>
-        item.textContent?.includes('放弃未保存的修改？'),
+      [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')].find(
+        (item) => item.textContent?.includes('放弃未保存的修改？'),
       ),
     );
     expect(onViewChange).not.toHaveBeenCalled();
 
     await click(button('取消', dialog));
-    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+    await waitFor(() =>
+      expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull(),
+    );
     expect(onViewChange).not.toHaveBeenCalled();
     expect(editorView('memory-content')).toBe(view);
     expect(view.state.doc.toString()).toBe('# 未保存草稿');

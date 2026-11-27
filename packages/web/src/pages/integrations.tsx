@@ -58,6 +58,8 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
+  FieldLegend,
+  FieldSet,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
@@ -557,10 +559,16 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
                   />
                   <FieldError id="api-token-name-error">{errors.name?.message}</FieldError>
                 </Field>
-                <Field data-invalid={Boolean(errors.scopes)} data-disabled={pending}>
-                  <FieldLabel>
+                <FieldSet className="gap-2" disabled={pending}>
+                  <FieldLegend
+                    variant="label"
+                    className={cn(
+                      'mb-2 flex items-center gap-2 select-none data-disabled:opacity-50',
+                      Boolean(errors.scopes) && 'text-destructive',
+                    )}
+                  >
                     权限范围 <RequiredMark />
-                  </FieldLabel>
+                  </FieldLegend>
                   <Controller
                     control={control}
                     name="scopes"
@@ -600,7 +608,7 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
                     )}
                   />
                   <FieldError id="api-token-scopes-error">{errors.scopes?.message}</FieldError>
-                </Field>
+                </FieldSet>
                 <Field data-invalid={Boolean(errors.expiresAt)} data-disabled={pending}>
                   <FieldLabel htmlFor="api-token-expires">过期时间</FieldLabel>
                   <Input
@@ -1131,10 +1139,16 @@ function WebhookDialog({ onClose: onClosed }: { onClose: () => void }) {
                       />
                       <FieldError id="webhook-url-error">{errors.url?.message}</FieldError>
                     </Field>
-                    <Field data-invalid={Boolean(errors.events)} data-disabled={pending}>
-                      <FieldLabel>
+                    <FieldSet className="gap-2" disabled={pending}>
+                      <FieldLegend
+                        variant="label"
+                        className={cn(
+                          'mb-2 flex items-center gap-2 select-none data-disabled:opacity-50',
+                          Boolean(errors.events) && 'text-destructive',
+                        )}
+                      >
                         订阅事件 <RequiredMark />
-                      </FieldLabel>
+                      </FieldLegend>
                       <Controller
                         control={control}
                         name="events"
@@ -1175,7 +1189,7 @@ function WebhookDialog({ onClose: onClosed }: { onClose: () => void }) {
                         )}
                       />
                       <FieldError id="webhook-events-error">{errors.events?.message}</FieldError>
-                    </Field>
+                    </FieldSet>
                   </>
                 )}
 

@@ -407,7 +407,6 @@ function CreateEnvironmentDialog({
                 disabled={pending}
                 aria-required="true"
                 aria-invalid={Boolean(errors.name)}
-                aria-describedby={errors.name ? 'runtime-environment-name-error' : undefined}
               />
               <FieldError id="runtime-environment-name-error">{errors.name?.message}</FieldError>
             </Field>

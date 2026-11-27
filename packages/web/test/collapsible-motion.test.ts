@@ -149,7 +149,7 @@ describe('collapsible content motion', () => {
       return button;
     };
     const panel = () => {
-      const element = host.querySelector<HTMLElement>('[data-slot="collapsible-content"]');
+      const element = host.querySelector<HTMLElement>('[data-slot="collapsible-panel"]');
       if (!element) throw new Error('Missing collapsible panel');
       return element;
     };

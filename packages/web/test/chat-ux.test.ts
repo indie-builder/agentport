@@ -1378,7 +1378,7 @@ describe('chat shell layout', () => {
     expect(document.querySelector('[role="dialog"] aside[aria-label="会话成果"]')).not.toBeNull();
     await act(async () =>
       document
-        .querySelector<HTMLButtonElement>('[role="dialog"] [data-slot="sheet-close"]')
+        .querySelector<HTMLButtonElement>('[role="dialog"] [data-slot="drawer-close"]')
         ?.click(),
     );
     await flush();
@@ -1529,7 +1529,7 @@ describe('conversation header menu', () => {
     );
   }
   function dialog() {
-    return document.querySelector('[role="dialog"]');
+    return document.querySelector('[role="dialog"], [role="alertdialog"]');
   }
   function dialogButton(label: string) {
     return [...(dialog()?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
@@ -1537,9 +1537,9 @@ describe('conversation header menu', () => {
     );
   }
   function discardDialog() {
-    return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].findLast(
-      (element) => element.querySelector('h2')?.textContent === '放弃未保存的更改？',
-    );
+    return [
+      ...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+    ].findLast((element) => element.querySelector('h2')?.textContent === '放弃未保存的更改？');
   }
   function discardButton(label: string) {
     return [...(discardDialog()?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
@@ -1849,9 +1849,9 @@ describe('conversation header menu', () => {
       leaving = router.navigate({ to: '/away' }) as Promise<void>;
     });
     await flush();
-    const pendingLeave = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
-      (element) => element.textContent?.includes('正在删除会话'),
-    );
+    const pendingLeave = [
+      ...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+    ].find((element) => element.textContent?.includes('正在删除会话'));
     expect(pendingLeave).toBeDefined();
     const leaveButton = [
       ...(pendingLeave?.querySelectorAll<HTMLButtonElement>('button') ?? []),

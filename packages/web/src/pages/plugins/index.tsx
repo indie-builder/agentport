@@ -652,7 +652,6 @@ function InstallPluginDialog({
                     required
                     aria-required="true"
                     aria-invalid={errors.marketplace ? true : undefined}
-                    aria-describedby={errors.marketplace ? 'plugin-marketplace-error' : undefined}
                     placeholder="owner/repo 或 https://…"
                   />
                   <FieldError id="plugin-marketplace-error">
@@ -670,7 +669,6 @@ function InstallPluginDialog({
                     required
                     aria-required="true"
                     aria-invalid={errors.plugin ? true : undefined}
-                    aria-describedby={errors.plugin ? 'plugin-name-input-error' : undefined}
                     placeholder="plugin-name"
                   />
                   <FieldError id="plugin-name-input-error">{errors.plugin?.message}</FieldError>
@@ -682,7 +680,6 @@ function InstallPluginDialog({
                     {...form.register('slug')}
                     disabled={pending}
                     aria-invalid={errors.slug ? true : undefined}
-                    aria-describedby={errors.slug ? 'plugin-slug-input-error' : undefined}
                     placeholder="可选，默认用插件清单里的名字"
                   />
                   <FieldError id="plugin-slug-input-error">{errors.slug?.message}</FieldError>
@@ -850,7 +847,6 @@ export function PluginDialog({
                 {...form.register('name')}
                 disabled={pending}
                 aria-invalid={errors.name ? true : undefined}
-                aria-describedby={errors.name ? 'plugin-name-error' : undefined}
               />
               <FieldError id="plugin-name-error">{errors.name?.message}</FieldError>
             </Field>
@@ -861,7 +857,6 @@ export function PluginDialog({
                 {...form.register('description')}
                 disabled={pending}
                 aria-invalid={errors.description ? true : undefined}
-                aria-describedby={errors.description ? 'plugin-description-error' : undefined}
               />
               <FieldError id="plugin-description-error">{errors.description?.message}</FieldError>
             </Field>

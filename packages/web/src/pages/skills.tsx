@@ -1058,7 +1058,6 @@ export function SkillDialog({
                   readOnly={readOnly}
                   aria-required="true"
                   aria-invalid={Boolean(errors.name)}
-                  aria-describedby={errors.name ? 'skill-name-error' : undefined}
                 />
                 <FieldError id="skill-name-error">{errors.name?.message}</FieldError>
               </Field>
@@ -1076,7 +1075,6 @@ export function SkillDialog({
                   disabled={pending || Boolean(skill)}
                   aria-required="true"
                   aria-invalid={Boolean(errors.slug)}
-                  aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
                   className="font-mono"
                 />
                 {skill ? (
@@ -1101,7 +1099,6 @@ export function SkillDialog({
                 readOnly={readOnly}
                 aria-required="true"
                 aria-invalid={Boolean(errors.description)}
-                aria-describedby={errors.description ? 'skill-desc-error' : undefined}
                 placeholder="一句话说明这个技能解决什么问题"
               />
               <FieldError id="skill-desc-error">{errors.description?.message}</FieldError>
@@ -1304,7 +1301,6 @@ function SkillFilesEditor({
           readOnly={readOnly || editingPath !== null}
           disabled={pending}
           aria-invalid={Boolean(error)}
-          aria-describedby={error ? 'skill-file-path-error' : undefined}
           className="font-mono text-xs"
         />
         <Controller
@@ -1448,7 +1444,6 @@ function RejectSkillDialog({
             placeholder="说明需要修改的内容"
             aria-required="true"
             aria-invalid={Boolean(error)}
-            aria-describedby={error ? 'skill-reject-note-error' : 'skill-reject-note-hint'}
             value={note}
             onChange={(event) => setNote(event.target.value)}
           />

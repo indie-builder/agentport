@@ -73,7 +73,10 @@ describe('shared choice controls keep real keyboard and label behaviour', () => 
 
     await pressSpace(checkbox);
 
-    expect(onCheckedChange).toHaveBeenCalledWith(true);
+    expect(onCheckedChange).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ reason: 'press' }),
+    );
     expect(checkbox.getAttribute('aria-checked')).toBe('true');
     expect(checkbox.hasAttribute('data-checked')).toBe(true);
     expect(checkbox.hasAttribute('data-unchecked')).toBe(false);

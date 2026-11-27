@@ -907,14 +907,14 @@ for (const shadowVar of ['--shadow-md', '--shadow-lg']) {
 
 for (const file of walk(join(ROOT, 'packages/web/src'), /\.css$/)) {
   const css = stripCssComments(read(file));
-  for (const m of css.matchAll(/[^{};]*collapsible-content[^{};]*\{/g)) {
+  for (const m of css.matchAll(/[^{};]*collapsible-panel[^{};]*\{/g)) {
     const blockStart = m.index + m[0].length;
     const blockEnd = skipBalancedBraces(css, blockStart);
     const blockBody = css.slice(blockStart, blockEnd);
     if (/\bcontent-visibility\s*:/.test(blockBody)) {
       report(
-        'collapsible-content-visibility',
-        `${rel(file)}:${lineAt(css, m.index)}: 禁止在 collapsible-content 上设置 content-visibility`,
+        'collapsible-panel-visibility',
+        `${rel(file)}:${lineAt(css, m.index)}: 禁止在 collapsible-panel 上设置 content-visibility`,
       );
     }
   }

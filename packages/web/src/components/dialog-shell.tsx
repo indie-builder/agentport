@@ -10,7 +10,8 @@ import {
   DialogTitle,
 } from './ui/dialog.js';
 
-type DialogShellProps = Pick<ComponentProps<typeof DialogContent>, 'children' | 'className'> & {
+type DialogShellProps = Pick<ComponentProps<typeof DialogContent>, 'className'> & {
+  children?: ReactNode;
   finalFocus?: ComponentProps<typeof DialogContent>['finalFocus'];
   title: string;
   description?: string;
@@ -43,10 +44,12 @@ export function DialogShell({
 
   return (
     <DialogContent
-      className={cn(
-        'top-[10dvh]! flex max-h-[80dvh] w-[calc(100%-2rem)] max-w-140 translate-y-0! flex-col gap-0 p-0 sm:max-w-140',
-        className,
-      )}
+      className={(state) =>
+        cn(
+          'top-[10dvh]! flex max-h-[80dvh] w-[calc(100%-2rem)] max-w-140 translate-y-0! flex-col gap-0 p-0 sm:max-w-140',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
       showCloseButton={false}
       {...(finalFocus === undefined ? {} : { finalFocus })}
     >

@@ -85,6 +85,7 @@ describe('knowledge wiki versions', () => {
     await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
     expect(document.body.textContent).toContain('v2');
     expect(document.body.textContent).toContain('v1');
+    await waitFor(() => findButton('回退到此版本') !== undefined);
     await click(button('回退到此版本'));
     await click(button('回退', dialog('回退 Wiki 版本')));
     expect(
@@ -564,8 +565,8 @@ describe('knowledge FAQ management', () => {
     ).toEqual({ format: 'json', content: '{"items":[]}', mode: 'append', dryRun: false });
 
     await waitFor(() =>
-      [...document.querySelectorAll<HTMLButtonElement>('button')].some((item) =>
-        item.textContent?.includes('发布本批 1 条 FAQ'),
+      [...document.querySelectorAll<HTMLButtonElement>('button')].some(
+        (item) => item.textContent?.includes('发布本批 1 条 FAQ') && !item.disabled,
       ),
     );
     const publishButton = button('发布本批 1 条 FAQ', importer);

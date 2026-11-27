@@ -47,29 +47,21 @@ const buttonVariantStyles = cva(
 const buttonVariants = (props?: Parameters<typeof buttonVariantStyles>[0]) =>
   cn(buttonVariantStyles(props));
 
-type ButtonProps = ComponentProps<typeof ButtonPrimitive> &
+type ButtonProps = Omit<ComponentProps<typeof ButtonPrimitive>, 'className'> &
   VariantProps<typeof buttonVariantStyles> & {
-    'data-slot'?: string | undefined;
+    className?: ComponentProps<typeof ButtonPrimitive>['className'] | undefined;
   };
 
-function Button({
-  className,
-  variant = 'default',
-  size = 'default',
-  render,
-  'data-slot': dataSlot,
-  ...props
-}: ButtonProps) {
+function Button({ className, variant = 'default', size = 'default', ...props }: ButtonProps) {
   return (
     <ButtonPrimitive
-      {...(render !== undefined
-        ? { render }
-        : dataSlot === undefined || dataSlot === 'button'
-          ? {}
-          : { render: <button type={props.type ?? 'button'} data-slot={dataSlot} /> })}
       data-variant={variant}
       data-size={size}
-      className={buttonVariants({ variant, size, className })}
+      className={
+        typeof className === 'function'
+          ? (state) => cn(buttonVariantStyles({ variant, size }), className(state))
+          : buttonVariants({ variant, size, className })
+      }
       {...props}
     />
   );

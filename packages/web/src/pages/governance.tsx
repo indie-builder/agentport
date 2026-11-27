@@ -51,6 +51,8 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
+  FieldLegend,
+  FieldSet,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
@@ -1550,8 +1552,10 @@ function GrantDialog({
               />
               <FieldError id="grant-account-error">{errors.businessId?.message}</FieldError>
             </Field>
-            <Field>
-              <FieldLabel>权限</FieldLabel>
+            <FieldSet className="gap-2">
+              <FieldLegend variant="label" className="mb-2">
+                权限
+              </FieldLegend>
               <div className="flex flex-col gap-2">
                 <Controller
                   control={control}
@@ -1593,7 +1597,7 @@ function GrantDialog({
                 />
               </div>
               <FieldError>{errors.canUse?.message}</FieldError>
-            </Field>
+            </FieldSet>
             <FieldError>{error ?? undefined}</FieldError>
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>

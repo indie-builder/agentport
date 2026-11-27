@@ -301,15 +301,15 @@ export async function mount(path: string, search: Record<string, string> = {}) {
 }
 
 export function dialog(title: string): HTMLElement {
-  const element = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
-    (item) => item.querySelector('h2')?.textContent === title,
-  );
+  const element = [
+    ...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+  ].find((item) => item.querySelector('h2')?.textContent === title);
   if (!element) throw new Error(`Missing dialog: ${title}`);
   return element;
 }
 
 export function dialogShown(title: string): boolean {
-  return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].some(
+  return [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')].some(
     (item) => item.querySelector('h2')?.textContent === title,
   );
 }

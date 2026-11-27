@@ -144,9 +144,9 @@ async function selectRole(role: string, id = 'new-agent-role') {
   await click(option);
 }
 function dialog(title: string): HTMLElement {
-  const element = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
-    (item) => item.querySelector('h2')?.textContent === title,
-  );
+  const element = [
+    ...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+  ].find((item) => item.querySelector('h2')?.textContent === title);
   if (!element) throw new Error(`Missing dialog: ${title}`);
   return element;
 }
@@ -475,7 +475,7 @@ describe('expert creation lifecycle', () => {
     await click(button('高级设置', setup));
     await editInput('new-agent-model', 'gateway/custom-model');
     await editInput('new-agent-slug', 'draft');
-    const advanced = setup.querySelector<HTMLElement>('[data-slot="collapsible-content"]');
+    const advanced = setup.querySelector<HTMLElement>('[data-slot="collapsible-panel"]');
     if (!advanced) throw new Error('Missing advanced settings');
 
     await click(button('高级设置', setup));
@@ -1040,7 +1040,7 @@ describe('expert discovery', () => {
     const prompt = setup.querySelector('#new-agent-prompt') as HTMLElement;
     const model = setup.querySelector('#new-agent-model') as HTMLElement;
     const slug = setup.querySelector('#new-agent-slug') as HTMLElement;
-    const advanced = setup.querySelector('[data-slot="collapsible-content"]');
+    const advanced = setup.querySelector('[data-slot="collapsible-panel"]');
     expect(advanced?.getAttribute('hidden')).toBe('until-found');
     expect(name.compareDocumentPosition(role)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(role.compareDocumentPosition(prompt)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
@@ -1469,7 +1469,7 @@ describe('expert same-page task guard', () => {
       history.back();
     });
     await flush();
-    await waitFor(() => document.querySelector('[role="dialog"]'));
+    await waitFor(() => document.querySelector('[role="dialog"], [role="alertdialog"]'));
     const confirmation = dialog('放弃未保存的修改并切换？');
     expect(document.getElementById('rule-slug')?.value).toBe('no-console');
     await click(button('取消', confirmation));

@@ -8,7 +8,6 @@ const textareaClassName =
 function Textarea({ className, ...props }: ComponentProps<typeof TextareaPrimitive>) {
   return (
     <TextareaPrimitive
-      data-slot="textarea"
       className={
         typeof className === 'function'
           ? (state) => cn(textareaClassName, className(state))

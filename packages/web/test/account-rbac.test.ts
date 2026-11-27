@@ -205,8 +205,8 @@ async function openMenu(label: string): Promise<void> {
 }
 function maybeDialog(titlePrefix: string): HTMLElement | null {
   return (
-    [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((item) =>
-      item.querySelector('h2')?.textContent?.startsWith(titlePrefix),
+    [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')].find(
+      (item) => item.querySelector('h2')?.textContent?.startsWith(titlePrefix),
     ) ?? null
   );
 }
