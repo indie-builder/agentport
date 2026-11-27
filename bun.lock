@@ -219,8 +219,8 @@
     "@modelcontextprotocol/client": "2.4.0",
     "@types/bun": "1.4.5",
     "@types/node": "24.19.4",
-    "@ui-sdk/core": "0.1.0-beta.17",
-    "@ui-sdk/react": "0.1.0-beta.17",
+    "@ui-sdk/core": "0.1.0-beta.18",
+    "@ui-sdk/react": "0.1.0-beta.18",
     "bullmq": "6.7.10",
     "drizzle-orm": "0.45.4",
     "effect": "4.1.6",
@@ -1099,9 +1099,9 @@
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "https://registry.npmmirror.com/@typescript/typescript-win32-x64/-/typescript-win32-x64-7.0.2.tgz", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
-    "@ui-sdk/core": ["@ui-sdk/core@0.1.0-beta.17", "", {}, "sha512-wBWNqT0Qf1sE6fqD1XuBnSGBFcY6+cek1z7rKl/r4j2bsv2or9i7z44PLy0J9hmflm3IJ5MLW0P4ur2H9BCIvg=="],
+    "@ui-sdk/core": ["@ui-sdk/core@0.1.0-beta.18", "", {}, "sha512-y5S6komEjZ2dtD/rrW0ulkP67zNZpfbTBmtynuw4oLvhazXoEQI7Yk1/jMuOVOJvj0RUk8tLY/iyckbzaI+CrA=="],
 
-    "@ui-sdk/react": ["@ui-sdk/react@0.1.0-beta.17", "", { "peerDependencies": { "@types/react": ">=19.2.10", "@ui-sdk/core": "^0.1.0-beta.17", "react": ">=19", "react-dom": ">=19" }, "optionalPeers": ["@types/react"] }, "sha512-oAJu+/e8woA5gboO28nm3aiO2qZbjccGc8hukCijSz3biX71AYBw8mo14HkMAZUuPlbSnzVAuNYQMaW0z8vsrw=="],
+    "@ui-sdk/react": ["@ui-sdk/react@0.1.0-beta.18", "", { "peerDependencies": { "@types/react": ">=19.2.10", "@ui-sdk/core": "^0.1.0-beta.18", "react": ">=19", "react-dom": ">=19" }, "optionalPeers": ["@types/react"] }, "sha512-iTL1slJ0PFJXPGLrNMQCuQq4cQjUlzsOAlLRsuz/aMCFtDJhvhH7E6euBwdak8mHYxGwSwVHprTfnFhkyQi44Q=="],
 
     "@ungap/structured-clone": ["@ungap/structured-clone@1.4.0", "https://registry.npmmirror.com/@ungap/structured-clone/-/structured-clone-1.4.0.tgz", {}, "sha512-1mEZtMKPM09vDmQt5y7YvmN2+DFTP7Tg0EWXdic8/C6VRnpb33e4ghisCIE3WZjsE2N8mf+QV1Zqh7ZFYLWInQ=="],
 
