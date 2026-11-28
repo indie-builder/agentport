@@ -16,7 +16,13 @@ import {
   FieldGroup,
   FieldLabel,
 } from '../ui/field.js';
-import { Input } from '../ui/input.js';
+import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../ui/number-input.js';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group.js';
 import { Switch } from '../ui/switch.js';
 
@@ -54,7 +60,7 @@ function PolicyForm({
   canWrite: boolean;
 } & PolicyCallbacks) {
   const save = useUpdateAgentMemoryPolicy();
-  const { register, control, handleSubmit, reset, formState } = useZodForm(memoryPolicySchema, {
+  const { control, handleSubmit, reset, formState } = useZodForm(memoryPolicySchema, {
     defaultValues: policy,
   });
   const { errors, isDirty: dirty } = formState;
@@ -211,22 +217,35 @@ function PolicyForm({
               {errors.topicLimit?.message}
             </FieldError>
           </FieldContent>
-          <Input
-            {...register('topicLimit', { valueAsNumber: true })}
-            id="memory-policy-topic-limit"
-            type="number"
-            min={3}
-            max={48}
-            step={1}
-            inputMode="numeric"
-            className="w-24"
-            disabled={disabled}
-            aria-invalid={Boolean(errors.topicLimit)}
-            aria-describedby={
-              errors.topicLimit
-                ? 'memory-policy-topic-limit-hint memory-policy-topic-limit-error'
-                : 'memory-policy-topic-limit-hint'
-            }
+          <Controller
+            control={control}
+            name="topicLimit"
+            render={({ field }) => (
+              <NumberInput
+                value={Number.isFinite(field.value) ? field.value : null}
+                step={1}
+                disabled={disabled}
+                className="w-32 shrink-0"
+                onValueChange={(next, details) => {
+                  if (details.reason === 'input-commit') {
+                    details.cancel();
+                    return;
+                  }
+                  field.onChange(next ?? Number.NaN);
+                }}
+              >
+                <NumberInputGroup>
+                  <NumberInputDecrement />
+                  <NumberInputControl
+                    ref={field.ref}
+                    id="memory-policy-topic-limit"
+                    inputMode="numeric"
+                    onBlur={field.onBlur}
+                  />
+                  <NumberInputIncrement />
+                </NumberInputGroup>
+              </NumberInput>
+            )}
           />
         </Field>
       </FieldGroup>

@@ -36,6 +36,13 @@ import {
 } from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
 import { Label } from '../../components/ui/label.js';
+import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../../components/ui/number-input.js';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover.js';
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group.js';
 import {
@@ -161,6 +168,44 @@ export function InputRenderer({
 }>) {
   const field = useField(props.name, props.value, props.rules);
   const wiring = useFieldWiring();
+  if (props.type === 'number') {
+    const trimmed = typeof field.value === 'string' ? field.value.trim() : '';
+    const numericValue =
+      typeof field.value === 'number'
+        ? Number.isFinite(field.value)
+          ? field.value
+          : null
+        : trimmed !== '' && Number.isFinite(Number(trimmed))
+          ? Number(trimmed)
+          : null;
+    return (
+      <NumberInput
+        name={field.name}
+        value={numericValue}
+        format={{ useGrouping: false, maximumFractionDigits: 12 }}
+        disabled={field.streaming}
+        onValueChange={(next, details) => {
+          if (details.reason === 'input-commit') {
+            details.cancel();
+            return;
+          }
+          field.setValue(next === null ? '' : String(next));
+        }}
+        onValueCommit={(next) => field.validate(next === null ? '' : String(next))}
+      >
+        <NumberInputGroup>
+          <NumberInputDecrement />
+          <NumberInputControl
+            id={wiring?.controlId ?? field.name}
+            placeholder={props.placeholder ?? ''}
+            aria-invalid={field.error ? true : undefined}
+            onBlur={(event) => field.validate(event.currentTarget.value)}
+          />
+          <NumberInputIncrement />
+        </NumberInputGroup>
+      </NumberInput>
+    );
+  }
   return (
     <Input
       id={wiring?.controlId ?? field.name}

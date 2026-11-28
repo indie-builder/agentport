@@ -72,6 +72,13 @@ import {
 } from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
 import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../../components/ui/number-input.js';
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -373,15 +380,11 @@ export function AgentEditor({
   const pluginBindingsField = useController({ control, name: 'pluginBindings' }).field;
   const permissionModeField = useController({ control, name: 'permissionMode' }).field;
   const uiFormatField = useController({ control, name: 'uiFormat' }).field;
+  const maxTurnsField = useController({ control, name: 'maxTurns' }).field;
+  const maxBudgetUsdField = useController({ control, name: 'maxBudgetUsd' }).field;
+  const monthlyBudgetUsdField = useController({ control, name: 'monthlyBudgetUsd' }).field;
   const budgetAlertRatioField = useController({ control, name: 'budgetAlertRatio' }).field;
-  const [budgetAlertPercent, setBudgetAlertPercent] = useState(() =>
-    String(Math.round(budgetAlertRatioField.value * 1000) / 10),
-  );
-  useEffect(() => {
-    if (Number.isNaN(budgetAlertRatioField.value)) return;
-    if (Number(budgetAlertPercent) / 100 === budgetAlertRatioField.value) return;
-    setBudgetAlertPercent(String(Math.round(budgetAlertRatioField.value * 1000) / 10));
-  }, [budgetAlertPercent, budgetAlertRatioField.value]);
+  const timeoutMsField = useController({ control, name: 'timeoutMs' }).field;
   const enabledField = useController({ control, name: 'enabled' }).field;
   const runtimeEnvironmentField = useController({ control, name: 'runtimeEnvironmentId' }).field;
   const defaultEnvironment = runtimeCatalog.find((environment) => environment.isDefault);
@@ -2128,16 +2131,34 @@ export function AgentEditor({
                               {errors.maxTurns?.message}
                             </FieldError>
                           </FieldContent>
-                          <Input
-                            {...rhf.register('maxTurns', { valueAsNumber: true })}
+                          <NumberInput
+                            name={maxTurnsField.name}
+                            value={
+                              Number.isFinite(maxTurnsField.value) ? maxTurnsField.value : null
+                            }
+                            onValueChange={(next, details) => {
+                              if (details?.reason === 'input-commit') {
+                                details.cancel();
+                                return;
+                              }
+                              maxTurnsField.onChange(next ?? Number.NaN);
+                            }}
+                            step={1}
                             disabled={configDisabled}
-                            id="agent-turns"
-                            type="number"
-                            min={1}
-                            inputMode="numeric"
-                            aria-invalid={Boolean(errors.maxTurns)}
                             className="w-40"
-                          />
+                          >
+                            <NumberInputGroup>
+                              <NumberInputDecrement />
+                              <NumberInputControl
+                                ref={maxTurnsField.ref}
+                                id="agent-turns"
+                                inputMode="numeric"
+                                onBlur={maxTurnsField.onBlur}
+                                aria-invalid={Boolean(errors.maxTurns)}
+                              />
+                              <NumberInputIncrement />
+                            </NumberInputGroup>
+                          </NumberInput>
                         </Field>
                         <Field
                           data-disabled={configDisabled}
@@ -2151,17 +2172,36 @@ export function AgentEditor({
                               {errors.maxBudgetUsd?.message}
                             </FieldError>
                           </FieldContent>
-                          <Input
-                            {...rhf.register('maxBudgetUsd', { valueAsNumber: true })}
-                            disabled={configDisabled}
-                            id="agent-budget"
-                            type="number"
-                            min={0.01}
+                          <NumberInput
+                            name={maxBudgetUsdField.name}
+                            value={
+                              Number.isFinite(maxBudgetUsdField.value)
+                                ? maxBudgetUsdField.value
+                                : null
+                            }
+                            onValueChange={(next, details) => {
+                              if (details?.reason === 'input-commit') {
+                                details.cancel();
+                                return;
+                              }
+                              maxBudgetUsdField.onChange(next ?? Number.NaN);
+                            }}
                             step={0.01}
-                            inputMode="decimal"
-                            aria-invalid={Boolean(errors.maxBudgetUsd)}
+                            disabled={configDisabled}
                             className="w-40"
-                          />
+                          >
+                            <NumberInputGroup>
+                              <NumberInputDecrement />
+                              <NumberInputControl
+                                ref={maxBudgetUsdField.ref}
+                                id="agent-budget"
+                                inputMode="decimal"
+                                onBlur={maxBudgetUsdField.onBlur}
+                                aria-invalid={Boolean(errors.maxBudgetUsd)}
+                              />
+                              <NumberInputIncrement />
+                            </NumberInputGroup>
+                          </NumberInput>
                         </Field>
                         {agent.parentId === null ? (
                           <>
@@ -2182,20 +2222,37 @@ export function AgentEditor({
                                   {errors.monthlyBudgetUsd?.message}
                                 </FieldError>
                               </FieldContent>
-                              <Input
-                                {...rhf.register('monthlyBudgetUsd', {
-                                  setValueAs: (value) =>
-                                    value == null || value === '' ? null : Number(value),
-                                })}
-                                disabled={configDisabled}
-                                id="agent-monthly-budget"
-                                type="number"
-                                min={0.01}
+                              <NumberInput
+                                name={monthlyBudgetUsdField.name}
+                                value={
+                                  monthlyBudgetUsdField.value !== null &&
+                                  Number.isFinite(monthlyBudgetUsdField.value)
+                                    ? monthlyBudgetUsdField.value
+                                    : null
+                                }
+                                onValueChange={(next, details) => {
+                                  if (details?.reason === 'input-commit') {
+                                    details.cancel();
+                                    return;
+                                  }
+                                  monthlyBudgetUsdField.onChange(next);
+                                }}
                                 step={0.01}
-                                inputMode="decimal"
-                                aria-invalid={Boolean(errors.monthlyBudgetUsd)}
+                                disabled={configDisabled}
                                 className="w-40"
-                              />
+                              >
+                                <NumberInputGroup>
+                                  <NumberInputDecrement />
+                                  <NumberInputControl
+                                    ref={monthlyBudgetUsdField.ref}
+                                    id="agent-monthly-budget"
+                                    inputMode="decimal"
+                                    onBlur={monthlyBudgetUsdField.onBlur}
+                                    aria-invalid={Boolean(errors.monthlyBudgetUsd)}
+                                  />
+                                  <NumberInputIncrement />
+                                </NumberInputGroup>
+                              </NumberInput>
                             </Field>
                             <Field
                               data-disabled={configDisabled}
@@ -2214,27 +2271,38 @@ export function AgentEditor({
                                   {errors.budgetAlertRatio?.message}
                                 </FieldError>
                               </FieldContent>
-                              <Input
-                                disabled={configDisabled}
-                                id="agent-budget-alert"
-                                type="number"
-                                min={0.1}
-                                max={100}
-                                step="any"
-                                inputMode="decimal"
-                                value={budgetAlertPercent}
-                                onChange={(event) => {
-                                  if (event.target.validity.badInput) return;
-                                  const text = event.target.value;
-                                  setBudgetAlertPercent(text);
+                              <NumberInput
+                                name={budgetAlertRatioField.name}
+                                value={
+                                  Number.isFinite(budgetAlertRatioField.value)
+                                    ? Number((budgetAlertRatioField.value * 100).toPrecision(12))
+                                    : null
+                                }
+                                onValueChange={(next, details) => {
+                                  if (details?.reason === 'input-commit') {
+                                    details.cancel();
+                                    return;
+                                  }
                                   budgetAlertRatioField.onChange(
-                                    text === '' ? Number.NaN : Number(text) / 100,
+                                    next === null ? Number.NaN : next / 100,
                                   );
                                 }}
-                                onBlur={budgetAlertRatioField.onBlur}
-                                aria-invalid={Boolean(errors.budgetAlertRatio)}
+                                step={0.1}
+                                disabled={configDisabled}
                                 className="w-40"
-                              />
+                              >
+                                <NumberInputGroup>
+                                  <NumberInputDecrement />
+                                  <NumberInputControl
+                                    ref={budgetAlertRatioField.ref}
+                                    id="agent-budget-alert"
+                                    inputMode="decimal"
+                                    onBlur={budgetAlertRatioField.onBlur}
+                                    aria-invalid={Boolean(errors.budgetAlertRatio)}
+                                  />
+                                  <NumberInputIncrement />
+                                </NumberInputGroup>
+                              </NumberInput>
                             </Field>
                           </>
                         ) : null}
@@ -2255,17 +2323,34 @@ export function AgentEditor({
                               {errors.timeoutMs?.message}
                             </FieldError>
                           </FieldContent>
-                          <Input
-                            {...rhf.register('timeoutMs', { valueAsNumber: true })}
-                            disabled={configDisabled}
-                            id="agent-timeout"
-                            type="number"
-                            min={1000}
+                          <NumberInput
+                            name={timeoutMsField.name}
+                            value={
+                              Number.isFinite(timeoutMsField.value) ? timeoutMsField.value : null
+                            }
+                            onValueChange={(next, details) => {
+                              if (details?.reason === 'input-commit') {
+                                details.cancel();
+                                return;
+                              }
+                              timeoutMsField.onChange(next ?? Number.NaN);
+                            }}
                             step={1000}
-                            inputMode="numeric"
-                            aria-invalid={Boolean(errors.timeoutMs)}
+                            disabled={configDisabled}
                             className="w-40"
-                          />
+                          >
+                            <NumberInputGroup>
+                              <NumberInputDecrement />
+                              <NumberInputControl
+                                ref={timeoutMsField.ref}
+                                id="agent-timeout"
+                                inputMode="numeric"
+                                onBlur={timeoutMsField.onBlur}
+                                aria-invalid={Boolean(errors.timeoutMs)}
+                              />
+                              <NumberInputIncrement />
+                            </NumberInputGroup>
+                          </NumberInput>
                         </Field>
                         <Field
                           data-disabled={configDisabled}

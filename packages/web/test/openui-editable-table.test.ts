@@ -42,7 +42,7 @@ async function render(program: string, props: Record<string, unknown> = {}): Pro
 }
 
 function inputs(): HTMLInputElement[] {
-  return [...host.querySelectorAll<HTMLInputElement>('tbody input')];
+  return [...host.querySelectorAll<HTMLInputElement>('tbody input:not([type="hidden"])')];
 }
 
 async function type(input: HTMLInputElement, value: string): Promise<void> {
@@ -153,7 +153,7 @@ describe('EditableTable draft, Reset and Save', () => {
     expect(host.textContent).toContain('1 处修改');
     await type(inputs()[0] as HTMLInputElement, '苹果');
     expect(host.textContent).not.toContain('处修改');
-    expect(host.querySelectorAll('tbody input')).toHaveLength(2);
+    expect(host.querySelectorAll('tbody input:not([type="hidden"])')).toHaveLength(2);
   });
 });
 
@@ -170,7 +170,9 @@ describe('EditableTable cell types', () => {
     );
 
     const url = inputs().find((input) => input.type === 'url');
-    const number = inputs().find((input) => input.type === 'number');
+    const number = inputs().find(
+      (input) => input.getAttribute('data-slot') === 'number-input-control',
+    );
     expect(url).toBeTruthy();
     await type(url as HTMLInputElement, 'https://example.com');
     await type(number as HTMLInputElement, '4.5');

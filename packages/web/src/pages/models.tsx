@@ -48,6 +48,13 @@ import {
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../components/ui/number-input.js';
+import {
   PasswordInput,
   PasswordInputControl,
   PasswordInputToggle,
@@ -812,34 +819,73 @@ function ProviderDialog({
             <div className="grid gap-5 sm:grid-cols-2">
               <Field data-invalid={Boolean(errors.priority)} data-disabled={pending}>
                 <FieldLabel htmlFor="provider-priority">优先级</FieldLabel>
-                <Input
-                  id="provider-priority"
-                  type="number"
-                  min={0}
-                  max={10000}
-                  step={1}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.priority)}
-                  aria-describedby={errors.priority ? 'provider-priority-error' : undefined}
-                  {...register('priority', { valueAsNumber: true })}
+                <Controller
+                  control={control}
+                  name="priority"
+                  render={({ field }) => (
+                    <NumberInput
+                      name={field.name}
+                      value={Number.isFinite(field.value) ? field.value : null}
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next ?? Number.NaN);
+                      }}
+                      step={1}
+                      disabled={pending}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="provider-priority"
+                          inputMode="numeric"
+                          onBlur={field.onBlur}
+                          aria-invalid={Boolean(errors.priority)}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
                 <FieldError id="provider-priority-error">{errors.priority?.message}</FieldError>
               </Field>
               <Field data-invalid={Boolean(errors.monthlyBudgetUsd)} data-disabled={pending}>
                 <FieldLabel htmlFor="provider-budget">月预算（USD）</FieldLabel>
-                <Input
-                  id="provider-budget"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.monthlyBudgetUsd)}
-                  aria-describedby={
-                    errors.monthlyBudgetUsd ? 'provider-budget-error' : 'provider-budget-hint'
-                  }
-                  {...register('monthlyBudgetUsd', {
-                    setValueAs: (value) => (value == null || value === '' ? null : Number(value)),
-                  })}
+                <Controller
+                  control={control}
+                  name="monthlyBudgetUsd"
+                  render={({ field }) => (
+                    <NumberInput
+                      name={field.name}
+                      value={
+                        field.value !== null && Number.isFinite(field.value) ? field.value : null
+                      }
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next);
+                      }}
+                      step={0.01}
+                      disabled={pending}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="provider-budget"
+                          inputMode="decimal"
+                          onBlur={field.onBlur}
+                          aria-invalid={Boolean(errors.monthlyBudgetUsd)}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
                 <FieldDescription id="provider-budget-hint">留空表示不设预算。</FieldDescription>
                 <FieldError id="provider-budget-error">
@@ -851,18 +897,36 @@ function ProviderDialog({
             <div className="grid gap-5 sm:grid-cols-2">
               <Field data-invalid={Boolean(errors.alertRatio)} data-disabled={pending}>
                 <FieldLabel htmlFor="provider-alert-ratio">告警比例</FieldLabel>
-                <Input
-                  id="provider-alert-ratio"
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.alertRatio)}
-                  aria-describedby={
-                    errors.alertRatio ? 'provider-alert-ratio-error' : 'provider-alert-ratio-hint'
-                  }
-                  {...register('alertRatio', { valueAsNumber: true })}
+                <Controller
+                  control={control}
+                  name="alertRatio"
+                  render={({ field }) => (
+                    <NumberInput
+                      name={field.name}
+                      value={Number.isFinite(field.value) ? field.value : null}
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next ?? Number.NaN);
+                      }}
+                      step={0.01}
+                      disabled={pending}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="provider-alert-ratio"
+                          inputMode="decimal"
+                          onBlur={field.onBlur}
+                          aria-invalid={Boolean(errors.alertRatio)}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
                 <FieldDescription id="provider-alert-ratio-hint">
                   达到预算的该比例时告警，例如 0.8 表示 80%。
