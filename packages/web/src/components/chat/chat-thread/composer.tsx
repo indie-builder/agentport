@@ -2,7 +2,7 @@ import type { AgentSummary } from '@agentport/shared';
 import { ATTACHMENT_LIMITS, attachmentMimeForFilename } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUp, CircleStop, FileText, Image, LoaderCircle, Paperclip, X } from 'lucide-react';
-import { type KeyboardEvent as ReactKeyboardEvent, type RefObject, useRef, useState } from 'react';
+import { type KeyboardEvent as ReactKeyboardEvent, type RefObject, useState } from 'react';
 import { can } from '../../../lib/access.js';
 import { isActivePhase, useChatStore } from '../../../lib/chat-store.js';
 import { cn } from '../../../lib/cn.js';
@@ -21,6 +21,7 @@ import {
 } from '../../ui/attachment.js';
 import { Badge } from '../../ui/badge.js';
 import { Button } from '../../ui/button.js';
+import { FileInput, FileInputTrigger } from '../../ui/file-input.js';
 import {
   InputGroup,
   InputGroupAddon,
@@ -124,7 +125,7 @@ export function Composer({
       }}
     >
       <div className="w-full">
-        <InputGroup className="h-auto rounded-[var(--radius-composer)] bg-surface shadow-composer hover:shadow-composer-hover has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:shadow-composer-focus">
+        <InputGroup className="h-auto rounded-[var(--radius-composer)] bg-surface shadow-composer hover:shadow-composer-hover has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:border-input has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:shadow-composer-focus">
           {outputRef ? (
             <div className="flex min-w-0 items-center gap-2 px-4 pt-3">
               <Badge variant="outline" className="min-w-0 max-w-full">
@@ -256,12 +257,10 @@ export function Composer({
 function AttachmentPicker({ disabled }: { disabled: boolean }) {
   const pendingAttachments = useChatStore((state) => state.pendingAttachments);
   const setPendingAttachments = useChatStore((state) => state.setPendingAttachments);
-  const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const pick = (files: FileList | null): void => {
-    if (!files || files.length === 0) return;
-    const selected = [...files];
+  const pick = (selected: File[]): void => {
+    if (selected.length === 0) return;
     if (pendingAttachments.length + selected.length > ATTACHMENT_LIMITS.count) {
       setError(`最多添加 ${ATTACHMENT_LIMITS.count} 个资料`);
       return;
@@ -289,30 +288,30 @@ function AttachmentPicker({ disabled }: { disabled: boolean }) {
 
   return (
     <>
-      <input
-        ref={inputRef}
-        type="file"
+      <FileInput
         multiple
         accept={ATTACHMENT_ACCEPT}
-        className="hidden"
-        tabIndex={-1}
-        aria-label="选择资料文件"
         disabled={disabled}
-        onChange={(event) => {
-          pick(event.target.files);
-          event.target.value = '';
+        className="contents"
+        onValueChange={(files, details) => {
+          details.cancel();
+          pick(files);
         }}
-      />
-      <InputGroupButton
-        size="icon-sm"
-        aria-label="添加资料"
-        title="添加资料（文本、图片、PDF）"
-        disabled={disabled}
-        onClick={() => inputRef.current?.click()}
-        className="shrink-0"
+        onReject={(rejected) => {
+          const first = rejected[0];
+          if (first) setError(`不支持「${first.file.name}」的文件类型`);
+        }}
       >
-        <Paperclip />
-      </InputGroupButton>
+        <FileInputTrigger
+          variant="ghost"
+          size="icon-sm"
+          aria-label="添加资料"
+          title="添加资料（文本、图片、PDF）"
+          className="size-8 shrink-0 p-0 shadow-none has-[>svg]:p-0"
+        >
+          <Paperclip />
+        </FileInputTrigger>
+      </FileInput>
       {error ? (
         <span role="alert" className="min-w-0 text-danger [overflow-wrap:anywhere]">
           {error}

@@ -31,11 +31,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
+import { createFileInputController, FileInput } from '../../components/ui/file-input.js';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { cn } from '../../lib/cn.js';
-import { onFilePick } from '../../lib/file-pick.js';
 import { formatDateTime, formatRelative, shortId } from '../../lib/format.js';
 import { errorMessage } from '../../lib/orpc.js';
 import {
@@ -129,7 +129,7 @@ export function ServersPage() {
   const [testingServer, setTestingServer] = useState<Server | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importController] = useState(createFileInputController);
   const triggerRef = useRef<HTMLElement | null>(null);
   const focusTrigger = (): HTMLElement | null =>
     triggerRef.current?.isConnected
@@ -334,6 +334,7 @@ export function ServersPage() {
     return (
       <Popover>
         <PopoverTrigger
+          onClick={(event) => event.stopPropagation()}
           render={
             <Button
               variant="ghost"
@@ -345,7 +346,7 @@ export function ServersPage() {
             </Button>
           }
         />
-        <PopoverContent align="end" className="w-64">
+        <PopoverContent align="end" className="w-64" onClick={(event) => event.stopPropagation()}>
           <p className="text-xs text-muted-foreground">使用该连接器的专家</p>
           <ul className="flex flex-col gap-1">
             {names.map((name) => (
@@ -407,6 +408,7 @@ export function ServersPage() {
             ) : (
               <Button
                 variant="ghost"
+                aria-label={`查看连接器 ${displayName}`}
                 className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium whitespace-normal text-fg"
                 onClick={(event) => openEdit(server, event.currentTarget)}
               >
@@ -500,15 +502,17 @@ export function ServersPage() {
       activeFilterCount={kind === 'all' ? 0 : 1}
       actions={
         <>
-          <input
-            ref={importInputRef}
-            type="file"
+          <FileInput
+            controller={importController}
+            aria-label="导入连接器配置"
             accept="application/json,.json"
-            className="hidden"
-            onChange={onFilePick((files) => {
+            disabled={importMcp.isPending}
+            className="contents"
+            onValueChange={(files, details) => {
+              details.cancel();
               const file = files[0];
               if (file) void importFile(file);
-            })}
+            }}
           />
           {canCreate && !(servers.data && all.length === 0) ? (
             <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
@@ -542,7 +546,7 @@ export function ServersPage() {
                       aria-busy={importMcp.isPending}
                       onSelect={() => {
                         triggerRef.current = moreTriggerRef.current;
-                        importInputRef.current?.click();
+                        importController.open();
                       }}
                     >
                       <Upload aria-hidden="true" />
@@ -665,6 +669,7 @@ export function ServersPage() {
                           ) : (
                             <Button
                               variant="ghost"
+                              aria-label={`查看连接器 ${displayName}`}
                               className="h-auto w-full min-w-0 justify-start p-0 text-left text-sm font-medium text-fg"
                               onClick={(event) => openEdit(server, event.currentTarget)}
                             >

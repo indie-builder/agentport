@@ -58,6 +58,8 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
+  FieldLegend,
+  FieldSet,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
@@ -86,6 +88,7 @@ import {
   useWebhookEndpoints,
 } from '../lib/queries.js';
 import { toastSuccess } from '../lib/toast.js';
+import { useOptimisticValue } from '../lib/use-optimistic-value.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
 const SCOPE_OPTIONS: readonly { value: IntegrationScope; label: string }[] = [
@@ -136,6 +139,7 @@ export function IntegrationsPage() {
   const search = useSearch({ from: '/_shell/integrations' });
   const navigate = useNavigate({ from: '/integrations' });
   const tab = search.tab ?? 'tokens';
+  const [optimisticTab, commitTab] = useOptimisticValue(tab);
   const view = search.view ?? 'cards';
   const [creating, setCreating] = useState<'token' | 'webhook' | null>(null);
   const setView = (next: ListView): void => {
@@ -150,15 +154,19 @@ export function IntegrationsPage() {
   return (
     <Page>
       <Tabs
-        value={tab}
-        onValueChange={(next) => {
-          if (next === tab) return;
-          if (!TABS.some((item) => item.value === next)) return;
-          void navigate({
-            to: '/integrations',
-            search: { ...search, tab: next as (typeof TABS)[number]['value'] },
-            replace: true,
-          });
+        value={optimisticTab}
+        onValueChange={(next, details) => {
+          if (next === optimisticTab || !TABS.some((item) => item.value === next)) {
+            details.cancel();
+            return;
+          }
+          commitTab(next as (typeof TABS)[number]['value'], () =>
+            navigate({
+              to: '/integrations',
+              search: { ...search, tab: next as (typeof TABS)[number]['value'] },
+              replace: true,
+            }),
+          );
         }}
         className="min-h-0 flex-1 gap-4"
       >
@@ -485,6 +493,7 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
                   id="api-token-value"
                   readOnly
                   autoComplete="off"
+                  data-agent-secret
                   className="font-mono"
                   value={created.token}
                   onFocus={(event) => event.currentTarget.select()}
@@ -521,10 +530,16 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
                   />
                   <FieldError id="api-token-name-error">{errors.name?.message}</FieldError>
                 </Field>
-                <Field data-invalid={Boolean(errors.scopes)} data-disabled={pending}>
-                  <FieldLabel>
+                <FieldSet className="gap-2" disabled={pending}>
+                  <FieldLegend
+                    variant="label"
+                    className={cn(
+                      'mb-2 flex items-center gap-2 select-none data-disabled:opacity-50',
+                      Boolean(errors.scopes) && 'text-destructive',
+                    )}
+                  >
                     权限范围 <RequiredMark />
-                  </FieldLabel>
+                  </FieldLegend>
                   <Controller
                     control={control}
                     name="scopes"
@@ -564,7 +579,7 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
                     )}
                   />
                   <FieldError id="api-token-scopes-error">{errors.scopes?.message}</FieldError>
-                </Field>
+                </FieldSet>
                 <Field data-invalid={Boolean(errors.expiresAt)} data-disabled={pending}>
                   <FieldLabel htmlFor="api-token-expires">过期时间</FieldLabel>
                   <Input
@@ -945,6 +960,7 @@ function WebhookDialog({ onClose: onClosed }: { onClose: () => void }) {
                   id="webhook-secret-value"
                   readOnly
                   autoComplete="off"
+                  data-agent-secret
                   className="font-mono"
                   value={created.secret}
                   onFocus={(event) => event.currentTarget.select()}
@@ -1100,10 +1116,16 @@ function WebhookDialog({ onClose: onClosed }: { onClose: () => void }) {
                       />
                       <FieldError id="webhook-url-error">{errors.url?.message}</FieldError>
                     </Field>
-                    <Field data-invalid={Boolean(errors.events)} data-disabled={pending}>
-                      <FieldLabel>
+                    <FieldSet className="gap-2" disabled={pending}>
+                      <FieldLegend
+                        variant="label"
+                        className={cn(
+                          'mb-2 flex items-center gap-2 select-none data-disabled:opacity-50',
+                          Boolean(errors.events) && 'text-destructive',
+                        )}
+                      >
                         订阅事件 <RequiredMark />
-                      </FieldLabel>
+                      </FieldLegend>
                       <Controller
                         control={control}
                         name="events"
@@ -1144,7 +1166,7 @@ function WebhookDialog({ onClose: onClosed }: { onClose: () => void }) {
                         )}
                       />
                       <FieldError id="webhook-events-error">{errors.events?.message}</FieldError>
-                    </Field>
+                    </FieldSet>
                   </>
                 )}
 

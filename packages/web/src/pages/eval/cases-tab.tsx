@@ -1,3 +1,4 @@
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Download, EllipsisVertical, Plus, Shuffle, Upload } from 'lucide-react';
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { PageToolbar } from '../../components/page.js';
@@ -18,9 +19,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
+import { createFileInputController, FileInput } from '../../components/ui/file-input.js';
+import {
+  SegmentedControl,
+  SegmentedControlIndicator,
+  SegmentedControlItem,
+} from '../../components/ui/segmented-control.js';
 import { ApiError, type EvalCase } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
-import { onFilePick } from '../../lib/file-pick.js';
 import { CaseInspector } from './case-inspector.js';
 
 type CaseFilter = 'all' | 'llm' | 'contains' | 'tools';
@@ -52,7 +58,6 @@ export function EvalCasesTab({
   canReadEval,
   canReadRuns,
   createButtonRef,
-  importInputRef,
   importPending,
   exporting,
   onImportFile,
@@ -81,7 +86,6 @@ export function EvalCasesTab({
   canReadEval: boolean;
   canReadRuns: boolean;
   createButtonRef: RefObject<HTMLButtonElement | null>;
-  importInputRef: RefObject<HTMLInputElement | null>;
   importPending: boolean;
   exporting: boolean;
   onImportFile: (file: File) => void;
@@ -91,6 +95,7 @@ export function EvalCasesTab({
   onEditCase: (testCase: EvalCase, trigger: HTMLElement) => void;
   onDeleteCase: (testCase: EvalCase, trigger: HTMLElement) => void;
 }) {
+  const [importController] = useState(createFileInputController);
   const [queryDraft, setQueryDraft] = useState(query);
   const [composing, setComposing] = useState(false);
   const lastSyncedQuery = useRef(query);
@@ -179,15 +184,17 @@ export function EvalCasesTab({
   return (
     <div ref={tabRootRef} className="flex min-w-0 flex-col gap-4">
       <PageToolbar>
-        <input
-          ref={importInputRef}
-          type="file"
+        <FileInput
+          controller={importController}
+          aria-label="导入评估用例文件"
           accept=".json,application/json"
-          className="hidden"
-          onChange={onFilePick((files) => {
+          disabled={importPending}
+          className="contents"
+          onValueChange={(files, details) => {
+            details.cancel();
             const file = files[0];
             if (file) onImportFile(file);
-          })}
+          }}
         />
         <SearchInput
           value={queryDraft}
@@ -196,29 +203,24 @@ export function EvalCasesTab({
           placeholder="搜索用例名称或 Prompt…"
           className="w-full sm:w-56"
         />
-        <fieldset
+        <SegmentedControl<CaseFilter>
           aria-label="筛选用例类型"
-          className="inline-flex items-center rounded-pill border-0 bg-sunken p-0.5"
+          value={filter}
+          onValueChange={(next) => {
+            if (next !== null) onSearchChange({ filter: next === 'all' ? undefined : next });
+          }}
         >
+          <SegmentedControlIndicator />
           {filterOptions.map((option) => (
-            <button
+            <SegmentedControlItem
               key={option.value}
-              type="button"
-              aria-pressed={filter === option.value}
-              onClick={() =>
-                onSearchChange({ filter: option.value === 'all' ? undefined : option.value })
-              }
-              className={cn(
-                'rounded-pill px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                filter === option.value
-                  ? 'bg-surface text-fg shadow-sm'
-                  : 'text-muted-foreground hover:text-fg',
-              )}
+              value={option.value}
+              className="h-6 px-2.5 text-xs"
             >
               {option.label}
-            </button>
+            </SegmentedControlItem>
           ))}
-        </fieldset>
+        </SegmentedControl>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {canManageEval && !casesEmpty ? (
             <Button
@@ -261,7 +263,7 @@ export function EvalCasesTab({
                   {canManageEval ? (
                     <DropdownMenuItem
                       disabled={importPending}
-                      onSelect={() => importInputRef.current?.click()}
+                      onSelect={() => importController.open()}
                     >
                       <Upload aria-hidden="true" />
                       {importPending ? '导入中…' : '导入 JSON'}
@@ -337,8 +339,7 @@ export function EvalCasesTab({
                 const forbiddenCount = testCase.forbiddenTools?.length ?? 0;
                 return (
                   <li key={testCase.id}>
-                    <button
-                      type="button"
+                    <ButtonPrimitive
                       aria-current={isSelected ? 'true' : undefined}
                       onClick={() => onSelectCase(testCase.id)}
                       className={cn(
@@ -363,7 +364,7 @@ export function EvalCasesTab({
                       <p className="line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">
                         {testCase.prompt}
                       </p>
-                    </button>
+                    </ButtonPrimitive>
                   </li>
                 );
               })}

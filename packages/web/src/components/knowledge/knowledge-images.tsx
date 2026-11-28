@@ -1,4 +1,5 @@
 import type { KnowledgeImageAsset } from '@agentport/contract/knowledge';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Image } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useDialogClose } from '../../lib/dialog-guard.js';
@@ -120,8 +121,7 @@ export function ImagesTab({
                     </span>
                   )}
                 </div>
-                <button
-                  type="button"
+                <ButtonPrimitive
                   aria-label={`查看 ${asset.documentTitle}${imagePageLabel(asset)} 的图片：${asset.name}`}
                   onClick={(event) => {
                     setTrigger(event.currentTarget);

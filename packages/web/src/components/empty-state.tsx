@@ -1,3 +1,4 @@
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import {
   Activity,
   BookOpen,
@@ -127,14 +128,13 @@ function FilterChipList({ filters }: { filters: readonly EmptyFilterChip[] }) {
           <span className="text-muted-foreground">{chip.label}:</span>
           <span className="max-w-[180px] truncate">{chip.value}</span>
           {chip.onRemove ? (
-            <button
-              type="button"
+            <ButtonPrimitive
               onClick={chip.onRemove}
               aria-label={`移除筛选：${chip.label} ${chip.value}`}
               className="grid size-3.5 place-items-center rounded text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-selected hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="size-3" aria-hidden="true" />
-            </button>
+            </ButtonPrimitive>
           ) : null}
         </span>
       ))}

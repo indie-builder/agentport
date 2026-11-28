@@ -5,6 +5,7 @@ import { ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
 import { Checkbox } from '../../components/ui/checkbox.js';
 import { Dialog } from '../../components/ui/dialog.js';
+import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import {
   useAgentMembers,
@@ -60,102 +61,107 @@ export function AgentMembersDialog({
             {members.data && members.data.members.length === 0 ? (
               <p className="text-sm text-muted-foreground">还没有成员。</p>
             ) : null}
-            {(members.data?.members ?? []).map((member) => (
-              <div
-                key={member.businessId}
-                className="flex flex-wrap items-center gap-x-4 gap-y-2 border-y py-2 text-sm"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate">{member.name || member.businessId}</div>
-                  <div className="truncate font-mono text-xs text-muted-foreground">
-                    {member.businessId}
-                    {member.accountActive ? '' : ' · 离线'}
-                  </div>
-                </div>
-                <label
-                  htmlFor={`agent-member-${member.businessId}-use`}
-                  className="flex items-center gap-1.5"
-                >
-                  <Checkbox
-                    id={`agent-member-${member.businessId}-use`}
-                    checked={member.canUse}
-                    disabled={setMember.isPending}
-                    onCheckedChange={(checked) =>
-                      setMember.mutate(
-                        {
-                          agentId,
-                          businessId: member.businessId,
-                          canUse: Boolean(checked),
-                          canMaintain: member.canMaintain,
-                        },
-                        { onError: toastError },
-                      )
-                    }
-                  />
-                  可使用
-                </label>
-                <label
-                  htmlFor={`agent-member-${member.businessId}-maintain`}
-                  className="flex items-center gap-1.5"
-                >
-                  <Checkbox
-                    id={`agent-member-${member.businessId}-maintain`}
-                    checked={member.canMaintain}
-                    disabled={setMember.isPending}
-                    onCheckedChange={(checked) =>
-                      setMember.mutate(
-                        {
-                          agentId,
-                          businessId: member.businessId,
-                          canUse: member.canUse,
-                          canMaintain: Boolean(checked),
-                        },
-                        { onError: toastError },
-                      )
-                    }
-                  />
-                  可维护
-                </label>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-danger"
-                  disabled={removeMember.isPending}
-                  aria-label={`移除成员 ${member.name || member.businessId}`}
-                  onClick={() =>
-                    removeMember.mutate(
-                      { agentId, businessId: member.businessId },
-                      {
-                        onSuccess: () => {
-                          toast.success(`已移除成员 ${member.name || member.businessId}`, {
-                            duration: 6000,
-                            action: {
-                              label: '撤销',
-                              onAction: async () => {
-                                try {
-                                  await setMember.mutateAsync({
-                                    agentId,
-                                    businessId: member.businessId,
-                                    canUse: member.canUse,
-                                    canMaintain: member.canMaintain,
-                                  });
-                                } catch (error) {
-                                  toastError(error);
-                                  throw error;
-                                }
-                              },
+            {members.data && members.data.members.length > 0 ? (
+              <ul aria-label="已有成员列表" className="m-0 list-none p-0">
+                {members.data.members.map((member) => (
+                  <li
+                    key={member.businessId}
+                    className="flex flex-wrap items-center gap-x-4 gap-y-2 border-y py-2 text-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate">{member.name || member.businessId}</div>
+                      <div className="truncate font-mono text-xs text-muted-foreground">
+                        {member.businessId}
+                        {member.accountActive ? '' : ' · 离线'}
+                      </div>
+                    </div>
+                    <label
+                      htmlFor={`agent-member-${member.businessId}-use`}
+                      className="flex items-center gap-1.5"
+                    >
+                      <Checkbox
+                        id={`agent-member-${member.businessId}-use`}
+                        checked={member.canUse}
+                        disabled={setMember.isPending}
+                        onCheckedChange={(checked) =>
+                          setMember.mutate(
+                            {
+                              agentId,
+                              businessId: member.businessId,
+                              canUse: Boolean(checked),
+                              canMaintain: member.canMaintain,
                             },
-                          });
-                        },
-                        onError: toastError,
-                      },
-                    )
-                  }
-                >
-                  移除
-                </Button>
-              </div>
-            ))}
+                            { onError: toastError },
+                          )
+                        }
+                      />
+                      可使用
+                    </label>
+                    <label
+                      htmlFor={`agent-member-${member.businessId}-maintain`}
+                      className="flex items-center gap-1.5"
+                    >
+                      <Checkbox
+                        id={`agent-member-${member.businessId}-maintain`}
+                        checked={member.canMaintain}
+                        disabled={setMember.isPending}
+                        onCheckedChange={(checked) =>
+                          setMember.mutate(
+                            {
+                              agentId,
+                              businessId: member.businessId,
+                              canUse: member.canUse,
+                              canMaintain: Boolean(checked),
+                            },
+                            { onError: toastError },
+                          )
+                        }
+                      />
+                      可维护
+                    </label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-danger"
+                      disabled={removeMember.isPending}
+                      aria-label={`移除成员 ${member.name || member.businessId}`}
+                      data-agent-confirm={`从「${agentName}」移除成员 ${member.name || member.businessId}`}
+                      onClick={() =>
+                        removeMember.mutate(
+                          { agentId, businessId: member.businessId },
+                          {
+                            onSuccess: () => {
+                              toast.success(`已移除成员 ${member.name || member.businessId}`, {
+                                duration: 6000,
+                                action: {
+                                  label: '撤销',
+                                  onAction: async () => {
+                                    try {
+                                      await setMember.mutateAsync({
+                                        agentId,
+                                        businessId: member.businessId,
+                                        canUse: member.canUse,
+                                        canMaintain: member.canMaintain,
+                                      });
+                                    } catch (error) {
+                                      toastError(error);
+                                      throw error;
+                                    }
+                                  },
+                                },
+                              });
+                            },
+                            onError: toastError,
+                          },
+                        )
+                      }
+                    >
+                      移除
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
           <div className="flex flex-col gap-2 border-t pt-4">
             <h3 className="text-sm font-medium">添加成员</h3>
@@ -169,41 +175,52 @@ export function AgentMembersDialog({
             {identities.isError ? (
               <ErrorState error={identities.error} onRetry={() => void identities.refetch()} />
             ) : null}
-            {(identities.data?.items ?? []).map((candidate) => (
-              <div
-                key={candidate.businessId}
-                className="flex flex-wrap items-center gap-2 border-y py-2 text-sm"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate">{candidate.name || candidate.businessId}</div>
-                  <div className="truncate font-mono text-xs text-muted-foreground">
-                    {candidate.businessId}
-                    {candidate.accountActive ? '' : ' · 离线'}
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={existing.has(candidate.businessId) || setMember.isPending}
-                  onClick={() =>
-                    setMember.mutate(
-                      {
-                        agentId,
-                        businessId: candidate.businessId,
-                        canUse: true,
-                        canMaintain: false,
-                      },
-                      {
-                        onSuccess: () => toastSuccess(`已添加 ${candidate.name}`),
-                        onError: toastError,
-                      },
-                    )
-                  }
-                >
-                  {existing.has(candidate.businessId) ? '已是成员' : '添加'}
-                </Button>
-              </div>
-            ))}
+            {(identities.data?.items ?? []).length > 0 ? (
+              <ul aria-label="可添加人员列表" className="m-0 list-none p-0">
+                {(identities.data?.items ?? []).map((candidate) => {
+                  const candidateLabel = candidate.name || candidate.businessId;
+                  const isMember = existing.has(candidate.businessId);
+                  return (
+                    <li
+                      key={candidate.businessId}
+                      className="flex flex-wrap items-center gap-2 border-y py-2 text-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">{candidateLabel}</div>
+                        <div className="truncate font-mono text-xs text-muted-foreground">
+                          {candidate.businessId}
+                          {candidate.accountActive ? '' : ' · 离线'}
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isMember || setMember.isPending}
+                        aria-label={
+                          isMember ? `${candidateLabel} 已是成员` : `添加成员 ${candidateLabel}`
+                        }
+                        onClick={() =>
+                          setMember.mutate(
+                            {
+                              agentId,
+                              businessId: candidate.businessId,
+                              canUse: true,
+                              canMaintain: false,
+                            },
+                            {
+                              onSuccess: () => toastSuccess(`已添加 ${candidate.name}`),
+                              onError: toastError,
+                            },
+                          )
+                        }
+                      >
+                        {isMember ? '已是成员' : '添加'}
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
           </div>
         </div>
       </DialogShell>
@@ -257,26 +274,34 @@ export function TransferAgentDialog({
           {identities.isError ? (
             <ErrorState error={identities.error} onRetry={() => void identities.refetch()} />
           ) : null}
-          {(identities.data?.items ?? []).map((candidate) => (
-            <label
-              key={candidate.businessId}
-              htmlFor={`agent-transfer-target-${candidate.businessId}`}
-              className="flex items-center gap-2 border-y py-2 text-sm"
+          {(identities.data?.items ?? []).length > 0 ? (
+            <RadioGroup
+              aria-label="选择新负责人"
+              value={target}
+              onValueChange={(next) => setTarget(next)}
+              className="gap-0"
             >
-              <Checkbox
-                id={`agent-transfer-target-${candidate.businessId}`}
-                checked={target === candidate.businessId}
-                onCheckedChange={() => setTarget(candidate.businessId)}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{candidate.name || candidate.businessId}</span>
-                <span className="block truncate font-mono text-xs text-muted-foreground">
-                  {candidate.businessId}
-                  {candidate.accountActive ? '' : ' · 离线'}
-                </span>
-              </span>
-            </label>
-          ))}
+              {(identities.data?.items ?? []).map((candidate) => (
+                <label
+                  key={candidate.businessId}
+                  htmlFor={`agent-transfer-target-${candidate.businessId}`}
+                  className="flex cursor-pointer items-center gap-2 border-y py-2 text-sm"
+                >
+                  <RadioGroupItem
+                    id={`agent-transfer-target-${candidate.businessId}`}
+                    value={candidate.businessId}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{candidate.name || candidate.businessId}</span>
+                    <span className="block truncate font-mono text-xs text-muted-foreground">
+                      {candidate.businessId}
+                      {candidate.accountActive ? '' : ' · 离线'}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </RadioGroup>
+          ) : null}
           <div className="flex items-center justify-end gap-2">
             <Button type="button" variant="outline" disabled={transfer.isPending} onClick={onClose}>
               取消
@@ -284,6 +309,7 @@ export function TransferAgentDialog({
             <Button
               disabled={target === null || target === currentOwner || transfer.isPending}
               aria-busy={transfer.isPending}
+              data-agent-confirm={`将「${agentName}」的所有权转交给选定负责人，原负责人不会自动保留成员权限`}
               onClick={() => {
                 if (!target) return;
                 transfer.mutate(

@@ -183,9 +183,9 @@ export function SecurityPage() {
     <Page>
       <Tabs
         value={tab}
-        onValueChange={(next) => {
-          if (next === tab) return;
-          if (!TABS.some((item) => item.value === next)) return;
+        onValueChange={(next, details) => {
+          details.cancel();
+          if (next === tab || !TABS.some((item) => item.value === next)) return;
           void navigate({
             to: '/security',
             search: { ...search, tab: next as (typeof TABS)[number]['value'] },
@@ -1112,6 +1112,7 @@ function ApprovalDialog({
                   variant="destructive"
                   disabled={pending}
                   aria-busy={pending}
+                  data-agent-confirm="拒绝这条外发审批请求"
                   onClick={() => void submit('reject')}
                 >
                   拒绝
@@ -1119,6 +1120,7 @@ function ApprovalDialog({
                 <Button
                   disabled={pending}
                   aria-busy={pending}
+                  data-agent-confirm="批准这条外发审批请求"
                   onClick={() => void submit('approve')}
                 >
                   批准

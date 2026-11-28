@@ -6,6 +6,7 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Download, EllipsisVertical, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { CursorListFooter } from '../../components/cursor-list-footer.js';
@@ -81,14 +82,13 @@ function ExpandableError({ error }: { error: string }) {
       >
         {error}
       </span>
-      <button
-        type="button"
+      <ButtonPrimitive
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
         className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-fg"
       >
         {open ? '收起' : '展开全文'}
-      </button>
+      </ButtonPrimitive>
     </div>
   );
 }

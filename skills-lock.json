@@ -239,7 +239,7 @@
     },
     "ui-sdk": {
       "source": "vercel-labs/ui",
-      "commit": "cd8bf5a55c9be8826e236fda55e482d76f79859f",
+      "commit": "7d2667b03a15468c84ddd85106cea23fbc8579c7",
       "sourceType": "github",
       "skillPath": "packages/core/skills/ui-sdk/SKILL.md",
       "computedHash": "780dfb7ccc0917df009a10faee5dc13118d67b168d90b5befba9b86340688587"

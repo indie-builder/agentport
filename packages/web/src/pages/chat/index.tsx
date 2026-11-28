@@ -671,9 +671,8 @@ function ChatWorkspace({
 
   return (
     <div className="flex h-full min-h-0 min-w-0">
-      <Sheet open={historyOpen && !desktop} onOpenChange={setHistoryOpen}>
+      <Sheet side="left" open={historyOpen && !desktop} onOpenChange={setHistoryOpen}>
         <SheetContent
-          side="left"
           showCloseButton={false}
           aria-describedby={undefined}
           className="w-73.5! max-w-full! gap-5 p-0"
@@ -695,6 +694,7 @@ function ChatWorkspace({
       </Sheet>
 
       <Sheet
+        side="right"
         open={workspaceOpen && !wide}
         onOpenChange={(open) => {
           workspaceFeedbackRef.current = false;
@@ -704,7 +704,6 @@ function ChatWorkspace({
         }}
       >
         <SheetContent
-          side="right"
           aria-describedby={undefined}
           finalFocus={() =>
             workspaceFeedbackRef.current ? composerRef.current : workspaceToggleRef.current

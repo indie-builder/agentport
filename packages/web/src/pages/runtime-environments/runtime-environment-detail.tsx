@@ -294,7 +294,6 @@ export function RuntimeEnvironmentDetailPage() {
                   disabled={update.isPending}
                   aria-required="true"
                   aria-invalid={Boolean(nameError)}
-                  aria-describedby={nameError ? 'runtime-environment-name-error' : undefined}
                   className="w-64"
                 />
               </Field>

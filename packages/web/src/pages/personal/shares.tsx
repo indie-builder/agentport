@@ -1,10 +1,9 @@
 import type { PersonalOutputShare } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { FileText, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import { Check, Copy, FileText, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { CopyButton } from '../../components/copy-button.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import {
   Page,
@@ -28,7 +27,7 @@ import {
   usePersonalOutputShares,
   useRevokePersonalOutputShare,
 } from '../../lib/queries.js';
-import { toastSuccess } from '../../lib/toast.js';
+import { toastError, toastSuccess } from '../../lib/toast.js';
 
 function shareLink(share: PersonalOutputShare): string {
   return `${window.location.origin}${share.urlPath}`;
@@ -70,6 +69,9 @@ function ShareSourceCell({
         size="sm"
         className="h-7 justify-start px-0 text-sm text-muted-foreground"
         aria-expanded={open}
+        aria-label={
+          open ? `收起 ${fileName(share.path)} 的来源` : `展开 ${fileName(share.path)} 的来源`
+        }
         onClick={() => setOpen((value) => !value)}
       >
         {open ? '收起来源' : '展开来源'}
@@ -92,6 +94,63 @@ function ShareFile({ share }: { share: PersonalOutputShare }) {
   );
 }
 
+function ShareCopyButton({ value, name }: { value: string; name: string }) {
+  const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
+  const copied = copiedValue === value;
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    setCopiedValue((current) => (current === value ? current : null));
+    return () => {
+      if (resetTimer.current !== null) clearTimeout(resetTimer.current);
+      resetTimer.current = null;
+    };
+  }, [value]);
+  const copy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(value);
+      if (resetTimer.current !== null) clearTimeout(resetTimer.current);
+      setNonce((current) => current + 1);
+      setCopiedValue(value);
+      resetTimer.current = setTimeout(() => setCopiedValue(null), 2500);
+    } catch {
+      toastError(new Error('无法复制，请选择内容后手动复制。'));
+    }
+  };
+  const label = copied ? '已复制' : '复制链接';
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => void copy()}
+      aria-label={copied ? `已复制 ${name} 的链接` : `复制 ${name} 的链接`}
+      title={label}
+    >
+      <span key={`icons-${nonce}`} className="grid">
+        <Copy
+          aria-hidden="true"
+          data-icon="inline-start"
+          className={cn(
+            'col-start-1 row-start-1 transition-opacity duration-150 ease-out-soft',
+            copied ? 'opacity-0' : 'opacity-100',
+          )}
+        />
+        <Check
+          aria-hidden="true"
+          data-icon="inline-start"
+          className={cn(
+            'col-start-1 row-start-1 text-success transition-opacity duration-150 ease-out-soft',
+            copied ? 'saved-check-decay opacity-100' : 'opacity-0',
+          )}
+        />
+      </span>
+      <span key={`label-${nonce}`} className={cn(copied && 'saved-check-decay')}>
+        {label}
+      </span>
+    </Button>
+  );
+}
+
 function ShareActions({
   share,
   revokePending,
@@ -103,21 +162,23 @@ function ShareActions({
   onRevoke: (share: PersonalOutputShare) => void;
   className?: string;
 }) {
+  const name = fileName(share.path);
   return (
     <div className={cn('flex items-center gap-x-3 whitespace-nowrap', className)}>
       <a
         href={share.urlPath}
         target="_blank"
         rel="noopener noreferrer"
+        aria-label={`查看 ${name} 的分享`}
         className={buttonVariants({ variant: 'outline', size: 'sm' })}
       >
         查看分享
       </a>
-      <CopyButton value={shareLink(share)} label="复制链接" showLabel variant="ghost" />
+      <ShareCopyButton value={shareLink(share)} name={name} />
       <Button
         variant="destructive"
         size="sm"
-        aria-label={`撤销 ${fileName(share.path)} 的分享`}
+        aria-label={`撤销 ${name} 的分享`}
         disabled={revokePending}
         onClick={() => onRevoke(share)}
       >
@@ -286,17 +347,21 @@ export function PersonalSharesPage() {
           shares.isPending ? (
             <LoadingState rows={3} layout="cards" />
           ) : (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2">
+            <ul
+              aria-label="公开分享列表"
+              className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-0 pt-2"
+            >
               {(shares.data?.items ?? []).map((share) => (
-                <ShareCard
-                  key={share.id}
-                  share={share}
-                  canOpenConversation={canOpenConversation}
-                  revokePending={revoke.isPending}
-                  onRevoke={requestRevoke}
-                />
+                <li key={share.id} className="min-w-0">
+                  <ShareCard
+                    share={share}
+                    canOpenConversation={canOpenConversation}
+                    revokePending={revoke.isPending}
+                    onRevoke={requestRevoke}
+                  />
+                </li>
               ))}
-            </div>
+            </ul>
           )
         ) : (
           <DataTable

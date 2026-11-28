@@ -332,7 +332,7 @@ describe('evaluation draft navigation', () => {
       for (const id of ['eval-name', 'eval-prompt', 'eval-expectation']) {
         const field = document.getElementById(id) as HTMLInputElement;
         expect(field.disabled).toBe(true);
-        expect(field.closest('[data-slot="field"]')?.getAttribute('data-disabled')).toBe('true');
+        expect(field.closest('[data-slot="field"]')?.hasAttribute('data-disabled')).toBe(true);
       }
       expect(button('保存中…').disabled).toBe(true);
       expect(button('取消').disabled).toBe(true);
@@ -687,7 +687,7 @@ describe('evaluation cases URL filter and search', () => {
     await actWaitFor(() => expect(container.textContent).toContain('Alpha LLM'));
     const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索用例"]');
     expect(input?.value).toBe('billing');
-    expect(button('LLM 评判').getAttribute('aria-pressed')).toBe('true');
+    expect(button('LLM 评判').getAttribute('aria-checked')).toBe('true');
     expect(container.textContent).not.toContain('Gamma Contains');
     expect(container.textContent).not.toContain('Beta Tools');
   });

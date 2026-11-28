@@ -263,9 +263,9 @@ async function mount(path: string, search: Record<string, string> = {}) {
 }
 
 function dialog(title: string): HTMLElement {
-  const element = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
-    (item) => item.querySelector('h2')?.textContent === title,
-  );
+  const element = [
+    ...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+  ].find((item) => item.querySelector('h2')?.textContent === title);
   if (!element) throw new Error(`Missing dialog: ${title}`);
   return element;
 }
@@ -612,12 +612,21 @@ describe('FAQ editor state against refetches', () => {
     await click(button('保存草稿', editor));
 
     const title = document.getElementById('faq-title') as HTMLInputElement;
+    const secondAnswer = document.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="答案 2"]',
+    );
+    if (!secondAnswer) throw new Error('Missing second answer');
     expect(title.getAttribute('aria-invalid')).toBe('true');
     expect(title.getAttribute('aria-describedby')).toBe('faq-title-error');
     expect(document.getElementById('faq-title-error')?.textContent).toContain('最多 300');
+    expect(firstAnswer.id).toBe('faq-answer-0');
     expect(firstAnswer.getAttribute('aria-invalid')).toBe('true');
     expect(firstAnswer.getAttribute('aria-describedby')).toBe('faq-answer-0-error');
     expect(document.getElementById('faq-answer-0-error')?.textContent).toContain('最多 20000');
+    expect(secondAnswer.id).toBe('faq-answer-1');
+    expect(secondAnswer.getAttribute('aria-invalid')).toBeNull();
+    expect(secondAnswer.getAttribute('aria-describedby')).toBeNull();
+    expect(document.getElementById('faq-answer-1-error')).toBeNull();
     expect(document.activeElement).toBe(title);
 
     await fill('faq-title', '正常标题');

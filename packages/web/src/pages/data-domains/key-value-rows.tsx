@@ -102,6 +102,7 @@ export function KeyValueRowEditor({
   rootErrorId,
   rootError,
   disabled,
+  secretValue,
   registerKey,
   registerValue,
   keyError,
@@ -119,6 +120,7 @@ export function KeyValueRowEditor({
   rootErrorId: string;
   rootError: string | undefined;
   disabled: boolean;
+  secretValue?: boolean | undefined;
   registerKey: (index: number) => UseFormRegisterReturn;
   registerValue: (index: number) => UseFormRegisterReturn;
   keyError: (index: number) => string | undefined;
@@ -158,6 +160,7 @@ export function KeyValueRowEditor({
                 disabled={disabled}
                 aria-invalid={Boolean(valueError(index))}
                 aria-describedby={valueError(index) ? `${prefix}-${index}-value-error` : undefined}
+                {...(secretValue ? { 'data-agent-secret': true } : {})}
               />
               <Button
                 type="button"

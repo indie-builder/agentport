@@ -30,9 +30,19 @@ function Toggle({
   variant = 'default',
   size = 'default',
   ...props
-}: ComponentProps<typeof TogglePrimitive> & VariantProps<typeof toggleVariants>) {
+}: Omit<ComponentProps<typeof TogglePrimitive>, 'className'> &
+  VariantProps<typeof toggleVariants> & {
+    className?: ComponentProps<typeof TogglePrimitive>['className'] | undefined;
+  }) {
   return (
-    <TogglePrimitive className={cn(toggleVariants({ variant, size, className }))} {...props} />
+    <TogglePrimitive
+      className={
+        typeof className === 'function'
+          ? (state) => cn(toggleVariants({ variant, size }), className(state))
+          : cn(toggleVariants({ variant, size, className }))
+      }
+      {...props}
+    />
   );
 }
 

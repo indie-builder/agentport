@@ -2,6 +2,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { KnowledgeFaq, KnowledgeFaqDetail, KnowledgeFolder } from '../../../lib/api.js';
 import { errorMessage } from '../../../lib/api.js';
+import { cn } from '../../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../../lib/dialog-guard.js';
 import {
   useCreateKnowledgeFaq,
@@ -15,7 +16,14 @@ import { RequiredMark } from '../../required-mark.js';
 import { ErrorState, LoadingState } from '../../states.js';
 import { Button } from '../../ui/button.js';
 import { Dialog } from '../../ui/dialog.js';
-import { Field, FieldError, FieldGroup, FieldLabel } from '../../ui/field.js';
+import {
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '../../ui/field.js';
 import { Input } from '../../ui/input.js';
 import {
   Select,
@@ -231,7 +239,6 @@ function FaqEditorForm({
                 disabled={pending}
                 placeholder="默认使用标准问"
                 aria-invalid={Boolean(form.formState.errors.title)}
-                aria-describedby={form.formState.errors.title ? 'faq-title-error' : undefined}
               />
               <FieldError id="faq-title-error">{form.formState.errors.title?.message}</FieldError>
             </Field>
@@ -270,7 +277,6 @@ function FaqEditorForm({
               id="faq-question"
               disabled={pending}
               aria-invalid={Boolean(form.formState.errors.question)}
-              aria-describedby={form.formState.errors.question ? 'faq-question-error' : undefined}
             />
             <FieldError id="faq-question-error">
               {form.formState.errors.question?.message}
@@ -298,35 +304,37 @@ function FaqEditorForm({
               />
             </Field>
           </FieldGroup>
-          <Field className="gap-1.5" data-invalid={Boolean(form.formState.errors.answers)}>
-            <FieldLabel>
+          <FieldSet className="gap-1.5">
+            <FieldLegend
+              variant="label"
+              className={cn(
+                'mb-1.5 flex items-center gap-2 select-none',
+                Boolean(form.formState.errors.answers) && 'text-destructive',
+              )}
+            >
               答案 <RequiredMark />
-            </FieldLabel>
+            </FieldLegend>
             <div className="flex flex-col gap-2">
               {answers.map((_answer, index) => {
                 const message = indexedErrorMessage(answerErrors, index);
-                const describedBy =
-                  [
-                    message ? `faq-answer-${index}-error` : null,
-                    answersRootError ? 'faq-answers-error' : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' ') || undefined;
+                const answerError = message ?? answersRootError;
                 return (
                   // biome-ignore lint/suspicious/noArrayIndexKey: 答案按表单顺序渲染，不提供排序
                   <div key={`answer-${index}`} className="flex items-start gap-2">
-                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <Field className="min-w-0 flex-1 gap-1" invalid={Boolean(answerError)}>
                       <Textarea
                         {...form.register(`answers.${index}`)}
+                        id={`faq-answer-${index}`}
                         aria-label={`答案 ${index + 1}`}
-                        aria-invalid={Boolean(message ?? answersRootError)}
-                        aria-describedby={describedBy}
+                        aria-describedby={
+                          answersRootError && !message ? 'faq-answers-error' : undefined
+                        }
                         rows={3}
                         disabled={pending}
                         className="min-w-0 flex-1"
                       />
                       <FieldError id={`faq-answer-${index}-error`}>{message}</FieldError>
-                    </div>
+                    </Field>
                     <Button
                       type="button"
                       variant="ghost"
@@ -357,8 +365,8 @@ function FaqEditorForm({
                 <Plus data-icon="inline-start" aria-hidden="true" /> 添加答案
               </Button>
             </div>
-            <FieldError id="faq-answers-error">{rootErrorMessage(answerErrors)}</FieldError>
-          </Field>
+            <FieldError id="faq-answers-error">{answersRootError}</FieldError>
+          </FieldSet>
           <FieldGroup className="grid gap-3 sm:grid-cols-2">
             <Field className="gap-1.5">
               <FieldLabel htmlFor="faq-answer-strategy">答案策略</FieldLabel>

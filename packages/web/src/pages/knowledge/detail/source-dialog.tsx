@@ -4,6 +4,7 @@ import {
   knowledgeSourceRangeKindSchema,
   knowledgeSourceStatusSchema,
 } from '@agentport/shared';
+import { Button as PrimitiveButton } from '@ui-sdk/react/button';
 import { useMemo, useState } from 'react';
 import { Controller, useWatch } from 'react-hook-form';
 import { z } from 'zod';
@@ -25,6 +26,11 @@ import {
   FieldLabel,
 } from '../../../components/ui/field.js';
 import { Input } from '../../../components/ui/input.js';
+import {
+  PasswordInput,
+  PasswordInputControl,
+  PasswordInputToggle,
+} from '../../../components/ui/password-input.js';
 import {
   Select,
   SelectContent,
@@ -305,6 +311,12 @@ export function SourceDialog({
   const { register, control, handleSubmit, reset, getValues, setValue, clearErrors, formState } =
     useZodForm<SourceFormValues>(schema, { defaultValues });
   const { isDirty, errors } = formState;
+  const {
+    name: secretName,
+    ref: secretRef,
+    onChange: onSecretChange,
+    onBlur: onSecretBlur,
+  } = register('secret');
 
   const [type, authMode] = useWatch({ control, name: ['type', 'authMode'] });
   const provider = sourceProvider(type);
@@ -400,17 +412,18 @@ export function SourceDialog({
         <FieldLabel htmlFor="knowledge-source-secret">
           {credential.label} {secretRequired ? <RequiredMark /> : null}
         </FieldLabel>
-        <Input
-          id="knowledge-source-secret"
-          type="password"
-          {...register('secret')}
-          autoComplete="off"
-          disabled={pending}
-          aria-required={secretRequired ? 'true' : undefined}
-          aria-invalid={Boolean(errors.secret)}
-          aria-describedby={errors.secret ? 'knowledge-source-secret-error' : undefined}
-          placeholder={editing ? (hasExistingSecret ? '留空保持原凭证' : '填写凭证') : '填写凭据'}
-        />
+        <PasswordInput name={secretName} autoComplete="off" disabled={pending}>
+          <PasswordInputControl
+            id="knowledge-source-secret"
+            ref={secretRef}
+            onChange={onSecretChange}
+            onBlur={onSecretBlur}
+            aria-required={secretRequired ? 'true' : undefined}
+            aria-invalid={Boolean(errors.secret)}
+            placeholder={editing ? (hasExistingSecret ? '留空保持原凭证' : '填写凭证') : '填写凭据'}
+          />
+          <PasswordInputToggle />
+        </PasswordInput>
         <FieldError id="knowledge-source-secret-error">{errors.secret?.message}</FieldError>
         {type === 'github' ? (
           <FieldDescription>需要 Contents 只读权限；私有仓库还需 Metadata 只读。</FieldDescription>
@@ -455,7 +468,7 @@ export function SourceDialog({
               {sourceProviders.map((option) => {
                 const OptionIcon = option.icon;
                 return (
-                  <button
+                  <PrimitiveButton
                     key={option.type}
                     type="button"
                     disabled={pending}
@@ -471,7 +484,7 @@ export function SourceDialog({
                         {option.description}
                       </span>
                     </span>
-                  </button>
+                  </PrimitiveButton>
                 );
               })}
             </div>
@@ -512,7 +525,6 @@ export function SourceDialog({
                       disabled={pending}
                       aria-required="true"
                       aria-invalid={Boolean(errors.name)}
-                      aria-describedby={errors.name ? 'source-name-error' : undefined}
                     />
                     <FieldError id="source-name-error">{errors.name?.message}</FieldError>
                   </Field>
@@ -577,9 +589,6 @@ export function SourceDialog({
                           disabled={pending}
                           aria-required="true"
                           aria-invalid={Boolean(errors.fields?.appId)}
-                          aria-describedby={
-                            errors.fields?.appId ? 'source-app-id-error' : undefined
-                          }
                           className="font-mono"
                         />
                         <FieldError id="source-app-id-error">
@@ -624,9 +633,6 @@ export function SourceDialog({
                           disabled={pending}
                           aria-required="true"
                           aria-invalid={Boolean(errors.fields?.baseUrl)}
-                          aria-describedby={
-                            errors.fields?.baseUrl ? 'source-gitlab-url-error' : undefined
-                          }
                           placeholder="https://gitlab.example.com"
                           className="font-mono"
                         />
@@ -688,7 +694,6 @@ export function SourceDialog({
                               disabled={pending || (editing && spec.identity === true)}
                               aria-required={required ? 'true' : undefined}
                               aria-invalid={Boolean(error)}
-                              aria-describedby={error ? `${id}-error` : undefined}
                               placeholder={spec.placeholder}
                               className="font-mono"
                             />

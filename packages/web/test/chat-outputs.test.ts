@@ -1387,7 +1387,7 @@ describe('feedback with an output version', () => {
     await flush();
     await openWorkspace();
     const close = document.querySelector<HTMLButtonElement>(
-      '[role="dialog"] [data-slot="sheet-close"]',
+      '[role="dialog"] [data-slot="drawer-close"]',
     );
     if (!close) throw new Error('Missing Sheet close action');
     await act(async () => close.click());

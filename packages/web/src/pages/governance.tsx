@@ -51,6 +51,8 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
+  FieldLegend,
+  FieldSet,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
@@ -107,6 +109,7 @@ import {
 } from '../lib/queries.js';
 import { toastSuccess } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
+import { useOptimisticValue } from '../lib/use-optimistic-value.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 import { governanceTabSchema } from '../routes/-search.js';
 
@@ -187,10 +190,10 @@ export function GovernancePage() {
     <Page>
       <Tabs
         value={tab}
-        onValueChange={(next) => {
-          if (next === tab) return;
+        onValueChange={(next, details) => {
+          details.cancel();
           const parsed = governanceTabSchema.safeParse(next);
-          if (!parsed.success) return;
+          if (!parsed.success || parsed.data === tab) return;
           void navigate({
             to: '/governance',
             search: { ...search, tab: parsed.data },
@@ -231,6 +234,7 @@ function CostSection() {
   const search = useSearch({ from: '/_shell/governance' });
   const navigate = useNavigate({ from: '/governance' });
   const days = search.days ?? 30;
+  const [optimisticDays, commitDays] = useOptimisticValue(String(days));
   const groupBy = search.groupBy ?? 'user';
   const summary = useCostSummary(days, groupBy);
   const groups = summary.data?.groups ?? [];
@@ -246,15 +250,21 @@ function CostSection() {
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <Select
-            value={String(days)}
+            value={optimisticDays}
             items={COST_WINDOWS.map((value) => ({ value: String(value), label: `${value} 天` }))}
-            onValueChange={(next) =>
-              void navigate({
-                to: '/governance',
-                search: { ...search, days: Number(next) as 7 | 30 | 90 },
-                replace: true,
-              })
-            }
+            onValueChange={(next, details) => {
+              if (next === null) {
+                details.cancel();
+                return;
+              }
+              commitDays(next, () =>
+                navigate({
+                  to: '/governance',
+                  search: { ...search, days: Number(next) as 7 | 30 | 90 },
+                  replace: true,
+                }),
+              );
+            }}
           >
             <SelectTrigger className="w-28" aria-label="统计窗口">
               <SelectValue />
@@ -1219,10 +1229,12 @@ function GrantsSection({ canManage }: { canManage: boolean }) {
   const search = useSearch({ from: '/_shell/governance' });
   const navigate = useNavigate({ from: '/governance' });
   const resourceKind = search.resourceKind ?? 'knowledge_base';
+  const [optimisticKind, commitKind] = useOptimisticValue(resourceKind);
   const query = search.resourceQ ?? '';
   const settled = useDebouncedValue(query.trim(), 300);
   const resources = useGovernanceResources(resourceKind, settled);
   const resourceId = search.resourceId ?? '';
+  const [optimisticResourceId, commitResourceId] = useOptimisticValue(resourceId);
   const grants = useResourceGrants(resourceKind, resourceId);
   const revoke = useDeleteResourceGrant();
   const [adding, setAdding] = useState(false);
@@ -1249,24 +1261,29 @@ function GrantsSection({ canManage }: { canManage: boolean }) {
     <PageSection divided={false}>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Select
-          value={resourceKind}
+          value={optimisticKind}
           items={resourceKindSchema.options.map((value) => ({
             value,
             label: RESOURCE_KIND_LABEL[value],
           }))}
-          onValueChange={(next) => {
+          onValueChange={(next, details) => {
             const parsed = resourceKindSchema.safeParse(next);
-            if (!parsed.success) return;
-            void navigate({
-              to: '/governance',
-              search: {
-                ...search,
-                resourceKind: parsed.data,
-                resourceId: undefined,
-                resourceQ: undefined,
-              },
-              replace: true,
-            });
+            if (!parsed.success) {
+              details.cancel();
+              return;
+            }
+            commitKind(parsed.data, () =>
+              navigate({
+                to: '/governance',
+                search: {
+                  ...search,
+                  resourceKind: parsed.data,
+                  resourceId: undefined,
+                  resourceQ: undefined,
+                },
+                replace: true,
+              }),
+            );
           }}
         >
           <SelectTrigger className="w-32" aria-label="资源类型">
@@ -1296,15 +1313,21 @@ function GrantsSection({ canManage }: { canManage: boolean }) {
           className="w-56 min-w-0"
         />
         <Select
-          value={resourceId}
+          value={optimisticResourceId}
           items={resourceOptions}
-          onValueChange={(next) =>
-            void navigate({
-              to: '/governance',
-              search: { ...search, resourceId: next || undefined },
-              replace: true,
-            })
-          }
+          onValueChange={(next, details) => {
+            if (next === null) {
+              details.cancel();
+              return;
+            }
+            commitResourceId(next, () =>
+              navigate({
+                to: '/governance',
+                search: { ...search, resourceId: next || undefined },
+                replace: true,
+              }),
+            );
+          }}
           disabled={resources.isPending}
         >
           <SelectTrigger className="w-64 min-w-0" aria-label="选择资源">
@@ -1550,8 +1573,10 @@ function GrantDialog({
               />
               <FieldError id="grant-account-error">{errors.businessId?.message}</FieldError>
             </Field>
-            <Field>
-              <FieldLabel>权限</FieldLabel>
+            <FieldSet className="gap-2">
+              <FieldLegend variant="label" className="mb-2">
+                权限
+              </FieldLegend>
               <div className="flex flex-col gap-2">
                 <Controller
                   control={control}
@@ -1593,7 +1618,7 @@ function GrantDialog({
                 />
               </div>
               <FieldError>{errors.canUse?.message}</FieldError>
-            </Field>
+            </FieldSet>
             <FieldError>{error ?? undefined}</FieldError>
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>
@@ -1721,6 +1746,7 @@ function HandoverSection({ canManage }: { canManage: boolean }) {
   const search = useSearch({ from: '/_shell/governance' });
   const navigate = useNavigate({ from: '/governance' });
   const businessId = search.businessId ?? '';
+  const [optimisticBusinessId, commitBusinessId] = useOptimisticValue(businessId);
   const checklist = useHandover(businessId);
   const transfer = useTransferHandover();
   const [receiver, setReceiver] = useState('');
@@ -1737,17 +1763,19 @@ function HandoverSection({ canManage }: { canManage: boolean }) {
         <p className="text-sm font-medium text-fg">离职账户</p>
         <AccountSelect
           label="离职账户"
-          value={businessId}
+          value={optimisticBusinessId}
           onChange={(next) => {
             setReceiver('');
             setReceiverName('');
             setResult(null);
             setTransferError(null);
-            void navigate({
-              to: '/governance',
-              search: { ...search, businessId: next || undefined },
-              replace: true,
-            });
+            commitBusinessId(next, () =>
+              navigate({
+                to: '/governance',
+                search: { ...search, businessId: next || undefined },
+                replace: true,
+              }),
+            );
           }}
         />
       </div>

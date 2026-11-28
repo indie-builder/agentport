@@ -10,60 +10,58 @@ import {
   DialogTrigger,
 } from '@ui-sdk/react/dialog';
 import { XIcon } from 'lucide-react';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ComponentProps } from 'react';
 import { cn } from '@/lib/cn';
 import { Button } from './button.js';
 
-type DialogOverlayProps = Omit<ComponentProps<typeof DialogBackdrop>, 'className'> & {
-  className?: string | undefined;
-};
-
-function DialogOverlay({ className, ...props }: DialogOverlayProps) {
+function DialogOverlay({ className, ...props }: ComponentProps<typeof DialogBackdrop>) {
   return (
     <DialogBackdrop
-      render={<div data-slot="dialog-overlay" />}
-      className={cn(
-        'fixed inset-0 isolate z-50 bg-scrim transition-opacity duration-150 ease-out-soft data-ending-style:opacity-0 data-ending-style:duration-200 data-starting-style:opacity-0',
-        className,
-      )}
+      className={(state) =>
+        cn(
+          'fixed inset-0 isolate z-50 bg-scrim transition-opacity duration-150 ease-out-soft data-ending-style:opacity-0 data-ending-style:duration-200 data-starting-style:opacity-0',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
       {...props}
     />
   );
 }
 
-type DialogContentProps = Omit<
-  ComponentProps<typeof DialogContentPrimitive>,
-  'className' | 'children'
-> & {
-  className?: string | undefined;
-  children?: ReactNode;
-  showCloseButton?: boolean | undefined;
-};
-
-function DialogContent({
+function DialogContent<Payload = unknown>({
   className,
   children,
   showCloseButton = true,
   ...props
-}: DialogContentProps) {
+}: ComponentProps<typeof DialogContentPrimitive<Payload>> & {
+  showCloseButton?: boolean | undefined;
+}) {
   return (
     <>
       <DialogOverlay />
       <DialogContentPrimitive
-        className={cn(
-          'fixed inset-auto top-1/2 left-1/2 z-50 m-0 grid max-h-none w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-visible rounded-[var(--radius-dialog)] border-0 bg-popover p-4 text-sm text-popover-foreground shadow-overlay ring-1 ring-line cds-overlay-enter outline-none sm:max-w-sm',
-          className,
-        )}
+        className={(state) =>
+          cn(
+            'fixed inset-auto top-1/2 left-1/2 z-50 m-0 grid max-h-(--visual-viewport-height) w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-visible rounded-[var(--radius-dialog)] border-0 bg-popover p-4 text-sm text-popover-foreground shadow-overlay ring-1 ring-line cds-overlay-enter outline-none sm:max-w-sm',
+            typeof className === 'function' ? className(state) : className,
+          )
+        }
         {...props}
       >
-        {children}
-        {showCloseButton && (
-          <DialogClose
-            render={<Button variant="ghost" className="absolute top-2 right-2" size="icon-sm" />}
-          >
-            <XIcon className="size-3" />
-            <span className="sr-only">关闭</span>
-          </DialogClose>
+        {(state) => (
+          <>
+            {typeof children === 'function' ? children(state) : children}
+            {showCloseButton && (
+              <DialogClose
+                render={
+                  <Button variant="ghost" className="absolute top-2 right-2" size="icon-sm" />
+                }
+              >
+                <XIcon className="size-3" />
+                <span className="sr-only">关闭</span>
+              </DialogClose>
+            )}
+          </>
         )}
       </DialogContentPrimitive>
     </>
@@ -76,33 +74,32 @@ function DialogHeader({ className, ...props }: ComponentProps<'div'>) {
   );
 }
 
-type DialogTitleProps = Omit<ComponentProps<typeof DialogTitlePrimitive>, 'className'> & {
-  className?: string | undefined;
-};
-
-function DialogTitle({ className, ...props }: DialogTitleProps) {
+function DialogTitle({ className, ...props }: ComponentProps<typeof DialogTitlePrimitive>) {
   return (
     <DialogTitlePrimitive
-      className={cn('break-words text-base leading-normal font-medium', className)}
+      className={(state) =>
+        cn(
+          'break-words text-base leading-normal font-medium',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
       {...props}
     />
   );
 }
 
-type DialogDescriptionProps = Omit<
-  ComponentProps<typeof DialogDescriptionPrimitive>,
-  'className'
-> & {
-  className?: string | undefined;
-};
-
-function DialogDescription({ className, ...props }: DialogDescriptionProps) {
+function DialogDescription({
+  className,
+  ...props
+}: ComponentProps<typeof DialogDescriptionPrimitive>) {
   return (
     <DialogDescriptionPrimitive
-      className={cn(
-        'text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
-        className,
-      )}
+      className={(state) =>
+        cn(
+          'text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
       {...props}
     />
   );

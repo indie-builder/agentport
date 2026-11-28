@@ -1,6 +1,7 @@
 import type { MemoryChange, MemoryFileContent } from '@agentport/shared';
 import { memoryFileNameSchema, validateMemoryContent } from '@agentport/shared';
 import { type UseQueryResult, useQuery } from '@tanstack/react-query';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Download, History, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
@@ -285,8 +286,7 @@ export function MemoryFilesPanel({
           <ul className="hidden flex-col gap-0.5 md:flex">
             {files.map((file) => (
               <li key={file.name} className="min-w-0 max-w-full">
-                <button
-                  type="button"
+                <ButtonPrimitive
                   aria-current={file.name === active ? 'true' : undefined}
                   disabled={pending}
                   onClick={() => {
@@ -303,7 +303,7 @@ export function MemoryFilesPanel({
                   <span className="truncate" title={file.name}>
                     {file.name}
                   </span>
-                </button>
+                </ButtonPrimitive>
               </li>
             ))}
           </ul>

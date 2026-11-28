@@ -191,6 +191,10 @@ export function DataDomainResultView({ result }: { result: DataDomainQueryResult
                   <FieldLabel htmlFor={`${fieldId}-dimension`}>维度</FieldLabel>
                   <Select
                     value={dimension}
+                    items={dimensionColumns.map((column) => ({
+                      value: String(column.index),
+                      label: column.name,
+                    }))}
                     onValueChange={(value) => {
                       if (value !== null) setDimension(value);
                     }}
@@ -217,6 +221,10 @@ export function DataDomainResultView({ result }: { result: DataDomainQueryResult
                   <FieldLabel htmlFor={`${fieldId}-measure`}>度量</FieldLabel>
                   <Select
                     value={measure}
+                    items={plan.measures.map((column) => ({
+                      value: String(column.index),
+                      label: column.name,
+                    }))}
                     onValueChange={(value) => {
                       if (value !== null) setMeasure(value);
                     }}
@@ -243,6 +251,10 @@ export function DataDomainResultView({ result }: { result: DataDomainQueryResult
                   <FieldLabel htmlFor={`${fieldId}-aggregation`}>聚合方式</FieldLabel>
                   <Select
                     value={aggregation}
+                    items={(Object.keys(AGGREGATION_LABELS) as ChartAggregation[]).map((value) => ({
+                      value,
+                      label: AGGREGATION_LABELS[value],
+                    }))}
                     disabled={effectiveType === 'scatter'}
                     onValueChange={(value) => {
                       if (value !== null) setAggregation(value as ChartAggregation);
@@ -272,6 +284,10 @@ export function DataDomainResultView({ result }: { result: DataDomainQueryResult
                   <FieldLabel htmlFor={`${fieldId}-type`}>图表类型</FieldLabel>
                   <Select
                     value={effectiveType}
+                    items={(Object.keys(CHART_TYPE_LABELS) as ChartType[]).map((value) => ({
+                      value,
+                      label: CHART_TYPE_LABELS[value],
+                    }))}
                     onValueChange={(value) => {
                       if (value !== null) setChartTypeChoice(value as ChartType);
                     }}

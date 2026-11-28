@@ -11,6 +11,7 @@ import {
 } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import {
   Bot,
   Check,
@@ -121,6 +122,7 @@ import {
   useUpdateAgent,
 } from '../../lib/queries.js';
 import { toast, toastError, toastSuccess } from '../../lib/toast.js';
+import { useOptimisticValue } from '../../lib/use-optimistic-value.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 import { AgentInstructions } from './agent-instructions.js';
 import { DuplicateAgentDialog } from './create-agent-dialog.js';
@@ -335,24 +337,26 @@ export function AgentEditor({
     view?: MemoryView | undefined;
     file?: string | undefined;
     usageDays?: 7 | 30 | 90 | undefined;
-  }): void => {
-    void navigate({
+  }): Promise<void> =>
+    navigate({
       to: '/agents/$agentId',
       params: { agentId: agent.id },
       search: (current) => ({ ...current, ...next }),
       replace: true,
     });
-  };
-  const setTab = (next: TabId): void => navigateSearch({ tab: next });
+  const [optimisticTab, commitTab, resetTab] = useOptimisticValue(tab);
+  const setTab = (next: TabId): void => commitTab(next, () => navigateSearch({ tab: next }));
   const setActiveSection = (next: SectionId): void => {
     setActiveSectionState(next);
-    navigateSearch({ section: next });
+    void navigateSearch({ section: next });
   };
-  const setActiveFile = (next: string): void => navigateSearch({ file: next });
   const files = useAgentFiles(agent.id, tab === 'files');
   const fileEntries = files.data ? listWorkspaceFiles(files.data) : baseFileEntries;
   const resolvedEntry = fileEntries.find((entry) => entry.id === activeFile) ?? fileEntries[0];
   const resolvedId = resolvedEntry?.id;
+  const [optimisticFileId, commitFileId] = useOptimisticValue(resolvedId ?? null);
+  const setActiveFile = (next: string): void =>
+    commitFileId(next, () => navigateSearch({ file: next }));
   const fileGroups = [...new Set(fileEntries.map((entry) => entry.group))];
   const [exporting, setExporting] = useState(false);
   const rhf = useZodForm(agentFormSchema, { defaultValues: draftFromInput(toInput(agent)) });
@@ -467,6 +471,9 @@ export function AgentEditor({
   };
   const blockedTabSwitch =
     blocker.status === 'blocked' && blocker.current?.pathname === blocker.next?.pathname;
+  useEffect(() => {
+    if (blocker.status === 'blocked') resetTab();
+  }, [blocker.status, resetTab]);
 
   useEffect(() => {
     onDirtyChange?.(guarded || locked);
@@ -478,8 +485,11 @@ export function AgentEditor({
     return () => onPendingChange(false);
   }, [locked, onPendingChange]);
 
-  const changeTab = (next: TabId): void => {
-    if (next === tab || locked) return;
+  const changeTab = (next: TabId, details?: { cancel: () => void }): void => {
+    if (next === optimisticTab || locked) {
+      details?.cancel();
+      return;
+    }
     setTab(next);
   };
 
@@ -870,8 +880,8 @@ export function AgentEditor({
       <PageTopbar>
         <div className="flex min-w-0 flex-wrap items-center gap-3 border-b pb-3">
           <Tabs
-            value={tab}
-            onValueChange={(next) => changeTab(next as TabId)}
+            value={optimisticTab}
+            onValueChange={(next, details) => changeTab(next as TabId, details)}
             className="hidden min-w-0 md:flex"
           >
             <TabsList variant="line" aria-label="配置任务">
@@ -883,11 +893,15 @@ export function AgentEditor({
             </TabsList>
           </Tabs>
           <Select
-            value={tab}
+            value={optimisticTab}
             disabled={locked}
             items={availableTabOptions}
-            onValueChange={(next) => {
-              if (next !== null) changeTab(next as TabId);
+            onValueChange={(next, details) => {
+              if (next === null) {
+                details.cancel();
+                return;
+              }
+              changeTab(next as TabId, details);
             }}
           >
             <SelectTrigger className="w-full md:hidden" aria-label="配置任务">
@@ -1071,14 +1085,13 @@ export function AgentEditor({
               <ul className="flex flex-wrap gap-1 md:-mx-2 md:flex-col md:flex-nowrap md:gap-0.5">
                 {sectionItems.map((item) => (
                   <li key={item.id} className="min-w-0">
-                    <button
-                      type="button"
+                    <ButtonPrimitive
                       aria-current={activeSection === item.id ? 'true' : undefined}
                       onClick={() => focusSection(item.id)}
                       className={sectionButtonClass(activeSection === item.id)}
                     >
                       {item.label}
-                    </button>
+                    </ButtonPrimitive>
                   </li>
                 ))}
               </ul>
@@ -1111,7 +1124,6 @@ export function AgentEditor({
                             id="agent-name"
                             aria-required="true"
                             aria-invalid={Boolean(errors.name)}
-                            aria-describedby={errors.name ? 'agent-name-error' : undefined}
                           />
                           <FieldError id="agent-name-error">{errors.name?.message}</FieldError>
                         </Field>
@@ -1140,7 +1152,6 @@ export function AgentEditor({
                               id="agent-role"
                               className="w-full min-w-0"
                               aria-invalid={Boolean(errors.role)}
-                              aria-describedby={errors.role ? 'agent-role-error' : undefined}
                             >
                               <SelectValue />
                             </SelectTrigger>
@@ -1172,7 +1183,6 @@ export function AgentEditor({
                             disabled={configDisabled}
                             id="agent-desc"
                             aria-invalid={Boolean(errors.description)}
-                            aria-describedby={errors.description ? 'agent-desc-error' : undefined}
                             placeholder="一句话说明它擅长什么"
                           />
                           <FieldError id="agent-desc-error">
@@ -1217,7 +1227,6 @@ export function AgentEditor({
                             value={tagsField.value}
                             placeholder="客服、写作"
                             aria-invalid={Boolean(errors.tags)}
-                            aria-describedby={errors.tags ? 'agent-tags-error' : 'agent-tags-hint'}
                             onChange={(event) => tagsField.onChange(event.target.value)}
                           />
                           {errors.tags ? (
@@ -1235,7 +1244,6 @@ export function AgentEditor({
                             value={agent.slug}
                             className="font-mono"
                             disabled
-                            aria-describedby="agent-slug-hint"
                           />
                           <FieldDescription id="agent-slug-hint">创建后不可修改</FieldDescription>
                         </Field>
@@ -1950,11 +1958,7 @@ export function AgentEditor({
                             }}
                             items={permissionOptions}
                           >
-                            <SelectTrigger
-                              id="agent-perm"
-                              className="w-64"
-                              aria-describedby="agent-perm-hint"
-                            >
+                            <SelectTrigger id="agent-perm" className="w-64">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -1982,11 +1986,6 @@ export function AgentEditor({
                             className="font-mono leading-relaxed"
                             placeholder={'mcp__jsonplaceholder__get_user\nmcp__crm__*'}
                             aria-invalid={allowedInvalid}
-                            aria-describedby={
-                              allowedInvalid
-                                ? 'agent-allowed-tools-error'
-                                : 'agent-allowed-tools-hint'
-                            }
                           />
                           {allowedInvalid ? (
                             <FieldError id="agent-allowed-tools-error">
@@ -2132,7 +2131,6 @@ export function AgentEditor({
                             min={1}
                             inputMode="numeric"
                             aria-invalid={Boolean(errors.maxTurns)}
-                            aria-describedby={errors.maxTurns ? 'agent-turns-error' : undefined}
                             className="w-40"
                           />
                         </Field>
@@ -2157,9 +2155,6 @@ export function AgentEditor({
                             step={0.01}
                             inputMode="decimal"
                             aria-invalid={Boolean(errors.maxBudgetUsd)}
-                            aria-describedby={
-                              errors.maxBudgetUsd ? 'agent-budget-error' : undefined
-                            }
                             className="w-40"
                           />
                         </Field>
@@ -2194,14 +2189,6 @@ export function AgentEditor({
                                 step={0.01}
                                 inputMode="decimal"
                                 aria-invalid={Boolean(errors.monthlyBudgetUsd)}
-                                aria-describedby={
-                                  [
-                                    errors.monthlyBudgetUsd ? 'agent-monthly-budget-error' : null,
-                                    'agent-monthly-budget-hint',
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' ') || undefined
-                                }
                                 className="w-40"
                               />
                             </Field>
@@ -2241,14 +2228,6 @@ export function AgentEditor({
                                 }}
                                 onBlur={budgetAlertRatioField.onBlur}
                                 aria-invalid={Boolean(errors.budgetAlertRatio)}
-                                aria-describedby={
-                                  [
-                                    errors.budgetAlertRatio ? 'agent-budget-alert-error' : null,
-                                    'agent-budget-alert-hint',
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' ') || undefined
-                                }
                                 className="w-40"
                               />
                             </Field>
@@ -2280,11 +2259,6 @@ export function AgentEditor({
                             step={1000}
                             inputMode="numeric"
                             aria-invalid={Boolean(errors.timeoutMs)}
-                            aria-describedby={
-                              [errors.timeoutMs ? 'agent-timeout-error' : null, timeoutHintId]
-                                .filter(Boolean)
-                                .join(' ') || undefined
-                            }
                             className="w-40"
                           />
                         </Field>
@@ -2356,8 +2330,7 @@ export function AgentEditor({
                         .filter((entry) => entry.group === group)
                         .map((entry) => (
                           <li key={entry.id} className="min-w-0">
-                            <button
-                              type="button"
+                            <ButtonPrimitive
                               aria-current={resolvedId === entry.id ? 'true' : undefined}
                               onClick={() => setActiveFile(entry.id)}
                               className={sectionButtonClass(resolvedId === entry.id)}
@@ -2378,7 +2351,7 @@ export function AgentEditor({
                                     : ''}
                                 </span>
                               </span>
-                            </button>
+                            </ButtonPrimitive>
                           </li>
                         ))}
                     </Fragment>
@@ -2387,10 +2360,14 @@ export function AgentEditor({
               </nav>
               <div className="flex min-w-0 flex-col gap-3 md:hidden">
                 <Select
-                  value={resolvedId ?? null}
+                  value={optimisticFileId}
                   items={fileEntries.map((entry) => ({ value: entry.id, label: entry.path }))}
-                  onValueChange={(next) => {
-                    if (next !== null) setActiveFile(next);
+                  onValueChange={(next, details) => {
+                    if (next === null) {
+                      details.cancel();
+                      return;
+                    }
+                    setActiveFile(next);
                   }}
                 >
                   <SelectTrigger className="w-full min-w-0" aria-label="当前文件">
@@ -2627,6 +2604,7 @@ export function AgentEditor({
       </Dialog>
 
       <Sheet
+        side="right"
         open={historyOpen}
         onOpenChange={(open, details) => {
           if (!open && pending) {
@@ -2637,7 +2615,6 @@ export function AgentEditor({
         }}
       >
         <SheetContent
-          side="right"
           showCloseButton={false}
           aria-describedby={undefined}
           className="w-full max-w-120! gap-0 p-0 shadow-overlay sm:max-w-120!"

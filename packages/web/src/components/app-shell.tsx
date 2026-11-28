@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
+import { useShortcut } from '@ui-sdk/react/shortcuts';
 import {
   ArrowLeft,
   Bell,
@@ -36,6 +37,7 @@ import { Page, PageBody, PageHeader, PageTopbar } from './page.js';
 import { EmptyState } from './states.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
+import { Separator } from './ui/separator.js';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
 import { Skeleton } from './ui/skeleton.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
@@ -345,16 +347,10 @@ export function AppShell() {
     sidebarToggle.current?.focus();
   }, [sidebarMode]);
 
-  useEffect(() => {
-    if (!preview || mobileOpen || accountOpen) return;
-    const dismiss = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      if (document.activeElement === sidebarLogo.current) sidebarToggle.current?.focus();
-      setPreviewing(false);
-    };
-    window.addEventListener('keydown', dismiss);
-    return () => window.removeEventListener('keydown', dismiss);
-  }, [preview, mobileOpen, accountOpen]);
+  useShortcut(preview && !mobileOpen && !accountOpen ? 'escape' : null, () => {
+    if (document.activeElement === sidebarLogo.current) sidebarToggle.current?.focus();
+    setPreviewing(false);
+  });
 
   if (me.isPending) {
     return (
@@ -699,7 +695,7 @@ export function AppShell() {
                       </p>
                     </div>
                   </div>
-                  <div className="h-px bg-line" />
+                  <Separator />
                   <div className="flex flex-col gap-0.5 p-2">
                     {visiblePersonalGroups.map((group) => (
                       <div key={group.label} className="flex flex-col gap-0.5">
@@ -726,7 +722,7 @@ export function AppShell() {
                       </div>
                     ))}
                   </div>
-                  <div className="h-px bg-line" />
+                  <Separator />
                   <div className="p-2">
                     <Button
                       variant="ghost"
@@ -772,9 +768,8 @@ export function AppShell() {
         {sidebar(false)}
       </motion.div>
 
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+      <Sheet side="left" open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent
-          side="left"
           finalFocus={() => navigationTrigger.current}
           showCloseButton={false}
           aria-describedby={undefined}

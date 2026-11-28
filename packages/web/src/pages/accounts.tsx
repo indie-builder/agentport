@@ -46,8 +46,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu.js';
-import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
+import {
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
+import {
+  PasswordInput,
+  PasswordInputControl,
+  PasswordInputToggle,
+} from '../components/ui/password-input.js';
 import {
   Table,
   TableBody,
@@ -704,6 +716,12 @@ function CreateAccountDialog({
   const usernameError = errors.username?.message;
   const nameError = errors.name?.message;
   const passwordError = errors.password?.message;
+  const {
+    name: createPasswordName,
+    ref: createPasswordRef,
+    onChange: onCreatePasswordChange,
+    onBlur: onCreatePasswordBlur,
+  } = register('password');
 
   const doCreate = async (values: AccountFormValues, asRestore: boolean): Promise<void> => {
     if (pending) return;
@@ -767,7 +785,6 @@ function CreateAccountDialog({
                 autoComplete="off"
                 disabled={pending}
                 aria-invalid={Boolean(businessError)}
-                aria-describedby={businessError ? 'account-business-id-error' : undefined}
                 {...register('businessId')}
               />
               <FieldError id="account-business-id-error">{businessError ?? undefined}</FieldError>
@@ -782,7 +799,6 @@ function CreateAccountDialog({
                   autoComplete="off"
                   disabled={pending}
                   aria-invalid={Boolean(usernameError)}
-                  aria-describedby={usernameError ? 'account-username-error' : undefined}
                   {...register('username')}
                 />
                 <FieldError id="account-username-error">{usernameError ?? undefined}</FieldError>
@@ -796,7 +812,6 @@ function CreateAccountDialog({
                   autoComplete="off"
                   disabled={pending}
                   aria-invalid={Boolean(nameError)}
-                  aria-describedby={nameError ? 'account-name-error' : undefined}
                   {...register('name')}
                 />
                 <FieldError id="account-name-error">{nameError ?? undefined}</FieldError>
@@ -806,20 +821,27 @@ function CreateAccountDialog({
               <FieldLabel htmlFor="account-password">
                 初始密码 <RequiredMark />
               </FieldLabel>
-              <Input
-                id="account-password"
-                type="password"
+              <PasswordInput
+                name={createPasswordName}
                 autoComplete="new-password"
                 disabled={pending}
-                aria-invalid={Boolean(passwordError)}
-                aria-describedby={passwordError ? 'account-password-error' : undefined}
-                {...register('password')}
-              />
+              >
+                <PasswordInputControl
+                  id="account-password"
+                  ref={createPasswordRef}
+                  onChange={onCreatePasswordChange}
+                  onBlur={onCreatePasswordBlur}
+                  aria-invalid={Boolean(passwordError)}
+                />
+                <PasswordInputToggle />
+              </PasswordInput>
               <FieldError id="account-password-error">{passwordError ?? undefined}</FieldError>
             </Field>
             {canAssignRoles ? (
-              <Field data-disabled={pending}>
-                <FieldLabel>角色</FieldLabel>
+              <FieldSet className="gap-2" disabled={pending}>
+                <FieldLegend variant="label" className="mb-2 data-disabled:opacity-50">
+                  角色
+                </FieldLegend>
                 <RoleChecks
                   directory={roleDirectory}
                   selected={roleIds}
@@ -834,7 +856,7 @@ function CreateAccountDialog({
                     )
                   }
                 />
-              </Field>
+              </FieldSet>
             ) : null}
             {restorePrompt ? (
               <div className="flex flex-col gap-3 rounded-card border p-3 text-sm">
@@ -951,7 +973,7 @@ function EditAccountDialog({
       >
         <form aria-label="编辑账户" noValidate onSubmit={submit}>
           <FieldGroup className="gap-5">
-            <Field data-disabled>
+            <Field>
               <FieldLabel htmlFor="account-edit-business-id">业务 ID</FieldLabel>
               <Input id="account-edit-business-id" readOnly value={account.businessId} />
             </Field>
@@ -962,7 +984,6 @@ function EditAccountDialog({
                 autoComplete="off"
                 disabled={pending}
                 aria-invalid={Boolean(usernameError)}
-                aria-describedby={usernameError ? 'account-edit-username-error' : undefined}
                 {...register('username')}
               />
               <FieldError id="account-edit-username-error">{usernameError ?? undefined}</FieldError>
@@ -974,7 +995,6 @@ function EditAccountDialog({
                 autoComplete="off"
                 disabled={pending}
                 aria-invalid={Boolean(nameError)}
-                aria-describedby={nameError ? 'account-edit-name-error' : undefined}
                 {...register('name')}
               />
               <FieldError id="account-edit-name-error">{nameError ?? undefined}</FieldError>
@@ -1028,6 +1048,18 @@ function ResetPasswordDialog({
   const guard = useDraftGuard(dirty, pending, onClose);
   const passwordError = errors.password?.message;
   const confirmError = errors.confirm?.message;
+  const {
+    name: resetPasswordName,
+    ref: resetPasswordRef,
+    onChange: onResetPasswordChange,
+    onBlur: onResetPasswordBlur,
+  } = register('password', { deps: ['confirm'] });
+  const {
+    name: resetConfirmName,
+    ref: resetConfirmRef,
+    onChange: onResetConfirmChange,
+    onBlur: onResetConfirmBlur,
+  } = register('confirm');
 
   const submit = handleSubmit(
     async (values: ResetPasswordFormValues) => {
@@ -1061,30 +1093,36 @@ function ResetPasswordDialog({
           <FieldGroup className="gap-5">
             <Field data-invalid={Boolean(passwordError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-reset-password">新密码</FieldLabel>
-              <Input
-                id="account-reset-password"
-                type="password"
+              <PasswordInput
+                name={resetPasswordName}
                 autoComplete="new-password"
                 disabled={pending}
-                aria-invalid={Boolean(passwordError)}
-                aria-describedby={passwordError ? 'account-reset-password-error' : undefined}
-                {...register('password', { deps: ['confirm'] })}
-              />
+              >
+                <PasswordInputControl
+                  id="account-reset-password"
+                  ref={resetPasswordRef}
+                  onChange={onResetPasswordChange}
+                  onBlur={onResetPasswordBlur}
+                  aria-invalid={Boolean(passwordError)}
+                />
+                <PasswordInputToggle />
+              </PasswordInput>
               <FieldError id="account-reset-password-error">
                 {passwordError ?? undefined}
               </FieldError>
             </Field>
             <Field data-invalid={Boolean(confirmError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-reset-confirm">确认新密码</FieldLabel>
-              <Input
-                id="account-reset-confirm"
-                type="password"
-                autoComplete="new-password"
-                disabled={pending}
-                aria-invalid={Boolean(confirmError)}
-                aria-describedby={confirmError ? 'account-reset-confirm-error' : undefined}
-                {...register('confirm')}
-              />
+              <PasswordInput name={resetConfirmName} autoComplete="new-password" disabled={pending}>
+                <PasswordInputControl
+                  id="account-reset-confirm"
+                  ref={resetConfirmRef}
+                  onChange={onResetConfirmChange}
+                  onBlur={onResetConfirmBlur}
+                  aria-invalid={Boolean(confirmError)}
+                />
+                <PasswordInputToggle />
+              </PasswordInput>
               <FieldError id="account-reset-confirm-error">{confirmError ?? undefined}</FieldError>
             </Field>
             <FieldError>{error ?? undefined}</FieldError>
@@ -1092,7 +1130,12 @@ function ResetPasswordDialog({
               <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>
                 取消
               </Button>
-              <Button type="submit" disabled={pending} aria-busy={pending}>
+              <Button
+                type="submit"
+                disabled={pending}
+                aria-busy={pending}
+                data-agent-confirm={`重置「${account.name}」的密码并立即撤销全部旧会话`}
+              >
                 {pending ? '正在重置…' : '重置密码'}
               </Button>
             </div>
@@ -1164,8 +1207,10 @@ function AssignRolesDialog({
           }}
         >
           <FieldGroup className="gap-5">
-            <Field data-disabled={pending}>
-              <FieldLabel>角色</FieldLabel>
+            <FieldSet className="gap-2" disabled={pending}>
+              <FieldLegend variant="label" className="mb-2 data-disabled:opacity-50">
+                角色
+              </FieldLegend>
               <RoleChecks
                 directory={roleDirectory}
                 selected={selected}
@@ -1176,7 +1221,7 @@ function AssignRolesDialog({
                   )
                 }
               />
-            </Field>
+            </FieldSet>
             <FieldError>{error ?? undefined}</FieldError>
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>

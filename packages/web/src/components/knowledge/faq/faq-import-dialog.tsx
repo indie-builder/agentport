@@ -1,5 +1,6 @@
 import { knowledgeFaqImportMetadataSchema } from '@agentport/shared';
 import { useQueryClient } from '@tanstack/react-query';
+import { Upload } from 'lucide-react';
 import { useState } from 'react';
 import type {
   KnowledgeFaqDetail,
@@ -27,7 +28,7 @@ import { DialogShell } from '../../dialog-shell.js';
 import { Button } from '../../ui/button.js';
 import { Dialog } from '../../ui/dialog.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../../ui/field.js';
-import { Input } from '../../ui/input.js';
+import { FileInput, FileInputTrigger } from '../../ui/file-input.js';
 import {
   Select,
   SelectContent,
@@ -662,26 +663,32 @@ export function FaqImportDialog({
               </Field>
               <Field className="gap-1.5">
                 <FieldLabel htmlFor="faq-import-file">或选择文件</FieldLabel>
-                <Input
-                  id="faq-import-file"
-                  type="file"
+                <FileInput
                   accept=".json,.csv,.xlsx,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   disabled={locked}
-                  onChange={async (event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = '';
+                  className="flex flex-wrap items-center gap-2"
+                  onValueChange={(files, details) => {
+                    details.cancel();
+                    const file = files[0];
                     if (!file) return;
                     const nextFormat = detectImportFormat(file.name);
-                    try {
-                      const text = await importFileContent(file, nextFormat);
-                      setFormat(nextFormat);
-                      setContent(text);
-                      resetPreview();
-                    } catch {
-                      setError('文件读取失败，请重新选择。');
-                    }
+                    void (async () => {
+                      try {
+                        const text = await importFileContent(file, nextFormat);
+                        setFormat(nextFormat);
+                        setContent(text);
+                        resetPreview();
+                      } catch {
+                        setError('文件读取失败，请重新选择。');
+                      }
+                    })();
                   }}
-                />
+                >
+                  <FileInputTrigger id="faq-import-file" variant="outline">
+                    <Upload data-icon="inline-start" aria-hidden="true" />
+                    选择文件
+                  </FileInputTrigger>
+                </FileInput>
               </Field>
 
               {preview ? (

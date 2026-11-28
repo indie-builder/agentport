@@ -58,14 +58,7 @@ export function CompareSide({
             </div>
           ) : null}
           <Collapsible open={inputsOpen} onOpenChange={setInputsOpen}>
-            <CollapsibleTrigger
-              render={
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              }
-            >
+            <CollapsibleTrigger className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <ChevronDown
                 aria-hidden="true"
                 className={cn(

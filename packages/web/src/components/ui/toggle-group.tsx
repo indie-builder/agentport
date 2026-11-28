@@ -21,41 +21,62 @@ const ToggleGroupContext = React.createContext<
   orientation: 'horizontal',
 });
 
-type ToggleGroupProps = Omit<
-  React.ComponentProps<typeof ToggleGroupPrimitive>,
-  'orientation' | 'children'
+const toggleGroupClassName =
+  'group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-lg data-[size=sm]:rounded-[min(var(--radius-md),10px)] data-[orientation=vertical]:flex-col data-[orientation=vertical]:items-stretch';
+
+const toggleGroupItemBaseClassName =
+  'shrink-0 group-data-[spacing=0]/toggle-group:rounded-none group-data-[spacing=0]/toggle-group:px-2 focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pr-1.5 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:pl-1.5 group-data-[orientation=horizontal]/toggle-group:data-[spacing=0]:first:rounded-l-lg group-data-[orientation=vertical]/toggle-group:data-[spacing=0]:first:rounded-t-lg group-data-[orientation=horizontal]/toggle-group:data-[spacing=0]:last:rounded-r-lg group-data-[orientation=vertical]/toggle-group:data-[spacing=0]:last:rounded-b-lg group-data-[orientation=horizontal]/toggle-group:data-[spacing=0]:data-[variant=outline]:border-l-0 group-data-[orientation=vertical]/toggle-group:data-[spacing=0]:data-[variant=outline]:border-t-0 group-data-[orientation=horizontal]/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-l group-data-[orientation=vertical]/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-t';
+
+type ToggleGroupProps<T extends string = string> = Omit<
+  React.ComponentProps<typeof ToggleGroupPrimitive<T>>,
+  'className' | 'style'
 > &
   VariantProps<typeof toggleVariants> & {
     spacing?: number;
-    orientation?: 'horizontal' | 'vertical';
-    children?: React.ReactNode;
+    className?: React.ComponentProps<typeof ToggleGroupPrimitive<T>>['className'] | undefined;
+    style?: React.ComponentProps<typeof ToggleGroupPrimitive<T>>['style'] | undefined;
   };
 
-function ToggleGroup({
+function ToggleGroup<T extends string = string>({
   className,
+  style,
   variant,
   size,
   spacing = 2,
   orientation = 'horizontal',
   children,
   ...props
-}: ToggleGroupProps) {
+}: ToggleGroupProps<T>) {
+  const gapStyle = { '--gap': spacing } as React.CSSProperties;
   return (
-    <ToggleGroupPrimitive
+    <ToggleGroupPrimitive<T>
       data-variant={variant}
       data-size={size}
       data-spacing={spacing}
       orientation={orientation}
-      style={{ '--gap': spacing } as React.CSSProperties}
-      className={cn(
-        'group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-lg data-[size=sm]:rounded-[min(var(--radius-md),10px)] data-[orientation=vertical]:flex-col data-[orientation=vertical]:items-stretch',
-        className,
-      )}
+      style={
+        typeof style === 'function'
+          ? (state) => ({ ...gapStyle, ...style(state) })
+          : { ...gapStyle, ...style }
+      }
+      className={
+        typeof className === 'function'
+          ? (state) => cn(toggleGroupClassName, className(state))
+          : cn(toggleGroupClassName, className)
+      }
       {...props}
     >
-      <ToggleGroupContext.Provider value={{ variant, size, spacing, orientation }}>
-        {children}
-      </ToggleGroupContext.Provider>
+      {typeof children === 'function' ? (
+        (state) => (
+          <ToggleGroupContext.Provider value={{ variant, size, spacing, orientation }}>
+            {children(state)}
+          </ToggleGroupContext.Provider>
+        )
+      ) : (
+        <ToggleGroupContext.Provider value={{ variant, size, spacing, orientation }}>
+          {children}
+        </ToggleGroupContext.Provider>
+      )}
     </ToggleGroupPrimitive>
   );
 }
@@ -66,22 +87,29 @@ function ToggleGroupItem({
   variant = 'default',
   size = 'default',
   ...props
-}: React.ComponentProps<typeof TogglePrimitive> & VariantProps<typeof toggleVariants>) {
+}: Omit<React.ComponentProps<typeof TogglePrimitive>, 'className'> &
+  VariantProps<typeof toggleVariants> & {
+    className?: React.ComponentProps<typeof TogglePrimitive>['className'] | undefined;
+  }) {
   const context = React.useContext(ToggleGroupContext);
+  const itemClassName = cn(
+    toggleGroupItemBaseClassName,
+    toggleVariants({
+      variant: context.variant || variant,
+      size: context.size || size,
+    }),
+  );
 
   return (
     <TogglePrimitive
       data-variant={context.variant || variant}
       data-size={context.size || size}
       data-spacing={context.spacing}
-      className={cn(
-        'shrink-0 group-data-[spacing=0]/toggle-group:rounded-none group-data-[spacing=0]/toggle-group:px-2 focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pr-1.5 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:pl-1.5 group-data-[orientation=horizontal]/toggle-group:data-[spacing=0]:first:rounded-l-lg group-data-[orientation=vertical]/toggle-group:data-[spacing=0]:first:rounded-t-lg group-data-[orientation=horizontal]/toggle-group:data-[spacing=0]:last:rounded-r-lg group-data-[orientation=vertical]/toggle-group:data-[spacing=0]:last:rounded-b-lg group-data-[orientation=horizontal]/toggle-group:data-[spacing=0]:data-[variant=outline]:border-l-0 group-data-[orientation=vertical]/toggle-group:data-[spacing=0]:data-[variant=outline]:border-t-0 group-data-[orientation=horizontal]/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-l group-data-[orientation=vertical]/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-t',
-        toggleVariants({
-          variant: context.variant || variant,
-          size: context.size || size,
-        }),
-        className,
-      )}
+      className={
+        typeof className === 'function'
+          ? (state) => cn(itemClassName, className(state))
+          : cn(itemClassName, className)
+      }
       {...props}
     >
       {children}

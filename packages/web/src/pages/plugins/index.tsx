@@ -43,6 +43,11 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import {
+  createFileInputController,
+  FileInput,
+  FileInputTrigger,
+} from '../../components/ui/file-input.js';
 import { Input } from '../../components/ui/input.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
@@ -110,7 +115,7 @@ export function PluginsPage() {
   const [installing, setInstalling] = useState(false);
   const installButtonRef = useRef<HTMLButtonElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importController] = useState(createFileInputController);
   const importPlugin = useImportPlugin();
   const actionTriggerRef = useRef<HTMLElement | null>(null);
   const panelFocus = (): HTMLElement | null =>
@@ -175,14 +180,15 @@ export function PluginsPage() {
       status={plugins.status}
       actions={
         <>
-          <input
-            ref={importInputRef}
-            type="file"
+          <FileInput
+            controller={importController}
+            aria-label="导入插件 ZIP"
             accept=".zip,application/zip"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = '';
+            disabled={importPlugin.isPending}
+            className="contents"
+            onValueChange={(files, details) => {
+              details.cancel();
+              const file = files[0];
               if (file) void importZip(file);
             }}
           />
@@ -219,7 +225,7 @@ export function PluginsPage() {
                   <DropdownMenuItem
                     disabled={importPlugin.isPending}
                     aria-busy={importPlugin.isPending}
-                    onSelect={() => importInputRef.current?.click()}
+                    onSelect={() => importController.open()}
                   >
                     <Upload aria-hidden="true" />
                     {importPlugin.isPending ? '导入中…' : '导入插件 ZIP'}
@@ -295,16 +301,16 @@ export function PluginsPage() {
                 <PackagePlus data-icon="inline-start" aria-hidden="true" /> 安装插件
               </Button>
             ) : canImport ? (
-              <Button onClick={() => importInputRef.current?.click()}>
+              <FileInputTrigger controller={importController}>
                 <Upload data-icon="inline-start" aria-hidden="true" /> 导入 ZIP
-              </Button>
+              </FileInputTrigger>
             ) : undefined
           }
           secondaryAction={
             canInstall && canImport ? (
-              <Button variant="outline" onClick={() => importInputRef.current?.click()}>
+              <FileInputTrigger controller={importController} variant="outline">
                 <Upload data-icon="inline-start" aria-hidden="true" /> 导入 ZIP
-              </Button>
+              </FileInputTrigger>
             ) : undefined
           }
           footer={canImport || canInstall ? undefined : '当前账号没有导入或安装插件的权限。'}
@@ -652,7 +658,6 @@ function InstallPluginDialog({
                     required
                     aria-required="true"
                     aria-invalid={errors.marketplace ? true : undefined}
-                    aria-describedby={errors.marketplace ? 'plugin-marketplace-error' : undefined}
                     placeholder="owner/repo 或 https://…"
                   />
                   <FieldError id="plugin-marketplace-error">
@@ -670,7 +675,6 @@ function InstallPluginDialog({
                     required
                     aria-required="true"
                     aria-invalid={errors.plugin ? true : undefined}
-                    aria-describedby={errors.plugin ? 'plugin-name-input-error' : undefined}
                     placeholder="plugin-name"
                   />
                   <FieldError id="plugin-name-input-error">{errors.plugin?.message}</FieldError>
@@ -682,7 +686,6 @@ function InstallPluginDialog({
                     {...form.register('slug')}
                     disabled={pending}
                     aria-invalid={errors.slug ? true : undefined}
-                    aria-describedby={errors.slug ? 'plugin-slug-input-error' : undefined}
                     placeholder="可选，默认用插件清单里的名字"
                   />
                   <FieldError id="plugin-slug-input-error">{errors.slug?.message}</FieldError>
@@ -850,7 +853,6 @@ export function PluginDialog({
                 {...form.register('name')}
                 disabled={pending}
                 aria-invalid={errors.name ? true : undefined}
-                aria-describedby={errors.name ? 'plugin-name-error' : undefined}
               />
               <FieldError id="plugin-name-error">{errors.name?.message}</FieldError>
             </Field>
@@ -861,7 +863,6 @@ export function PluginDialog({
                 {...form.register('description')}
                 disabled={pending}
                 aria-invalid={errors.description ? true : undefined}
-                aria-describedby={errors.description ? 'plugin-description-error' : undefined}
               />
               <FieldError id="plugin-description-error">{errors.description?.message}</FieldError>
             </Field>

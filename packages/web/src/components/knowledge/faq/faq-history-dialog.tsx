@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { History } from 'lucide-react';
 import { useState } from 'react';
 import type { KnowledgeFaqSummary } from '../../../lib/api.js';
@@ -66,8 +67,7 @@ export function FaqHistoryDialog({
               <ul className="flex max-h-[50vh] flex-col overflow-auto">
                 {versions.versions.map((version) => (
                   <li key={version.id} className="border-b py-2 last:border-b-0">
-                    <button
-                      type="button"
+                    <ButtonPrimitive
                       className="flex w-full flex-col gap-1 text-left"
                       aria-pressed={selectedId === version.id}
                       onClick={() => setSelectedId(version.id)}
@@ -94,7 +94,7 @@ export function FaqHistoryDialog({
                           {answer}
                         </span>
                       ))}
-                    </button>
+                    </ButtonPrimitive>
                   </li>
                 ))}
               </ul>
@@ -120,6 +120,11 @@ export function FaqHistoryDialog({
                       rollback.isPending
                     }
                     aria-busy={rollback.isPending}
+                    data-agent-confirm={
+                      selected
+                        ? `将 FAQ「${item.faq?.question ?? item.title}」回退到版本 ${versionLabel(selected)}`
+                        : `将 FAQ「${item.faq?.question ?? item.title}」回退到所选历史版本`
+                    }
                     onClick={() => {
                       if (!selected) return;
                       rollback.mutate(

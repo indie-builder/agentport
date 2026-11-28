@@ -15,6 +15,7 @@ import { DataTable } from '../src/components/data-table.js';
 import { ErrorState } from '../src/components/states.js';
 import { Combobox } from '../src/components/ui/combobox.js';
 import { Field } from '../src/components/ui/field.js';
+import { FileInput } from '../src/components/ui/file-input.js';
 import { Input } from '../src/components/ui/input.js';
 import { Select } from '../src/components/ui/select.js';
 import { Switch } from '../src/components/ui/switch.js';
@@ -264,15 +265,14 @@ describe('resource async state regressions', () => {
       vi.spyOn(api, 'importAgent').mockReturnValue(new Promise(() => {}));
       inspect(queryClient, AgentsPage, (tree, pass) => {
         if (pass === 0) {
-          const upload = required(
-            tree,
-            (node) => node.type === 'input' && node.props.type === 'file',
-          );
-          (upload.props.onChange as (event: unknown) => void)({
-            target: {
-              files: [{ name: 'expert.zip', size: 10, text: () => new Promise(() => {}) }],
-              value: '',
-            },
+          const upload = required(tree, (node) => node.type === FileInput);
+          (
+            upload.props.onValueChange as (
+              files: unknown[],
+              details: { cancel: () => void },
+            ) => void
+          )([{ name: 'expert.zip', size: 10, text: () => new Promise(() => {}) }], {
+            cancel: () => {},
           });
           return true;
         }

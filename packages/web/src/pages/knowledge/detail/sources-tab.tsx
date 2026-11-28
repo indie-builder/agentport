@@ -1,5 +1,6 @@
 import type { KnowledgeJob } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
@@ -177,14 +178,14 @@ export function SourcesTab({
                     <span className="flex size-7 shrink-0 items-center justify-center rounded-item border border-line text-muted-foreground">
                       <ProviderIcon className="size-3.5" aria-hidden="true" />
                     </span>
-                    <button
-                      type="button"
+                    <ButtonPrimitive
+                      aria-label={`查看来源 ${source.name}`}
                       className="min-w-0 truncate text-sm font-medium text-fg hover:underline"
                       onClick={() => selectSource(selected === source.id ? null : source.id)}
                       aria-expanded={selected === source.id}
                     >
                       {source.name}
-                    </button>
+                    </ButtonPrimitive>
                     <StatusBadge tone="outline">{provider.label}</StatusBadge>
                     <StatusBadge
                       tone={

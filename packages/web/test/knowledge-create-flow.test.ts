@@ -168,15 +168,15 @@ async function mount(path: string, search: Record<string, string> = {}) {
 }
 
 function dialog(title: string): HTMLElement {
-  const element = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
-    (item) => item.querySelector('h2')?.textContent === title,
-  );
+  const element = [
+    ...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+  ].find((item) => item.querySelector('h2')?.textContent === title);
   if (!element) throw new Error(`Missing dialog: ${title}`);
   return element;
 }
 
 function dialogShown(title: string): boolean {
-  return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].some(
+  return [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')].some(
     (item) => item.querySelector('h2')?.textContent === title,
   );
 }
@@ -185,7 +185,7 @@ function advancedPanel(): HTMLElement | null {
   return (
     document
       .getElementById('knowledge-chunk-tokens')
-      ?.closest<HTMLElement>('[data-slot="collapsible-content"]') ?? null
+      ?.closest<HTMLElement>('[data-slot="collapsible-panel"]') ?? null
   );
 }
 
@@ -308,7 +308,7 @@ describe('knowledge create flow', () => {
       profilesHandler(() => profiles.promise),
     );
     await mount('/knowledge');
-    await click(button('新建知识库'));
+    await click(await vi.waitFor(() => button('新建知识库'), { timeout: 5000 }));
     const creator = dialog('新建知识库');
     expect(advancedPanel()?.hasAttribute('hidden')).toBe(true);
     expect(creator.textContent).not.toContain('bge-m3');
@@ -352,7 +352,7 @@ describe('knowledge create flow', () => {
     listHandlers([embeddingProfile]);
     detailHandlers();
     await mount('/knowledge');
-    await click(button('新建知识库'));
+    await click(await vi.waitFor(() => button('新建知识库'), { timeout: 5000 }));
     const creator = dialog('新建知识库');
 
     await fill('knowledge-name', 'Ops Handbook');
@@ -365,7 +365,7 @@ describe('knowledge create flow', () => {
     listHandlers([embeddingProfile]);
     detailHandlers();
     await mount('/knowledge');
-    await click(button('新建知识库'));
+    await click(await vi.waitFor(() => button('新建知识库'), { timeout: 5000 }));
     const creator = dialog('新建知识库');
 
     await fill('knowledge-name', '新库');
@@ -402,7 +402,7 @@ describe('knowledge create flow', () => {
     listHandlers([embeddingProfile, rerankProfile]);
     detailHandlers();
     await mount('/knowledge');
-    await click(button('新建知识库'));
+    await click(await vi.waitFor(() => button('新建知识库'), { timeout: 5000 }));
     const creator = dialog('新建知识库');
     const panel = advancedPanel();
     expect(panel).not.toBeNull();
@@ -430,7 +430,7 @@ describe('knowledge create flow', () => {
   it('expands advanced settings, focuses the invalid field and keeps the draft guard', async () => {
     listHandlers([embeddingProfile]);
     await mount('/knowledge');
-    await click(button('新建知识库'));
+    await click(await vi.waitFor(() => button('新建知识库'), { timeout: 5000 }));
     const creator = dialog('新建知识库');
     const panel = advancedPanel();
     expect(panel?.hasAttribute('hidden')).toBe(true);
@@ -451,7 +451,7 @@ describe('knowledge create flow', () => {
   it('expands advanced settings and focuses an invalid explicit slug', async () => {
     listHandlers([embeddingProfile]);
     await mount('/knowledge');
-    await click(button('新建知识库'));
+    await click(await vi.waitFor(() => button('新建知识库'), { timeout: 5000 }));
     const creator = dialog('新建知识库');
     const panel = advancedPanel();
     expect(panel?.hasAttribute('hidden')).toBe(true);
@@ -479,7 +479,7 @@ describe('knowledge create flow', () => {
     );
     listHandlers([]);
     await mount('/knowledge');
-    await click(button('新建知识库'));
+    await click(await vi.waitFor(() => button('新建知识库'), { timeout: 5000 }));
     const creator = dialog('新建知识库');
     expect(profileCalls().map((item) => item.path)).toContain(
       '/api/knowledge/model-profiles?view=selection',
@@ -500,7 +500,7 @@ describe('knowledge create flow', () => {
   it('keeps the inline profile path for members who can manage models', async () => {
     listHandlers([]);
     await mount('/knowledge');
-    await click(button('新建知识库'));
+    await click(await vi.waitFor(() => button('新建知识库'), { timeout: 5000 }));
     const creator = dialog('新建知识库');
     await waitFor(() => advancedPanel()?.hasAttribute('hidden') === false);
     expect(document.getElementById('profile-name')).not.toBeNull();

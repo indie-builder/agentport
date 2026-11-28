@@ -1,5 +1,6 @@
 import { type AgentHookFile, agentHookFilePathSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { FileCode, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../lib/api.js';
@@ -276,8 +277,7 @@ export function HooksPanel({
               <ul className="flex flex-col gap-0.5">
                 {hooks.data.files.map((file) => (
                   <li key={file.path} className="min-w-0 max-w-full">
-                    <button
-                      type="button"
+                    <ButtonPrimitive
                       disabled={pending}
                       aria-current={file.path === selected ? 'true' : undefined}
                       onClick={() => guard({ type: 'select', file })}
@@ -292,7 +292,7 @@ export function HooksPanel({
                       <span className="text-2xs text-muted-foreground">
                         {file.executable ? '可执行' : '不可执行'}
                       </span>
-                    </button>
+                    </ButtonPrimitive>
                   </li>
                 ))}
               </ul>

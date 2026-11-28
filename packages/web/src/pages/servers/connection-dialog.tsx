@@ -70,7 +70,9 @@ export function ConnectionDialog({
                   {SECRET_MASK} 已配置。点「轮换 Token」生成新的明文，旧的立即失效。
                 </p>
               ) : (
-                <CodeBlock code={data.token} copyLabel="复制 Token" />
+                <div data-agent-secret className="min-w-0">
+                  <CodeBlock code={data.token} copyLabel="复制 Token" />
+                </div>
               )
             ) : token.isError ? (
               <p className="flex items-center gap-2 text-xs text-muted-foreground">

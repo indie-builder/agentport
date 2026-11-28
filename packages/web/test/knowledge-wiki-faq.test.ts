@@ -565,8 +565,8 @@ describe('knowledge FAQ management', () => {
     ).toEqual({ format: 'json', content: '{"items":[]}', mode: 'append', dryRun: false });
 
     await waitFor(() =>
-      [...document.querySelectorAll<HTMLButtonElement>('button')].some((item) =>
-        item.textContent?.includes('发布本批 1 条 FAQ'),
+      [...document.querySelectorAll<HTMLButtonElement>('button')].some(
+        (item) => item.textContent?.includes('发布本批 1 条 FAQ') && !item.disabled,
       ),
     );
     const publishButton = button('发布本批 1 条 FAQ', importer);

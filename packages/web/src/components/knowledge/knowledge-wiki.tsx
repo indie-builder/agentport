@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { BookOpen, FileText, GitCompare, History, Link2, Network, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
@@ -179,8 +180,7 @@ export function WikiTab({
           <ul ref={pageListRef} className="flex flex-col">
             {wikiTreePages(pageItems).map(({ page, depth }) => (
               <li key={page.id}>
-                <button
-                  type="button"
+                <ButtonPrimitive
                   data-page-id={page.id}
                   aria-current={page.id === pageId ? 'true' : undefined}
                   onClick={() => {
@@ -197,7 +197,7 @@ export function WikiTab({
                 >
                   <span className="truncate">{page.title}</span>
                   <span className="truncate text-xs">{pageStatusLabel[page.status]}</span>
-                </button>
+                </ButtonPrimitive>
               </li>
             ))}
           </ul>

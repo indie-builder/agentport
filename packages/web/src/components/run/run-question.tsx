@@ -211,6 +211,7 @@ export function RunQuestionCard({
         {question.questions.map((item, index) => {
           const draft = draftFor(index);
           const groupId = `${baseId}-${index}`;
+          const legendId = `${groupId}-legend`;
           const otherId = `${groupId}-other`;
           const otherInputId = `${groupId}-other-input`;
           return (
@@ -219,7 +220,10 @@ export function RunQuestionCard({
               disabled={responder.isPending}
               className="flex min-w-0 flex-col gap-1.5"
             >
-              <legend className="text-sm font-medium text-fg [overflow-wrap:anywhere]">
+              <legend
+                id={legendId}
+                className="text-sm font-medium text-fg [overflow-wrap:anywhere]"
+              >
                 {item.question}
               </legend>
               {item.multiSelect ? (
@@ -266,6 +270,7 @@ export function RunQuestionCard({
                 </div>
               ) : (
                 <RadioGroup
+                  aria-labelledby={legendId}
                   disabled={responder.isPending}
                   value={draft.otherOn ? OTHER : (draft.picked[0] ?? '')}
                   onValueChange={(value) =>

@@ -234,7 +234,7 @@ async function setInput(id: string, value: string) {
 }
 
 async function confirm(label: string) {
-  const dialog = document.querySelector('[role="dialog"]');
+  const dialog = document.querySelector('[role="dialog"], [role="alertdialog"]');
   if (!dialog) throw new Error('Missing dialog');
   await click(button(label, dialog));
 }
@@ -459,11 +459,11 @@ describe('账号安全', () => {
     await click(button('撤销'));
     await confirm('撤销会话');
     await vi.waitFor(() => {
-      const dialog = document.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"], [role="alertdialog"]');
       expect(dialog).not.toBeNull();
       expect(dialog?.textContent).toContain('撤销失败，请重试');
     });
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).not.toBeNull();
   });
 
   it('撤销遇到鲜度不足时在弹层内提供重新登录，取消后会话区继续提示', async () => {
@@ -481,14 +481,14 @@ describe('账号安全', () => {
     await click(button('撤销'));
     await confirm('撤销会话');
     await vi.waitFor(() => {
-      const dialog = document.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"], [role="alertdialog"]');
       expect(dialog).not.toBeNull();
       expect(dialog?.textContent).toContain('当前登录状态已过期，请重新登录后再撤销这次会话。');
       expect(maybeButton('重新登录', dialog ?? document)).not.toBeNull();
     });
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).not.toBeNull();
 
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const dialog = document.querySelector('[role="dialog"], [role="alertdialog"]') as HTMLElement;
     await click(button('取消', dialog));
     await vi.waitFor(() => expect(host.textContent).toContain('需要重新验证身份'));
     expect(maybeButton('重新登录', host)).not.toBeNull();
@@ -791,11 +791,11 @@ describe('我的分享', () => {
     await click(button('撤销'));
     await confirm('撤销分享');
     await vi.waitFor(() => {
-      const dialog = document.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"], [role="alertdialog"]');
       expect(dialog).not.toBeNull();
       expect(dialog?.textContent).toContain('撤销失败，请重试');
     });
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).not.toBeNull();
   });
 
   it('默认渲染卡片，切换视图时写回 URL 并保留分享动作', async () => {

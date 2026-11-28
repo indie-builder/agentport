@@ -134,7 +134,6 @@ export function HistoryPanel({
                       <Pencil /> 重命名
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      aria-label={`从「${conversation.title}」分支`}
                       disabled={branching !== null}
                       onSelect={() => onBranch(conversation.id)}
                     >

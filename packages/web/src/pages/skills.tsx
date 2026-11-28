@@ -59,6 +59,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from '../components/ui/field.js';
+import { createFileInputController, FileInput } from '../components/ui/file-input.js';
 import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { type ListView, SegmentedToggle, ViewToggle } from '../components/view-toggle.js';
@@ -66,7 +67,6 @@ import { can } from '../lib/access.js';
 import { ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
-import { onFilePick } from '../lib/file-pick.js';
 import { fieldErrors } from '../lib/form.js';
 import { formatTokens } from '../lib/format.js';
 import {
@@ -187,7 +187,7 @@ export function SkillsPage() {
   const [deleting, setDeleting] = useState<SkillWithAgentCount | null>(null);
   const [rejecting, setRejecting] = useState<SkillWithAgentCount | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importController] = useState(createFileInputController);
   const importSkill = useImportSkillFile();
   const submitSkill = useSubmitSkill();
   const approveSkill = useApproveSkill();
@@ -315,15 +315,17 @@ export function SkillsPage() {
       activeFilterCount={(skillStatus === undefined ? 0 : 1) + (usage === 'all' ? 0 : 1)}
       actions={
         <>
-          <input
-            ref={importInputRef}
-            type="file"
+          <FileInput
+            controller={importController}
+            aria-label="导入技能文件"
             accept=".md,text/markdown,text/plain"
-            className="hidden"
-            onChange={onFilePick((files) => {
+            disabled={importSkill.isPending}
+            className="contents"
+            onValueChange={(files, details) => {
+              details.cancel();
               const file = files[0];
               if (file) void importSkillMd(file);
-            })}
+            }}
           />
           {canCreateSkill ? (
             <Button
@@ -356,7 +358,7 @@ export function SkillsPage() {
                   <DropdownMenuItem
                     disabled={importSkill.isPending}
                     aria-busy={importSkill.isPending}
-                    onSelect={() => importInputRef.current?.click()}
+                    onSelect={() => importController.open()}
                   >
                     <Upload aria-hidden="true" />
                     {importSkill.isPending ? '导入中…' : '导入 SKILL.md'}
@@ -471,6 +473,7 @@ export function SkillsPage() {
               <div className="min-w-0 flex-1">
                 <Button
                   variant="ghost"
+                  aria-label={`查看技能 ${skill.name}`}
                   className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium"
                   onClick={(event) => {
                     actionTriggerRef.current = event.currentTarget;
@@ -581,6 +584,7 @@ export function SkillsPage() {
                   <CardTitle className="min-w-0">
                     <Button
                       variant="ghost"
+                      aria-label={`查看技能 ${skill.name}`}
                       className="h-auto w-full min-w-0 justify-start p-0 text-left text-sm font-medium"
                       onClick={(event) => {
                         actionTriggerRef.current = event.currentTarget;
@@ -1070,7 +1074,6 @@ export function SkillDialog({
                   readOnly={readOnly}
                   aria-required="true"
                   aria-invalid={Boolean(errors.name)}
-                  aria-describedby={errors.name ? 'skill-name-error' : undefined}
                 />
                 <FieldError id="skill-name-error">{errors.name?.message}</FieldError>
               </Field>
@@ -1088,7 +1091,6 @@ export function SkillDialog({
                   disabled={pending || Boolean(skill)}
                   aria-required="true"
                   aria-invalid={Boolean(errors.slug)}
-                  aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
                   className="font-mono"
                 />
                 {skill ? (
@@ -1113,7 +1115,6 @@ export function SkillDialog({
                 readOnly={readOnly}
                 aria-required="true"
                 aria-invalid={Boolean(errors.description)}
-                aria-describedby={errors.description ? 'skill-desc-error' : undefined}
                 placeholder="一句话说明这个技能解决什么问题"
               />
               <FieldError id="skill-desc-error">{errors.description?.message}</FieldError>
@@ -1294,7 +1295,6 @@ function SkillFilesEditor({
           readOnly={readOnly || editingPath !== null}
           disabled={pending}
           aria-invalid={Boolean(error)}
-          aria-describedby={error ? 'skill-file-path-error' : undefined}
           className="font-mono text-xs"
         />
         <Controller
@@ -1421,6 +1421,7 @@ function RejectSkillDialog({
               variant="destructive"
               disabled={pending}
               aria-busy={pending}
+              data-agent-confirm={`驳回技能「${skill.name}」的发布审核`}
               onClick={submit}
             >
               {pending ? '提交中…' : '驳回'}
@@ -1438,7 +1439,6 @@ function RejectSkillDialog({
             placeholder="说明需要修改的内容"
             aria-required="true"
             aria-invalid={Boolean(error)}
-            aria-describedby={error ? 'skill-reject-note-error' : 'skill-reject-note-hint'}
             value={note}
             onChange={(event) => setNote(event.target.value)}
           />

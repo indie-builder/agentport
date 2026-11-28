@@ -1,5 +1,6 @@
 import type { AgentWorkflow } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { FileCode, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../lib/api.js';
@@ -180,8 +181,7 @@ export function WorkflowsPanel({
         <ul className="flex flex-col gap-0.5">
           {workflows.data.map((workflow) => (
             <li key={workflow.id} className="min-w-0 max-w-full">
-              <button
-                type="button"
+              <ButtonPrimitive
                 disabled={pending}
                 aria-current={workflow.id === selected ? 'true' : undefined}
                 onClick={() => guard({ type: 'open', workflow })}
@@ -201,7 +201,7 @@ export function WorkflowsPanel({
                     {workflow.description}
                   </span>
                 ) : null}
-              </button>
+              </ButtonPrimitive>
             </li>
           ))}
         </ul>

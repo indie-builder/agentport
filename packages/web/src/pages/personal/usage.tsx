@@ -569,11 +569,16 @@ export function PersonalUsagePage() {
               runs.isPending ? (
                 <LoadingState rows={3} layout="cards" />
               ) : (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2">
+                <ul
+                  aria-label="运行用量列表"
+                  className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-0 pt-2"
+                >
                   {(runs.data?.items ?? []).map((run) => (
-                    <RunCard key={run.id} run={run} action={runAction(run)} />
+                    <li key={run.id} className="min-w-0">
+                      <RunCard run={run} action={runAction(run)} />
+                    </li>
                   ))}
-                </div>
+                </ul>
               )
             ) : (
               <DataTable

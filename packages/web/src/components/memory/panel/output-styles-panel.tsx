@@ -1,5 +1,6 @@
 import { type OutputStyle, outputStyleInputSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
@@ -176,8 +177,7 @@ export function OutputStylesPanel({
         <ul className="hidden flex-col gap-0.5 md:flex">
           {styles.data.map((style) => (
             <li key={style.id} className="min-w-0 max-w-full">
-              <button
-                type="button"
+              <ButtonPrimitive
                 disabled={pending}
                 onClick={() => guard({ type: 'open', style })}
                 className={cn(
@@ -191,7 +191,7 @@ export function OutputStylesPanel({
                 {style.isSelected ? (
                   <span className="ml-auto shrink-0 text-2xs text-muted-foreground">已启用</span>
                 ) : null}
-              </button>
+              </ButtonPrimitive>
             </li>
           ))}
         </ul>

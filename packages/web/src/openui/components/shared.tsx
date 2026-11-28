@@ -1,5 +1,6 @@
 import { ACTION_STEPS, BuiltinActionType } from '@openuidev/react-lang';
-import { Children, type CSSProperties, type ReactNode } from 'react';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
+import { Children, type CSSProperties, isValidElement, type ReactNode } from 'react';
 import {
   Carousel,
   CarouselContent,
@@ -163,13 +164,19 @@ export function CardBlockGrid({
             ? 'basis-80'
             : 'basis-70',
     );
+    const seenSlides = new Map<string, number>();
+    const slideItems = Children.toArray(children).map((child) => {
+      const rawKey = isValidElement(child) && child.key != null ? String(child.key) : String(child);
+      const count = (seenSlides.get(rawKey) ?? 0) + 1;
+      seenSlides.set(rawKey, count);
+      return { child, key: count === 1 ? rawKey : `${rawKey}-${count}` };
+    });
     return (
       <Carousel aria-label="卡片轮播" align="start" className="@container min-w-0">
         <CarouselViewport>
           <CarouselContent style={trackStyle} className="ml-0">
-            {Children.toArray(children).map((child, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 幻灯片由模型按顺序生成
-              <CarouselItem key={index} className={itemClass}>
+            {slideItems.map(({ child, key }) => (
+              <CarouselItem key={key} className={itemClass}>
                 {child}
               </CarouselItem>
             ))}
@@ -226,23 +233,15 @@ export function BlockCard({
   const fromInnerControl = (target: EventTarget) =>
     target instanceof Element && target.closest('button, a, input, textarea, select') !== null;
   return (
-    // biome-ignore lint/a11y/useSemanticElements: 卡片内可能含真实按钮，嵌套 <button> 非法。
-    <div
-      role="button"
-      tabIndex={0}
+    <ButtonPrimitive
+      render={<div />}
       className={base}
       onClick={(event) => {
         if (fromInnerControl(event.target)) return;
         onActivate?.();
       }}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        if (fromInnerControl(event.target)) return;
-        event.preventDefault();
-        onActivate?.();
-      }}
     >
       {children}
-    </div>
+    </ButtonPrimitive>
   );
 }

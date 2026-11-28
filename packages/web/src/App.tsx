@@ -8,7 +8,16 @@ import {
   ToastRegion,
   ToastTitle,
 } from '@ui-sdk/react/toast';
-import { CircleAlert, CircleCheck, Info, LucideProvider, TriangleAlert, X } from 'lucide-react';
+import {
+  CircleAlert,
+  CircleCheck,
+  Info,
+  Loader2,
+  LucideProvider,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
+import { UiAgentHost } from './components/ui-agent-host.js';
 import { queryClient } from './lib/queries.js';
 import { toaster } from './lib/toast.js';
 import { router } from './router.js';
@@ -20,7 +29,7 @@ export function App() {
         <RouterProvider router={router} />
         <ToastRegion toaster={toaster} side="bottom" align="end" aria-label="通知" className="p-6">
           {() => (
-            <Toast className="not-first:mt-2 flex w-88 items-start gap-2.5 rounded-[var(--radius-card)] border border-line bg-surface p-4 text-fg shadow-overlay focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2">
+            <Toast className="not-first:mt-2 flex w-88 select-none items-start gap-2.5 rounded-[var(--radius-card)] border border-line bg-surface p-4 text-fg shadow-overlay [--toast-tx:0px] [--toast-ty:0px] [translate:calc(var(--toast-swipe-x,0px)+var(--toast-tx))_calc(var(--toast-swipe-y,0px)+var(--toast-ty))] transition-[opacity,translate] duration-200 ease-out-soft focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2 data-starting-style:opacity-0 data-starting-style:[--toast-ty:12px] data-ending-style:opacity-0 data-ending-style:[--toast-ty:8px] data-ending-style:duration-150 data-[swipe-direction=right]:data-ending-style:[--toast-tx:100%] data-[swipe-direction=left]:data-ending-style:[--toast-tx:-100%] data-[swipe-direction=down]:data-ending-style:[--toast-ty:100%] data-[swipe-direction=up]:data-ending-style:[--toast-ty:-100%] data-swiping:transition-none motion-reduce:transition-none">
               {(state) => (
                 <>
                   {state.type === 'success' && (
@@ -47,6 +56,12 @@ export function App() {
                       className="mt-0.5 size-4 shrink-0 text-danger"
                     />
                   )}
+                  {state.type === 'loading' && (
+                    <Loader2
+                      aria-hidden="true"
+                      className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground"
+                    />
+                  )}
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <ToastTitle className="text-sm font-medium" />
                     <ToastDescription className="text-sm text-muted-foreground" />
@@ -63,6 +78,7 @@ export function App() {
             </Toast>
           )}
         </ToastRegion>
+        <UiAgentHost />
       </QueryClientProvider>
     </LucideProvider>
   );

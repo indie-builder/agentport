@@ -29,14 +29,7 @@ function EvalResultRow({ result, backTo }: { result: EvalResult; backTo: string 
       onOpenChange={setOpen}
       className="border-b py-2.5 last:border-b-0 last:pb-0"
     >
-      <CollapsibleTrigger
-        render={
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        }
-      >
+      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <ChevronDown
           aria-hidden="true"
           className={cn(

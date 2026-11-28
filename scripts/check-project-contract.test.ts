@@ -824,13 +824,13 @@ const fixtures = [
     ],
   },
   {
-    name: 'collapsible-content 设置 content-visibility',
-    rule: 'collapsible-content-visibility',
+    name: 'collapsible-panel 设置 content-visibility',
+    rule: 'collapsible-panel-visibility',
     files: {
       'packages/web/src/components/collapsible.css':
-        "[data-slot='collapsible-content'] {\n  content-visibility: auto;\n}\n",
+        "[data-slot='collapsible-panel'] {\n  content-visibility: auto;\n}\n",
     },
-    expected: ['禁止在 collapsible-content 上设置 content-visibility'],
+    expected: ['禁止在 collapsible-panel 上设置 content-visibility'],
   },
   {
     name: 'package.json engines.node 升级到 26',

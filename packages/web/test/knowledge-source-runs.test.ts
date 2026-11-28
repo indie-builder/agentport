@@ -217,7 +217,7 @@ function controlPanelClose() {
 
   vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
     const result = computed(element, pseudo);
-    if (element.getAttribute('data-slot') === 'collapsible-content') {
+    if (element.getAttribute('data-slot') === 'collapsible-panel') {
       Object.defineProperties(result, {
         transitionDuration: { value: '0.15s' },
         transitionDelay: { value: '0s' },
@@ -231,19 +231,19 @@ function controlPanelClose() {
   Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
     configurable: true,
     get(this: HTMLElement) {
-      return this.getAttribute('data-slot') === 'collapsible-content' ? 100 : 0;
+      return this.getAttribute('data-slot') === 'collapsible-panel' ? 100 : 0;
     },
   });
   Object.defineProperty(HTMLElement.prototype, 'scrollWidth', {
     configurable: true,
     get(this: HTMLElement) {
-      return this.getAttribute('data-slot') === 'collapsible-content' ? 100 : 0;
+      return this.getAttribute('data-slot') === 'collapsible-panel' ? 100 : 0;
     },
   });
   Object.defineProperty(Element.prototype, 'getAnimations', {
     configurable: true,
     value(this: Element) {
-      if (this.getAttribute('data-slot') !== 'collapsible-content') return [];
+      if (this.getAttribute('data-slot') !== 'collapsible-panel') return [];
       let animation = animations.get(this);
       if (!animation) {
         let resolve!: () => void;
@@ -372,7 +372,7 @@ describe('knowledge source runs', () => {
       await close.finish();
       await waitForDom(() => document.body.textContent?.includes('新增 7') === false);
       expect(document.body.textContent).not.toContain('新增 7');
-      expect(document.querySelectorAll('[data-slot="collapsible-content"]')).toHaveLength(0);
+      expect(document.querySelectorAll('[data-slot="collapsible-panel"]')).toHaveLength(0);
     } finally {
       close.restore();
     }

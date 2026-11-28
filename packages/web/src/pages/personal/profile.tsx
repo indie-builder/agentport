@@ -17,6 +17,7 @@ import {
   FieldLabel,
 } from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
+import { Separator } from '../../components/ui/separator.js';
 import { authenticated } from '../../lib/access.js';
 import { errorMessage } from '../../lib/api.js';
 import { useFormBlocker } from '../../lib/form.js';
@@ -93,7 +94,7 @@ export function PersonalProfilePage() {
                 </div>
               </div>
 
-              <div className="h-px bg-line" />
+              <Separator />
 
               <h2 className="text-base font-medium text-fg">基本资料</h2>
 

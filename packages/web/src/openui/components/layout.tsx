@@ -1,5 +1,6 @@
 import { isSafeOpenUrl } from '@agentport/shared';
 import { useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import type { LucideIcon } from 'lucide-react';
 import { icons } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -230,32 +231,41 @@ export function InlineHeaderRenderer({
 
 export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown[] }>) {
   const items = (props.items ?? []).filter((item) => childProps(item) !== undefined);
-  const values = items.map((item, index) => String(childProps(item)?.value ?? index));
+  const seenTabs = new Map<string, number>();
+  const entries = items.map((item) => {
+    const itemProps = childProps<{ value?: unknown; trigger?: unknown; content?: unknown }>(item);
+    const raw = itemProps?.value ?? itemProps?.trigger;
+    const base = raw !== undefined && String(raw) !== '' ? String(raw) : 'tab';
+    const count = (seenTabs.get(base) ?? 0) + 1;
+    seenTabs.set(base, count);
+    const value = count === 1 ? base : `${base}-${count}`;
+    return { itemProps, value };
+  });
+  const firstValue = entries[0]?.value ?? '';
   const streaming = useIsStreaming();
   const [active, setActive] = useState('');
   const touched = useRef(false);
   const previousSizes = useRef<Record<string, number> | null>(null);
 
   useEffect(() => {
-    if (items.length > 0 && !active) setActive(values[0] ?? '');
-  }, [items.length, active, values]);
+    if (entries.length > 0 && !active) setActive(firstValue);
+  }, [entries.length, active, firstValue]);
 
   useEffect(() => {
     if (touched.current) return;
     const baseline = previousSizes.current;
     let candidate: string | null = null;
     const nextSizes: Record<string, number> = {};
-    for (const [index, item] of items.entries()) {
-      const value = String(childProps(item)?.value ?? index);
-      const size = JSON.stringify(childProps(item)?.content).length;
-      nextSizes[value] = size;
-      if (size > (baseline?.[value] ?? 0)) candidate = value;
+    for (const entry of entries) {
+      const size = JSON.stringify(entry.itemProps?.content).length;
+      nextSizes[entry.value] = size;
+      if (size > (baseline?.[entry.value] ?? 0)) candidate = entry.value;
     }
     previousSizes.current = nextSizes;
     if (baseline && streaming && candidate && candidate !== active) setActive(candidate);
   });
 
-  if (items.length === 0) return null;
+  if (entries.length === 0) return null;
 
   return (
     <Tabs
@@ -271,23 +281,15 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
         aria-label="标签页"
         className="w-full justify-start gap-1 overflow-x-auto px-[3px] [&_[role=tab]]:after:bottom-[-4.5px]"
       >
-        {items.map((item, index) => (
-          <TabsTrigger
-            key={values[index] ?? index}
-            value={values[index] ?? ''}
-            className="flex-none px-2"
-          >
-            {String(childProps(item)?.trigger ?? '')}
+        {entries.map(({ itemProps, value }) => (
+          <TabsTrigger key={value} value={value} className="flex-none px-2">
+            {String(itemProps?.trigger ?? '')}
           </TabsTrigger>
         ))}
       </TabsList>
-      {items.map((item, index) => (
-        <TabsContent
-          key={values[index] ?? index}
-          value={values[index] ?? ''}
-          className="flex flex-col gap-3 pt-1"
-        >
-          {renderNode(childProps(item)?.content)}
+      {entries.map(({ itemProps, value }) => (
+        <TabsContent key={value} value={value} className="flex flex-col gap-3 pt-1">
+          {renderNode(itemProps?.content)}
         </TabsContent>
       ))}
     </Tabs>
@@ -315,6 +317,7 @@ export function AccordionRenderer({ props, renderNode }: RenderProps<{ items: un
   if (items.length === 0) return null;
   return (
     <Accordion
+      aria-label="折叠列表"
       value={open}
       onValueChange={(value) => {
         touched.current = true;
@@ -343,14 +346,30 @@ export function SectionBlockRenderer({
   const sections = (props.sections ?? []).filter((item) => childProps(item) !== undefined);
   if (sections.length === 0) return null;
   if (props.isFoldable === false) {
+    const used = new Set<string>();
+    const entries = sections.map((section) => {
+      const sectionProps = childProps<{ value?: unknown; trigger?: unknown; content?: unknown }>(
+        section,
+      );
+      const raw = sectionProps?.value ?? sectionProps?.trigger;
+      const base = raw !== undefined && String(raw) !== '' ? String(raw) : 'section';
+      let key = base;
+      let suffix = 2;
+      while (used.has(key)) {
+        key = `${base}-${suffix}`;
+        suffix += 1;
+      }
+      used.add(key);
+      return { sectionProps, key };
+    });
     return (
       <div className="flex min-w-0 flex-col gap-4">
-        {sections.map((section, index) => (
-          <section key={`${childProps(section)?.value ?? index}`} className="flex flex-col gap-2">
+        {entries.map(({ sectionProps, key }) => (
+          <section key={key} className="flex flex-col gap-2">
             <h3 className="text-base font-medium break-words text-fg">
-              {String(childProps(section)?.trigger ?? '')}
+              {String(sectionProps?.trigger ?? '')}
             </h3>
-            <div className="flex flex-col gap-3">{renderNode(childProps(section)?.content)}</div>
+            <div className="flex flex-col gap-3">{renderNode(sectionProps?.content)}</div>
           </section>
         ))}
       </div>
@@ -397,13 +416,37 @@ export function CarouselRenderer({
 }: RenderProps<{ children: unknown[][]; variant?: 'card' | 'sunk' }>) {
   const slides = (props.children ?? []).filter((slide) => Array.isArray(slide));
   if (slides.length === 0) return null;
+  const seenSlides = new Map<string, number>();
+  const slideEntries = slides.map((slide) => {
+    const first = childProps<Record<string, unknown>>(slide[0]);
+    const hint = [
+      first?.id,
+      first?.value,
+      first?.trigger,
+      first?.heading,
+      first?.title,
+      first?.label,
+    ].find((part) => typeof part === 'string' && part.length > 0);
+    const base =
+      typeof hint === 'string'
+        ? hint
+        : slide
+            .map((node) =>
+              typeof node === 'object' && node !== null
+                ? String((node as { typeName?: unknown }).typeName ?? 'node')
+                : typeof node,
+            )
+            .join('+') || 'slide';
+    const count = (seenSlides.get(base) ?? 0) + 1;
+    seenSlides.set(base, count);
+    return { slide, key: count === 1 ? base : `${base}-${count}` };
+  });
   return (
     <Carousel aria-label="内容轮播" align="start" className="@container min-w-0">
       <CarouselViewport>
         <CarouselContent className="ml-0 py-2">
-          {slides.map((slide, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 幻灯片由模型按顺序生成
-            <CarouselItem key={index} className="basis-4/5 px-2 @min-[481px]:basis-1/2">
+          {slideEntries.map(({ slide, key }) => (
+            <CarouselItem key={key} className="basis-4/5 px-2 @min-[481px]:basis-1/2">
               <div
                 className={cn(
                   'flex h-full flex-col gap-3 rounded-card p-3',
@@ -481,13 +524,12 @@ export function ListRenderer({
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表项由模型按顺序生成
           <li key={index} className="min-w-0">
             {clickable ? (
-              <button
-                type="button"
+              <ButtonPrimitive
                 className="flex w-full min-w-0 items-start gap-2.5 py-2 text-left transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => void trigger(itemProps.title, undefined, action)}
               >
                 {content}
-              </button>
+              </ButtonPrimitive>
             ) : (
               <div className="flex min-w-0 items-start gap-2.5 py-2">{content}</div>
             )}
@@ -509,16 +551,15 @@ export function FollowUpBlockRenderer({ props }: RenderProps<{ items: unknown[] 
         const text = String(childProps(item)?.text ?? '');
         if (!text) return null;
         return (
-          <button
+          <ButtonPrimitive
             // biome-ignore lint/suspicious/noArrayIndexKey: 追问项文本可能重复，位置即身份
             key={index}
-            type="button"
             disabled={streaming}
             className="rounded-full border border-line px-3 py-1.5 text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => void trigger(text)}
           >
             {text}
-          </button>
+          </ButtonPrimitive>
         );
       })}
     </div>

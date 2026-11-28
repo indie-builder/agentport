@@ -14,11 +14,15 @@ import {
   LoadingState,
 } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
+import {
+  SegmentedControl,
+  SegmentedControlIndicator,
+  SegmentedControlItem,
+} from '../../components/ui/segmented-control.js';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { can, hasAnyGrant } from '../../lib/access.js';
 import { api, type EvalCase, type EvalSampleCandidate, type EvalTarget } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
-import { cn } from '../../lib/cn.js';
 import {
   meQuery,
   useAgentAccess,
@@ -31,6 +35,7 @@ import {
   useStartEvalRun,
 } from '../../lib/queries.js';
 import { toast, toastError, toastSuccess } from '../../lib/toast.js';
+import { useOptimisticValue } from '../../lib/use-optimistic-value.js';
 import type { evalSearchSchema } from '../../routes/-search.js';
 import { CaseDialog } from './case-dialog.js';
 import { EvalCasesTab } from './cases-tab.js';
@@ -74,6 +79,7 @@ export function EvalPage() {
   const headId = search.head ?? null;
   const activeTab: EvalTab =
     search.tab ?? (baseId !== null && headId !== null && baseId !== headId ? 'compare' : 'runs');
+  const [optimisticTab, commitTab] = useOptimisticValue(activeTab);
   const diffFilter = search.diff ?? 'changed';
 
   const setSearch = (patch: EvalSearchUpdate, replace = false): void => {
@@ -111,7 +117,6 @@ export function EvalPage() {
   const start = useStartEvalRun();
   const cancel = useCancelEvalRun();
   const importDataset = useImportEvalDataset();
-  const importInputRef = useRef<HTMLInputElement>(null);
 
   const [exporting, setExporting] = useState(false);
   const [creatingAgentId, setCreatingAgentId] = useState<string | null>(null);
@@ -269,38 +274,22 @@ export function EvalPage() {
                 label="按专家筛选"
                 className="w-40"
               />
-              <fieldset
+              <SegmentedControl<EvalTarget>
                 aria-label="评估目标"
-                className="inline-flex items-center rounded-pill border-0 bg-sunken p-0.5"
+                value={target}
+                onValueChange={(next) => {
+                  if (next !== null) setTarget(next);
+                }}
               >
-                <button
-                  type="button"
-                  aria-pressed={target === 'published'}
-                  onClick={() => setTarget('published')}
-                  className={cn(
-                    'rounded-pill px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    target === 'published'
-                      ? 'bg-surface text-fg shadow-sm'
-                      : 'text-muted-foreground hover:text-fg',
-                  )}
-                >
+                <SegmentedControlIndicator />
+                <SegmentedControlItem value="published" className="h-6 px-2.5 text-xs">
                   线上版本
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={target === 'draft'}
-                  onClick={() => setTarget('draft')}
-                  className={cn(
-                    'rounded-pill px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    target === 'draft'
-                      ? 'bg-surface text-fg shadow-sm'
-                      : 'text-muted-foreground hover:text-fg',
-                  )}
-                >
+                </SegmentedControlItem>
+                <SegmentedControlItem value="draft" className="h-6 px-2.5 text-xs">
                   当前草稿
                   {hasDraft ? <span className="ml-1 text-muted-foreground">· 有改动</span> : null}
-                </button>
-              </fieldset>
+                </SegmentedControlItem>
+              </SegmentedControl>
             </div>
           }
           actions={
@@ -342,7 +331,21 @@ export function EvalPage() {
         />
 
         <div className="border-b">
-          <Tabs<EvalTab> value={activeTab} onValueChange={(next) => setSearch({ tab: next })}>
+          <Tabs<EvalTab>
+            value={optimisticTab}
+            onValueChange={(next, details) => {
+              if (next === optimisticTab) {
+                details.cancel();
+                return;
+              }
+              commitTab(next, () =>
+                navigate({
+                  to: '/eval',
+                  search: { ...search, tab: next },
+                }),
+              );
+            }}
+          >
             <TabsList variant="line">
               <TabsTrigger value="runs">
                 {runningRun ? (
@@ -472,7 +475,6 @@ export function EvalPage() {
                 canReadEval={canReadEval}
                 canReadRuns={canReadRuns}
                 createButtonRef={createButtonRef}
-                importInputRef={importInputRef}
                 importPending={importDataset.isPending}
                 exporting={exporting}
                 onImportFile={(file) => {

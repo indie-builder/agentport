@@ -136,6 +136,7 @@ function ShareRow({
             variant="destructive"
             size="sm"
             aria-label={`撤销 ${version} 的链接`}
+            data-agent-confirm={`撤销 ${version} 的公开分享链接，撤销后链接立即失效`}
             disabled={pending}
             onClick={onRevoke}
           >

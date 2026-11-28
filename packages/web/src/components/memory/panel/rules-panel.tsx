@@ -1,5 +1,6 @@
 import { ruleInputSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { FileText, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
@@ -159,8 +160,7 @@ export function RulesPanel({
         <ul className="hidden flex-col gap-0.5 md:flex">
           {rules.data.map((rule) => (
             <li key={rule.id} className="min-w-0 max-w-full">
-              <button
-                type="button"
+              <ButtonPrimitive
                 disabled={pending}
                 onClick={() => guard({ type: 'open', rule })}
                 className={cn(
@@ -171,7 +171,7 @@ export function RulesPanel({
                 )}
               >
                 {rule.slug}
-              </button>
+              </ButtonPrimitive>
             </li>
           ))}
         </ul>

@@ -352,9 +352,9 @@ function button(text: string, scope: ParentNode = document): HTMLButtonElement {
 }
 
 function dialog(title: string): HTMLElement {
-  const element = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
-    (item) => item.querySelector('h2')?.textContent === title,
-  );
+  const element = [
+    ...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+  ].find((item) => item.querySelector('h2')?.textContent === title);
   if (!element) throw new Error(`Missing dialog: ${title}`);
   return element;
 }
@@ -435,7 +435,7 @@ describe('knowledge audio base binding', () => {
       ),
     );
     await mountRoute('/knowledge');
-    await click(button('新建知识库'));
+    await click(await vi.waitFor(() => button('新建知识库'), { timeout: 5000 }));
     const creator = dialog('新建知识库');
     await click(button('高级设置', creator));
     const asrSelect = document.getElementById('knowledge-asr');
@@ -583,9 +583,11 @@ describe('knowledge audio upload', () => {
     server.use(http.get('/api/knowledge/model-profiles', () => HttpResponse.json([asrProfile])));
     await mountRoute('/knowledge/kb_1');
     expect(document.body.textContent).toContain('上传后会调用已配置的转录模型');
-    const input = document.querySelector<HTMLInputElement>('input[aria-label="选择要上传的文件"]');
+    const input = document.querySelector<HTMLInputElement>(
+      'input[type="file"]:not([webkitdirectory])',
+    );
     const folderInput = document.querySelector<HTMLInputElement>(
-      'input[aria-label="选择要上传的文件夹"]',
+      'input[type="file"][webkitdirectory]',
     );
     if (!input || !folderInput) throw new Error('Missing upload inputs');
     expect(input.getAttribute('accept')).toBeNull();

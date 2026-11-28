@@ -297,6 +297,15 @@ export function BatchActionDialog({
                 onClick={submit}
                 disabled={batch.isPending || invalid || selection.ids.length === 0}
                 aria-busy={batch.isPending}
+                {...(action === 'delete'
+                  ? {
+                      'data-agent-confirm': `批量删除选中的 ${selection.ids.length} 个文档及其分块`,
+                    }
+                  : action === 'reprocess'
+                    ? {
+                        'data-agent-confirm': `重新处理选中的 ${selection.ids.length} 个文档并覆盖人工编辑的分块`,
+                      }
+                    : {})}
               >
                 {batch.isPending ? '处理中…' : batchActionLabel[action]}
               </Button>

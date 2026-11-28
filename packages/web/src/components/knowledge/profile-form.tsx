@@ -18,6 +18,7 @@ import { RequiredMark } from '../required-mark.js';
 import { Button } from '../ui/button.js';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '../ui/field.js';
 import { Input } from '../ui/input.js';
+import { PasswordInput, PasswordInputControl, PasswordInputToggle } from '../ui/password-input.js';
 import {
   Select,
   SelectContent,
@@ -97,6 +98,12 @@ export function ProfileForm({
     },
   );
   const { errors, dirtyFields, isSubmitting } = formState;
+  const {
+    name: apiKeyName,
+    ref: apiKeyRef,
+    onChange: onApiKeyChange,
+    onBlur: onApiKeyBlur,
+  } = register('apiKey');
   const [kind, protocol, model] = watch(['kind', 'protocol', 'model']);
   const effectiveKind = lockedKind ?? kind;
   const busy = isSubmitting;
@@ -212,7 +219,6 @@ export function ProfileForm({
             disabled={busy}
             onKeyDown={submitOnEnter}
             aria-invalid={Boolean(errors.name)}
-            aria-describedby={errors.name ? `${idPrefix}-name-error` : undefined}
           />
           <FieldError id={`${idPrefix}-name-error`}>{errors.name?.message}</FieldError>
         </Field>
@@ -227,7 +233,6 @@ export function ProfileForm({
             placeholder="https://…"
             onKeyDown={submitOnEnter}
             aria-invalid={Boolean(errors.endpointUrl)}
-            aria-describedby={errors.endpointUrl ? `${idPrefix}-endpoint-error` : undefined}
           />
           <FieldError id={`${idPrefix}-endpoint-error`}>{errors.endpointUrl?.message}</FieldError>
         </Field>
@@ -242,21 +247,22 @@ export function ProfileForm({
             className="font-mono"
             onKeyDown={submitOnEnter}
             aria-invalid={Boolean(errors.model)}
-            aria-describedby={errors.model ? `${idPrefix}-model-error` : undefined}
           />
           <FieldError id={`${idPrefix}-model-error`}>{errors.model?.message}</FieldError>
         </Field>
         <Field className="gap-1.5">
           <FieldLabel htmlFor={`${idPrefix}-key`}>API Key</FieldLabel>
-          <Input
-            id={`${idPrefix}-key`}
-            type="password"
-            {...register('apiKey')}
-            autoComplete="off"
-            disabled={busy}
-            onKeyDown={submitOnEnter}
-            placeholder={profile?.hasSecret ? '留空保持原密钥' : '可选'}
-          />
+          <PasswordInput name={apiKeyName} autoComplete="off" disabled={busy}>
+            <PasswordInputControl
+              id={`${idPrefix}-key`}
+              ref={apiKeyRef}
+              onChange={onApiKeyChange}
+              onBlur={onApiKeyBlur}
+              onKeyDown={submitOnEnter}
+              placeholder={profile?.hasSecret ? '留空保持原密钥' : '可选'}
+            />
+            <PasswordInputToggle />
+          </PasswordInput>
         </Field>
         {effectiveKind === 'embedding' ? (
           <Field className="gap-1.5">

@@ -166,9 +166,9 @@ async function mount(sources: unknown[] = []) {
 }
 
 function dialog(title: string): HTMLElement {
-  const element = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
-    (item) => item.querySelector('h2')?.textContent === title,
-  );
+  const element = [
+    ...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+  ].find((item) => item.querySelector('h2')?.textContent === title);
   if (!element) throw new Error(`Missing dialog: ${title}`);
   return element;
 }
@@ -468,7 +468,13 @@ describe('knowledge source forms', () => {
       expect(postBody()).toBeUndefined();
       const input = document.getElementById('source-range-0-paths') as HTMLInputElement;
       expect(input.getAttribute('aria-invalid')).toBe('true');
-      expect(input.getAttribute('aria-describedby')).toBe('source-range-0-paths-error');
+      const describedBy = (input.getAttribute('aria-describedby') ?? '')
+        .split(/\s+/)
+        .filter(Boolean);
+      expect(describedBy).toContain('source-range-0-paths-error');
+      for (const id of describedBy) {
+        expect(document.getElementById(id)).not.toBeNull();
+      }
       expect(document.getElementById('source-range-0-paths-error')?.textContent).toContain(
         '每个 Seafile 范围都需要目录根',
       );
@@ -488,7 +494,11 @@ describe('knowledge source forms', () => {
     await click(button('创建', dialog('新建来源')));
     expect(postBody()).toBeUndefined();
     expect(input.getAttribute('aria-invalid')).toBe('true');
-    expect(input.getAttribute('aria-describedby')).toBe('source-range-0-paths-error');
+    const describedBy = (input.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean);
+    expect(describedBy).toContain('source-range-0-paths-error');
+    for (const id of describedBy) {
+      expect(document.getElementById(id)).not.toBeNull();
+    }
     expect(document.getElementById('source-range-0-paths-error')?.textContent).toContain(
       '每个 Seafile 范围都需要目录根',
     );

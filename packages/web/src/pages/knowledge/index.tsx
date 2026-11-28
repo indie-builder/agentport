@@ -64,6 +64,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from '../../components/ui/field.js';
+import { createFileInputController, FileInput } from '../../components/ui/file-input.js';
 import { Input } from '../../components/ui/input.js';
 import {
   Select,
@@ -80,7 +81,6 @@ import { errorMessage } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
 import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
-import { onFilePick } from '../../lib/file-pick.js';
 import { withFieldMessages } from '../../lib/form.js';
 import { formatDateTime, formatRelative } from '../../lib/format.js';
 import {
@@ -350,7 +350,7 @@ export function KnowledgePage() {
   const remove = useDeleteKnowledgeBase();
   const exporter = useExportKnowledgeBase();
   const importer = useImportKnowledgeBase();
-  const importInput = useRef<HTMLInputElement>(null);
+  const [importController] = useState(createFileInputController);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<KnowledgeBase | null>(null);
   const [duplicating, setDuplicating] = useState<KnowledgeBase | null>(null);
@@ -547,16 +547,17 @@ export function KnowledgePage() {
       }
       actions={
         <>
-          <input
-            ref={importInput}
-            type="file"
+          <FileInput
+            controller={importController}
+            aria-label="导入知识包"
             accept="application/zip,.zip"
-            className="hidden"
-            aria-label="选择知识包 ZIP"
-            onChange={onFilePick((files) => {
+            disabled={importer.isPending}
+            className="contents"
+            onValueChange={(files, details) => {
+              details.cancel();
               const file = files[0];
               if (file) onImportFile(file);
-            })}
+            }}
           />
           {canCreate && (bases.isPending || bases.isError || baseItems.length > 0) ? (
             <Button ref={createButtonRef} onClick={() => setCreating(true)}>
@@ -578,7 +579,7 @@ export function KnowledgePage() {
                     <DropdownMenuItem
                       disabled={importer.isPending}
                       aria-busy={importer.isPending}
-                      onSelect={() => importInput.current?.click()}
+                      onSelect={() => importController.open()}
                     >
                       <Upload aria-hidden="true" />
                       {importer.isPending ? '导入中…' : '导入知识包'}
@@ -967,7 +968,6 @@ function CreateBaseDialog({
                 disabled={pending}
                 aria-required="true"
                 aria-invalid={Boolean(errors.name)}
-                aria-describedby={errors.name ? 'knowledge-name-error' : undefined}
               />
               <FieldError id="knowledge-name-error">{errors.name?.message}</FieldError>
             </Field>
@@ -979,7 +979,6 @@ function CreateBaseDialog({
                 disabled={pending}
                 rows={2}
                 aria-invalid={Boolean(errors.description)}
-                aria-describedby={errors.description ? 'knowledge-description-error' : undefined}
               />
               <FieldError id="knowledge-description-error">
                 {errors.description?.message}
@@ -1013,11 +1012,6 @@ function CreateBaseDialog({
                     id="knowledge-slug"
                     disabled={pending}
                     aria-invalid={Boolean(errors.slug)}
-                    aria-describedby={
-                      errors.slug
-                        ? 'knowledge-slug-hint knowledge-slug-error'
-                        : 'knowledge-slug-hint'
-                    }
                     className="font-mono"
                   />
                   <FieldDescription id="knowledge-slug-hint">留空时按名称生成</FieldDescription>
@@ -1084,9 +1078,6 @@ function CreateBaseDialog({
                         id="knowledge-embedding"
                         className="w-full"
                         aria-invalid={Boolean(errors.embeddingProfileId)}
-                        aria-describedby={
-                          errors.embeddingProfileId ? 'knowledge-embedding-error' : undefined
-                        }
                       >
                         <SelectValue />
                       </SelectTrigger>
@@ -1179,9 +1170,6 @@ function CreateBaseDialog({
                       inputMode="numeric"
                       disabled={pending}
                       aria-invalid={Boolean(errors.chunkTokens)}
-                      aria-describedby={
-                        errors.chunkTokens ? 'knowledge-chunk-tokens-error' : undefined
-                      }
                     />
                     <FieldError id="knowledge-chunk-tokens-error">
                       {errors.chunkTokens?.message}
@@ -1195,9 +1183,6 @@ function CreateBaseDialog({
                       inputMode="numeric"
                       disabled={pending}
                       aria-invalid={Boolean(errors.chunkOverlap)}
-                      aria-describedby={
-                        errors.chunkOverlap ? 'knowledge-chunk-overlap-error' : undefined
-                      }
                     />
                     <FieldError id="knowledge-chunk-overlap-error">
                       {errors.chunkOverlap?.message}

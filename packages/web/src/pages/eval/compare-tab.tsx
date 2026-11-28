@@ -4,8 +4,12 @@ import { EmptyState, ErrorState, LoadingState } from '../../components/states.js
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
+import {
+  SegmentedControl,
+  SegmentedControlIndicator,
+  SegmentedControlItem,
+} from '../../components/ui/segmented-control.js';
 import type { EvalRun } from '../../lib/api.js';
-import { cn } from '../../lib/cn.js';
 import {
   evalComparisonStatusLabel,
   evalComparisonStatusVariant,
@@ -14,6 +18,7 @@ import {
   shortId,
 } from '../../lib/format.js';
 import { useEvalComparison } from '../../lib/queries.js';
+import { useOptimisticValue } from '../../lib/use-optimistic-value.js';
 import { CompareSide } from './compare-side.js';
 import type { EvalDiffFilter, EvalSearchPatch } from './shared.js';
 
@@ -51,6 +56,7 @@ export function EvalCompareTab({
     hasValidPair ? effectiveBaseId : '',
     hasValidPair ? effectiveHeadId : '',
   );
+  const [optimisticDiff, commitDiff] = useOptimisticValue(diff);
 
   if (!hasValidPair) {
     if (runsPending) return <LoadingState rows={3} />;
@@ -144,27 +150,26 @@ export function EvalCompareTab({
           />
         </div>
 
-        <fieldset
+        <SegmentedControl<EvalDiffFilter>
           aria-label="筛选对比结果"
-          className="inline-flex items-center rounded-pill border-0 bg-sunken p-0.5"
+          value={optimisticDiff}
+          onValueChange={(next) => {
+            if (next !== null && next !== optimisticDiff) {
+              commitDiff(next, () => onChangeSearch({ diff: next }));
+            }
+          }}
         >
+          <SegmentedControlIndicator />
           {diffOptions.map((option) => (
-            <button
+            <SegmentedControlItem
               key={option.value}
-              type="button"
-              aria-pressed={diff === option.value}
-              onClick={() => onChangeSearch({ diff: option.value })}
-              className={cn(
-                'rounded-pill px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                diff === option.value
-                  ? 'bg-surface text-fg shadow-sm'
-                  : 'text-muted-foreground hover:text-fg',
-              )}
+              value={option.value}
+              className="h-6 px-2.5 text-xs"
             >
               {option.label}
-            </button>
+            </SegmentedControlItem>
           ))}
-        </fieldset>
+        </SegmentedControl>
       </div>
 
       {comparison.isSuccess ? (
@@ -235,38 +240,40 @@ export function EvalCompareTab({
       ) : null}
 
       {comparison.isSuccess && visibleRows.length > 0 ? (
-        <div className="flex flex-col gap-3 pt-2">
+        <ul aria-label="对比结果列表" className="flex flex-col gap-3 pt-2">
           {visibleRows.map((row) => (
-            <Card key={`${effectiveBaseId}:${effectiveHeadId}:${row.key}`} hover="static" size="sm">
-              <CardHeader className="border-b">
-                <CardTitle className="flex flex-wrap items-center gap-2">
-                  <StatusBadge tone={evalComparisonStatusVariant[row.status]}>
-                    {evalComparisonStatusLabel[row.status]}
-                  </StatusBadge>
-                  <span className="min-w-0 break-words text-fg">
-                    {row.base?.name ?? row.head?.name ?? '—'}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <CompareSide
-                    title="基准"
-                    result={row.base}
-                    showPass={row.status !== 'changed_inputs' && row.status !== 'unverified'}
-                    defaultInputsOpen={row.status === 'changed_inputs'}
-                  />
-                  <CompareSide
-                    title="对比"
-                    result={row.head}
-                    showPass={row.status !== 'changed_inputs' && row.status !== 'unverified'}
-                    defaultInputsOpen={row.status === 'changed_inputs'}
-                  />
-                </div>
-              </CardContent>
-            </Card>
+            <li key={`${effectiveBaseId}:${effectiveHeadId}:${row.key}`}>
+              <Card hover="static" size="sm">
+                <CardHeader className="border-b">
+                  <CardTitle className="flex flex-wrap items-center gap-2">
+                    <StatusBadge tone={evalComparisonStatusVariant[row.status]}>
+                      {evalComparisonStatusLabel[row.status]}
+                    </StatusBadge>
+                    <span className="min-w-0 break-words text-fg">
+                      {row.base?.name ?? row.head?.name ?? '—'}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <CompareSide
+                      title="基准"
+                      result={row.base}
+                      showPass={row.status !== 'changed_inputs' && row.status !== 'unverified'}
+                      defaultInputsOpen={row.status === 'changed_inputs'}
+                    />
+                    <CompareSide
+                      title="对比"
+                      result={row.head}
+                      showPass={row.status !== 'changed_inputs' && row.status !== 'unverified'}
+                      defaultInputsOpen={row.status === 'changed_inputs'}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : null}
     </div>
   );

@@ -8,7 +8,6 @@ const labelClassName =
 function Label({ className, ...props }: ComponentProps<typeof LabelPrimitive>) {
   return (
     <LabelPrimitive
-      data-slot="label"
       className={
         typeof className === 'function'
           ? (state) => cn(labelClassName, className(state))

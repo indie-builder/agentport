@@ -1,5 +1,5 @@
 import { ChevronRight, Filter, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type {
   KnowledgeContentKind,
   KnowledgeSearchHit,
@@ -120,6 +120,7 @@ function MultiFilter({
   selected: string[] | undefined;
   onChange: (next: string[] | undefined) => void;
 }) {
+  const idPrefix = useId();
   const active = selected ?? [];
   return (
     <Popover>
@@ -138,22 +139,27 @@ function MultiFilter({
         {options.length === 0 ? (
           <p className="text-xs text-muted-foreground">没有可选项</p>
         ) : (
-          options.map((option) => (
-            <span
-              key={option.value}
-              className="flex cursor-pointer items-center gap-2 rounded-item px-1 py-1 text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-hover"
-            >
-              <Checkbox
-                aria-label={option.label}
-                checked={active.includes(option.value)}
-                onCheckedChange={() => {
-                  const next = toggleValue(selected, option.value, []);
-                  onChange(next.length === 0 ? undefined : next);
-                }}
-              />
-              <span className="truncate">{option.label}</span>
-            </span>
-          ))
+          options.map((option, index) => {
+            const checkboxId = `${idPrefix}-${index}`;
+            return (
+              <label
+                key={option.value}
+                htmlFor={checkboxId}
+                className="flex cursor-pointer items-center gap-2 rounded-item px-1 py-1 text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-hover"
+              >
+                <Checkbox
+                  id={checkboxId}
+                  aria-label={option.label}
+                  checked={active.includes(option.value)}
+                  onCheckedChange={() => {
+                    const next = toggleValue(selected, option.value, []);
+                    onChange(next.length === 0 ? undefined : next);
+                  }}
+                />
+                <span className="truncate">{option.label}</span>
+              </label>
+            );
+          })
         )}
         {active.length > 0 ? (
           <Button
@@ -177,6 +183,7 @@ function KindFilter({
   selected: KnowledgeContentKind[] | undefined;
   onChange: (next: KnowledgeContentKind[] | undefined) => void;
 }) {
+  const idPrefix = useId();
   return (
     <Popover>
       <PopoverTrigger
@@ -191,12 +198,15 @@ function KindFilter({
       <PopoverContent align="start" className="w-48">
         {ALL_KINDS.map((kind) => {
           const active = selected === undefined || selected.includes(kind);
+          const checkboxId = `${idPrefix}-${kind}`;
           return (
-            <span
+            <label
               key={kind}
+              htmlFor={checkboxId}
               className="flex cursor-pointer items-center gap-2 rounded-item px-1 py-1 text-xs text-fg transition-colors duration-150 ease-out-soft hover:bg-hover"
             >
               <Checkbox
+                id={checkboxId}
                 aria-label={contentKindLabel[kind]}
                 checked={active}
                 onCheckedChange={() => {
@@ -209,7 +219,7 @@ function KindFilter({
                 }}
               />
               <span>{contentKindLabel[kind]}</span>
-            </span>
+            </label>
           );
         })}
       </PopoverContent>

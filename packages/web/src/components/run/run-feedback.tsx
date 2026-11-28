@@ -4,10 +4,8 @@ import {
   submitRunFeedbackSchema,
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Star } from 'lucide-react';
 import { useState } from 'react';
 import { authenticated } from '../../lib/access.js';
-import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { formatDateTime, formatRelative } from '../../lib/format.js';
 import { meQuery, useRunFeedback, useSubmitRunFeedback } from '../../lib/queries.js';
@@ -21,6 +19,7 @@ import { StatusBadge } from '../status-badge.js';
 import { Button } from '../ui/button.js';
 import { Dialog } from '../ui/dialog.js';
 import { Field, FieldError, FieldGroup, FieldLabel, FieldTitle } from '../ui/field.js';
+import { Rating, RatingItem } from '../ui/rating.js';
 import {
   Select,
   SelectContent,
@@ -39,19 +38,14 @@ const DECISION_LABEL: Record<RunFeedbackDecision, string> = {
 
 function RatingStars({ rating }: { rating: number }) {
   return (
-    <span
-      role="img"
-      className="inline-flex items-center gap-0.5"
-      aria-label={`评分 ${rating} 分，满分 5 分`}
+    <Rating
+      value={rating}
+      readOnly
+      className="gap-0.5"
+      getValueLabel={(value, max) => `评分 ${value} 分，满分 ${max} 分`}
     >
-      {[1, 2, 3, 4, 5].map((value) => (
-        <Star
-          key={value}
-          aria-hidden="true"
-          className={cn('size-3', value <= rating ? 'fill-current text-fg' : 'text-subtle')}
-        />
-      ))}
-    </span>
+      <RatingItem className="size-3 [&_svg:not([class*='size-'])]:size-3" />
+    </Rating>
   );
 }
 
@@ -166,29 +160,20 @@ function FeedbackDialog({
             <Field className="gap-1.5">
               <FieldTitle>评分</FieldTitle>
               <div className="flex flex-wrap items-center gap-1">
-                {[1, 2, 3, 4, 5].map((value) => (
-                  <Button
-                    key={value}
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`${value} 星`}
-                    aria-pressed={rating === value}
-                    disabled={pending}
-                    onClick={() =>
-                      form.setValue('rating', rating === value ? null : value, {
-                        shouldDirty: true,
-                      })
-                    }
-                  >
-                    <Star
-                      aria-hidden="true"
-                      className={cn(
-                        rating != null && value <= rating ? 'fill-current text-fg' : 'text-subtle',
-                      )}
-                    />
-                  </Button>
-                ))}
+                <Rating
+                  aria-label="评分"
+                  value={rating ?? null}
+                  deselectable
+                  disabled={pending}
+                  getValueLabel={(value) => `${value} 星`}
+                  onValueChange={(next) =>
+                    form.setValue('rating', next, {
+                      shouldDirty: true,
+                    })
+                  }
+                >
+                  <RatingItem />
+                </Rating>
                 {rating == null ? null : (
                   <Button
                     type="button"

@@ -7,6 +7,7 @@ import {
 } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import {
   Archive,
   ArchiveRestore,
@@ -54,6 +55,7 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import { createFileInputController, FileInput } from '../../components/ui/file-input.js';
 import {
   Select,
   SelectContent,
@@ -122,7 +124,7 @@ export function AgentsPage() {
   const [pendingFavoriteIds, setPendingFavoriteIds] = useState<Set<string>>(() => new Set());
   const [badgeId, setBadgeId] = useState<string | null>(null);
   const badgeTriggerRef = useRef<HTMLElement | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
+  const [importController] = useState(createFileInputController);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const editorTriggerRef = useRef<HTMLElement | null>(null);
@@ -279,14 +281,15 @@ export function AgentsPage() {
           title="找专家"
           actions={
             <>
-              <input
-                ref={fileInput}
-                type="file"
+              <FileInput
+                controller={importController}
+                aria-label="导入专家文件"
                 accept="application/zip,.zip,text/markdown,.md"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = '';
+                disabled={importing}
+                className="contents"
+                onValueChange={(files, details) => {
+                  details.cancel();
+                  const file = files[0];
                   if (!file) return;
                   if (file.name.toLowerCase().endsWith('.md')) void importFile(file);
                   else setPendingImport(file);
@@ -328,7 +331,7 @@ export function AgentsPage() {
                         disabled={importing}
                         onSelect={() => {
                           editorTriggerRef.current = moreTriggerRef.current;
-                          fileInput.current?.click();
+                          importController.open();
                         }}
                       >
                         <Upload className="size-4" aria-hidden="true" />
@@ -568,9 +571,7 @@ export function AgentsPage() {
             {showCreateCards ? (
               <>
                 <li className="min-w-0">
-                  <button
-                    type="button"
-                    aria-label="新建专家"
+                  <ButtonPrimitive
                     disabled={importing}
                     onClick={(event) => {
                       editorTriggerRef.current = event.currentTarget;
@@ -590,12 +591,10 @@ export function AgentsPage() {
                       <Plus aria-hidden="true" />
                       <span>新建专家</span>
                     </span>
-                  </button>
+                  </ButtonPrimitive>
                 </li>
                 <li className="min-w-0">
-                  <button
-                    type="button"
-                    aria-label="创建数字分身"
+                  <ButtonPrimitive
                     disabled={importing}
                     onClick={(event) => {
                       editorTriggerRef.current = event.currentTarget;
@@ -618,7 +617,7 @@ export function AgentsPage() {
                       <Plus aria-hidden="true" />
                       <span>创建数字分身</span>
                     </span>
-                  </button>
+                  </ButtonPrimitive>
                 </li>
               </>
             ) : null}
@@ -768,6 +767,7 @@ export function AgentsPage() {
                               {canDelete && (isArchived || isDeleted) ? (
                                 <DropdownMenuItem
                                   disabled={restore.isPending}
+                                  data-agent-confirm={`恢复专家「${agent.name}」`}
                                   onSelect={() =>
                                     restore.mutate(agent.id, {
                                       onSuccess: () => toastSuccess('已恢复专家'),
@@ -781,6 +781,7 @@ export function AgentsPage() {
                               {canDelete && !isArchived && !isDeleted ? (
                                 <DropdownMenuItem
                                   disabled={archive.isPending}
+                                  data-agent-confirm={`归档专家「${agent.name}」`}
                                   onSelect={() =>
                                     archive.mutate(agent.id, {
                                       onSuccess: () => toastSuccess('已归档专家'),

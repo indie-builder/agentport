@@ -48,28 +48,45 @@ const sortableList = definePrimitive({
         }
       },
     });
-    return { reorder };
+    const focusHandle = (key: string): void => {
+      queueMicrotask(() => context.element('handle', key)?.focus({ preventScroll: true }));
+    };
+    const move = (value: string, toIndex: number): boolean => {
+      const order = reorder.order(context.store.get());
+      if (typeof value !== 'string' || !order.includes(value)) {
+        throw new Error(`Unknown item "${String(value)}". Items: ${order.join(', ')}.`);
+      }
+      if (
+        typeof toIndex !== 'number' ||
+        !Number.isInteger(toIndex) ||
+        toIndex < 0 ||
+        toIndex >= order.length
+      ) {
+        throw new Error(`Index ${String(toIndex)} out of range (0-${order.length - 1}).`);
+      }
+      return reorder.move(value, toIndex);
+    };
+    const items = () => {
+      const { labels } = context.options();
+      return reorder
+        .order(context.store.get())
+        .map((value) => ({ value, label: labels[value] ?? value }));
+    };
+    return { reorder, move, items, focusHandle };
   },
   slots: (slot) => ({
-    root: slot<{}, { order: string[] }>({
+    root: slot<Record<never, never>, { order: string[] }>({
       state: (state, { api }) => ({ order: api.reorder.order(state) }),
       attrs: (state) => ({ 'data-moving': state.moving ? '' : undefined }),
       on: {
-        keydown: (event, { api, el, store }) => {
+        keydown: (event, { api, store }) => {
           if (event.defaultPrevented) return;
           if (event.key !== 'Escape' && event.key !== 'Tab') return;
           const moving = store.get().moving;
           if (!moving || moving.pointer) return;
           if (!api.reorder.keydown(event, '')) return;
           if (event.key !== 'Escape') return;
-          const key = moving.key;
-          queueMicrotask(() =>
-            Array.from(
-              el?.querySelectorAll<HTMLElement>('[data-slot="sortable-list-handle"]') ?? [],
-            )
-              .find((handle) => handle.dataset.value === key)
-              ?.focus({ preventScroll: true }),
-          );
+          api.focusHandle(moving.key);
         },
       },
       bind: (el, part) => {
@@ -104,16 +121,15 @@ const sortableList = definePrimitive({
     }),
     handle: slot<{ value: string }>({
       props: { value: 'string' },
-      attrs: (_, { key }) => ({
+      attrs: () => ({
         type: 'button',
-        'data-value': key,
         'aria-description':
           '按空格或回车拾取，方向键调整顺序，Home 或 End 移到两端，空格或回车放下，Escape 取消，Tab 取消并离开。',
       }),
       on: {
-        keydown: (event, { api, key, el }) => {
+        keydown: (event, { api, key }) => {
           if (api.reorder.keydown(event, key) && event.key !== 'Tab') {
-            queueMicrotask(() => el?.focus({ preventScroll: true }));
+            api.focusHandle(key);
           }
         },
         pointerdown: (event, { api, key, el }) => {
@@ -123,6 +139,10 @@ const sortableList = definePrimitive({
       },
     }),
   }),
+  agent: {
+    actions: ['move'],
+    items: (api) => api.items(),
+  },
 });
 
 const {
@@ -131,4 +151,4 @@ const {
   Handle: SortableListHandle,
 } = createParts(sortableList, { root: 'fieldset', item: 'div', handle: 'button' });
 
-export { SortableList, SortableListHandle, SortableListItem };
+export { SortableList, SortableListHandle, SortableListItem, sortableList };

@@ -1,4 +1,5 @@
 import { type Agent, PERMISSIONS } from '@agentport/shared';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import {
   act,
   type ComponentProps,
@@ -16,7 +17,7 @@ import { PageHeader } from '../src/components/page.js';
 import { ErrorState, LoadingState } from '../src/components/states.js';
 import { Combobox, ComboboxItem, ComboboxList } from '../src/components/ui/combobox.js';
 import { DropdownMenuTrigger } from '../src/components/ui/dropdown-menu.js';
-import { Field } from '../src/components/ui/field.js';
+import { Field, FieldDescription } from '../src/components/ui/field.js';
 import { Input } from '../src/components/ui/input.js';
 import { Select, SelectItem } from '../src/components/ui/select.js';
 import { Tabs } from '../src/components/ui/tabs.js';
@@ -895,12 +896,23 @@ describe('expert editor regressions', () => {
           selectSection(tree, '运行限制');
           return true;
         }
-        const label = tree.find((node) => node.props.htmlFor === 'agent-timeout');
+        const field = tree.find(
+          (node) =>
+            node.type === Field &&
+            elements(node).some((child) => child.props.id === 'agent-timeout'),
+        );
+        expect(field).toBeDefined();
+        const fieldNodes = elements(field);
+        const label = fieldNodes.find((node) => node.props.htmlFor === 'agent-timeout');
         expect(flatText(label?.props.children as ReactNode)).toBe('独立运行超时 (毫秒)');
-        const hint = tree.find((node) => node.props.id === 'agent-timeout-hint');
+        const hint = fieldNodes.find(
+          (node) => node.type === FieldDescription && node.props.id === 'agent-timeout-hint',
+        );
         expect(flatText(hint?.props.children as ReactNode)).toBe('被委派时使用主运行总超时。');
-        const input = tree.find((node) => node.props.id === 'agent-timeout');
-        expect(input?.props['aria-describedby']).toBe('agent-timeout-hint');
+        const input = fieldNodes.find(
+          (node) => node.type === Input && node.props.id === 'agent-timeout',
+        );
+        expect(input).toBeDefined();
       },
     );
   });
@@ -1494,7 +1506,11 @@ describe('expert editor regressions', () => {
       (toolbar.props.ref as { current: unknown }).current = fallback;
       if (pass === 0) {
         const fan = tree.find(
-          (node) => node.type === 'button' && node.props['aria-label'] === '新建专家',
+          (node) =>
+            (node.type === 'button' || node.type === ButtonPrimitive) &&
+            elements(node.props.children as ReactNode).some(
+              (child) => child.type === 'span' && child.props.children === '新建专家',
+            ),
         );
         if (!fan) throw new Error('Missing create trigger');
         (fan.props.onClick as (event: unknown) => void)({ currentTarget: trigger });

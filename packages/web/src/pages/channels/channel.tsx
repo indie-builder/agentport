@@ -505,6 +505,7 @@ function ChannelWorkspace({
   const mentionMenu = useMentionList(
     {
       open: mention !== null && mentionOptions.length > 0,
+      options: mentionOptions,
       onSelect: (agentId) => {
         const target = mentionOptions.find((option) => option.agentId === agentId);
         if (target !== undefined) pickMention(target);
@@ -1069,6 +1070,7 @@ function RunControls({
                     variant="destructive"
                     disabled={deciding}
                     aria-busy={deny.isPending && deny.variables === approval.id}
+                    data-agent-confirm={`拒绝 ${approval.serverName ?? approval.serverId} / ${approval.toolName} 的工具调用`}
                     onClick={() =>
                       deny.mutate(approval.id, {
                         onSuccess: () => toastSuccess('已拒绝'),
@@ -1083,6 +1085,7 @@ function RunControls({
                     variant="default"
                     disabled={deciding}
                     aria-busy={approve.isPending && approve.variables === approval.id}
+                    data-agent-confirm={`批准 ${approval.serverName ?? approval.serverId} / ${approval.toolName} 的工具调用`}
                     onClick={() =>
                       approve.mutate(approval.id, {
                         onSuccess: () => toastSuccess('已批准'),

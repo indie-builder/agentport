@@ -1,4 +1,5 @@
 import { code, type ThemeInput } from '@streamdown/code';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { type ComponentProps, type CSSProperties, memo, useDeferredValue, useMemo } from 'react';
 import {
   type Components,
@@ -310,9 +311,9 @@ const staticAnchor =
         return <span className={cn(LINK_CLASS, 'text-fg')}>{children}</span>;
       }
       return (
-        <button type="button" onClick={() => fileLinks.onSelect(path)} className={LINK_CLASS}>
+        <ButtonPrimitive onClick={() => fileLinks.onSelect(path)} className={LINK_CLASS}>
           {children}
-        </button>
+        </ButtonPrimitive>
       );
     }
     if (!url.startsWith('#') && !isSafeExternal(url)) {

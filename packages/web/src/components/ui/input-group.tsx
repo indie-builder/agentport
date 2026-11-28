@@ -1,27 +1,33 @@
+import { InputClear, InputGroup as InputGroupPrimitive } from '@ui-sdk/react/input';
 import { cva, type VariantProps } from 'class-variance-authority';
-import type * as React from 'react';
+import type { ComponentProps } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/cn';
 
-function InputGroup({ className, ...props }: React.ComponentProps<'div'>) {
+const inputGroupClassName =
+  'group/input-group relative flex h-8 w-full min-w-0 items-center rounded-lg border border-input transition-colors outline-none has-[:is([data-slot=input],[data-slot=textarea]):disabled]:bg-sunken has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:border-[var(--color-subtle)] has-[[data-slot][aria-invalid=true]]:border-destructive has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:border-destructive has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-2 has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-solid has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-ring has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-offset-2 has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto dark:bg-input/30 dark:has-[:is([data-slot=input],[data-slot=textarea]):disabled]:bg-input/80 dark:has-[[data-slot][aria-invalid=true]]:border-destructive/50 has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-1.5 has-[>[data-align=inline-start]]:[&>input]:pl-1.5';
+
+type InputGroupProps = Omit<ComponentProps<typeof InputGroupPrimitive>, 'className'> & {
+  className?: ComponentProps<typeof InputGroupPrimitive>['className'] | undefined;
+};
+
+function InputGroup({ className, ...props }: InputGroupProps) {
   return (
-    // biome-ignore lint/a11y/useSemanticElements: Preserve the registry input-group layout around its controls.
-    <div
-      data-slot="input-group"
-      role="group"
-      className={cn(
-        'group/input-group relative flex h-8 w-full min-w-0 items-center rounded-lg border border-input transition-colors outline-none has-[[data-slot=input-group-control]:disabled]:bg-sunken has-[[data-slot=input-group-control]:focus-visible]:border-[var(--color-subtle)] has-[[data-slot][aria-invalid=true]]:border-destructive has-[[data-slot][aria-invalid=true]]:has-[[data-slot=input-group-control]:focus-visible]:border-destructive has-[[data-slot][aria-invalid=true]]:has-[[data-slot=input-group-control]:focus-visible]:outline-2 has-[[data-slot][aria-invalid=true]]:has-[[data-slot=input-group-control]:focus-visible]:outline-solid has-[[data-slot][aria-invalid=true]]:has-[[data-slot=input-group-control]:focus-visible]:outline-ring has-[[data-slot][aria-invalid=true]]:has-[[data-slot=input-group-control]:focus-visible]:outline-offset-2 has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto dark:bg-input/30 dark:has-[[data-slot=input-group-control]:disabled]:bg-input/80 dark:has-[[data-slot][aria-invalid=true]]:border-destructive/50 has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-1.5 has-[>[data-align=inline-start]]:[&>input]:pl-1.5',
-        className,
-      )}
+    <InputGroupPrimitive
+      className={
+        typeof className === 'function'
+          ? (state) => cn(inputGroupClassName, className(state))
+          : cn(inputGroupClassName, className)
+      }
       {...props}
     />
   );
 }
 
 const inputGroupAddonVariants = cva(
-  "flex h-auto cursor-text items-center justify-center gap-2 py-1.5 text-sm font-medium text-muted-foreground select-none group-data-[disabled=true]/input-group:opacity-50 [&>kbd]:rounded-tag [&>svg:not([class*='size-'])]:size-4",
+  "flex h-auto cursor-text items-center justify-center gap-2 py-1.5 text-sm font-medium text-muted-foreground select-none group-data-disabled/input-group:opacity-50 [&>kbd]:rounded-tag [&>svg:not([class*='size-'])]:size-4",
   {
     variants: {
       align: {
@@ -43,23 +49,12 @@ function InputGroupAddon({
   className,
   align = 'inline-start',
   ...props
-}: React.ComponentProps<'div'> & VariantProps<typeof inputGroupAddonVariants>) {
+}: ComponentProps<'div'> & VariantProps<typeof inputGroupAddonVariants>) {
   return (
-    // biome-ignore lint/a11y/useSemanticElements: Registry addons group decorations and buttons within the input.
-    // biome-ignore lint/a11y/useKeyWithClickEvents: This only focuses the input on pointer clicks; keyboard users focus it directly.
     <div
-      role="group"
       data-slot="input-group-addon"
       data-align={align}
       className={cn(inputGroupAddonVariants({ align }), className)}
-      onClick={(e) => {
-        if ((e.target as HTMLElement).closest('button')) {
-          return;
-        }
-        e.currentTarget.parentElement
-          ?.querySelector<HTMLInputElement | HTMLTextAreaElement>('input, textarea')
-          ?.focus();
-      }}
       {...props}
     />
   );
@@ -85,7 +80,7 @@ function InputGroupButton({
   variant = 'ghost',
   size = 'xs',
   ...props
-}: Omit<React.ComponentProps<typeof Button>, 'size' | 'type'> &
+}: Omit<ComponentProps<typeof Button>, 'size' | 'type'> &
   VariantProps<typeof inputGroupButtonVariants> & {
     type?: 'button' | 'submit' | 'reset';
   }) {
@@ -100,14 +95,17 @@ function InputGroupButton({
   );
 }
 
-function InputGroupInput({ className, ...props }: React.ComponentProps<'input'>) {
+const inputGroupInputClassName =
+  'flex-1 rounded-none border-0 bg-transparent shadow-none ring-0 focus-visible:ring-0 disabled:bg-transparent aria-invalid:ring-0 aria-invalid:focus-visible:outline-0 dark:bg-transparent dark:disabled:bg-transparent';
+
+function InputGroupInput({ className, ...props }: ComponentProps<typeof Input>) {
   return (
     <Input
-      data-slot="input-group-control"
-      className={cn(
-        'flex-1 rounded-none border-0 bg-transparent shadow-none ring-0 focus-visible:ring-0 disabled:bg-transparent aria-invalid:ring-0 aria-invalid:focus-visible:outline-0 dark:bg-transparent dark:disabled:bg-transparent',
-        className,
-      )}
+      className={
+        typeof className === 'function'
+          ? (state) => cn(inputGroupInputClassName, className(state))
+          : cn(inputGroupInputClassName, className)
+      }
       {...props}
     />
   );
@@ -116,10 +114,9 @@ function InputGroupInput({ className, ...props }: React.ComponentProps<'input'>)
 const inputGroupTextareaClassName =
   'flex-1 resize-none rounded-none border-0 bg-transparent shadow-none focus-visible:border-transparent disabled:bg-transparent aria-invalid:focus-visible:outline-0';
 
-function InputGroupTextarea({ className, ...props }: React.ComponentProps<typeof Textarea>) {
+function InputGroupTextarea({ className, ...props }: ComponentProps<typeof Textarea>) {
   return (
     <Textarea
-      data-slot="input-group-control"
       className={
         typeof className === 'function'
           ? (state) => cn(inputGroupTextareaClassName, className(state))
@@ -130,4 +127,11 @@ function InputGroupTextarea({ className, ...props }: React.ComponentProps<typeof
   );
 }
 
-export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupTextarea };
+export {
+  InputClear,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+  InputGroupTextarea,
+};

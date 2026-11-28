@@ -1,6 +1,7 @@
 import type { AgentSummary, PermissionId } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Archive, ArchiveRestore, ArrowLeft, Bot, EllipsisVertical, Trash2 } from 'lucide-react';
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { AgentAvatar } from '../../components/agent/agent-avatar.js';
@@ -42,6 +43,7 @@ import {
   useUpdateAgent,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useOptimisticValue } from '../../lib/use-optimistic-value.js';
 import { AgentEditor } from './agent-editor.js';
 import { AgentInstructions } from './agent-instructions.js';
 import { AgentMembersDialog, TransferAgentDialog } from './agent-member-dialogs.js';
@@ -308,6 +310,7 @@ export function AgentDetailPage() {
                       ) : null}
                       {canDelete && !isArchived ? (
                         <DropdownMenuItem
+                          data-agent-confirm={`归档专家「${current.name}」`}
                           onSelect={() =>
                             archive.mutate(agentId, {
                               onSuccess: () => {
@@ -323,6 +326,7 @@ export function AgentDetailPage() {
                       ) : null}
                       {canDelete && isArchived ? (
                         <DropdownMenuItem
+                          data-agent-confirm={`恢复专家「${current.name}」`}
                           onSelect={() =>
                             restore.mutate(agentId, {
                               onSuccess: () => {
@@ -468,6 +472,7 @@ function RestrictedAgentTabs({
       : (available[0]?.id ?? 'overview');
   };
   const tab = permittedTab(search.tab);
+  const [optimisticTab, commitTab, resetTab] = useOptimisticValue(tab);
   const isSubAgent = (agent.parentId ?? null) !== null;
   const instruction = activeInstruction(
     asInstruction(search.tab) ?? search.instruction,
@@ -506,6 +511,9 @@ function RestrictedAgentTabs({
   useEffect(() => {
     settleNavigationRef.current = () => blocker.reset?.();
   }, [blocker, settleNavigationRef]);
+  useEffect(() => {
+    if (blocker.status === 'blocked') resetTab();
+  }, [blocker.status, resetTab]);
 
   if (available.length === 0) return null;
 
@@ -515,17 +523,19 @@ function RestrictedAgentTabs({
     view?: MemoryView | undefined;
     file?: string | undefined;
     usageDays?: 7 | 30 | 90 | undefined;
-  }): void => {
-    void navigate({
+  }): Promise<void> =>
+    navigate({
       to: '/agents/$agentId',
       params: { agentId },
       search: (current) => ({ ...current, ...next }),
       replace: true,
     });
-  };
-  const changeTab = (next: TabId): void => {
-    if (next === tab || pending) return;
-    navigateSearch({ tab: next });
+  const changeTab = (next: TabId, details?: { cancel: () => void }): void => {
+    if (next === optimisticTab || pending) {
+      details?.cancel();
+      return;
+    }
+    commitTab(next, () => navigateSearch({ tab: next }));
   };
   const proceedLeave = (): void => {
     if (!pending) blocker.proceed?.();
@@ -536,7 +546,10 @@ function RestrictedAgentTabs({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5">
       <PageTopbar>
-        <Tabs value={tab} onValueChange={(next) => changeTab(next as TabId)}>
+        <Tabs
+          value={optimisticTab}
+          onValueChange={(next, details) => changeTab(next as TabId, details)}
+        >
           <TabsList variant="line" aria-label="专家任务">
             {available.map((item) => (
               <TabsTrigger key={item.id} value={item.id}>
@@ -656,9 +669,8 @@ function ReadonlyAgentFiles({
             {entries
               .filter((entry) => entry.group === group)
               .map((entry) => (
-                <button
+                <ButtonPrimitive
                   key={entry.id}
-                  type="button"
                   aria-current={entry.id === current?.id ? 'true' : undefined}
                   onClick={() => onFileChange(entry.id)}
                   className={cn(
@@ -669,7 +681,7 @@ function ReadonlyAgentFiles({
                   )}
                 >
                   {entry.path}
-                </button>
+                </ButtonPrimitive>
               ))}
           </div>
         ))}

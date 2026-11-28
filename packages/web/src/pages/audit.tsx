@@ -29,7 +29,7 @@ import {
   timeRangeOptions,
 } from '../lib/format.js';
 import { useAudit } from '../lib/queries.js';
-import { toastError, toastSuccess } from '../lib/toast.js';
+import { toastError, toastPromise } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
 
 const actorKindLabel: Record<AuditEntry['actorKind'], string> = {
@@ -362,33 +362,38 @@ export function AuditPage() {
     if (verifying) return;
     setVerifying(true);
     try {
-      let afterSeq: number | undefined;
-      let checked = 0;
-      let complete = false;
-      for (let i = 0; i < 200; i += 1) {
-        const result = await api.verifyAudit({
-          limit: 5000,
-          ...(afterSeq === undefined ? {} : { afterSeq }),
-        });
-        checked += result.checked;
-        if (!result.ok) {
-          toastError(
-            new Error(
-              `审计链校验失败：seq ${result.brokenSeq ?? '未知'} 处断链（已校验 ${checked} 条）`,
-            ),
-          );
-          return;
-        }
-        if (result.complete || result.nextAfterSeq === null) {
-          complete = true;
-          break;
-        }
-        afterSeq = result.nextAfterSeq;
-      }
-      if (complete) toastSuccess(`审计链完整，已校验 ${checked} 条记录`);
-      else toastError(new Error(`校验未完成，已校验 ${checked} 条，请重试`));
-    } catch (error) {
-      toastError(error);
+      await toastPromise(
+        async () => {
+          let afterSeq: number | undefined;
+          let checked = 0;
+          let complete = false;
+          for (let i = 0; i < 200; i += 1) {
+            const result = await api.verifyAudit({
+              limit: 5000,
+              ...(afterSeq === undefined ? {} : { afterSeq }),
+            });
+            checked += result.checked;
+            if (!result.ok) {
+              throw new Error(
+                `审计链校验失败：seq ${result.brokenSeq ?? '未知'} 处断链（已校验 ${checked} 条）`,
+              );
+            }
+            if (result.complete || result.nextAfterSeq === null) {
+              complete = true;
+              break;
+            }
+            afterSeq = result.nextAfterSeq;
+          }
+          if (!complete) throw new Error(`校验未完成，已校验 ${checked} 条，请重试`);
+          return checked;
+        },
+        {
+          loading: '正在校验审计链完整性…',
+          success: (checked) => `审计链完整，已校验 ${checked} 条记录`,
+        },
+      );
+    } catch {
+      return;
     } finally {
       setVerifying(false);
     }

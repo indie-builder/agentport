@@ -358,6 +358,7 @@ export function DataDomainFormDialog({
                 rootErrorId="data-domain-connection-error"
                 rootError={connectionError}
                 disabled={busy}
+                secretValue
                 registerKey={(index) => register(`connection.${index}.key` as const)}
                 registerValue={(index) => register(`connection.${index}.value` as const)}
                 keyError={keyError}
