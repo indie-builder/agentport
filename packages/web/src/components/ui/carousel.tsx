@@ -65,7 +65,7 @@ function CarouselPrevious({
       className={(state) =>
         cn(
           buttonVariants({ variant: 'outline', size: 'icon-sm' }),
-          'absolute inset-y-0 -left-12 my-auto touch-manipulation rounded-icon',
+          'absolute inset-y-0 -start-12 my-auto touch-manipulation rounded-icon',
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -73,7 +73,7 @@ function CarouselPrevious({
     >
       {children ?? (
         <>
-          <ChevronLeftIcon />
+          <ChevronLeftIcon aria-hidden="true" className="rtl:rotate-180" />
           <span className="sr-only">上一张</span>
         </>
       )}
@@ -91,7 +91,7 @@ function CarouselNext({
       className={(state) =>
         cn(
           buttonVariants({ variant: 'outline', size: 'icon-sm' }),
-          'absolute inset-y-0 -right-12 my-auto touch-manipulation rounded-icon',
+          'absolute inset-y-0 -end-12 my-auto touch-manipulation rounded-icon',
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -99,7 +99,7 @@ function CarouselNext({
     >
       {children ?? (
         <>
-          <ChevronRightIcon />
+          <ChevronRightIcon aria-hidden="true" className="rtl:rotate-180" />
           <span className="sr-only">下一张</span>
         </>
       )}

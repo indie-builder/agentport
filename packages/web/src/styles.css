@@ -301,7 +301,7 @@
   .skip-link {
     position: fixed;
     top: 1rem;
-    left: 1rem;
+    inset-inline-start: 1rem;
     z-index: 60;
     transition: transform 150ms var(--ease-out-soft);
     padding: 0.5rem 0.75rem;

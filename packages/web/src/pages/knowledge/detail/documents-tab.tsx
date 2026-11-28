@@ -1,5 +1,6 @@
 import { KNOWLEDGE_DOCUMENT_MAX_BYTES, type KnowledgeDocument } from '@agentport/shared';
 import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
+import { createMenuController } from '@ui-sdk/react/menu';
 import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
 import {
   ChevronDown,
@@ -185,7 +186,9 @@ export function DocumentsTab({
   const downloadDocuments = useDownloadKnowledgeDocuments(baseId);
   const [uploadController] = useState(createFileInputController);
   const [folderController] = useState(createFileInputController);
-  const [actionTrigger, setActionTrigger] = useState<HTMLElement | null>(null);
+  const [folderMenu] = useState(() => createMenuController<KnowledgeFolder>());
+  const [documentMenu] = useState(() => createMenuController<KnowledgeDocument>());
+  const actionTriggerRef = useRef<HTMLElement | null>(null);
   const [confirmReprocess, setConfirmReprocess] = useState<KnowledgeDocument | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
   const [editing, setEditing] = useState<KnowledgeDocument | null>(null);
@@ -209,7 +212,7 @@ export function DocumentsTab({
   }, [createdFolder, folderDialog, onFolderChange]);
   const [deletingFolder, setDeletingFolder] = useState<KnowledgeFolder | null>(null);
   const [managingTags, setManagingTags] = useState(false);
-  const [folderTrigger, setFolderTrigger] = useState<HTMLElement | null>(null);
+  const folderTriggerRef = useRef<HTMLElement | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [urlOpen, setUrlOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -358,42 +361,29 @@ export function DocumentsTab({
                   <span className="truncate">{folder.label}</span>
                 </ButtonPrimitive>
                 {entry && caps.content ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label={`文件夹操作 ${entry.name}`}
-                          className="transition-opacity duration-150 ease-out-soft [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/folder:opacity-100 group-focus-within/folder:opacity-100 focus-visible:opacity-100 data-open:opacity-100"
-                          onFocus={(event) => setFolderTrigger(event.currentTarget)}
-                          onClick={(event) => setFolderTrigger(event.currentTarget)}
-                        >
-                          <EllipsisVertical />
-                        </Button>
-                      }
-                    />
-                    <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem
-                          onSelect={() => setFolderDialog({ mode: 'rename', folder: entry })}
-                        >
-                          <Pencil /> 重命名
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => setFolderDialog({ mode: 'create', parentId: entry.id })}
-                        >
-                          <Plus /> 新建子文件夹
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onSelect={() => setDeletingFolder(entry)}
-                        >
-                          <Trash2 /> 删除
-                        </DropdownMenuItem>
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <DropdownMenuTrigger
+                    controller={folderMenu}
+                    payload={entry}
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`文件夹操作 ${entry.name}`}
+                        className="transition-opacity duration-150 ease-out-soft [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/folder:opacity-100 group-focus-within/folder:opacity-100 focus-visible:opacity-100 data-open:opacity-100"
+                        onFocus={(event) => {
+                          folderTriggerRef.current = event.currentTarget;
+                        }}
+                        onPointerDown={(event) => {
+                          folderTriggerRef.current = event.currentTarget;
+                        }}
+                        onClick={(event) => {
+                          folderTriggerRef.current = event.currentTarget;
+                        }}
+                      >
+                        <EllipsisVertical />
+                      </Button>
+                    }
+                  />
                 ) : null}
               </li>
             );
@@ -759,7 +749,7 @@ export function DocumentsTab({
                       className="block w-full truncate text-left text-fg hover:underline"
                       title={document.title}
                       onClick={() => {
-                        setActionTrigger(null);
+                        actionTriggerRef.current = null;
                         onDocumentChange(document.id);
                       }}
                     >
@@ -789,51 +779,28 @@ export function DocumentsTab({
                       document.status !== 'disabled' &&
                       document.currentVersionId !== null) ||
                     (document.status === 'failed' && document.currentVersionId === null) ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`操作 ${document.title}`}
-                              onFocus={(event) => setActionTrigger(event.currentTarget)}
-                              onClick={(event) => setActionTrigger(event.currentTarget)}
-                            >
-                              <EllipsisVertical />
-                            </Button>
-                          }
-                        />
-                        <DropdownMenuContent align="end" sideOffset={4} className="w-44">
-                          <DropdownMenuGroup>
-                            {caps.content ? (
-                              <DropdownMenuItem onSelect={() => setEditing(document)}>
-                                <FolderOpen /> 移动 / 标注
-                              </DropdownMenuItem>
-                            ) : null}
-                            {caps.execute &&
-                            document.disabledReason === null &&
-                            document.status !== 'disabled' &&
-                            (document.currentVersionId !== null || document.status === 'failed') ? (
-                              <DropdownMenuItem onSelect={() => setConfirmReprocess(document)}>
-                                <RefreshCw /> 重新解析
-                              </DropdownMenuItem>
-                            ) : null}
-                            {document.status === 'failed' && document.currentVersionId === null ? (
-                              <DropdownMenuItem onSelect={() => onViewJobs(document.id)}>
-                                <FileText /> 查看处理记录
-                              </DropdownMenuItem>
-                            ) : null}
-                            {caps.content ? (
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onSelect={() => setDeleting(document)}
-                              >
-                                <Trash2 /> 删除
-                              </DropdownMenuItem>
-                            ) : null}
-                          </DropdownMenuGroup>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <DropdownMenuTrigger
+                        controller={documentMenu}
+                        payload={document}
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`操作 ${document.title}`}
+                            onFocus={(event) => {
+                              actionTriggerRef.current = event.currentTarget;
+                            }}
+                            onPointerDown={(event) => {
+                              actionTriggerRef.current = event.currentTarget;
+                            }}
+                            onClick={(event) => {
+                              actionTriggerRef.current = event.currentTarget;
+                            }}
+                          >
+                            <EllipsisVertical />
+                          </Button>
+                        }
+                      />
                     ) : null}
                   </TableCell>
                 </TableRow>
@@ -854,7 +821,9 @@ export function DocumentsTab({
             title="重新解析文档"
             description={`将重新解析「${confirmReprocess.title}」并生成新版本；人工编辑过的分块会被丢弃。`}
             confirmLabel="重新解析"
-            finalFocus={() => actionTrigger}
+            finalFocus={() =>
+              actionTriggerRef.current?.isConnected ? actionTriggerRef.current : null
+            }
             onClose={() => setConfirmReprocess(null)}
             onConfirm={async () => {
               await reprocessDocument.mutateAsync(confirmReprocess.id);
@@ -867,7 +836,9 @@ export function DocumentsTab({
             open
             title="删除文档"
             description={`将删除「${deleting.title}」及其分块。引用它的 Wiki 页面会标记为待刷新。`}
-            finalFocus={() => actionTrigger}
+            finalFocus={() =>
+              actionTriggerRef.current?.isConnected ? actionTriggerRef.current : null
+            }
             onClose={() => setDeleting(null)}
             onConfirm={async () => {
               await removeDocument.mutateAsync(deleting.id);
@@ -928,7 +899,9 @@ export function DocumentsTab({
           <FolderDialog
             baseId={baseId}
             state={folderDialog}
-            finalFocus={() => (folderTrigger?.isConnected ? folderTrigger : null)}
+            finalFocus={() =>
+              folderTriggerRef.current?.isConnected ? folderTriggerRef.current : null
+            }
             onCreated={(folder) => {
               setFolderDialog(null);
               setCreatedFolder(folder.id);
@@ -941,7 +914,9 @@ export function DocumentsTab({
             open
             title="删除文件夹"
             description={`将删除「${deletingFolder.name}」及其子文件夹。其中的文档会移到未分类，不会被删除。`}
-            finalFocus={() => (folderTrigger?.isConnected ? folderTrigger : null)}
+            finalFocus={() =>
+              folderTriggerRef.current?.isConnected ? folderTriggerRef.current : null
+            }
             onClose={() => setDeletingFolder(null)}
             onConfirm={async () => {
               await deleteFolder.mutateAsync(deletingFolder.id);
@@ -980,6 +955,66 @@ export function DocumentsTab({
           }}
           onConfirm={async () => uploadBlocker.proceed()}
         />
+        <DropdownMenu controller={folderMenu}>
+          <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+            {(state) => {
+              const entry = state.payload as KnowledgeFolder | undefined;
+              if (!entry) return null;
+              return (
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    onSelect={() => setFolderDialog({ mode: 'rename', folder: entry })}
+                  >
+                    <Pencil /> 重命名
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => setFolderDialog({ mode: 'create', parentId: entry.id })}
+                  >
+                    <Plus /> 新建子文件夹
+                  </DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onSelect={() => setDeletingFolder(entry)}>
+                    <Trash2 /> 删除
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              );
+            }}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu controller={documentMenu}>
+          <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+            {(state) => {
+              const document = state.payload as KnowledgeDocument | undefined;
+              if (!document) return null;
+              return (
+                <DropdownMenuGroup>
+                  {caps.content ? (
+                    <DropdownMenuItem onSelect={() => setEditing(document)}>
+                      <FolderOpen /> 移动 / 标注
+                    </DropdownMenuItem>
+                  ) : null}
+                  {caps.execute &&
+                  document.disabledReason === null &&
+                  document.status !== 'disabled' &&
+                  (document.currentVersionId !== null || document.status === 'failed') ? (
+                    <DropdownMenuItem onSelect={() => setConfirmReprocess(document)}>
+                      <RefreshCw /> 重新解析
+                    </DropdownMenuItem>
+                  ) : null}
+                  {document.status === 'failed' && document.currentVersionId === null ? (
+                    <DropdownMenuItem onSelect={() => onViewJobs(document.id)}>
+                      <FileText /> 查看处理记录
+                    </DropdownMenuItem>
+                  ) : null}
+                  {caps.content ? (
+                    <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(document)}>
+                      <Trash2 /> 删除
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuGroup>
+              );
+            }}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

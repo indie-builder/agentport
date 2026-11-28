@@ -1,16 +1,6 @@
-import { type PartProps, renderElement } from '@ui-sdk/react/primitive';
+import { renderElement } from '@ui-sdk/react/primitive';
 import { cva, type VariantProps } from 'class-variance-authority';
-import type * as React from 'react';
-import { cn } from '@/lib/cn';
-
-function mergeClassName<State>(
-  base: string,
-  className: string | ((state: State) => string | undefined) | undefined,
-) {
-  return typeof className === 'function'
-    ? (state: State) => cn(base, className(state))
-    : cn(base, className);
-}
+import { type ElementPartProps, mergeClassName } from '@/components/ui/part-class';
 
 const bubbleVariants = cva(
   'group/bubble relative flex w-fit max-w-[80%] min-w-0 flex-col gap-1 group-data-[align=end]/message:self-end data-[align=end]:self-end data-[variant=ghost]:max-w-full',
@@ -43,16 +33,6 @@ type BubbleState = {
   slot: 'bubble';
   variant: NonNullable<VariantProps<typeof bubbleVariants>['variant']>;
   align: 'start' | 'end';
-};
-
-type ElementPartProps<Tag extends keyof React.JSX.IntrinsicElements, State> = Omit<
-  PartProps<Tag, State>,
-  'className' | 'style' | 'render' | 'children'
-> & {
-  className?: PartProps<Tag, State>['className'] | undefined;
-  style?: PartProps<Tag, State>['style'] | undefined;
-  render?: PartProps<Tag, State>['render'] | undefined;
-  children?: PartProps<Tag, State>['children'] | undefined;
 };
 
 function Bubble({
@@ -91,7 +71,7 @@ function BubbleContent({
       'data-slot': 'bubble-content',
       ...props,
       className: mergeClassName(
-        'w-fit max-w-full min-w-0 overflow-hidden rounded-xl border border-transparent px-3 py-2 text-sm leading-relaxed wrap-break-word group-data-[align=end]/bubble:self-end [button]:text-left [button,a]:transition-colors [button,a]:outline-none [button,a]:focus-visible:border-ring [button,a]:focus-visible:ring-3 [button,a]:focus-visible:ring-ring/50',
+        'w-fit max-w-full min-w-0 overflow-hidden rounded-xl border border-transparent px-3 py-2 text-sm leading-relaxed wrap-break-word group-data-[align=end]/bubble:self-end [button]:text-start [button,a]:transition-colors [button,a]:outline-none [button,a]:focus-visible:border-ring [button,a]:focus-visible:ring-3 [button,a]:focus-visible:ring-ring/50',
         className,
       ),
     },

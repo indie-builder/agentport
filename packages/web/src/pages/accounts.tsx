@@ -6,6 +6,7 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { createMenuController, type MenuController } from '@ui-sdk/react/menu';
 import {
   CirclePause,
   CirclePlay,
@@ -16,7 +17,7 @@ import {
   ShieldCheck,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -136,6 +137,8 @@ export function AccountsPage() {
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const remove = useDeleteAccount();
   const setStatus = useSetAccountStatus();
+  const [rowMenu] = useState(() => createMenuController<Account>());
+  const menuTriggerRef = useRef<HTMLElement | null>(null);
 
   const total = accounts.data?.total ?? 0;
   const items = accounts.data?.items ?? [];
@@ -302,12 +305,12 @@ export function AccountsPage() {
                       account={account}
                       canManage={canManage}
                       canManageRoles={canManageRoles}
+                      menu={rowMenu}
+                      onMenuTrigger={(trigger) => {
+                        menuTriggerRef.current = trigger;
+                      }}
                       className="justify-end"
                       onEdit={setEditing}
-                      onResetPassword={setResetting}
-                      onAssignRoles={setAssigningRoles}
-                      onToggleStatus={toggleStatus}
-                      onDelete={setDeleting}
                     />
                   </TableCell>
                 </TableRow>
@@ -336,10 +339,10 @@ export function AccountsPage() {
                         account={account}
                         canManage={canManage}
                         canManageRoles={canManageRoles}
-                        onResetPassword={setResetting}
-                        onAssignRoles={setAssigningRoles}
-                        onToggleStatus={toggleStatus}
-                        onDelete={setDeleting}
+                        menu={rowMenu}
+                        onTrigger={(trigger) => {
+                          menuTriggerRef.current = trigger;
+                        }}
                       />
                     </CardAction>
                   </CardHeader>
@@ -426,19 +429,25 @@ export function AccountsPage() {
       {editing ? <EditAccountDialog account={editing} onClose={() => setEditing(null)} /> : null}
 
       {resetting ? (
-        <ResetPasswordDialog account={resetting} onClose={() => setResetting(null)} />
+        <ResetPasswordDialog
+          account={resetting}
+          finalFocus={() => (menuTriggerRef.current?.isConnected ? menuTriggerRef.current : null)}
+          onClose={() => setResetting(null)}
+        />
       ) : null}
 
       {assigningRoles ? (
         <AssignRolesDialog
           account={assigningRoles}
           roleDirectory={roleDirectory}
+          finalFocus={() => (menuTriggerRef.current?.isConnected ? menuTriggerRef.current : null)}
           onClose={() => setAssigningRoles(null)}
         />
       ) : null}
 
       <ConfirmDialog
         open={statusTarget !== null}
+        finalFocus={() => (menuTriggerRef.current?.isConnected ? menuTriggerRef.current : null)}
         onClose={() => {
           setStatusTarget(null);
           setConfirmError(null);
@@ -463,6 +472,7 @@ export function AccountsPage() {
 
       <ConfirmDialog
         open={deleting !== null}
+        finalFocus={() => (menuTriggerRef.current?.isConnected ? menuTriggerRef.current : null)}
         onClose={() => {
           setDeleting(null);
           setConfirmError(null);
@@ -480,6 +490,44 @@ export function AccountsPage() {
       >
         {confirmError ? <FieldError>{confirmError}</FieldError> : null}
       </ConfirmDialog>
+      <DropdownMenu controller={rowMenu}>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+          {(state) => {
+            const account = state.payload as Account | undefined;
+            if (!account) return null;
+            return (
+              <>
+                <DropdownMenuGroup>
+                  {canManageRoles ? (
+                    <DropdownMenuItem onSelect={() => setAssigningRoles(account)}>
+                      <ShieldCheck /> 分配角色
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canManage ? (
+                    <>
+                      <DropdownMenuItem onSelect={() => setResetting(account)}>
+                        <KeyRound /> 重置密码
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => toggleStatus(account)}>
+                        {account.status === 'active' ? <CirclePause /> : <CirclePlay />}
+                        {account.status === 'active' ? '停用' : '启用'}
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </DropdownMenuGroup>
+                {canManage ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(account)}>
+                      <Trash2 /> 删除认证
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </>
+            );
+          }}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </Page>
   );
 }
@@ -495,58 +543,33 @@ function AccountRowMenu({
   account,
   canManage,
   canManageRoles,
-  onResetPassword,
-  onAssignRoles,
-  onToggleStatus,
-  onDelete,
+  menu,
+  onTrigger,
 }: {
   account: Account;
   canManage: boolean;
   canManageRoles: boolean;
-  onResetPassword: (account: Account) => void;
-  onAssignRoles: (account: Account) => void;
-  onToggleStatus: (account: Account) => void;
-  onDelete: (account: Account) => void;
+  menu: MenuController<Account>;
+  onTrigger: (trigger: HTMLElement) => void;
 }) {
   if (!canManage && !canManageRoles) return null;
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button variant="ghost" size="icon-sm" aria-label={`操作 ${account.name}`}>
-            <EllipsisVertical />
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-        <DropdownMenuGroup>
-          {canManageRoles ? (
-            <DropdownMenuItem onSelect={() => onAssignRoles(account)}>
-              <ShieldCheck /> 分配角色
-            </DropdownMenuItem>
-          ) : null}
-          {canManage ? (
-            <>
-              <DropdownMenuItem onSelect={() => onResetPassword(account)}>
-                <KeyRound /> 重置密码
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onToggleStatus(account)}>
-                {account.status === 'active' ? <CirclePause /> : <CirclePlay />}
-                {account.status === 'active' ? '停用' : '启用'}
-              </DropdownMenuItem>
-            </>
-          ) : null}
-        </DropdownMenuGroup>
-        {canManage ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => onDelete(account)}>
-              <Trash2 /> 删除认证
-            </DropdownMenuItem>
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <DropdownMenuTrigger
+      controller={menu}
+      payload={account}
+      render={
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`操作 ${account.name}`}
+          onFocus={(event) => onTrigger(event.currentTarget)}
+          onPointerDown={(event) => onTrigger(event.currentTarget)}
+          onClick={(event) => onTrigger(event.currentTarget)}
+        >
+          <EllipsisVertical />
+        </Button>
+      }
+    />
   );
 }
 
@@ -554,22 +577,18 @@ function AccountRowActions({
   account,
   canManage,
   canManageRoles,
+  menu,
+  onMenuTrigger,
   className,
   onEdit,
-  onResetPassword,
-  onAssignRoles,
-  onToggleStatus,
-  onDelete,
 }: {
   account: Account;
   canManage: boolean;
   canManageRoles: boolean;
+  menu: MenuController<Account>;
+  onMenuTrigger: (trigger: HTMLElement) => void;
   className?: string;
   onEdit: (account: Account) => void;
-  onResetPassword: (account: Account) => void;
-  onAssignRoles: (account: Account) => void;
-  onToggleStatus: (account: Account) => void;
-  onDelete: (account: Account) => void;
 }) {
   if (!canManage && !canManageRoles) return null;
   return (
@@ -588,10 +607,8 @@ function AccountRowActions({
         account={account}
         canManage={canManage}
         canManageRoles={canManageRoles}
-        onResetPassword={onResetPassword}
-        onAssignRoles={onAssignRoles}
-        onToggleStatus={onToggleStatus}
-        onDelete={onDelete}
+        menu={menu}
+        onTrigger={onMenuTrigger}
       />
     </div>
   );
@@ -1029,9 +1046,11 @@ type ResetPasswordFormValues = z.infer<typeof resetPasswordFormSchema>;
 
 function ResetPasswordDialog({
   account,
+  finalFocus,
   onClose: onClosed,
 }: {
   account: Account;
+  finalFocus?: () => HTMLElement | null;
   onClose: () => void;
 }) {
   const dialog = useDialogClose(onClosed);
@@ -1088,6 +1107,7 @@ function ResetPasswordDialog({
         description="重置会立即撤销该账户的全部旧会话。"
         className="max-w-md sm:max-w-md"
         closeDisabled={pending}
+        {...(finalFocus === undefined ? {} : { finalFocus })}
       >
         <form aria-label="重置密码" noValidate onSubmit={submit}>
           <FieldGroup className="gap-5">
@@ -1150,10 +1170,12 @@ function ResetPasswordDialog({
 function AssignRolesDialog({
   account,
   roleDirectory,
+  finalFocus,
   onClose: onClosed,
 }: {
   account: Account;
   roleDirectory: RoleDirectory;
+  finalFocus?: () => HTMLElement | null;
   onClose: () => void;
 }) {
   const dialog = useDialogClose(onClosed);
@@ -1197,6 +1219,7 @@ function AssignRolesDialog({
         description="角色决定该账户的页面与操作权限。"
         className="max-w-lg sm:max-w-lg"
         closeDisabled={pending}
+        {...(finalFocus === undefined ? {} : { finalFocus })}
       >
         <form
           aria-label="分配角色"

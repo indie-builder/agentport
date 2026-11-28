@@ -29,7 +29,7 @@ function SelectValue({ className, ...props }: ComponentProps<typeof SelectValueP
   return (
     <SelectValuePrimitive
       className={(state) =>
-        cn('flex flex-1 text-left', typeof className === 'function' ? className(state) : className)
+        cn('flex flex-1 text-start', typeof className === 'function' ? className(state) : className)
       }
       {...props}
     />
@@ -49,7 +49,7 @@ function SelectTrigger({
       data-size={size}
       className={(state) =>
         cn(
-          "flex w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none cds-focus-glow focus-visible:border-[var(--color-subtle)] disabled:cursor-not-allowed disabled:opacity-[0.35] aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+          "flex w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pe-2 ps-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none cds-focus-glow focus-visible:border-[var(--color-subtle)] disabled:cursor-not-allowed disabled:opacity-[0.35] aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -121,7 +121,7 @@ function SelectItem<T = string>({
     <SelectItemPrimitive
       className={(state) =>
         cn(
-          "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-[0.35] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+          "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pe-8 ps-1.5 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-[0.35] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -132,7 +132,7 @@ function SelectItem<T = string>({
           <span className="flex min-w-0 flex-1 gap-2 whitespace-normal break-words">
             {typeof children === 'function' ? children(state) : children}
           </span>
-          <SelectItemIndicator className="pointer-events-none absolute right-2 flex size-4 items-center justify-center">
+          <SelectItemIndicator className="pointer-events-none absolute end-2 flex size-4 items-center justify-center">
             <Check aria-hidden="true" className="pointer-events-none" />
           </SelectItemIndicator>
         </>

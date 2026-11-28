@@ -8,6 +8,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
+import { createMenuController } from '@ui-sdk/react/menu';
 import {
   Archive,
   ArchiveRestore,
@@ -128,6 +129,7 @@ export function AgentsPage() {
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const editorTriggerRef = useRef<HTMLElement | null>(null);
+  const [rowMenu] = useState(() => createMenuController<AgentSummary>());
   const remove = useDeleteAgent();
   const runtimeEnvironments = useRuntimeEnvironments();
   useDrainPages(runtimeEnvironments);
@@ -623,9 +625,6 @@ export function AgentsPage() {
             ) : null}
             {filtered.map((agent) => {
               const agentRole = agent.role?.trim() || '通用助手';
-              const canDelete =
-                canDeleteAny &&
-                (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
               const isArchived = agent.archivedAt != null;
               const isDeleted = agent.deletedAt != null;
               const tags = agent.tags ?? [];
@@ -730,79 +729,28 @@ export function AgentsPage() {
                         >
                           <Star className={agent.isFavorite ? 'fill-current' : undefined} />
                         </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger
-                            render={
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={`操作 ${agent.name}`}
-                                onFocus={(event) => {
-                                  editorTriggerRef.current = event.currentTarget;
-                                }}
-                                onClick={(event) => {
-                                  editorTriggerRef.current = event.currentTarget;
-                                }}
-                              >
-                                <EllipsisVertical />
-                              </Button>
-                            }
-                          />
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuGroup>
-                              {!isArchived && !isDeleted ? (
-                                <DropdownMenuItem
-                                  disabled={importing}
-                                  onSelect={() =>
-                                    void navigate({
-                                      to: '/agents/$agentId',
-                                      params: { agentId: agent.id },
-                                      search: { tab: 'config', backTo: location.href },
-                                    })
-                                  }
-                                >
-                                  <SlidersHorizontal className="size-4" /> 配置
-                                </DropdownMenuItem>
-                              ) : null}
-                              {canDelete && (isArchived || isDeleted) ? (
-                                <DropdownMenuItem
-                                  disabled={restore.isPending}
-                                  data-agent-confirm={`恢复专家「${agent.name}」`}
-                                  onSelect={() =>
-                                    restore.mutate(agent.id, {
-                                      onSuccess: () => toastSuccess('已恢复专家'),
-                                      onError: toastError,
-                                    })
-                                  }
-                                >
-                                  <ArchiveRestore className="size-4" /> 恢复
-                                </DropdownMenuItem>
-                              ) : null}
-                              {canDelete && !isArchived && !isDeleted ? (
-                                <DropdownMenuItem
-                                  disabled={archive.isPending}
-                                  data-agent-confirm={`归档专家「${agent.name}」`}
-                                  onSelect={() =>
-                                    archive.mutate(agent.id, {
-                                      onSuccess: () => toastSuccess('已归档专家'),
-                                      onError: toastError,
-                                    })
-                                  }
-                                >
-                                  <Archive className="size-4" /> 归档
-                                </DropdownMenuItem>
-                              ) : null}
-                              {canDelete && !isDeleted ? (
-                                <DropdownMenuItem
-                                  variant="destructive"
-                                  onSelect={() => setDeleting(agent)}
-                                >
-                                  <Trash2 className="size-4" /> 删除
-                                </DropdownMenuItem>
-                              ) : null}
-                            </DropdownMenuGroup>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <DropdownMenuTrigger
+                          controller={rowMenu}
+                          payload={agent}
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`操作 ${agent.name}`}
+                              onFocus={(event) => {
+                                editorTriggerRef.current = event.currentTarget;
+                              }}
+                              onPointerDown={(event) => {
+                                editorTriggerRef.current = event.currentTarget;
+                              }}
+                              onClick={(event) => {
+                                editorTriggerRef.current = event.currentTarget;
+                              }}
+                            >
+                              <EllipsisVertical />
+                            </Button>
+                          }
+                        />
                       </CardAction>
                     </CardHeader>
                     <CardContent className="flex flex-1 flex-col justify-center gap-2">
@@ -957,6 +905,70 @@ export function AgentsPage() {
           }}
         />
       ) : null}
+      <DropdownMenu controller={rowMenu}>
+        <DropdownMenuContent align="end">
+          {(state) => {
+            const agent = state.payload as AgentSummary | undefined;
+            if (!agent) return null;
+            const canDelete =
+              canDeleteAny &&
+              (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
+            const isArchived = agent.archivedAt != null;
+            const isDeleted = agent.deletedAt != null;
+            return (
+              <DropdownMenuGroup>
+                {!isArchived && !isDeleted ? (
+                  <DropdownMenuItem
+                    disabled={importing}
+                    onSelect={() =>
+                      void navigate({
+                        to: '/agents/$agentId',
+                        params: { agentId: agent.id },
+                        search: { tab: 'config', backTo: location.href },
+                      })
+                    }
+                  >
+                    <SlidersHorizontal className="size-4" /> 配置
+                  </DropdownMenuItem>
+                ) : null}
+                {canDelete && (isArchived || isDeleted) ? (
+                  <DropdownMenuItem
+                    disabled={restore.isPending}
+                    data-agent-confirm={`恢复专家「${agent.name}」`}
+                    onSelect={() =>
+                      restore.mutate(agent.id, {
+                        onSuccess: () => toastSuccess('已恢复专家'),
+                        onError: toastError,
+                      })
+                    }
+                  >
+                    <ArchiveRestore className="size-4" /> 恢复
+                  </DropdownMenuItem>
+                ) : null}
+                {canDelete && !isArchived && !isDeleted ? (
+                  <DropdownMenuItem
+                    disabled={archive.isPending}
+                    data-agent-confirm={`归档专家「${agent.name}」`}
+                    onSelect={() =>
+                      archive.mutate(agent.id, {
+                        onSuccess: () => toastSuccess('已归档专家'),
+                        onError: toastError,
+                      })
+                    }
+                  >
+                    <Archive className="size-4" /> 归档
+                  </DropdownMenuItem>
+                ) : null}
+                {canDelete && !isDeleted ? (
+                  <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(agent)}>
+                    <Trash2 className="size-4" /> 删除
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuGroup>
+            );
+          }}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </Page>
   );
 }

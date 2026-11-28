@@ -1,7 +1,10 @@
 import type { Agent, AgentSummary, MemoryHealth, PermissionId } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { createRovingFocus, definePrimitive, selects } from '@ui-sdk/core';
 import { Button as PrimitiveButton } from '@ui-sdk/react/button';
+import { createParts } from '@ui-sdk/react/primitive';
+import { createTooltipController } from '@ui-sdk/react/tooltip';
 import { ChevronRight, CircleAlert } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { errorMessage } from '../../lib/api.js';
@@ -61,6 +64,45 @@ const BUDGET_STATE_LABEL = {
 } as const;
 
 const RECENT_RUN_LIMIT = 5;
+
+type DailyPoint = { day: string; runs: number; cost: number };
+
+const dailyChart = definePrimitive({
+  name: 'daily-chart',
+  state: () => ({ focused: null as string | null }),
+  api: (context) => ({
+    roving: createRovingFocus(context, {
+      slot: 'bar',
+      key: 'focused',
+      orientation: () => 'horizontal',
+    }),
+  }),
+  slots: (slot) => ({
+    root: slot({
+      role: 'group',
+    }),
+    bar: slot<{ value: string }>({
+      role: 'img',
+      focus: 'roving',
+      props: { value: 'string' },
+      selects: selects({ focused: ({ key }) => [key, null] }),
+      attrs: (state, part) => ({
+        tabindex: part.api.roving.tabIndex(state, part),
+      }),
+      on: {
+        keydown: (event, { el, api }) => {
+          if (el) api.roving.keydown(event, el);
+        },
+      },
+      bind: (el, part) => part.api.roving.bind(el, part),
+    }),
+  }),
+});
+
+const { Root: DailyChart, Bar: DailyChartBar } = createParts(dailyChart, {
+  root: 'div',
+  bar: 'div',
+});
 
 function fillDailyGaps(daily: { day: string; runs: number; cost: number }[]) {
   const first = daily[0];
@@ -169,6 +211,7 @@ export function AgentOverview({
   const memory = useQuery({ ...agentMemoryOverviewQuery(agentId), enabled: canReadMemory });
   const rules = useQuery({ ...agentRulesQuery(agentId), enabled: canReadRules });
   const styles = useQuery({ ...agentOutputStylesQuery(agentId), enabled: canReadStyles });
+  const [tooltip] = useState(() => createTooltipController<DailyPoint>());
   const [days, setDays] = useState<7 | 30 | 90>(
     usageDays === 7 || usageDays === 30 || usageDays === 90 ? usageDays : 30,
   );
@@ -455,27 +498,35 @@ export function AgentOverview({
                         <span>{maxDailyRuns}</span>
                         <span>0</span>
                       </div>
-                      <div className="flex h-28 min-w-0 items-end gap-0.5 border-b border-line">
+                      <DailyChart
+                        aria-label="每日运行量"
+                        className="flex h-28 min-w-0 items-end gap-0.5 border-b border-line"
+                      >
                         {daily.map((day) => (
-                          <Tooltip key={day.day}>
-                            <TooltipTrigger
-                              render={<div />}
-                              tabIndex={0}
-                              role="img"
-                              aria-label={`${day.day}：${day.runs} 次运行，成本 ${formatCost(day.cost)}`}
-                              className="group flex h-full min-w-0 flex-1 items-end justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                              <div
-                                className="w-full max-w-6 rounded-t-sm bg-chart-runs group-hover:opacity-80 group-focus-visible:opacity-80 forced-colors:bg-[CanvasText]"
-                                style={{ height: `${(day.runs / maxDailyRuns) * 100}%` }}
-                              />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {day.day} · {day.runs} 次运行 · {formatCost(day.cost)}
-                            </TooltipContent>
-                          </Tooltip>
+                          <TooltipTrigger
+                            key={day.day}
+                            controller={tooltip}
+                            payload={day}
+                            render={<DailyChartBar value={day.day} />}
+                            aria-label={`${day.day}：${day.runs} 次运行，成本 ${formatCost(day.cost)}`}
+                            className="group flex h-full min-w-0 flex-1 items-end justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <div
+                              className="w-full max-w-6 rounded-t-sm bg-chart-runs group-hover:opacity-80 group-focus-visible:opacity-80 forced-colors:bg-[CanvasText]"
+                              style={{ height: `${(day.runs / maxDailyRuns) * 100}%` }}
+                            />
+                          </TooltipTrigger>
                         ))}
-                      </div>
+                      </DailyChart>
+                      <Tooltip controller={tooltip}>
+                        <TooltipContent<DailyPoint>>
+                          {(state) =>
+                            state.payload
+                              ? `${state.payload.day} · ${state.payload.runs} 次运行 · ${formatCost(state.payload.cost)}`
+                              : null
+                          }
+                        </TooltipContent>
+                      </Tooltip>
                       <div aria-hidden="true" />
                       <div
                         className="flex justify-between text-xs text-muted-foreground"

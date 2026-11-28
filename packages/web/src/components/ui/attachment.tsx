@@ -1,7 +1,8 @@
-import { type PartProps, renderElement } from '@ui-sdk/react/primitive';
+import { renderElement } from '@ui-sdk/react/primitive';
 import { cva, type VariantProps } from 'class-variance-authority';
 import type * as React from 'react';
 import { Button } from '@/components/ui/button';
+import { type ElementPartProps, mergeClassName } from '@/components/ui/part-class';
 import {
   ScrollArea,
   ScrollAreaScrollbar,
@@ -9,15 +10,6 @@ import {
   ScrollAreaViewport,
 } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/cn';
-
-function mergeClassName<State>(
-  base: string,
-  className: string | ((state: State) => string | undefined) | undefined,
-) {
-  return typeof className === 'function'
-    ? (state: State) => cn(base, className(state))
-    : cn(base, className);
-}
 
 const attachmentVariants = cva(
   'group/attachment relative flex w-fit max-w-full min-w-0 shrink-0 flex-wrap rounded-xl border bg-card text-card-foreground transition-colors focus-within:ring-1 focus-within:ring-ring/50 has-[>a,>button]:hover:bg-muted/50 data-[state=error]:border-destructive/30 data-[state=idle]:border-dashed',
@@ -44,16 +36,6 @@ type AttachmentState = {
   state: AttachmentStatus;
   size: NonNullable<VariantProps<typeof attachmentVariants>['size']>;
   orientation: NonNullable<VariantProps<typeof attachmentVariants>['orientation']>;
-};
-
-type ElementPartProps<Tag extends keyof React.JSX.IntrinsicElements, State> = Omit<
-  PartProps<Tag, State>,
-  'className' | 'style' | 'render' | 'children'
-> & {
-  className?: PartProps<Tag, State>['className'] | undefined;
-  style?: PartProps<Tag, State>['style'] | undefined;
-  render?: PartProps<Tag, State>['render'] | undefined;
-  children?: PartProps<Tag, State>['children'] | undefined;
 };
 
 function Attachment({
@@ -199,7 +181,7 @@ function AttachmentActions({
       'data-slot': 'attachment-actions',
       ...props,
       className: mergeClassName(
-        'relative z-20 flex shrink-0 items-center group-data-[orientation=vertical]/attachment:absolute group-data-[orientation=vertical]/attachment:top-3 group-data-[orientation=vertical]/attachment:right-3 group-data-[orientation=vertical]/attachment:gap-1',
+        'relative z-20 flex shrink-0 items-center group-data-[orientation=vertical]/attachment:absolute group-data-[orientation=vertical]/attachment:top-3 group-data-[orientation=vertical]/attachment:end-3 group-data-[orientation=vertical]/attachment:gap-1',
         className,
       ),
     },
