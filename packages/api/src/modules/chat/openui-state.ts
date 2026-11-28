@@ -1,7 +1,7 @@
 import { chatContract } from '@agentport/contract/chat';
 import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
-import { OPENUI_STATE_MAX_BYTES } from '@agentport/shared';
+import { OPENUI_STATE_MAX_BYTES, OPENUI_STATE_TOTAL_MAX_BYTES } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, type RequestContext } from '../../http/context.js';
 import { loadOpenuiConversation, MESSAGE_NOT_IN_CONVERSATION_MESSAGE } from './access.js';
@@ -56,8 +56,12 @@ export const chatStateRouter = {
       messageId,
       blockKey,
       state,
+      OPENUI_STATE_TOTAL_MAX_BYTES,
     );
-    if (!saved) {
+    if (saved === 'too_large') {
+      return fail('PAYLOAD_TOO_LARGE', '生成式 UI 总状态超过 256KB 上限，未保存');
+    }
+    if (saved === 'not_found') {
       return fail('NOT_FOUND', MESSAGE_NOT_IN_CONVERSATION_MESSAGE);
     }
     await repo.audit.writeAudit(context.db, context.log, {

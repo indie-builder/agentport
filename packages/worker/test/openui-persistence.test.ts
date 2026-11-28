@@ -231,4 +231,32 @@ describe.skipIf(!ready)('persistRunMessages OpenUI programs', () => {
     const [row] = await assistantRows(runId);
     expect(row?.content).toEqual({ type: 'text', text: 'hello', blockIndex: 0 });
   });
+
+  it('logs OpenUI resolution diagnostics when a patch cannot be merged', async () => {
+    const fixture = await newFixture();
+    const runId = await seedRun(fixture);
+    const warnings: Array<{ obj: Record<string, unknown>; msg: string }> = [];
+
+    const result = await persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events: [uiEvent(`不完整补丁：\n\n${FENCE('body = TextContent("缺根")')}`)],
+      uiFormat: 'openui',
+      logger: {
+        warn(obj, msg) {
+          warnings.push({ obj, msg });
+        },
+      },
+    });
+
+    expect(result.written).toBe(true);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.msg).toBe('openui response resolution diagnostics');
+    expect(warnings[0]?.obj).toMatchObject({
+      conversationId: fixture.conversationId,
+      runId,
+      diagnostics: [expect.objectContaining({ blockKey: 's0', code: 'missing-baseline' })],
+    });
+  });
 });

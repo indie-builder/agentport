@@ -64,6 +64,7 @@ describe('AssistantText', () => {
     streaming: boolean,
     onAction: (message: string, formState?: Record<string, unknown>) => void = () => undefined,
     uiProgram?: string,
+    previousUiProgram?: string,
   ) => {
     await act(async () => {
       root.render(
@@ -73,6 +74,7 @@ describe('AssistantText', () => {
           streaming,
           onAction,
           ...(uiProgram === undefined ? {} : { uiProgram }),
+          ...(previousUiProgram === undefined ? {} : { previousUiProgram }),
         }),
       );
     });
@@ -228,5 +230,27 @@ describe('AssistantText', () => {
     await settle();
     expect(host.textContent).toContain('第二版');
     expect(host.querySelector<HTMLInputElement>('input[name="fullName"]')?.value).toBe('张三');
+  });
+
+  it('renders a merged preview when streaming a rootless patch with previousUiProgram', async () => {
+    const baseline = fence([
+      'root = Card([header, t])',
+      'header = CardHeader("周报", "基线")',
+      't = TextContent("旧内容")',
+    ]);
+    const patch = fence(['t = TextContent("补丁更新")']);
+    await render(patch, true, true, undefined, undefined, baseline);
+    await settle();
+    expect(host.textContent).toContain('周报');
+    expect(host.textContent).toContain('补丁更新');
+    expect(host.textContent).not.toContain('旧内容');
+    expect(host.textContent).not.toContain('正在更新界面…');
+  });
+
+  it('shows updating placeholder when streaming a rootless patch without previousUiProgram', async () => {
+    const patch = fence(['t = TextContent("补丁更新")']);
+    await render(patch, true, true);
+    expect(host.textContent).toContain('正在更新界面…');
+    expect(host.querySelector('[role="status"]')?.getAttribute('aria-busy')).toBe('true');
   });
 });

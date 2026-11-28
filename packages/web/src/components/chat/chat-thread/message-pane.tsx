@@ -137,6 +137,25 @@ export function MessagePane({
   const structure = useMemo(() => buildStructure(tools), [tools]);
 
   const latestTurn = turns.at(-1);
+  const previousUiProgram = useMemo(() => {
+    if (!streaming) return undefined;
+    for (let turnIndex = turns.length - 2; turnIndex >= 0; turnIndex -= 1) {
+      const turn = turns[turnIndex];
+      if (!turn || turn.user) continue;
+      for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+        const item = turn.items[itemIndex];
+        if (item?.kind === 'text' && item.parentToolUseId === undefined && item.uiProgram) {
+          return item.uiProgram;
+        }
+      }
+    }
+    return undefined;
+  }, [turns, streaming]);
+  const latestOpenUiSnapshot = useMemo(
+    () =>
+      previousUiProgram === undefined ? openUiSnapshot : { ...openUiSnapshot, previousUiProgram },
+    [openUiSnapshot, previousUiProgram],
+  );
   const approvalHosts = useMemo(() => {
     if (!latestTurn || latestTurn.user) return new Map<string, ApprovalRequest>();
     return assignApprovals(latestTurn.items.filter(isTool), approvals ? approvalItems : []);
@@ -313,6 +332,8 @@ export function MessagePane({
                                 }
                                 const header = renderItemHeader?.(item);
                                 const footer = renderItemFooter?.(item);
+                                const turnOpenUiSnapshot =
+                                  latest && streaming ? latestOpenUiSnapshot : openUiSnapshot;
                                 if (!header && !footer) {
                                   return (
                                     <MessagePart
@@ -322,7 +343,9 @@ export function MessagePane({
                                       openUi={openUi}
                                       streaming={latest && streaming}
                                       onAction={onAction}
-                                      {...(openUiSnapshot ? { openUiSnapshot } : {})}
+                                      {...(turnOpenUiSnapshot
+                                        ? { openUiSnapshot: turnOpenUiSnapshot }
+                                        : {})}
                                     />
                                   );
                                 }
@@ -338,7 +361,9 @@ export function MessagePane({
                                       openUi={openUi}
                                       streaming={latest && streaming}
                                       onAction={onAction}
-                                      {...(openUiSnapshot ? { openUiSnapshot } : {})}
+                                      {...(turnOpenUiSnapshot
+                                        ? { openUiSnapshot: turnOpenUiSnapshot }
+                                        : {})}
                                     />
                                     {footer}
                                   </div>

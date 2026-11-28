@@ -138,4 +138,40 @@ describe('resolveOpenUiResponse', () => {
       ),
     ).toBe(true);
   });
+
+  test('keeps merged program when base or patch has recoverable non-fatal errors like excess-args', () => {
+    const baseWithExcess = FENCE(
+      [
+        'root = Card([title, body])',
+        'title = TextContent("行程", "default", "extra")',
+        'body = TextContent("原计划")',
+      ].join('\n'),
+    );
+    const patch = FENCE('body = TextContent("新计划", "default", "extra-patch")');
+    const { text, diagnostics } = resolveOpenUiResponseDetailed(baseWithExcess, patch);
+    expect(diagnostics).toEqual([]);
+    const [program] = programs(text);
+    expect(program).toContain('root = Card([title, body])');
+    expect(program).toContain('title = TextContent("行程", "default", "extra")');
+    expect(program).toContain('body = TextContent("新计划", "default", "extra-patch")');
+  });
+
+  test('does not treat a non-root Card snippet as a full replacement via no-root fallback', () => {
+    const response = FENCE('sub = Card([TextContent("子项")])');
+    const { text, diagnostics } = resolveOpenUiResponseDetailed(BASE, response);
+    expect(diagnostics).toEqual([]);
+    const [program] = programs(text);
+    expect(program).toContain('root = Card([title, body])');
+    expect(program).toContain('title = TextContent("行程")');
+    expect(program).toContain('body = TextContent("原计划")');
+    expect(program).not.toContain('sub = Card');
+  });
+
+  test('reports invalid-program and keeps raw text when fence has no valid statements', () => {
+    const response = FENCE('Error: failed');
+    const { text, diagnostics } = resolveOpenUiResponseDetailed(BASE, response);
+    expect(text).toBe(response);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ blockKey: 's0', code: 'invalid-program' });
+  });
 });

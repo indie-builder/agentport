@@ -1,9 +1,16 @@
 import { chatContract } from '@agentport/contract/chat';
-import { AppError, CONTENT_BLOCKED_MESSAGE, fail, notFound } from '@agentport/core';
+import {
+  AppError,
+  CONTENT_BLOCKED_MESSAGE,
+  decryptSecrets,
+  evaluateToolApproval,
+  fail,
+  notFound,
+} from '@agentport/core';
 import { assertSafeUrl } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
-import type { OpenUiToolResult } from '@agentport/shared';
-import { openUiToolResultSchema } from '@agentport/shared';
+import type { AgentDefinitionServer, OpenUiToolResult } from '@agentport/shared';
+import { openUiToolResultSchema, toolApprovalMethodSchema } from '@agentport/shared';
 import {
   type CallToolResult,
   Client,
@@ -16,7 +23,7 @@ import { authorizeObject } from '../../http/access.js';
 import { type AppContext, actorOf, type RequestContext } from '../../http/context.js';
 import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { buildGeneratedServer } from '../servers/generated.js';
-import { getServerWithSecrets, listTools } from '../servers/repo.js';
+import { getServerWithSecrets, listTools, str } from '../servers/repo.js';
 import { loadOpenuiConversation, MESSAGE_NOT_IN_CONVERSATION_MESSAGE } from './access.js';
 import { hasOpenUiBlock } from './openui-actions.js';
 
@@ -43,25 +50,32 @@ async function callTool(
   tool: ToolRow,
   args: Record<string, unknown>,
   agentId: string,
+  snapshotServer?: AgentDefinitionServer,
 ): Promise<CallToolResult> {
-  const server = await getServerWithSecrets(
-    context.db,
-    tool.serverId,
-    context.config.APP_SECRET_KEY,
-  );
+  const server = snapshotServer
+    ? {
+        kind: snapshotServer.kind,
+        name: snapshotServer.name,
+        url: str(snapshotServer.config.url),
+        baseUrl: str(snapshotServer.config.baseUrl),
+        headers: snapshotServer.secretsEncrypted
+          ? await decryptSecrets(snapshotServer.secretsEncrypted, context.config.APP_SECRET_KEY)
+          : {},
+      }
+    : await getServerWithSecrets(context.db, tool.serverId, context.config.APP_SECRET_KEY);
   if (!server) throw new AppError('NOT_FOUND', '该工具所属的连接已不存在；请让管理员重新绑定');
   const bareName = tool.name.slice(`mcp__${tool.serverName}__`.length);
   if (server.kind === 'generated') {
-    const apiTools = (await listTools(context.db, tool.serverId)).filter(
-      (entry) => entry.enabled && entry.name === bareName,
-    );
+    const apiTools = (
+      snapshotServer ? (snapshotServer.tools ?? []) : await listTools(context.db, tool.serverId)
+    ).filter((entry) => entry.enabled && entry.name === bareName);
     if (apiTools.length === 0) throw new AppError('NOT_FOUND', '该工具已停用；请刷新后重试');
     const built = buildGeneratedServer({
       name: server.name,
       baseUrl: server.baseUrl,
       headers: server.headers,
-      tools: apiTools.map((tool) =>
-        tool.approvalMode === 'ask' ? { ...tool, approvalMode: 'allow' } : tool,
+      tools: apiTools.map((entry) =>
+        entry.approvalMode === 'ask' ? { ...entry, approvalMode: 'allow' } : entry,
       ),
       nodeEnv: context.config.NODE_ENV,
       privateHostAllowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
@@ -138,6 +152,25 @@ function extractToolResult(result: CallToolResult): unknown {
   }
   return null;
 }
+async function approvalRolesFor(context: RequestContext, agentId: string): Promise<string[]> {
+  const principal = context.principal;
+  if (principal === null) return [];
+  if (principal.kind === 'service') return [`service:${principal.serviceId}`];
+  const relation = await repo.access.getAgentRelation(context.db, agentId, principal.businessId);
+  const roles = principal.roles.map((role) => `platform:${role.id}`);
+  if (relation.ownerBusinessId === principal.businessId) roles.push('agent:owner');
+  if (relation.canMaintain) roles.push('agent:maintainer');
+  if (
+    relation.canUse ||
+    relation.canMaintain ||
+    relation.organizationVisible ||
+    relation.isDefault
+  ) {
+    roles.push('agent:user');
+  }
+  return roles;
+}
+
 const os = implement(chatContract).$context<RequestContext>();
 export const chatToolsRouter = {
   callOpenuiTool: os.callOpenuiTool.handler(async ({ input, context }) => {
@@ -174,7 +207,14 @@ export const chatToolsRouter = {
     if (!segmentExists) {
       return fail('INVALID_INPUT', `该消息没有 ${blockKey} 这个界面段；请刷新后重试`);
     }
-    const catalog = await repo.openui.listOpenUiTools(context.db, conversation.agentId);
+    const snapshot =
+      message.runId === null
+        ? null
+        : await repo.openui.getRunDefinitionSnapshot(context.db, message.runId);
+    const catalog =
+      snapshot !== null
+        ? repo.openui.listOpenUiToolsFromSnapshot(snapshot.agent, snapshot.resources.servers)
+        : await repo.openui.listOpenUiTools(context.db, conversation.agentId);
     const tool = catalog.find((entry) => entry.name === toolName);
     if (!tool) {
       await repo.audit.writeAudit(context.db, context.log, {
@@ -192,12 +232,59 @@ export const chatToolsRouter = {
     }
     const invalid = await validateArgs(tool.inputSchema, args);
     if (invalid !== null) return fail('INVALID_INPUT', `工具参数不合法：${invalid}`);
-    if (tool.approvalMode === 'deny') {
+    const roles = await approvalRolesFor(context, conversation.agentId);
+    let decision: ReturnType<typeof evaluateToolApproval>;
+    if (
+      tool.kind === 'generated' &&
+      tool.toolId !== undefined &&
+      tool.method !== undefined &&
+      tool.pathTemplate !== undefined &&
+      tool.paramsIn !== undefined
+    ) {
+      const method = toolApprovalMethodSchema.parse(tool.method);
+      const rules = await repo.toolApprovalPolicies.listEnabledForTool(context.db, {
+        serverId: tool.serverId,
+        agentId: conversation.agentId,
+        toolId: tool.toolId,
+        method,
+        pathTemplate: tool.pathTemplate,
+      });
+      decision = evaluateToolApproval(tool.approvalMode, rules, {
+        serverId: tool.serverId,
+        agentId: conversation.agentId,
+        toolId: tool.toolId,
+        method,
+        pathTemplate: tool.pathTemplate,
+        baseUrl: tool.baseUrl ?? '',
+        paramsIn: tool.paramsIn,
+        roles,
+      });
+    } else {
+      const rules = await repo.toolApprovalPolicies.listEnabledForServer(context.db, {
+        serverId: tool.serverId,
+        agentId: conversation.agentId,
+      });
+      decision = evaluateToolApproval(tool.approvalMode, rules, {
+        serverId: tool.serverId,
+        agentId: conversation.agentId,
+        toolId: '',
+        method: '',
+        pathTemplate: '',
+        baseUrl: '',
+        paramsIn: '',
+        roles,
+      });
+    }
+    const matchedRuleIds = decision.matchedRules.map((rule) => rule.id);
+    if (decision.effectiveMode === 'deny') {
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'openui.tool.denied',
         target: conversationId,
         input: { toolName: tool.name, blockKey },
+        ...(matchedRuleIds.length > 0
+          ? { detail: { matchedRuleIds: JSON.stringify(matchedRuleIds) } }
+          : {}),
         status: 'denied',
         requestId: context.requestId,
       });
@@ -209,7 +296,7 @@ export const chatToolsRouter = {
       tool.serverId,
       tool.name,
     );
-    if (tool.approvalMode === 'ask' && approval?.approvedAt == null) {
+    if (decision.effectiveMode === 'ask' && approval?.approvedAt == null) {
       const pending = await repo.openui.requestOpenUiApproval(context.db, {
         conversationId,
         messageId,
@@ -229,9 +316,15 @@ export const chatToolsRouter = {
         body: { status: 'approval_required', approvalId: pending.id } satisfies OpenUiToolResult,
       };
     }
+    const snapshotServer =
+      snapshot === null
+        ? undefined
+        : snapshot.resources.servers.find((entry) => entry.id === tool.serverId);
     const startedAt = Date.now();
     try {
-      const data = extractToolResult(await callTool(context, tool, args, conversation.agentId));
+      const data = extractToolResult(
+        await callTool(context, tool, args, conversation.agentId, snapshotServer),
+      );
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'openui.tool.called',

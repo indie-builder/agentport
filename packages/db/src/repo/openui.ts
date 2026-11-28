@@ -1,9 +1,19 @@
 import { AppError } from '@agentport/core';
 import { isRecord } from '@agentport/core/record';
+import type { AgentDefinition } from '@agentport/shared';
 import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
-import { agentServers, agents, apiTools, approvalRequests, messages, servers } from '../schema.js';
+import {
+  agentRuns,
+  agentServers,
+  agents,
+  apiTools,
+  approvalRequests,
+  messages,
+  servers,
+} from '../schema.js';
+import { getAgentVersion } from './agent-versions.js';
 
 export interface OpenUiToolRow {
   serverId: string;
@@ -12,13 +22,75 @@ export interface OpenUiToolRow {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
   approvalMode: 'allow' | 'ask' | 'deny';
+  toolId?: string;
+  method?: string;
+  pathTemplate?: string;
+  paramsIn?: string;
+  baseUrl?: string;
+}
+
+interface CatalogTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  approvalMode: 'allow' | 'ask' | 'deny';
+  toolId?: string;
+  method?: string;
+  pathTemplate?: string;
+  paramsIn?: string;
+  baseUrl?: string;
 }
 
 function matchesToolPattern(pattern: string, toolName: string, serverName: string): boolean {
   if (pattern === toolName) return true;
   if (pattern === `mcp__${serverName}`) return true;
   return pattern === `mcp__${serverName}__*`;
+}
+
+function compareAsc(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function collectOpenUiTools(
+  agent: { allowedTools: readonly string[]; disallowedTools: readonly string[] },
+  entries: ReadonlyArray<{
+    serverId: string;
+    serverName: string;
+    kind: 'http' | 'generated';
+    tools: readonly CatalogTool[];
+  }>,
+): OpenUiToolRow[] {
+  const allow = agent.allowedTools.filter((rule) => rule.startsWith('mcp__'));
+  const deny = agent.disallowedTools.filter((rule) => rule.startsWith('mcp__'));
+  return entries.flatMap((server) =>
+    server.tools.flatMap((tool) => {
+      const name = `mcp__${server.serverName}__${tool.name}`;
+      if (deny.some((pattern) => matchesToolPattern(pattern, name, server.serverName))) return [];
+      if (allow.length > 0 && !allow.some((p) => matchesToolPattern(p, name, server.serverName))) {
+        return [];
+      }
+      return [
+        {
+          serverId: server.serverId,
+          serverName: server.serverName,
+          kind: server.kind,
+          name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          ...(tool.outputSchema === undefined ? {} : { outputSchema: tool.outputSchema }),
+          approvalMode: tool.approvalMode,
+          ...(tool.toolId === undefined ? {} : { toolId: tool.toolId }),
+          ...(tool.method === undefined ? {} : { method: tool.method }),
+          ...(tool.pathTemplate === undefined ? {} : { pathTemplate: tool.pathTemplate }),
+          ...(tool.paramsIn === undefined ? {} : { paramsIn: tool.paramsIn }),
+          ...(tool.baseUrl === undefined ? {} : { baseUrl: tool.baseUrl }),
+        },
+      ];
+    }),
+  );
 }
 
 export async function listOpenUiTools(db: Database, agentId: string): Promise<OpenUiToolRow[]> {
@@ -28,8 +100,6 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
     .where(eq(agents.id, agentId))
     .limit(1);
   if (!agent) return [];
-  const allow = agent.allowedTools.filter((rule) => rule.startsWith('mcp__'));
-  const deny = agent.disallowedTools.filter((rule) => rule.startsWith('mcp__'));
 
   const rows = await db
     .select({
@@ -51,10 +121,15 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
       ? []
       : await db
           .select({
+            id: apiTools.id,
             serverId: apiTools.serverId,
             name: apiTools.name,
             description: apiTools.description,
+            method: apiTools.method,
+            pathTemplate: apiTools.pathTemplate,
+            paramsIn: apiTools.paramsIn,
             inputSchema: apiTools.inputSchema,
+            outputSchema: apiTools.outputSchema,
             approvalMode: apiTools.approvalMode,
           })
           .from(apiTools)
@@ -62,56 +137,88 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
           .orderBy(asc(apiTools.serverId), asc(apiTools.name));
   const toolsByServer = Map.groupBy(generatedTools, (tool) => tool.serverId);
 
-  const out: OpenUiToolRow[] = [];
-  for (const server of rows) {
-    if (server.kind !== 'http' && server.kind !== 'generated') continue;
-    const tools =
-      server.kind === 'generated'
-        ? (toolsByServer.get(server.serverId) ?? []).map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-            approvalMode: tool.approvalMode,
-          }))
-        : readHttpCatalog(server.config);
-    for (const tool of tools) {
-      const name = `mcp__${server.serverName}__${tool.name}`;
-      if (deny.some((pattern) => matchesToolPattern(pattern, name, server.serverName))) continue;
-      if (allow.length > 0 && !allow.some((p) => matchesToolPattern(p, name, server.serverName))) {
-        continue;
-      }
-      out.push({
-        serverId: server.serverId,
-        serverName: server.serverName,
-        kind: server.kind,
-        name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-        approvalMode: tool.approvalMode,
-      });
-    }
-  }
-  return out;
+  return collectOpenUiTools(
+    agent,
+    rows.flatMap((server) => {
+      if (server.kind !== 'http' && server.kind !== 'generated') return [];
+      const baseUrl = typeof server.config.baseUrl === 'string' ? server.config.baseUrl : '';
+      const tools: CatalogTool[] =
+        server.kind === 'generated'
+          ? (toolsByServer.get(server.serverId) ?? []).map((tool) => ({
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema,
+              ...(isRecord(tool.outputSchema) ? { outputSchema: tool.outputSchema } : {}),
+              approvalMode: tool.approvalMode,
+              toolId: tool.id,
+              method: tool.method,
+              pathTemplate: tool.pathTemplate,
+              paramsIn: tool.paramsIn,
+              baseUrl,
+            }))
+          : readHttpCatalog(server.config);
+      return [
+        { serverId: server.serverId, serverName: server.serverName, kind: server.kind, tools },
+      ];
+    }),
+  );
 }
 
-function readHttpCatalog(config: Record<string, unknown>): Array<{
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  approvalMode: 'allow' | 'ask' | 'deny';
-}> {
+export function listOpenUiToolsFromSnapshot(
+  agent: { allowedTools: readonly string[]; disallowedTools: readonly string[] },
+  serverRows: readonly AgentDefinition['resources']['servers'][number][],
+): OpenUiToolRow[] {
+  const orderedServers = serverRows
+    .filter(
+      (
+        server,
+      ): server is AgentDefinition['resources']['servers'][number] & {
+        kind: 'http' | 'generated';
+      } => server.kind === 'http' || server.kind === 'generated',
+    )
+    .toSorted((a, b) => compareAsc(a.name, b.name) || compareAsc(a.id, b.id));
+
+  return collectOpenUiTools(
+    agent,
+    orderedServers.map((server) => {
+      const baseUrl = typeof server.config.baseUrl === 'string' ? server.config.baseUrl : '';
+      const tools: CatalogTool[] =
+        server.kind === 'generated'
+          ? (server.tools ?? [])
+              .filter((tool) => tool.enabled)
+              .toSorted((a, b) => compareAsc(a.name, b.name))
+              .map((tool) => ({
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema,
+                ...(isRecord(tool.outputSchema) ? { outputSchema: tool.outputSchema } : {}),
+                approvalMode: tool.approvalMode,
+                toolId: tool.id,
+                method: tool.method,
+                pathTemplate: tool.pathTemplate,
+                paramsIn: tool.paramsIn,
+                baseUrl,
+              }))
+          : readHttpCatalog(server.config);
+      return { serverId: server.id, serverName: server.name, kind: server.kind, tools };
+    }),
+  );
+}
+
+function readHttpCatalog(config: Record<string, unknown>): CatalogTool[] {
   const catalog = config.toolCatalog;
   if (!Array.isArray(catalog)) return [];
   return catalog.flatMap((item) => {
     if (!isRecord(item)) return [];
-    const { name, description, inputSchema } = item;
+    const { name, description, inputSchema, outputSchema } = item;
     if (typeof name !== 'string') return [];
     return [
       {
         name,
         description: typeof description === 'string' ? description : '',
         inputSchema: isRecord(inputSchema) ? inputSchema : { type: 'object', properties: {} },
-        approvalMode: 'allow',
+        ...(isRecord(outputSchema) ? { outputSchema } : {}),
+        approvalMode: 'allow' as const,
       },
     ];
   });
@@ -125,12 +232,14 @@ export async function cacheServerToolCatalog(
     title?: string | undefined;
     description?: string | undefined;
     inputSchema?: Record<string, unknown> | undefined;
+    outputSchema?: Record<string, unknown> | undefined;
   }>,
 ): Promise<void> {
   const catalog = tools.map((tool) => ({
     name: tool.name,
     description: tool.description ?? '',
     inputSchema: tool.inputSchema ?? { type: 'object', properties: {} },
+    ...(isRecord(tool.outputSchema) ? { outputSchema: tool.outputSchema } : {}),
   }));
   await db
     .update(servers)
@@ -150,6 +259,8 @@ export async function getMessageInConversation(
   uiFormat: string;
   content: unknown;
   uiProgram: string | null;
+  uiState: unknown;
+  runId: string | null;
 } | null> {
   const [row] = await db
     .select({
@@ -158,6 +269,8 @@ export async function getMessageInConversation(
       uiFormat: messages.uiFormat,
       content: messages.content,
       uiProgram: messages.uiProgram,
+      uiState: messages.uiState,
+      runId: messages.runId,
     })
     .from(messages)
     .where(and(eq(messages.id, messageId), eq(messages.conversationId, conversationId)))
@@ -165,39 +278,65 @@ export async function getMessageInConversation(
   return row ?? null;
 }
 
+export async function getRunDefinitionSnapshot(
+  db: Database,
+  runId: string,
+): Promise<AgentDefinition | null> {
+  const [run] = await db
+    .select({
+      agentId: agentRuns.agentId,
+      agentVersion: agentRuns.agentVersion,
+      definitionSnapshot: agentRuns.definitionSnapshot,
+    })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  if (!run) return null;
+  if (run.definitionSnapshot !== null) return run.definitionSnapshot;
+  if (run.agentVersion === null) return null;
+  const version = await getAgentVersion(db, run.agentId, run.agentVersion);
+  return version?.definition ?? null;
+}
+
+export type PatchMessageUiStateResult = 'ok' | 'not_found' | 'too_large';
+
 export async function patchMessageUiState(
   db: Database,
   conversationId: string,
   messageId: string,
   blockKey: string,
   state: Record<string, unknown>,
-): Promise<boolean> {
-  const rows = await db
-    .update(messages)
-    .set({
-      uiState: sql`jsonb_set(
-        case
-          when jsonb_typeof(${messages.uiState}) = 'object'
-            and jsonb_typeof(${messages.uiState} -> 'blocks') = 'object'
-            and ${messages.uiState} ->> 'version' = '1'
-          then ${messages.uiState}
-          else '{"version":1,"blocks":{}}'::jsonb
-        end,
-        array['blocks', ${blockKey}]::text[],
-        ${JSON.stringify(state)}::jsonb,
-        true
-      )`,
-    })
-    .where(
-      and(
-        eq(messages.id, messageId),
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, 'assistant'),
-        eq(messages.uiFormat, 'openui'),
-      ),
-    )
-    .returning({ id: messages.id });
-  return rows.length > 0;
+  maxTotalBytes: number,
+): Promise<PatchMessageUiStateResult> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ uiState: messages.uiState })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.id, messageId),
+          eq(messages.conversationId, conversationId),
+          eq(messages.role, 'assistant'),
+          eq(messages.uiFormat, 'openui'),
+        ),
+      )
+      .limit(1)
+      .for('update');
+    if (!row) return 'not_found';
+    const existingBlocks =
+      isRecord(row.uiState) && row.uiState.version === 1 && isRecord(row.uiState.blocks)
+        ? row.uiState.blocks
+        : {};
+    const nextEnvelope = {
+      version: 1,
+      blocks: { ...existingBlocks, [blockKey]: state },
+    };
+    if (Buffer.byteLength(JSON.stringify(nextEnvelope), 'utf8') > maxTotalBytes) {
+      return 'too_large';
+    }
+    await tx.update(messages).set({ uiState: nextEnvelope }).where(eq(messages.id, messageId));
+    return 'ok';
+  });
 }
 
 export interface OpenUiApproval {

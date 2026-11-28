@@ -20,6 +20,7 @@ interface AssistantTextProps {
   openUi: boolean;
   streaming: boolean;
   uiProgram?: string | null;
+  previousUiProgram?: string;
   uiState?: unknown;
   onAction?: ((action: OpenUiAction) => void) | undefined;
   messageId?: string;
@@ -38,6 +39,7 @@ export function AssistantText({
   openUi,
   streaming,
   uiProgram,
+  previousUiProgram,
   uiState,
   onAction,
   messageId,
@@ -56,6 +58,16 @@ export function AssistantText({
     const parsed = openUiStateEnvelopeSchema.safeParse(uiState);
     return parsed.success ? parsed.data.blocks : {};
   }, [uiState]);
+  const previousPrograms = useMemo(() => {
+    if (!previousUiProgram) return null;
+    const map = new Map<string, string>();
+    for (const segment of segmentOpenUi(previousUiProgram)) {
+      if (segment.kind === 'openui' && segment.blockKey !== undefined) {
+        map.set(segment.blockKey, segment.text);
+      }
+    }
+    return map;
+  }, [previousUiProgram]);
 
   if (segments.length === 1 && segments[0]?.kind === 'markdown') {
     return <Markdown text={segments[0].text} streaming={streaming} />;
@@ -73,12 +85,14 @@ export function AssistantText({
         const blockKey = segment.blockKey;
         if (blockKey === undefined) return null;
         const segmentState = stateBlocks[blockKey];
+        const previousProgram = previousPrograms?.get(blockKey);
         return (
           <OpenUiSegment
             key={blockKey}
             blockKey={blockKey}
             program={segment.text}
             streaming={streaming}
+            {...(previousProgram === undefined ? {} : { previousProgram })}
             {...(onAction ? { onAction } : {})}
             {...(isRecord(segmentState) ? { initialState: segmentState } : {})}
             {...(messageId === undefined ? {} : { messageId })}
@@ -97,6 +111,7 @@ const HAS_ROOT = /^\s*root\s*=/m;
 
 function OpenUiSegment({
   program,
+  previousProgram,
   streaming,
   onAction,
   initialState,
@@ -108,6 +123,7 @@ function OpenUiSegment({
   onApprove,
 }: {
   program: string;
+  previousProgram?: string;
   streaming: boolean;
   onAction?: ((action: OpenUiAction) => void) | undefined;
   initialState?: Record<string, unknown>;
@@ -124,7 +140,7 @@ function OpenUiSegment({
     return <Markdown text={`\`\`\`openui-lang\n${program}\n\`\`\``} />;
   }
 
-  if (streaming && !HAS_ROOT.test(program)) {
+  if (streaming && !HAS_ROOT.test(program) && !previousProgram) {
     return (
       <div role="status" aria-busy="true" className="text-sm text-muted-foreground">
         正在更新界面…
@@ -143,6 +159,7 @@ function OpenUiSegment({
         streaming={streaming}
         blockKey={blockKey}
         onInvalid={(failed) => setInvalid(failed)}
+        {...(previousProgram === undefined ? {} : { previousProgram })}
         {...(onAction ? { onAction } : {})}
         {...(messageId === undefined ? {} : { messageId })}
         {...(conversationId === undefined ? {} : { conversationId })}

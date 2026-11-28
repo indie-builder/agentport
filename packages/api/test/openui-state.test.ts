@@ -264,6 +264,22 @@ describe.skipIf(!ready)('openui state', () => {
     expect(await savedState(messageId)).toBeNull();
   });
 
+  it('rejects total state across blocks over 256KB with 413', async () => {
+    const { conversationId, messageId } = await seed({ segments: 5 });
+    const chunk = { blob: 'x'.repeat(60 * 1024) };
+    for (const blockKey of ['s0', 's1', 's2', 's3']) {
+      const res = await put(conversationId, messageId, { blockKey, state: chunk });
+      expect(res.statusCode, res.body).toBe(200);
+    }
+    const overflow = await put(conversationId, messageId, {
+      blockKey: 's4',
+      state: { blob: 'x'.repeat(30 * 1024) },
+    });
+    expectProblem(overflow, 'PAYLOAD_TOO_LARGE');
+    const stored = (await savedState(messageId)) as { blocks: Record<string, unknown> };
+    expect(Object.keys(stored.blocks).sort()).toEqual(['s0', 's1', 's2', 's3']);
+  });
+
   it('writes an audit row naming the block, not its values', async () => {
     const { conversationId, messageId } = await seed();
     await put(conversationId, messageId, { blockKey: 's1', state: { secret: 'pii' } });

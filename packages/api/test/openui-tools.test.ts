@@ -76,6 +76,7 @@ describe.skipIf(!ready)('openui tools', () => {
   const agentSlugs: string[] = [];
   const serverNames: string[] = [];
   const conversationIds: string[] = [];
+  const policyIds: string[] = [];
 
   beforeAll(async () => {
     app = await startApp({ APPROVAL_WAIT_MS: '0' });
@@ -87,6 +88,13 @@ describe.skipIf(!ready)('openui tools', () => {
   });
 
   afterAll(async () => {
+    for (const policyId of policyIds) {
+      await request(app, {
+        method: 'DELETE',
+        url: `/api/security/tool-policies/${policyId}`,
+        headers: auth(),
+      });
+    }
     await cleanup(app, { agentSlugs, serverNames });
     if (conversationIds.length > 0) {
       await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
@@ -728,6 +736,7 @@ describe.skipIf(!ready)('openui tools', () => {
   });
 
   const seedHttpServer = async (): Promise<{
+    agent: Agent;
     server: Server;
     conversationId: string;
     messageId: string;
@@ -766,7 +775,7 @@ describe.skipIf(!ready)('openui tools', () => {
     });
     conversationIds.push(conversationId);
     const messageId = await appendUiMessage(conversationId);
-    return { server, conversationId, messageId };
+    return { agent, server, conversationId, messageId };
   };
 
   it('prefers structuredContent over the text JSON', async () => {
@@ -797,5 +806,122 @@ describe.skipIf(!ready)('openui tools', () => {
       [conversationId],
     );
     expect(audit[0]?.status).toBe('error');
+  });
+
+  it('enforces dynamic tool approval policies on generated and http tools', async () => {
+    const { agent, server, conversationId, messageId } = await seedAgent();
+    const askPolicy = await request(app, {
+      method: 'POST',
+      url: '/api/security/tool-policies',
+      headers: auth(),
+      payload: {
+        agentId: agent.id,
+        serverId: server.id,
+        httpMethod: 'GET',
+        pathTemplate: '/users/{id}',
+        approvalMode: 'ask',
+      },
+    });
+    expect(askPolicy.statusCode, askPolicy.body).toBe(201);
+    const askPolicyId = askPolicy.json<{ id: string }>().id;
+    policyIds.push(askPolicyId);
+
+    const toolName = `mcp__${server.name}__get-user`;
+    const askRes = await callTool(conversationId, toolName, { messageId, args: { id: 1 } });
+    expect(askRes.statusCode, askRes.body).toBe(202);
+    const approvalId = askRes.json<{ approvalId: string }>().approvalId;
+
+    const approved = await request(app, {
+      method: 'POST',
+      url: `/api/chat/${conversationId}/openui/approvals/${approvalId}/approve`,
+      headers: auth(),
+    });
+    expect(approved.statusCode, approved.body).toBe(200);
+    const afterApprove = await callTool(conversationId, toolName, { messageId, args: { id: 1 } });
+    expect(afterApprove.statusCode, afterApprove.body).toBe(200);
+
+    const denyPolicy = await request(app, {
+      method: 'POST',
+      url: '/api/security/tool-policies',
+      headers: auth(),
+      payload: {
+        agentId: agent.id,
+        serverId: server.id,
+        approvalMode: 'deny',
+      },
+    });
+    expect(denyPolicy.statusCode, denyPolicy.body).toBe(201);
+    const denyPolicyId = denyPolicy.json<{ id: string }>().id;
+    policyIds.push(denyPolicyId);
+
+    expectProblem(
+      await callTool(conversationId, toolName, { messageId, args: { id: 1 } }),
+      'FORBIDDEN',
+    );
+    const deniedAudit = await app.client.unsafe<{ detail: Record<string, string> | null }[]>(
+      "select detail from audit_log where action = 'openui.tool.denied' and target = $1 order by created_at desc limit 1",
+      [conversationId],
+    );
+    expect(JSON.parse(deniedAudit[0]?.detail?.matchedRuleIds ?? '[]')).toContain(denyPolicyId);
+
+    const http = await seedHttpServer();
+    const httpDeny = await request(app, {
+      method: 'POST',
+      url: '/api/security/tool-policies',
+      headers: auth(),
+      payload: {
+        agentId: http.agent.id,
+        approvalMode: 'deny',
+      },
+    });
+    expect(httpDeny.statusCode, httpDeny.body).toBe(201);
+    policyIds.push(httpDeny.json<{ id: string }>().id);
+    expectProblem(
+      await callTool(http.conversationId, `mcp__${http.server.name}__structured`, {
+        messageId: http.messageId,
+      }),
+      'FORBIDDEN',
+    );
+  });
+
+  it('resolves and executes tools from the run definition snapshot after live drift and unbinding', async () => {
+    const { agent, server, conversationId } = await seedAgent();
+    const snapshot = await repo.agentDefinitions.loadLiveDefinition(app.db, agent.id);
+    expect(snapshot).not.toBeNull();
+    const runId = newId('run');
+    await repo.chat.createRun(app.db, {
+      id: runId,
+      conversationId,
+      agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+      definitionSnapshot: snapshot ?? undefined,
+    });
+    const message = await repo.chat.appendMessage(app.db, {
+      id: newId('message'),
+      conversationId,
+      role: 'assistant',
+      runId,
+      content: { type: 'text', text: '界面\n\n```openui-lang\nroot = Card([])\n```' },
+    });
+    await app.client.unsafe('update messages set ui_format = $2 where id = $1', [
+      message.id,
+      'openui',
+    ]);
+    await app.client.unsafe(
+      `update api_tools set enabled = false, method = 'POST', path_template = '/drifted/{id}'
+       where server_id = $1 and name = 'get-user'`,
+      [server.id],
+    );
+    await app.client.unsafe('delete from agent_servers where agent_id = $1 and server_id = $2', [
+      agent.id,
+      server.id,
+    ]);
+
+    const res = await callTool(conversationId, `mcp__${server.name}__get-user`, {
+      messageId: message.id,
+      args: { id: 1 },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({ status: 'ok', data: { id: 1, name: 'Fixture user' } });
   });
 });

@@ -1,9 +1,10 @@
-import { isSafeOpenUrl, OPENUI_COMPONENT_NAMES } from '@agentport/shared';
+import { isSafeOpenUrl, OPENUI_COMPONENT_NAMES, type OpenUiToolResult } from '@agentport/shared';
 import { act, createElement, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../src/lib/api.js';
 import { OPENUI_RENDERERS } from '../src/openui/components/index.js';
-import { OpenUiBlock } from '../src/openui/renderer.js';
+import { OpenUiBlock, type OpenUiToolCallInput } from '../src/openui/renderer.js';
 
 describe('OPENUI_RENDERERS', () => {
   it('implements every component in the generated contract', () => {
@@ -156,6 +157,248 @@ describe('OpenUiBlock', () => {
       ].join('\n'),
     );
     expect(host.textContent).toContain('标题');
+  });
+
+  it('ignores warning-severity diagnostics when a fallback root renders', async () => {
+    await render(['card = Card([t])', 't = TextContent("回退渲染内容")'].join('\n'));
+    expect(host.textContent).toContain('回退渲染内容');
+    expect(host.textContent).not.toContain('这段界面有内容没有显示出来');
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('disables observability publishing during streaming and settlement', async () => {
+    const bus = (
+      globalThis as Record<symbol, { listenAll?: (fn: (event: unknown) => void) => () => void }>
+    )[Symbol.for('openui.observability')];
+    const events: unknown[] = [];
+    const unsubscribe = bus?.listenAll?.((event) => events.push(event));
+    try {
+      await render(['root = Card([t])', 't = TextContent("流式中")'].join('\n'), {
+        streaming: true,
+      });
+      await render(['root = Card([t])', 't = TextContent("已完成")'].join('\n'), {
+        streaming: false,
+      });
+      expect(events).toEqual([]);
+    } finally {
+      unsubscribe?.();
+    }
+  });
+
+  it('maps tool error results to mcp-error and ApiError NOT_FOUND to tool-not-found', async () => {
+    const settle = async () => {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+    };
+
+    const mcpToolCall = vi
+      .fn<(input: OpenUiToolCallInput) => Promise<OpenUiToolResult>>()
+      .mockResolvedValue({ status: 'error', error: '数据源超时' });
+    await render(
+      [
+        'root = Card([t])',
+        'metrics = Query("fetch_metrics", {}, { summary: "默认" })',
+        't = TextContent(metrics.summary)',
+      ].join('\n'),
+      {
+        streaming: false,
+        conversationId: 'conversation_err',
+        messageId: 'message_err_mcp',
+        blockKey: 's0',
+        onToolCall: mcpToolCall,
+      },
+    );
+    await settle();
+    expect(host.textContent).toContain('Query "fetch_metrics" returned an error: 数据源超时');
+
+    const notFoundToolCall = vi
+      .fn<(input: OpenUiToolCallInput) => Promise<OpenUiToolResult>>()
+      .mockRejectedValue(new ApiError(404, '工具不存在', { code: 'NOT_FOUND' }));
+    await render(
+      [
+        'root = Card([t])',
+        'missing = Query("missing_tool", {}, { summary: "默认" })',
+        't = TextContent(missing.summary)',
+      ].join('\n'),
+      {
+        streaming: false,
+        conversationId: 'conversation_err',
+        messageId: 'message_err_404',
+        blockKey: 's0',
+        onToolCall: notFoundToolCall,
+      },
+    );
+    await settle();
+    expect(host.textContent).toContain('Query tool "missing_tool" not found');
+  });
+
+  it('waits for pending state flush before dispatching continue_conversation even when save fails', async () => {
+    const formProgram = [
+      'root = Card([form])',
+      'form = Form("booking", buttons, [fc])',
+      'buttons = Buttons([submit])',
+      'submit = Button("提交", @ToAssistant("提交"), "primary")',
+      'fc = FormControl("姓名", name)',
+      'name = Input("fullName", "", "text", {})',
+    ].join('\n');
+    const typeName = async (value: string) => {
+      const input = host.querySelector<HTMLInputElement>('input[name="fullName"]');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      await act(async () => {
+        setter?.call(input, value);
+        input?.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    const clickSubmit = async () => {
+      const button = [...host.querySelectorAll('button')].find(
+        (element) => element.textContent === '提交',
+      );
+      await act(async () => button?.click());
+    };
+
+    let resolveFirstSave: () => void = () => {};
+    const firstSave = new Promise<void>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const onSaveState = vi
+      .fn<() => Promise<unknown>>()
+      .mockReturnValueOnce(firstSave)
+      .mockRejectedValueOnce(new Error('保存失败'));
+    const onAction = vi.fn();
+
+    await render(formProgram, {
+      streaming: false,
+      conversationId: 'conversation_flush',
+      messageId: 'message_flush',
+      blockKey: 's0',
+      onSaveState,
+      onAction,
+    });
+
+    await typeName('李四');
+    await clickSubmit();
+    expect(onSaveState).toHaveBeenCalledTimes(1);
+    expect(onAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveFirstSave();
+      await Promise.resolve();
+    });
+    expect(onAction).toHaveBeenCalledTimes(1);
+
+    await typeName('王五');
+    await clickSubmit();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSaveState).toHaveBeenCalledTimes(2);
+    expect(onAction).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits for queued dirty state after an in-flight save before dispatching continue_conversation', async () => {
+    const formProgram = [
+      'root = Card([form])',
+      'form = Form("booking", buttons, [fc])',
+      'buttons = Buttons([submit])',
+      'submit = Button("提交", @ToAssistant("提交"), "primary")',
+      'fc = FormControl("姓名", name)',
+      'name = Input("fullName", "", "text", {})',
+    ].join('\n');
+    const typeName = async (value: string) => {
+      const input = host.querySelector<HTMLInputElement>('input[name="fullName"]');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      await act(async () => {
+        setter?.call(input, value);
+        input?.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    const clickSubmit = async () => {
+      const button = [...host.querySelectorAll('button')].find(
+        (element) => element.textContent === '提交',
+      );
+      await act(async () => button?.click());
+    };
+
+    let resolveFirstSave: () => void = () => {};
+    let resolveSecondSave: () => void = () => {};
+    const firstSave = new Promise<void>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const secondSave = new Promise<void>((resolve) => {
+      resolveSecondSave = resolve;
+    });
+    const onSaveState = vi
+      .fn<() => Promise<unknown>>()
+      .mockReturnValueOnce(firstSave)
+      .mockReturnValueOnce(secondSave);
+    const onAction = vi.fn();
+
+    await render(formProgram, {
+      streaming: false,
+      conversationId: 'conversation_inflight',
+      messageId: 'message_inflight',
+      blockKey: 's0',
+      onSaveState,
+      onAction,
+    });
+
+    await typeName('第一版');
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    visibility.mockRestore();
+    expect(onSaveState).toHaveBeenCalledTimes(1);
+
+    await typeName('第二版');
+    await clickSubmit();
+    expect(onAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveFirstSave();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSaveState).toHaveBeenCalledTimes(2);
+    expect(onAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSecondSave();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('merges streaming patch statements with previousProgram for live preview', async () => {
+    const previousProgram = [
+      'root = Card([header, intro])',
+      'header = CardHeader("周报", "原副标题")',
+      'intro = TextContent("旧正文")',
+    ].join('\n');
+    await render('intro = TextContent("新正文")', {
+      streaming: true,
+      previousProgram,
+    });
+    expect(host.textContent).toContain('周报');
+    expect(host.textContent).toContain('原副标题');
+    expect(host.textContent).toContain('新正文');
+    expect(host.textContent).not.toContain('旧正文');
+  });
+
+  it('merges a streaming patch that redeclares root with existing refs against previousProgram', async () => {
+    const previousProgram = [
+      'root = Card([title, intro])',
+      'title = TextContent("保留标题")',
+      'intro = TextContent("待删除正文")',
+    ].join('\n');
+    await render('root = Card([title])', {
+      streaming: true,
+      previousProgram,
+    });
+    expect(host.textContent).toContain('保留标题');
+    expect(host.textContent).not.toContain('待删除正文');
   });
 });
 

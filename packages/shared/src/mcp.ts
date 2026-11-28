@@ -291,6 +291,7 @@ export const mcpToolSummarySchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   inputSchema: z.record(z.string(), z.unknown()).optional(),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type McpToolSummary = z.infer<typeof mcpToolSummarySchema>;

@@ -4,18 +4,19 @@ import librarySpec from './generated/openui.spec.json' with { type: 'json' };
 
 const parser = createParser(librarySpec.schema, librarySpec.root);
 
-function parsesComplete(program: string): boolean {
+function parsesUsable(program: string): boolean {
   if (program.trim() === '') return false;
-  return isComplete(parser.parse(program));
+  return isUsable(parser.parse(program));
 }
 
-function isComplete(result: ParseResult): boolean {
+function isUsable(result: ParseResult): boolean {
   return (
-    result.root !== null &&
-    result.meta.incomplete !== true &&
-    result.meta.errors.length === 0 &&
-    result.meta.unresolved.length === 0
+    result.root !== null && result.meta.incomplete !== true && result.meta.unresolved.length === 0
   );
+}
+
+function isCompleteReplacement(result: ParseResult): boolean {
+  return isUsable(result) && !result.meta.errors.some((error) => error.code === 'no-root');
 }
 
 interface OpenUiDiagnostic {
@@ -60,8 +61,9 @@ export function resolveOpenUiResponseDetailed(
     if (patch.trim() === '') continue;
 
     const base = baseline.get(blockKey);
+    const parsedPatch = parser.parse(patch);
 
-    if (parsesComplete(patch)) {
+    if (isCompleteReplacement(parsedPatch)) {
       parts.push(fence(patch));
       continue;
     }
@@ -71,6 +73,16 @@ export function resolveOpenUiResponseDetailed(
         blockKey,
         code: 'missing-baseline',
         message: `UI segment ${blockKey} is not a complete program and there is no previous program to patch`,
+      });
+      parts.push(fence(patch));
+      continue;
+    }
+
+    if (parsedPatch.meta.statementCount === 0) {
+      diagnostics.push({
+        blockKey,
+        code: 'invalid-program',
+        message: `UI segment ${blockKey} contains no valid openui-lang statements; keeping the original segment`,
       });
       parts.push(fence(patch));
       continue;
@@ -89,7 +101,7 @@ export function resolveOpenUiResponseDetailed(
       continue;
     }
 
-    if (!parsesComplete(merged)) {
+    if (!parsesUsable(merged)) {
       diagnostics.push({
         blockKey,
         code: 'invalid-program',

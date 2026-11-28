@@ -105,7 +105,10 @@ export {
   parseRuleMd,
 } from './official-files.js';
 export { parseOpenApiDocument } from './openapi.js';
-export { resolveOpenUiResponse } from './openui-response.js';
+export {
+  resolveOpenUiResponse,
+  resolveOpenUiResponseDetailed,
+} from './openui-response.js';
 export {
   captureOutputDraft,
   copyConversationOutputs,

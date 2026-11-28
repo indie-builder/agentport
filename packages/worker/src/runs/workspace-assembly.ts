@@ -6,6 +6,7 @@ import {
   effortSchema,
   type McpJsonArtifactEntry,
   type MemoryPolicy,
+  type OpenUiToolDescriptor,
   permissionModeSchema,
   uiFormatSchema,
 } from '@agentport/shared';
@@ -40,6 +41,7 @@ export type WorkspaceAssemblyInput = {
   workflows: Array<{ slug: string; content: string }>;
   hooks: Record<string, unknown> | null;
   hookFiles: Array<{ path: string; content: string; executable: boolean }>;
+  openuiTools?: OpenUiToolDescriptor[];
   plugins: WorkspacePlugin[];
   memoryPolicy: MemoryPolicy;
 };
@@ -64,7 +66,9 @@ export function createWorkspaceAssembly(deps: { db: Db; workspacesDir: string; l
       memoryPolicy,
     } = input;
     const openuiTools =
-      agent.uiFormat === 'openui' ? await repo.openui.listOpenUiTools(deps.db, agent.id) : [];
+      agent.uiFormat === 'openui'
+        ? (input.openuiTools ?? (await repo.openui.listOpenUiTools(deps.db, agent.id)))
+        : [];
     const files = renderWorkspace(
       toWorkspaceInput({
         agent: {
