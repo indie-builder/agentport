@@ -69,7 +69,7 @@ function FileInputDropzone({
     <FileInputDropzonePrimitive
       className={(state) =>
         cn(
-          'flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-surface p-6 text-center text-sm text-muted-foreground transition-colors outline-none data-dragging:border-ring data-drag-accept:bg-hover data-drag-reject:border-destructive data-drag-reject:bg-destructive/5 data-disabled:pointer-events-none data-disabled:opacity-[0.35]',
+          'flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-surface p-6 text-center text-sm text-muted-foreground transition-colors outline-none data-dragging:border-ring data-drag-accept:bg-hover data-drag-reject:border-destructive data-drag-reject:bg-destructive/5 data-disabled:pointer-events-none data-disabled:opacity-35',
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -100,7 +100,7 @@ function FileInputItem({
     <FileInputItemPrimitive
       className={(state) =>
         cn(
-          'flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-[0.35]',
+          'flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-35',
           typeof className === 'function' ? className(state) : className,
         )
       }

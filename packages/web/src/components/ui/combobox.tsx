@@ -51,7 +51,7 @@ function ComboboxInput({ className, ...props }: ComponentProps<typeof ComboboxIn
     <ComboboxInputPrimitive
       className={(state) =>
         cn(
-          'h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none cds-focus-glow focus-visible:border-[var(--color-subtle)] placeholder:text-muted-foreground data-disabled:cursor-not-allowed data-disabled:opacity-[0.35] aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive in-data-[slot=combobox-chips]:h-auto in-data-[slot=combobox-chips]:min-w-16 in-data-[slot=combobox-chips]:flex-1 in-data-[slot=combobox-chips]:rounded-none in-data-[slot=combobox-chips]:border-0 in-data-[slot=combobox-chips]:p-0 in-data-[slot=combobox-chips]:focus-visible:outline-none',
+          'h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none cds-focus-glow focus-visible:border-subtle placeholder:text-muted-foreground data-disabled:cursor-not-allowed data-disabled:opacity-35 aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive in-data-[slot=combobox-chips]:h-auto in-data-[slot=combobox-chips]:min-w-16 in-data-[slot=combobox-chips]:flex-1 in-data-[slot=combobox-chips]:rounded-none in-data-[slot=combobox-chips]:border-0 in-data-[slot=combobox-chips]:p-0 in-data-[slot=combobox-chips]:focus-visible:outline-none',
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -76,7 +76,7 @@ function ComboboxContent({
       alignOffset={alignOffset}
       className={(state) =>
         cn(
-          'z-50 max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-(--anchor-width) overflow-hidden rounded-[var(--radius-popover)] bg-popover text-popover-foreground shadow-md ring-1 ring-line outline-hidden cds-overlay-enter [--combobox-list-height:var(--available-height)]',
+          'z-50 max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-(--anchor-width) overflow-hidden rounded-popover bg-popover text-popover-foreground shadow-md ring-1 ring-line outline-hidden cds-overlay-enter [--combobox-list-height:var(--available-height)]',
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -145,7 +145,7 @@ function ComboboxChips({ className, ...props }: ComponentProps<typeof ComboboxCh
     <ComboboxChipsPrimitive
       className={(state) =>
         cn(
-          'flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent bg-clip-padding px-2.5 py-1 text-sm transition-colors has-[[data-slot=combobox-input]:focus-visible]:border-[var(--color-subtle)] has-aria-invalid:border-destructive has-aria-invalid:has-[[data-slot=combobox-input]:focus-visible]:border-destructive has-data-[slot=combobox-chip]:px-1',
+          'flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent bg-clip-padding px-2.5 py-1 text-sm transition-colors has-[[data-slot=combobox-input]:focus-visible]:border-subtle has-aria-invalid:border-destructive has-aria-invalid:has-[[data-slot=combobox-input]:focus-visible]:border-destructive has-data-[slot=combobox-chip]:px-1',
           typeof className === 'function' ? className(state) : className,
         )
       }

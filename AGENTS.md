@@ -135,7 +135,7 @@
 | 规则 / 错误类别 | 执行层级 | 唯一执行入口 |
 |---|---|---|
 | UI 原语只用 `@ui-sdk/react` + shadcn/ui，禁 `@radix-ui` / `@base-ui` | 架构 + Lint + CI | `packages/web/src/components/ui/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| 禁硬编码 hex、禁逐个传 `strokeWidth`/`size`、禁直接拼接 `buttonVariants` | 架构 + Lint + CI | `packages/web/src/styles.css`、`packages/web/src/App.tsx`、`packages/web/src/components/ui/button.tsx` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 禁硬编码 hex、禁 `dark:` 变体类、禁逐个传 `strokeWidth`/`size`、禁直接拼接 `buttonVariants` | 架构 + Lint + CI | `packages/web/src/styles.css`、`packages/web/src/App.tsx`、`packages/web/src/components/ui/button.tsx` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 前端本地存储走统一封装，禁直接访问 `localStorage` | 架构 + Lint + CI | `packages/web/src/lib/storage.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 焦点与边框单层契约（禁叠环、`outline-none`、slider 焦点态） | Lint + CI | `scripts/check-focus-contract.mjs`（`bun run lint:focus`） |
 | Tailwind 设计令牌、类名有效性、内联样式与组件样式契约（禁原始调色板与黑白字面色、未知类、非布局任意值、外观内联样式与 `<style>`、`no-restyle` 警告棘轮） | Lint + CI | `packages/web/.oxlintrc.json`（`bun run lint:design`，已接入 `scripts/ci.ts`） |

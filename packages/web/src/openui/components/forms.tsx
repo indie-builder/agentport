@@ -1133,8 +1133,7 @@ const BUTTON_VARIANTS = {
 const DESTRUCTIVE_BUTTON_STYLES = {
   primary: {
     variant: 'destructive' as const,
-    className:
-      'bg-destructive text-destructive-foreground shadow-[var(--shadow-2xs)] hover:bg-destructive/90',
+    className: 'bg-destructive text-destructive-foreground shadow-2xs hover:bg-destructive/90',
   },
   secondary: {
     variant: 'outline' as const,

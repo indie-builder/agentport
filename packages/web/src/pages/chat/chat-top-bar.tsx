@@ -113,7 +113,7 @@ export function ChatTopBar({
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <h1
           title={title}
-          className="min-w-0 truncate text-base font-medium tracking-[-0.01em] text-fg"
+          className="min-w-0 truncate text-base font-medium tracking-heading text-fg"
         >
           {title}
         </h1>

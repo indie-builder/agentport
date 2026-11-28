@@ -124,7 +124,7 @@ export function LoginPage() {
                 <Brand className="h-8" />
               </Button>
             </div>
-            <h1 className="text-2xl font-medium tracking-[-0.02em] text-fg">登录 PACE</h1>
+            <h1 className="text-2xl font-medium tracking-display text-fg">登录 PACE</h1>
             <p className="mt-2 text-sm text-muted-foreground">使用账号登录，继续你的智能体工作。</p>
             <form
               className="mt-8"

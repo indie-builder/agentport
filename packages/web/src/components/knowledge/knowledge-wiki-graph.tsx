@@ -266,7 +266,7 @@ export function KnowledgeWikiGraph({
                   x={position.x + position.cos * (nodeRadius + 8)}
                   y={position.y + position.sin * (nodeRadius + 8) + 3}
                   textAnchor={anchor}
-                  className="fill-muted-foreground text-[10px]"
+                  className="fill-muted-foreground text-2xs"
                 >
                   {labelOf(node.title)}
                 </text>

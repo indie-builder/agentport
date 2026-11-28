@@ -24,7 +24,7 @@ function PopoverContent<Payload = unknown>({
       sideOffset={sideOffset}
       className={(state) =>
         cn(
-          'z-50 flex max-h-(--available-height) w-72 max-w-(--available-width) overflow-y-auto overscroll-contain flex-col gap-2.5 rounded-[var(--radius-popover)] bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-line outline-hidden cds-overlay-enter',
+          'z-50 flex max-h-(--available-height) w-72 max-w-(--available-width) overflow-y-auto overscroll-contain flex-col gap-2.5 rounded-popover bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-line outline-hidden cds-overlay-enter',
           typeof className === 'function' ? className(state) : className,
         )
       }

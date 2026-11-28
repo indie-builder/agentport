@@ -348,7 +348,7 @@ export function KnowledgeCitations({ name, result }: { name: string; result: str
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <div className="px-1 text-2xs uppercase tracking-[0.06em] text-muted-foreground">
+      <div className="px-1 text-2xs uppercase tracking-label text-muted-foreground">
         {parsed.kind === 'list'
           ? `对象 · ${parsed.items.length}`
           : parsed.kind === 'read'

@@ -29,7 +29,7 @@ function DropdownMenuContent<Payload = unknown>({
       sideOffset={sideOffset}
       className={(state) =>
         cn(
-          'max-h-(--available-height) min-w-32 max-w-(--available-width) overflow-x-hidden overflow-y-auto overscroll-contain rounded-[var(--radius-popover)] bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-line cds-overlay-enter outline-none',
+          'max-h-(--available-height) min-w-32 max-w-(--available-width) overflow-x-hidden overflow-y-auto overscroll-contain rounded-popover bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-line cds-overlay-enter outline-none',
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -53,7 +53,7 @@ function DropdownMenuItem({
       destructive={variant === 'destructive'}
       className={(state) =>
         cn(
-          "relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-destructive:data-highlighted:**:text-accent-foreground data-inset:ps-7 data-destructive:text-destructive data-destructive:data-highlighted:bg-destructive/10 data-destructive:data-highlighted:text-destructive dark:data-destructive:data-highlighted:bg-destructive/20 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-destructive:*:[svg]:text-destructive",
+          "relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-destructive:data-highlighted:**:text-accent-foreground data-inset:ps-7 data-destructive:text-destructive data-destructive:data-highlighted:bg-destructive/10 data-destructive:data-highlighted:text-destructive data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-destructive:*:[svg]:text-destructive",
           typeof className === 'function' ? className(state) : className,
         )
       }
