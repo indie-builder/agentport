@@ -297,13 +297,21 @@ export async function updateServer(
         ? current.kind === 'stdio' && Bun.deepEquals(next.env, current.env, true)
         : (current.kind === 'http' || current.kind === 'generated') &&
           Bun.deepEquals(next.headers, current.headers, true);
+    const nextConfig: Record<string, unknown> = { ...row.config, ...split.config };
+    if (
+      current.kind === 'http' &&
+      next.kind === 'http' &&
+      (next.url !== current.url || !secretsUnchanged)
+    ) {
+      delete nextConfig.toolCatalog;
+    }
     const updated = await repo.servers.updateServer(
       tx,
       id,
       {
         name: next.name,
         description: next.description,
-        config: { ...row.config, ...split.config },
+        config: nextConfig,
         secretsEncrypted: secretsUnchanged ? row.secretsEncrypted : split.secretsEncrypted,
       },
       expectedUpdatedAt,

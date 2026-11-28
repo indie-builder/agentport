@@ -12,9 +12,8 @@ import {
 import { CircleAlert, CircleCheck, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorState } from '../components/states.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
+import { Button } from '../components/ui/button.js';
 import { ApiError, errorMessage } from '../lib/api.js';
-import { cn } from '../lib/cn.js';
 import { library as openUiLibrary } from './library.js';
 
 export interface OpenUiToolCallInput {
@@ -112,6 +111,14 @@ export function OpenUiBlock({
   } | null>(null);
 
   const pendingState = useRef<PendingSave | null>(null);
+  const initialStateKey = JSON.stringify(initialState ?? null);
+  const latestState = useRef<Record<string, unknown>>(initialState ?? {});
+  const prevInitialStateKey = useRef(initialStateKey);
+  if (prevInitialStateKey.current !== initialStateKey) {
+    prevInitialStateKey.current = initialStateKey;
+    latestState.current = initialState ?? {};
+  }
+  const declaredBindings = useRef<Record<string, unknown>>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef<Promise<void> | null>(null);
   const mounted = useRef(true);
@@ -212,6 +219,7 @@ export function OpenUiBlock({
   }, [conversationId, messageId, blockKey, flush]);
 
   const handleState = (state: Record<string, unknown>) => {
+    latestState.current = state;
     pendingState.current = { state, source: { ...source.current } };
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 400);
@@ -293,6 +301,7 @@ export function OpenUiBlock({
   if (reported.current !== null && reported.current !== program) reported.current = null;
 
   const handleParseResult = (result: ParseResult | null) => {
+    declaredBindings.current = result?.stateDeclarations ?? {};
     if (!settled || !invalidRef.current) return;
     if (result != null && result.root != null) return;
     if (reported.current === program) return;
@@ -328,12 +337,28 @@ export function OpenUiBlock({
     }
     if (event.type !== 'continue_conversation') return;
     if (!event.humanFriendlyMessage) return;
+    let formState = event.formState;
+    if (event.formName) {
+      const mergedBindings: Record<string, unknown> = {
+        ...declaredBindings.current,
+        ...latestState.current,
+      };
+      const extraBindings = Object.entries(mergedBindings).filter(
+        ([key]) => key.startsWith('$') && (formState === undefined || !(key in formState)),
+      );
+      if (extraBindings.length > 0) {
+        formState = {
+          ...(formState ?? {}),
+          ...Object.fromEntries(extraBindings),
+        };
+      }
+    }
     const payload: OpenUiAction = {
       type: 'continue_conversation',
       params,
       message: event.humanFriendlyMessage,
       ...(params.context === undefined ? {} : { context: params.context }),
-      ...(event.formState === undefined ? {} : { formState: event.formState }),
+      ...(formState === undefined ? {} : { formState }),
       ...(event.formName === undefined ? {} : { formName: event.formName }),
       ...(messageId === undefined ? {} : { messageId }),
       ...(blockKey === undefined ? {} : { blockKey }),
@@ -405,7 +430,7 @@ export function OpenUiBlock({
 }
 
 function QueryFailure() {
-  const { errors, isLoading } = useRendererQuery();
+  const { errors, isLoading, retry } = useRendererQuery();
   return (
     <div
       role="alert"
@@ -417,13 +442,16 @@ function QueryFailure() {
           <p key={`${error.statementId ?? ''}-${error.code}-${error.message}`}>{error.message}</p>
         ))}
       </div>
-      <Renderer.Retry
-        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'shrink-0')}
-        disabled={isLoading}
+      <Button
+        variant="outline"
+        size="sm"
+        className="shrink-0"
+        disabled={isLoading || errors.length === 0}
+        onClick={retry}
       >
         <RefreshCw className="size-3.5" aria-hidden="true" />
         重试
-      </Renderer.Retry>
+      </Button>
     </div>
   );
 }
@@ -439,51 +467,62 @@ function ApprovalEntry({
   conversationId?: string;
   onApprove: (approvalId: string) => Promise<void>;
 }) {
-  const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   return (
     <div className="flex flex-col gap-2">
-      {approvals.map(({ approvalId, toolName }) => {
-        const done = approved.has(approvalId);
-        return (
-          <div
-            key={approvalId}
-            className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-chip px-3 py-2 text-xs text-fg"
-          >
-            {done ? (
-              <CircleCheck className="size-3.5 shrink-0 text-success" aria-hidden="true" />
-            ) : (
-              <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
-            )}
-            <div className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere]">
-              工具 <code className="font-mono">{toolName}</code>{' '}
-              {done
-                ? '已批准；本次调用不会自动重放，请重试查询或重新点击原操作。'
-                : '需要批准后才能调用。批准后请重试查询或重新点击原操作；本次调用不会自动重放。'}{' '}
-              <span className="text-muted-foreground">
-                批准在本会话内有效，8 小时后需重新批准。
-              </span>
-            </div>
-            {done ? null : (
-              <Button
-                size="sm"
-                disabled={busy !== null || !conversationId}
-                aria-busy={busy === approvalId}
-                data-agent-confirm={`批准工具 ${toolName} 在本会话内调用（8 小时内有效）`}
-                onClick={() => {
-                  setBusy(approvalId);
-                  setFailure(null);
-                  void onApprove(approvalId)
-                    .catch((error: unknown) => setFailure(errorMessage(error)))
-                    .finally(() => setBusy(null));
-                }}
-              >
-                {busy === approvalId ? '批准中…' : '批准工具调用'}
-              </Button>
-            )}
-          </div>
-        );
-      })}
+      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+        {approvals.map(({ approvalId, toolName }) => {
+          const done = approved.has(approvalId);
+          return (
+            <li
+              key={approvalId}
+              className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-chip px-3 py-2 text-xs text-fg"
+            >
+              {done ? (
+                <CircleCheck className="size-3.5 shrink-0 text-success" aria-hidden="true" />
+              ) : (
+                <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
+              )}
+              <div className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere]">
+                工具 <code className="font-mono">{toolName}</code>{' '}
+                {done
+                  ? '已批准；本次调用不会自动重放，请重试查询或重新点击原操作。'
+                  : '需要批准后才能调用。批准后请重试查询或重新点击原操作；本次调用不会自动重放。'}{' '}
+                <span className="text-muted-foreground">
+                  批准在本会话内有效，8 小时后需重新批准。
+                </span>
+              </div>
+              {done ? null : (
+                <Button
+                  size="sm"
+                  disabled={!conversationId}
+                  pendingAnnouncement={`正在批准 ${toolName}`}
+                  data-agent-confirm={`批准工具 ${toolName} 在本会话内调用（8 小时内有效）`}
+                  onClick={async () => {
+                    setFailure(null);
+                    try {
+                      await onApprove(approvalId);
+                    } catch (error: unknown) {
+                      setFailure(errorMessage(error));
+                    }
+                  }}
+                >
+                  {(state) => (
+                    <>
+                      <span data-show="idle" hidden={state.pending}>
+                        批准 {toolName}
+                      </span>
+                      <span data-show="pending" hidden={!state.pending}>
+                        批准中…
+                      </span>
+                    </>
+                  )}
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
       {failure ? (
         <p role="alert" className="text-xs text-danger">
           {failure}

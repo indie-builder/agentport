@@ -1,15 +1,15 @@
 import { isSafeOpenUrl } from '@agentport/shared';
 import { useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
-import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
-import type { LucideIcon } from 'lucide-react';
-import { icons } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { CircleDot, icons, type LucideIcon } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Markdown } from '../../components/markdown.js';
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from '../../components/ui/accordion.js';
+import { Button } from '../../components/ui/button.js';
 import {
   Carousel,
   CarouselContent,
@@ -30,9 +30,16 @@ import {
   TimelineTitle,
 } from '../../components/ui/timeline.js';
 import { cn } from '../../lib/cn.js';
-import { asArray, childProps, metricTone, type RenderProps, ValueText } from './shared.js';
+import {
+  asArray,
+  type CardSource,
+  CardSourceContext,
+  childProps,
+  metricTone,
+  type RenderProps,
+  ValueText,
+} from './shared.js';
 
-/** lucide 只导出 PascalCase 命名；模型给的是 kebab-case 或任意大小写。 */
 function toPascalCase(name: string): string {
   return name
     .trim()
@@ -43,33 +50,63 @@ function toPascalCase(name: string): string {
 }
 
 const CATEGORY_FALLBACKS: Record<string, string> = {
+  accessibility: 'Accessibility',
+  account: 'User',
+  animals: 'Cat',
+  arrows: 'ArrowRight',
+  brands: 'Box',
   buildings: 'Building',
   charts: 'ChartLine',
   communication: 'MessageSquare',
+  connectivity: 'Wifi',
+  cursors: 'MousePointer',
+  design: 'Palette',
+  development: 'Code',
+  devices: 'Smartphone',
+  emoji: 'FaceSlightlySmiling',
+  files: 'File',
   finance: 'DollarSign',
+  'food-beverage': 'CookingPot',
+  gaming: 'Gamepad',
   home: 'House',
-  multimedia: 'Music',
+  layout: 'LayoutGrid',
+  mail: 'Mail',
+  math: 'Calculator',
+  medical: 'HeartPulse',
+  multimedia: 'ListMusic',
   nature: 'TreePine',
+  navigation: 'MapPin',
+  notifications: 'Bell',
   people: 'Users',
+  photography: 'Camera',
+  science: 'Microscope',
+  seasons: 'Sun',
+  security: 'Shield',
   shapes: 'Circle',
   shopping: 'ShoppingCart',
+  social: 'Share2',
+  sports: 'Trophy',
+  sustainability: 'Leaf',
+  text: 'Type',
   time: 'Clock',
   tools: 'Wrench',
   transportation: 'Car',
   travel: 'Plane',
+  weather: 'Cloud',
 };
 
-function resolveIcon(name: string, category?: string): LucideIcon | null {
+const DEFAULT_FALLBACK_ICON = 'CircleDot';
+
+function resolveIcon(name: string, category?: string): LucideIcon {
   const catalog = icons as unknown as Record<string, LucideIcon | undefined>;
   const direct = catalog[toPascalCase(name)] ?? catalog[name];
   if (direct) return direct;
   const fallback = category ? CATEGORY_FALLBACKS[category.trim().toLowerCase()] : undefined;
-  return (fallback ? catalog[fallback] : undefined) ?? null;
+  return (fallback ? catalog[fallback] : undefined) ?? catalog[DEFAULT_FALLBACK_ICON] ?? CircleDot;
 }
 
 export function IconRenderer({ props }: RenderProps<{ name: string; category?: string }>) {
   const Icon = resolveIcon(String(props.name ?? ''), props.category);
-  if (!Icon) return null;
   return <Icon aria-hidden="true" />;
 }
 
@@ -164,11 +201,7 @@ export function IconTextRenderer({
   );
 }
 
-function SourceStrip({
-  sources,
-}: {
-  sources: Array<{ url?: string; title: string; sourceName: string }>;
-}) {
+function SourceStrip({ sources }: { sources: readonly CardSource[] }) {
   if (sources.length === 0) return null;
   return (
     <div className="flex min-w-0 flex-col gap-1 border-t border-line pt-3">
@@ -176,7 +209,7 @@ function SourceStrip({
         // biome-ignore lint/suspicious/noArrayIndexKey: 来源由模型按顺序生成，标题可能重复
         <div key={`${source.title}-${index}`} className="flex min-w-0 items-baseline gap-2 text-sm">
           <span className="shrink-0 tabular-nums text-muted-foreground">{index + 1}</span>
-          {source.url && isSafeOpenUrl(source.url) ? (
+          {source.url ? (
             <a
               href={source.url}
               target="_blank"
@@ -202,10 +235,21 @@ export function CardRenderer({
   children: unknown[];
   sources?: Array<{ url?: string; title: string; sourceName: string }>;
 }>) {
+  const sources = useMemo<CardSource[]>(
+    () =>
+      (props.sources ?? []).map((source) => ({
+        title: source.title,
+        sourceName: source.sourceName,
+        ...(source.url && isSafeOpenUrl(source.url) ? { url: source.url } : {}),
+      })),
+    [props.sources],
+  );
   return (
     <div className="cds-card-surface flex min-w-0 flex-col gap-4 rounded-card bg-surface p-3 has-[.cds-card-surface]:transform-none has-[.cds-card-surface]:bg-transparent has-[.cds-card-surface]:p-0 has-[.cds-card-surface]:shadow-none">
-      {renderNode(props.children)}
-      <SourceStrip sources={props.sources ?? []} />
+      <CardSourceContext.Provider value={sources}>
+        {renderNode(props.children)}
+      </CardSourceContext.Provider>
+      <SourceStrip sources={sources} />
     </div>
   );
 }
@@ -250,6 +294,17 @@ function keyedItems(items: unknown[], fallback: string) {
   });
 }
 
+function groupAriaLabel(
+  entries: ReadonlyArray<{ itemProps: { trigger?: unknown } | undefined }>,
+  fallback: string,
+): string {
+  const titles = entries
+    .map((entry) => String(entry.itemProps?.trigger ?? '').trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  return titles.length > 0 ? `${fallback}：${titles.join(' / ')}` : fallback;
+}
+
 export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown[] }>) {
   const items = (props.items ?? []).filter((item) => childProps(item) !== undefined);
   const entries = keyedItems(items, 'tab');
@@ -259,22 +314,28 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
   const touched = useRef(false);
   const previousSizes = useRef<Record<string, number> | null>(null);
   const resolvedActive = entries.some((entry) => entry.value === active) ? active : firstValue;
+  const contentSignature = entries
+    .map((entry) => `${entry.value}\u0001${JSON.stringify(entry.itemProps?.content)?.length ?? 0}`)
+    .join('\u0000');
 
   useEffect(() => {
     if (touched.current || !streaming) return;
+    const pairs = contentSignature
+      ? contentSignature.split('\u0000').map((part) => {
+          const [value = '', sizeText = '0'] = part.split('\u0001');
+          return [value, Number(sizeText)] as const;
+        })
+      : [];
     const baseline = previousSizes.current;
-    const nextSizes = Object.fromEntries(
-      entries.map((entry) => [entry.value, JSON.stringify(entry.itemProps?.content)?.length ?? 0]),
-    );
+    const nextSizes = Object.fromEntries(pairs);
     previousSizes.current = nextSizes;
     if (!baseline) return;
-    const candidate = entries.reduce<string | null>(
-      (latest, entry) =>
-        (nextSizes[entry.value] ?? 0) > (baseline[entry.value] ?? 0) ? entry.value : latest,
+    const candidate = pairs.reduce<string | null>(
+      (latest, [value, size]) => (size > (baseline[value] ?? 0) ? value : latest),
       null,
     );
     if (candidate && candidate !== resolvedActive) setActive(candidate);
-  });
+  }, [streaming, contentSignature, resolvedActive]);
 
   if (entries.length === 0) return null;
 
@@ -289,7 +350,7 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
     >
       <TabsList
         variant="line"
-        aria-label="标签页"
+        aria-label={groupAriaLabel(entries, '标签页')}
         className="w-full justify-start gap-1 overflow-x-auto px-0.75 [&_[role=tab]]:after:bottom-[-4.5px]"
       >
         {entries.map(({ itemProps, value }) => (
@@ -299,7 +360,7 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
         ))}
       </TabsList>
       {entries.map(({ itemProps, value }) => (
-        <TabsContent key={value} value={value} className="flex flex-col gap-3 pt-1">
+        <TabsContent key={value} value={value} keepMounted className="flex flex-col gap-3 pt-1">
           {renderNode(itemProps?.content)}
         </TabsContent>
       ))}
@@ -314,24 +375,27 @@ export function AccordionRenderer({ props, renderNode }: RenderProps<{ items: un
   const touched = useRef(false);
   const previousCount = useRef<number | null>(null);
   const autoOpenIndex = useRef(-1);
+  const entryValuesKey = entries.map((entry) => entry.value).join('\u0000');
+  const firstOpen = open[0];
 
   useEffect(() => {
+    const values = entryValuesKey ? entryValuesKey.split('\u0000') : [];
     if (!touched.current) {
       if (previousCount.current === null) {
-        if (entries.length > 0) autoOpenIndex.current = 0;
-      } else if (entries.length > previousCount.current) {
-        autoOpenIndex.current = entries.length - 1;
+        if (values.length > 0) autoOpenIndex.current = 0;
+      } else if (values.length > previousCount.current) {
+        autoOpenIndex.current = values.length - 1;
       }
-      const autoOpenValue = entries[autoOpenIndex.current]?.value;
-      if (autoOpenValue && autoOpenValue !== open[0]) setOpen([autoOpenValue]);
+      const autoOpenValue = values[autoOpenIndex.current];
+      if (autoOpenValue && autoOpenValue !== firstOpen) setOpen([autoOpenValue]);
     }
-    previousCount.current = entries.length;
-  });
+    previousCount.current = values.length;
+  }, [entryValuesKey, firstOpen]);
 
   if (entries.length === 0) return null;
   return (
     <Accordion
-      aria-label="折叠列表"
+      aria-label={groupAriaLabel(entries, '折叠列表')}
       value={open}
       onValueChange={(value) => {
         touched.current = true;
@@ -355,42 +419,82 @@ export function SectionBlockRenderer({
   renderNode,
 }: RenderProps<{ sections: unknown[]; isFoldable?: boolean }>) {
   const sections = (props.sections ?? []).filter((item) => childProps(item) !== undefined);
-  if (sections.length === 0) return null;
+  const entries = keyedItems(sections, 'section');
+  const baseId = useId();
+  const streaming = useIsStreaming();
+  const firstValue = entries[0]?.value;
+  const [openItems, setOpenItems] = useState<string[]>(() => (firstValue ? [firstValue] : []));
+  const userSelected = useRef(false);
+  const prevCount = useRef(0);
+  const prevStreaming = useRef(streaming);
+  const entryValuesKey = entries.map((entry) => entry.value).join('\u0000');
+
+  useEffect(() => {
+    const values = entryValuesKey ? entryValuesKey.split('\u0000') : [];
+    if (values.length === 0) return;
+    const first = values[0];
+    if (streaming && values.length > prevCount.current && !userSelected.current) {
+      const arrived = values.slice(prevCount.current);
+      setOpenItems((previous) => {
+        const next = [...previous];
+        for (const value of arrived) {
+          if (!next.includes(value)) next.push(value);
+        }
+        return next;
+      });
+    } else if (first && !userSelected.current) {
+      setOpenItems((previous) => (previous.length === 0 ? [first] : previous));
+    }
+    prevCount.current = values.length;
+  }, [entryValuesKey, streaming]);
+
+  useEffect(() => {
+    const values = entryValuesKey ? entryValuesKey.split('\u0000') : [];
+    if (prevStreaming.current && !streaming && !userSelected.current && values.length > 0) {
+      setOpenItems(values[0] ? [values[0]] : []);
+    }
+    prevStreaming.current = streaming;
+  }, [streaming, entryValuesKey]);
+
+  if (entries.length === 0) return null;
+
   if (props.isFoldable === false) {
-    const used = new Set<string>();
-    const entries = sections.map((section) => {
-      const sectionProps = childProps<{ value?: unknown; trigger?: unknown; content?: unknown }>(
-        section,
-      );
-      const raw = sectionProps?.value ?? sectionProps?.trigger;
-      const base = raw !== undefined && String(raw) !== '' ? String(raw) : 'section';
-      let key = base;
-      let suffix = 2;
-      while (used.has(key)) {
-        key = `${base}-${suffix}`;
-        suffix += 1;
-      }
-      used.add(key);
-      return { sectionProps, key };
-    });
     return (
       <div className="flex min-w-0 flex-col gap-4">
-        {entries.map(({ sectionProps, key }) => (
-          <section key={key} className="flex flex-col gap-2">
-            <h3 className="text-base font-medium break-words text-fg">
-              {String(sectionProps?.trigger ?? '')}
-            </h3>
-            <div className="flex flex-col gap-3">{renderNode(sectionProps?.content)}</div>
-          </section>
-        ))}
+        {entries.map(({ itemProps, value }, index) => {
+          const headingId = `${baseId}-section-${index}`;
+          return (
+            <section key={value} aria-labelledby={headingId} className="flex flex-col gap-2">
+              <h3 id={headingId} className="text-base font-medium break-words text-fg">
+                {String(itemProps?.trigger ?? '')}
+              </h3>
+              <div className="flex flex-col gap-3">{renderNode(itemProps?.content)}</div>
+            </section>
+          );
+        })}
       </div>
     );
   }
+
   return (
-    <AccordionRenderer
-      props={{ items: sections.map((section) => section) }}
-      renderNode={renderNode}
-    />
+    <Accordion
+      multiple
+      aria-label={groupAriaLabel(entries, '分区')}
+      value={openItems}
+      onValueChange={(value) => {
+        userSelected.current = true;
+        setOpenItems(value.map(String));
+      }}
+    >
+      {entries.map(({ itemProps, value }) => (
+        <AccordionItem key={value} value={value}>
+          <AccordionTrigger>{String(itemProps?.trigger ?? '')}</AccordionTrigger>
+          <AccordionContent className="flex flex-col gap-3">
+            {renderNode(itemProps?.content)}
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
   );
 }
 
@@ -424,8 +528,14 @@ export function StepsRenderer({ props, renderNode }: RenderProps<{ items: unknow
           <TimelineMarker>{index + 1}</TimelineMarker>
           <TimelineConnector />
           <TimelineTitle className="text-base">{title}</TimelineTitle>
-          {details ? (
-            <TimelineDescription className="text-base">{renderNode(details)}</TimelineDescription>
+          {details != null && details !== '' ? (
+            <TimelineDescription className="text-base">
+              {typeof details === 'string' ? (
+                <Markdown text={details} streaming={streaming} presentation="inherit" />
+              ) : (
+                renderNode(details)
+              )}
+            </TimelineDescription>
           ) : null}
         </TimelineItem>
       ))}
@@ -547,12 +657,15 @@ export function ListRenderer({
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表项由模型按顺序生成
           <li key={index} className="min-w-0">
             {clickable ? (
-              <ButtonPrimitive
-                className="flex w-full min-w-0 items-start gap-2.5 py-2 text-left transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label={itemProps.title}
+                className="h-auto w-full min-w-0 items-start justify-start gap-2.5 rounded-item px-1.5 py-2 text-left font-normal whitespace-normal"
                 onClick={() => void trigger(itemProps.title, undefined, action)}
               >
                 {content}
-              </ButtonPrimitive>
+              </Button>
             ) : (
               <div className="flex min-w-0 items-start gap-2.5 py-2">{content}</div>
             )}
@@ -574,15 +687,18 @@ export function FollowUpBlockRenderer({ props }: RenderProps<{ items: unknown[] 
         const text = String(childProps(item)?.text ?? '');
         if (!text) return null;
         return (
-          <ButtonPrimitive
+          <Button
             // biome-ignore lint/suspicious/noArrayIndexKey: 追问项文本可能重复，位置即身份
             key={index}
+            type="button"
+            variant="outline"
+            size="sm"
             disabled={streaming}
-            className="rounded-full border border-line px-3 py-1.5 text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-auto rounded-full px-3 py-1.5 font-normal whitespace-normal"
             onClick={() => void trigger(text)}
           >
             {text}
-          </ButtonPrimitive>
+          </Button>
         );
       })}
     </div>
@@ -592,7 +708,12 @@ export function FollowUpBlockRenderer({ props }: RenderProps<{ items: unknown[] 
 export function SeparatorRenderer({
   props,
 }: RenderProps<{ orientation?: 'horizontal' | 'vertical'; decorative?: boolean }>) {
-  return <Separator orientation={props.orientation ?? 'horizontal'} />;
+  return (
+    <Separator
+      orientation={props.orientation ?? 'horizontal'}
+      {...(props.decorative === undefined ? {} : { decorative: props.decorative })}
+    />
+  );
 }
 
 type EntityRow = { left: string; right: string; rightVariant: 'text' | 'number' };

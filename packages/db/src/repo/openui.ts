@@ -1,7 +1,7 @@
 import { AppError } from '@agentport/core';
 import { isRecord } from '@agentport/core/record';
 import type { AgentDefinition } from '@agentport/shared';
-import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -10,6 +10,7 @@ import {
   agents,
   apiTools,
   approvalRequests,
+  conversations,
   messages,
   servers,
 } from '../schema.js';
@@ -261,6 +262,7 @@ export async function getMessageInConversation(
   uiProgram: string | null;
   uiState: unknown;
   runId: string | null;
+  sdkMessageUuid: string | null;
 } | null> {
   const [row] = await db
     .select({
@@ -271,6 +273,7 @@ export async function getMessageInConversation(
       uiProgram: messages.uiProgram,
       uiState: messages.uiState,
       runId: messages.runId,
+      sdkMessageUuid: messages.sdkMessageUuid,
     })
     .from(messages)
     .where(and(eq(messages.id, messageId), eq(messages.conversationId, conversationId)))
@@ -296,6 +299,50 @@ export async function getRunDefinitionSnapshot(
   if (run.agentVersion === null) return null;
   const version = await getAgentVersion(db, run.agentId, run.agentVersion);
   return version?.definition ?? null;
+}
+
+const MAX_FORK_ANCESTOR_DEPTH = 16;
+
+export async function getRunDefinitionSnapshotForMessage(
+  db: Database,
+  conversationId: string,
+  message: { runId: string | null; sdkMessageUuid: string | null },
+): Promise<AgentDefinition | null> {
+  if (message.runId !== null) {
+    return getRunDefinitionSnapshot(db, message.runId);
+  }
+  if (message.sdkMessageUuid === null) return null;
+
+  let currentConversationId = conversationId;
+  const visited = new Set<string>([conversationId]);
+  for (let depth = 0; depth < MAX_FORK_ANCESTOR_DEPTH; depth += 1) {
+    const [conv] = await db
+      .select({ parentId: conversations.parentId })
+      .from(conversations)
+      .where(eq(conversations.id, currentConversationId))
+      .limit(1);
+    if (!conv?.parentId || visited.has(conv.parentId)) return null;
+    visited.add(conv.parentId);
+    currentConversationId = conv.parentId;
+
+    const [ancestorRow] = await db
+      .select({ runId: messages.runId })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, currentConversationId),
+          eq(messages.sdkMessageUuid, message.sdkMessageUuid),
+          eq(messages.role, 'assistant'),
+          eq(messages.uiFormat, 'openui'),
+          isNotNull(messages.runId),
+        ),
+      )
+      .limit(1);
+    if (ancestorRow?.runId !== undefined && ancestorRow.runId !== null) {
+      return getRunDefinitionSnapshot(db, ancestorRow.runId);
+    }
+  }
+  return null;
 }
 
 export type PatchMessageUiStateResult = 'ok' | 'not_found' | 'too_large';
@@ -375,6 +422,7 @@ export async function requestOpenUiApproval(
       set: {
         messageId: input.messageId,
         approvedAt: null,
+        approvedByBusinessId: null,
         authorizationExpiresAt: null,
       },
       setWhere: sql`${approvalRequests.approvedAt} is null or ${approvalRequests.authorizationExpiresAt} is null or ${approvalRequests.authorizationExpiresAt} < now()`,
@@ -409,11 +457,13 @@ export async function approveOpenUiApproval(
   db: Database,
   conversationId: string,
   approvalId: string,
+  approvedByBusinessId: string | null = null,
 ): Promise<OpenUiApproval | null> {
   const [row] = await db
     .update(approvalRequests)
     .set({
       approvedAt: sql`now()`,
+      approvedByBusinessId,
       authorizationExpiresAt: sql`now() + interval '8 hours'`,
     })
     .where(

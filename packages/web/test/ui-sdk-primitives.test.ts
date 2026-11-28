@@ -29,6 +29,7 @@ import {
   FileInputList,
   FileInputTrigger,
 } from '../src/components/ui/file-input.js';
+import { Input } from '../src/components/ui/input.js';
 import { MentionList, mentionList, useMentionList } from '../src/components/ui/mention-list.js';
 import {
   Meter,
@@ -1119,5 +1120,22 @@ describe('NumberInput primitive, Field integration, and agent', () => {
     expect(control.value).toBe('12');
     expect(onValueChange).toHaveBeenLastCalledWith(12, 'agent');
     expect(onValueCommit).toHaveBeenLastCalledWith(12, 'agent');
+  });
+
+  it('maps Input value={null} to empty string and normalizes Slider value={[]} to one thumb at min', async () => {
+    await render(
+      createElement(
+        'div',
+        null,
+        createElement(Input, { 'aria-label': '空输入', value: null, onChange: () => {} }),
+        createElement(Slider, { 'aria-label': '空滑块', min: 15, max: 100, value: [] }),
+      ),
+    );
+
+    const textInput = host.querySelector<HTMLInputElement>('input[aria-label="空输入"]');
+    const rangeInputs = host.querySelectorAll<HTMLInputElement>('input[type="range"]');
+    expect(textInput?.value).toBe('');
+    expect(rangeInputs).toHaveLength(1);
+    expect(rangeInputs[0]?.value).toBe('15');
   });
 });

@@ -30,33 +30,73 @@ function Slider({
 }: SliderProps) {
   const controlRef = useRef<HTMLDivElement | null>(null);
   const appliedInvalidRef = useRef(false);
-  const _values = Array.isArray(value) ? value : Array.isArray(defaultValue) ? defaultValue : [min];
-  const isSingle = _values.length === 1;
-  const rootAria = isSingle
-    ? {}
-    : {
-        ...(ariaLabel === undefined ? {} : { 'aria-label': ariaLabel }),
-        ...(ariaLabelledBy === undefined ? {} : { 'aria-labelledby': ariaLabelledBy }),
-        ...(ariaDescribedBy === undefined ? {} : { 'aria-describedby': ariaDescribedBy }),
-        ...(ariaInvalid === undefined ? {} : { 'aria-invalid': ariaInvalid }),
-      };
+  const appliedDescribedByRef = useRef(false);
+  const normalizedValue = Array.isArray(value) ? (value.length > 0 ? value : [min]) : value;
+  const normalizedDefaultValue = Array.isArray(defaultValue)
+    ? defaultValue.length > 0
+      ? defaultValue
+      : [min]
+    : defaultValue;
+  const _values = Array.isArray(normalizedValue)
+    ? normalizedValue
+    : Array.isArray(normalizedDefaultValue)
+      ? normalizedDefaultValue
+      : [min];
+  const thumbCount = _values.length;
+  const isSingle = thumbCount === 1;
+  const baseLabel = ariaLabel?.trim();
+  const rootAria = {
+    ...(ariaLabel === undefined ? {} : { 'aria-label': ariaLabel }),
+    ...(ariaLabelledBy === undefined ? {} : { 'aria-labelledby': ariaLabelledBy }),
+    ...(ariaDescribedBy === undefined ? {} : { 'aria-describedby': ariaDescribedBy }),
+    ...(ariaInvalid === undefined ? {} : { 'aria-invalid': ariaInvalid }),
+  };
 
   useEffect(() => {
     const control = controlRef.current;
-    if (!control) return;
-    const rootInvalid = control.closest('[data-slot="slider"]')?.getAttribute('aria-invalid');
-    const nextInvalid = ariaInvalid === undefined ? rootInvalid : String(ariaInvalid);
-    for (const input of control.querySelectorAll<HTMLInputElement>('input[type="range"]')) {
-      if (nextInvalid != null) {
-        if (input.getAttribute('aria-invalid') !== nextInvalid) {
-          input.setAttribute('aria-invalid', nextInvalid);
+    if (!control || thumbCount === 0) return;
+    const sliderRoot = control.closest('[data-slot="slider"]');
+    const syncDescribedBy = !isSingle && ariaDescribedBy === undefined;
+    const sync = () => {
+      const rootInvalid = sliderRoot?.getAttribute('aria-invalid') ?? null;
+      const nextInvalid = ariaInvalid === undefined ? rootInvalid : String(ariaInvalid);
+      const rootDescribedBy = syncDescribedBy
+        ? (sliderRoot?.getAttribute('aria-describedby') ?? null)
+        : null;
+      for (const input of control.querySelectorAll<HTMLInputElement>('input[type="range"]')) {
+        if (nextInvalid != null) {
+          if (input.getAttribute('aria-invalid') !== nextInvalid) {
+            input.setAttribute('aria-invalid', nextInvalid);
+          }
+        } else if (appliedInvalidRef.current) {
+          input.removeAttribute('aria-invalid');
         }
-      } else if (appliedInvalidRef.current) {
-        input.removeAttribute('aria-invalid');
+        if (syncDescribedBy) {
+          if (rootDescribedBy) {
+            if (input.getAttribute('aria-describedby') !== rootDescribedBy) {
+              input.setAttribute('aria-describedby', rootDescribedBy);
+            }
+          } else if (appliedDescribedByRef.current) {
+            input.removeAttribute('aria-describedby');
+          }
+        }
       }
+      appliedInvalidRef.current = nextInvalid != null;
+      if (syncDescribedBy) {
+        appliedDescribedByRef.current = Boolean(rootDescribedBy);
+      }
+    };
+    sync();
+    const observeAttrs: string[] = [];
+    if (ariaInvalid === undefined) observeAttrs.push('aria-invalid');
+    if (syncDescribedBy) observeAttrs.push('aria-describedby');
+    if (observeAttrs.length === 0 || !sliderRoot || typeof MutationObserver === 'undefined') {
+      return;
     }
-    appliedInvalidRef.current = nextInvalid != null;
-  });
+    const observer = new MutationObserver(sync);
+    observer.observe(sliderRoot, { attributes: true, attributeFilter: observeAttrs });
+    return () => observer.disconnect();
+  }, [ariaInvalid, ariaDescribedBy, isSingle, thumbCount]);
 
   return (
     <SliderPrimitive
@@ -67,8 +107,8 @@ function Slider({
       }
       min={min}
       max={max}
-      {...(defaultValue === undefined ? {} : { defaultValue })}
-      {...(value === undefined ? {} : { value })}
+      {...(normalizedDefaultValue === undefined ? {} : { defaultValue: normalizedDefaultValue })}
+      {...(normalizedValue === undefined ? {} : { value: normalizedValue })}
       {...rootAria}
       {...props}
     >
@@ -87,23 +127,19 @@ function Slider({
               : index === _values.length - 1
                 ? 'end'
                 : `thumb-${index}`;
+          const defaultThumbLabel =
+            _values.length === 2 ? (index === 0 ? '最小值' : '最大值') : `滑块 ${index + 1}`;
           const thumbAria = isSingle
             ? {
                 ...(ariaLabel === undefined ? {} : { 'aria-label': ariaLabel }),
                 ...(ariaLabelledBy === undefined ? {} : { 'aria-labelledby': ariaLabelledBy }),
                 ...(ariaDescribedBy === undefined ? {} : { 'aria-describedby': ariaDescribedBy }),
-                ...(ariaInvalid === undefined ? {} : { 'aria-invalid': ariaInvalid }),
               }
             : {
                 'aria-label':
                   thumbLabels?.[index] ??
-                  (_values.length === 2
-                    ? index === 0
-                      ? '最小值'
-                      : '最大值'
-                    : `滑块 ${index + 1}`),
+                  (baseLabel ? `${baseLabel} ${defaultThumbLabel}` : defaultThumbLabel),
                 ...(ariaDescribedBy === undefined ? {} : { 'aria-describedby': ariaDescribedBy }),
-                ...(ariaInvalid === undefined ? {} : { 'aria-invalid': ariaInvalid }),
               };
           return (
             <SliderThumb

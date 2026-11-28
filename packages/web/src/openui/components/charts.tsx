@@ -1,3 +1,4 @@
+import { useIsQueryLoading } from '@openuidev/react-lang';
 import {
   type ComponentType,
   type CSSProperties,
@@ -49,6 +50,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '../../components/ui/chart.js';
+import { Skeleton } from '../../components/ui/skeleton.js';
 import {
   Table,
   TableBody,
@@ -153,25 +155,71 @@ type SeriesInput = { category: string; values: (number | null)[] };
 type SeriesEntry = SeriesInput & { key: string; label: string; sortKey: string };
 
 function finiteValue(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
-function seriesFrom(input: unknown[]): SeriesEntry[] {
+function makeSeriesEntries(items: SeriesInput[]): SeriesEntry[] {
   const occurrences = new Map<string, number>();
-  return input
+  return items.map((series, index) => {
+    const count = (occurrences.get(series.category) ?? 0) + 1;
+    occurrences.set(series.category, count);
+    return {
+      category: series.category,
+      label: count === 1 ? series.category : `${series.category} (${count})`,
+      sortKey: count === 1 ? series.category : `${series.category}·${count}`,
+      key: `s${index}`,
+      values: asArray(series.values ?? []).map(finiteValue),
+    };
+  });
+}
+
+function seriesFrom(input: unknown[], columnNames?: readonly string[]): SeriesEntry[] {
+  const rows = asArray(input);
+  if (rows.length > 0 && Array.isArray(rows[0])) {
+    const tabular = rows.filter((row): row is unknown[] => Array.isArray(row));
+    const width = Math.max(
+      (columnNames?.length ?? 1) - 1,
+      ...tabular.map((row) => Math.max(0, row.length - 1)),
+    );
+    const seriesNames = Array.from(
+      { length: width },
+      (_, index) => columnNames?.[index + 1] ?? `系列 ${index + 1}`,
+    );
+    return makeSeriesEntries(
+      seriesNames.map((category, seriesIndex) => ({
+        category,
+        values: tabular.map((row) => finiteValue(row[seriesIndex + 1])),
+      })),
+    );
+  }
+  const items = rows
     .map((node) => childProps<SeriesInput>(node))
-    .filter((series): series is SeriesInput => !!series && typeof series.category === 'string')
-    .map((series, index) => {
-      const count = (occurrences.get(series.category) ?? 0) + 1;
-      occurrences.set(series.category, count);
-      return {
-        category: series.category,
-        label: count === 1 ? series.category : `${series.category} (${count})`,
-        sortKey: count === 1 ? series.category : `${series.category}·${count}`,
-        key: `s${index}`,
-        values: asArray(series.values ?? []).map(finiteValue),
-      };
-    });
+    .filter((series): series is SeriesInput => !!series && typeof series.category === 'string');
+  return makeSeriesEntries(items);
+}
+
+function normalizeXY(
+  rawLabels: unknown,
+  rawSeries: unknown,
+): { labels: string[]; series: SeriesEntry[] } {
+  const rawLabelsArray = asArray(rawLabels ?? []).map((label) => String(label ?? ''));
+  const rawSeriesArray = asArray(rawSeries ?? []);
+  if (rawSeriesArray.length > 0 && Array.isArray(rawSeriesArray[0])) {
+    const tabular = rawSeriesArray.filter((row): row is unknown[] => Array.isArray(row));
+    return {
+      labels: tabular.map((row) => String(row[0] ?? '')),
+      series: seriesFrom(tabular, rawLabelsArray),
+    };
+  }
+  return {
+    labels: rawLabelsArray,
+    series: seriesFrom(rawSeriesArray),
+  };
 }
 
 type ChartRow = { category: string; [key: string]: string | number | null };
@@ -386,16 +434,34 @@ function ChartDataView({
   );
 }
 
+function ChartLoading({ height }: { height?: number | undefined }) {
+  return (
+    <Skeleton
+      role="status"
+      aria-busy="true"
+      aria-label="图表数据加载中"
+      className="w-full rounded-card"
+      style={{ height: height ?? DEFAULT_CHART_HEIGHT }}
+    />
+  );
+}
+
 function ChartFrame({
   height,
   xLabel,
   yLabel,
+  loading,
+  dataAppearance,
+  dataVariant,
   dataView,
   children,
 }: {
   height?: number | undefined;
   xLabel?: string | undefined;
   yLabel?: string | undefined;
+  loading?: boolean | undefined;
+  dataAppearance?: string | undefined;
+  dataVariant?: string | undefined;
   dataView?: ReactNode;
   children: ReactNode;
 }) {
@@ -404,11 +470,16 @@ function ChartFrame({
   const frame = useMemo(() => ({ anchor, portal }), [portal]);
   return (
     <ChartFrameContext.Provider value={frame}>
-      <div className="flex min-w-0 flex-col gap-1">
+      <div
+        aria-busy={loading || undefined}
+        className={cn('flex min-w-0 flex-col gap-1', loading && 'opacity-70 transition-opacity')}
+      >
         {yLabel ? <span className="text-xs text-muted-foreground">{yLabel}</span> : null}
         <div
           ref={anchor}
           data-openui-chart-frame=""
+          {...(dataAppearance ? { 'data-appearance': dataAppearance } : {})}
+          {...(dataVariant ? { 'data-variant': dataVariant } : {})}
           className="w-full min-w-0"
           style={{ height: height ?? DEFAULT_CHART_HEIGHT }}
         >
@@ -490,11 +561,13 @@ const AXIS_PROPS = {
 export function BarChartRenderer({
   props,
 }: RenderProps<XYProps & { variant?: 'grouped' | 'stacked' }>) {
-  const labels = asArray(props.labels ?? []);
-  const series = seriesFrom(props.series ?? []);
+  const isQueryLoading = useIsQueryLoading();
+  const { labels, series } = normalizeXY(props.labels, props.series);
   const texture = useSeriesTexture();
   const icons = useLegendIcons(series.length, 'fill');
-  if (!hasData(labels, series)) return null;
+  if (!hasData(labels, series)) {
+    return isQueryLoading ? <ChartLoading height={props.height} /> : null;
+  }
   const stacked = props.variant === 'stacked';
   const config = buildConfig(series, icons);
   const rows = buildRows(labels, series);
@@ -503,6 +576,7 @@ export function BarChartRenderer({
       height={props.height}
       xLabel={props.xLabel}
       yLabel={props.yLabel}
+      loading={isQueryLoading}
       dataView={chartDataView(series, rows)}
     >
       <ChartContainer
@@ -542,10 +616,12 @@ export function BarChartRenderer({
 export function LineChartRenderer({
   props,
 }: RenderProps<XYProps & { variant?: 'linear' | 'natural' | 'step' }>) {
-  const labels = asArray(props.labels ?? []);
-  const series = seriesFrom(props.series ?? []);
+  const isQueryLoading = useIsQueryLoading();
+  const { labels, series } = normalizeXY(props.labels, props.series);
   const icons = useLegendIcons(series.length, 'line');
-  if (!hasData(labels, series)) return null;
+  if (!hasData(labels, series)) {
+    return isQueryLoading ? <ChartLoading height={props.height} /> : null;
+  }
   const type = props.variant ?? 'linear';
   const config = buildConfig(series, icons);
   const rows = buildRows(labels, series);
@@ -554,6 +630,7 @@ export function LineChartRenderer({
       height={props.height}
       xLabel={props.xLabel}
       yLabel={props.yLabel}
+      loading={isQueryLoading}
       dataView={chartDataView(series, rows)}
     >
       <ChartContainer
@@ -595,10 +672,12 @@ export function LineChartRenderer({
 export function AreaChartRenderer({
   props,
 }: RenderProps<XYProps & { variant?: 'linear' | 'natural' | 'step' }>) {
-  const labels = asArray(props.labels ?? []);
-  const series = seriesFrom(props.series ?? []);
+  const isQueryLoading = useIsQueryLoading();
+  const { labels, series } = normalizeXY(props.labels, props.series);
   const icons = useLegendIcons(series.length, 'line');
-  if (!hasData(labels, series)) return null;
+  if (!hasData(labels, series)) {
+    return isQueryLoading ? <ChartLoading height={props.height} /> : null;
+  }
   const type = props.variant ?? 'linear';
   const config = buildConfig(series, icons);
   const rows = buildRows(labels, series);
@@ -607,6 +686,7 @@ export function AreaChartRenderer({
       height={props.height}
       xLabel={props.xLabel}
       yLabel={props.yLabel}
+      loading={isQueryLoading}
       dataView={chartDataView(series, rows)}
     >
       <ChartContainer
@@ -649,11 +729,13 @@ export function AreaChartRenderer({
 export function HorizontalBarChartRenderer({
   props,
 }: RenderProps<XYProps & { variant?: 'grouped' | 'stacked' }>) {
-  const labels = asArray(props.labels ?? []);
-  const series = seriesFrom(props.series ?? []);
+  const isQueryLoading = useIsQueryLoading();
+  const { labels, series } = normalizeXY(props.labels, props.series);
   const texture = useSeriesTexture();
   const icons = useLegendIcons(series.length, 'fill');
-  if (!hasData(labels, series)) return null;
+  if (!hasData(labels, series)) {
+    return isQueryLoading ? <ChartLoading height={props.height} /> : null;
+  }
   const stacked = props.variant === 'stacked';
   const config = buildConfig(series, icons);
   const rows = buildRows(labels, series);
@@ -665,6 +747,7 @@ export function HorizontalBarChartRenderer({
       height={height}
       xLabel={props.xLabel}
       yLabel={props.yLabel}
+      loading={isQueryLoading}
       dataView={chartDataView(series, rows)}
     >
       <ChartContainer
@@ -702,14 +785,20 @@ export function HorizontalBarChartRenderer({
 }
 
 export function RadarChartRenderer({ props }: RenderProps<XYProps>) {
-  const labels = asArray(props.labels ?? []);
-  const series = seriesFrom(props.series ?? []);
+  const isQueryLoading = useIsQueryLoading();
+  const { labels, series } = normalizeXY(props.labels, props.series);
   const icons = useLegendIcons(series.length, 'line');
-  if (!hasData(labels, series)) return null;
+  if (!hasData(labels, series)) {
+    return isQueryLoading ? <ChartLoading height={props.height} /> : null;
+  }
   const config = buildConfig(series, icons);
   const rows = buildRows(labels, series);
   return (
-    <ChartFrame height={props.height} dataView={chartDataView(series, rows)}>
+    <ChartFrame
+      height={props.height}
+      loading={isQueryLoading}
+      dataView={chartDataView(series, rows)}
+    >
       <ChartContainer
         config={config}
         initialDimension={{ width: 320, height: props.height ?? DEFAULT_CHART_HEIGHT }}
@@ -759,7 +848,13 @@ function sliceDataView(slices: SliceInput[]) {
 
 export function PieChartRenderer({
   props,
-}: RenderProps<{ labels: string[]; values: number[]; variant?: 'pie' | 'donut' }>) {
+}: RenderProps<{
+  labels: string[];
+  values: number[];
+  variant?: 'pie' | 'donut';
+  appearance?: 'circular' | 'semiCircular';
+}>) {
+  const isQueryLoading = useIsQueryLoading();
   const slices = buildSlices(asArray(props.labels ?? []), asArray(props.values ?? []));
   const texture = useSeriesTexture();
   const icons = useLegendIcons(slices.length, 'fill');
@@ -767,10 +862,20 @@ export function PieChartRenderer({
   const visible = slices
     .map((slice, index) => ({ ...slice, index }))
     .filter((slice) => slice.value !== null);
-  if (visible.length === 0) return null;
-  const donut = props.variant !== 'pie';
+  if (visible.length === 0) {
+    return isQueryLoading ? <ChartLoading /> : null;
+  }
+  const variant = props.variant ?? 'pie';
+  const appearance = props.appearance ?? 'circular';
+  const donut = variant === 'donut';
+  const semiCircular = appearance === 'semiCircular';
   return (
-    <ChartFrame dataView={sliceDataView(slices)}>
+    <ChartFrame
+      loading={isQueryLoading}
+      dataVariant={variant}
+      dataAppearance={appearance}
+      dataView={sliceDataView(slices)}
+    >
       <ChartContainer
         config={config}
         initialDimension={{ width: 320, height: DEFAULT_CHART_HEIGHT }}
@@ -785,6 +890,9 @@ export function PieChartRenderer({
             nameKey="key"
             innerRadius={donut ? '55%' : 0}
             outerRadius="78%"
+            startAngle={semiCircular ? 180 : 0}
+            endAngle={semiCircular ? 0 : 360}
+            cy={semiCircular ? '75%' : '50%'}
             stroke="var(--color-surface)"
             strokeWidth={2}
             isAnimationActive={false}
@@ -806,6 +914,7 @@ export function PieChartRenderer({
 export function RadialChartRenderer({
   props,
 }: RenderProps<{ labels: string[]; values: number[] }>) {
+  const isQueryLoading = useIsQueryLoading();
   const slices = buildSlices(asArray(props.labels ?? []), asArray(props.values ?? []));
   const texture = useSeriesTexture();
   const icons = useLegendIcons(slices.length, 'fill');
@@ -813,9 +922,11 @@ export function RadialChartRenderer({
   const visible = slices
     .map((slice, index) => ({ ...slice, index }))
     .filter((slice) => slice.value !== null);
-  if (visible.length === 0) return null;
+  if (visible.length === 0) {
+    return isQueryLoading ? <ChartLoading /> : null;
+  }
   return (
-    <ChartFrame dataView={sliceDataView(slices)}>
+    <ChartFrame loading={isQueryLoading} dataView={sliceDataView(slices)}>
       <ChartContainer
         config={config}
         initialDimension={{ width: 320, height: DEFAULT_CHART_HEIGHT }}
@@ -847,6 +958,7 @@ export function RadialChartRenderer({
 export function SingleStackedBarChartRenderer({
   props,
 }: RenderProps<{ labels: string[]; values: number[] }>) {
+  const isQueryLoading = useIsQueryLoading();
   const slices = buildSlices(asArray(props.labels ?? []), asArray(props.values ?? []));
   const texture = useSeriesTexture();
   const icons = useLegendIcons(slices.length, 'fill');
@@ -854,10 +966,16 @@ export function SingleStackedBarChartRenderer({
   const visible = slices
     .map((slice, index) => ({ ...slice, index }))
     .filter((slice) => slice.value !== null);
-  if (visible.length === 0) return null;
+  if (visible.length === 0) {
+    return isQueryLoading ? <ChartLoading /> : null;
+  }
   const row = Object.fromEntries(visible.map((slice) => [slice.key, slice.value as number]));
   return (
-    <ChartFrame height={DEFAULT_CHART_HEIGHT} dataView={sliceDataView(slices)}>
+    <ChartFrame
+      height={DEFAULT_CHART_HEIGHT}
+      loading={isQueryLoading}
+      dataView={sliceDataView(slices)}
+    >
       <ChartContainer
         config={config}
         initialDimension={{ width: 320, height: DEFAULT_CHART_HEIGHT }}
@@ -894,6 +1012,7 @@ type ScatterDataset = { name: string; data: Array<{ x: number; y: number; z?: nu
 export function ScatterChartRenderer({
   props,
 }: RenderProps<{ datasets: unknown[]; xLabel?: string; yLabel?: string }>) {
+  const isQueryLoading = useIsQueryLoading();
   const datasets: ScatterDataset[] = (props.datasets ?? [])
     .map((node) => childProps<{ name?: string; points?: unknown[] }>(node))
     .filter((dataset): dataset is { name?: string; points?: unknown[] } => !!dataset)
@@ -911,7 +1030,9 @@ export function ScatterChartRenderer({
     }))
     .filter((dataset) => dataset.data.length > 0);
   const icons = useLegendIcons(datasets.length, 'fill');
-  if (datasets.length === 0) return null;
+  if (datasets.length === 0) {
+    return isQueryLoading ? <ChartLoading /> : null;
+  }
   const config: ChartConfig = Object.fromEntries(
     datasets.map((dataset, index) => [
       `s${index}`,
@@ -934,6 +1055,7 @@ export function ScatterChartRenderer({
     <ChartFrame
       xLabel={props.xLabel}
       yLabel={props.yLabel}
+      loading={isQueryLoading}
       dataView={
         <ChartDataView
           columns={[

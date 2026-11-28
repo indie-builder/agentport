@@ -10,15 +10,17 @@ type InputProps = Omit<
   'className' | 'value' | 'defaultValue'
 > & {
   className?: ComponentProps<typeof InputPrimitive>['className'] | undefined;
-  value?: string | number | undefined;
-  defaultValue?: string | number | undefined;
+  value?: string | number | null | undefined;
+  defaultValue?: string | number | null | undefined;
 };
 
 function Input({ className, value, defaultValue, ...props }: InputProps) {
   return (
     <InputPrimitive
-      {...(value === undefined ? {} : { value: String(value) })}
-      {...(defaultValue === undefined ? {} : { defaultValue: String(defaultValue) })}
+      {...(value === undefined ? {} : { value: value === null ? '' : String(value) })}
+      {...(defaultValue === undefined
+        ? {}
+        : { defaultValue: defaultValue === null ? '' : String(defaultValue) })}
       className={
         typeof className === 'function'
           ? (state) => cn(inputClassName, className(state))

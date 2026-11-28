@@ -3,6 +3,7 @@ import { act, createElement, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/lib/api.js';
+import { createUiAgent } from '../src/lib/ui-agent.js';
 import { OPENUI_RENDERERS } from '../src/openui/components/index.js';
 import { OpenUiBlock, type OpenUiToolCallInput } from '../src/openui/renderer.js';
 
@@ -497,5 +498,218 @@ describe('Tabs and Accordion resilience', () => {
     expect(triggers().map((button) => button.textContent)).toEqual(['第一节', '第二节', '第三节']);
     expect(triggers()[2]?.getAttribute('aria-expanded')).toBe('true');
     expect(host.textContent).toContain('内容三');
+  });
+});
+
+describe('QueryFailure, ApprovalEntry, and hybrid $binding form payload', () => {
+  it('exposes QueryFailure retry button to ui agent and triggers retry', async () => {
+    const settle = async () => {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+    };
+
+    const onToolCall = vi
+      .fn<(input: OpenUiToolCallInput) => Promise<OpenUiToolResult>>()
+      .mockResolvedValueOnce({ status: 'error', error: '首次失败' })
+      .mockResolvedValueOnce({ status: 'ok', data: { summary: '恢复成功' } });
+
+    await render(
+      [
+        'root = Card([t])',
+        'metrics = Query("fetch_metrics", {}, { summary: "默认" })',
+        't = TextContent(metrics.summary)',
+      ].join('\n'),
+      {
+        streaming: false,
+        conversationId: 'conversation_retry',
+        messageId: 'message_retry',
+        blockKey: 's0',
+        onToolCall,
+      },
+    );
+    await settle();
+
+    const agent = createUiAgent();
+    const retryEntry = agent
+      .snapshot()
+      .find((item) => !item.offPage && item.component === 'button' && item.label === '重试');
+    expect(retryEntry).toBeDefined();
+
+    const actRes = await act(async () => agent.act({ steps: [{ ref: '重试', action: 'press' }] }));
+    expect(actRes.ok, actRes.error?.message).toBe(true);
+    await settle();
+
+    expect(onToolCall).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain('恢复成功');
+  });
+
+  it('renders multiple approvals in a list with unique tool button labels and preserves focus while pending', async () => {
+    const settle = async () => {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+    };
+
+    let resolveApprove: () => void = () => {};
+    const pendingApprove = new Promise<void>((resolve) => {
+      resolveApprove = resolve;
+    });
+    const onToolCall = vi
+      .fn<(input: OpenUiToolCallInput) => Promise<OpenUiToolResult>>()
+      .mockImplementation(async ({ toolName }) => ({
+        status: 'approval_required',
+        approvalId: `approval_${toolName}`,
+      }));
+    const onApprove = vi.fn().mockReturnValue(pendingApprove);
+
+    await render(
+      [
+        'root = Card([t1, t2])',
+        'q1 = Query("tool_alpha", {}, { v: "a" })',
+        'q2 = Query("tool_beta", {}, { v: "b" })',
+        't1 = TextContent(q1.v)',
+        't2 = TextContent(q2.v)',
+      ].join('\n'),
+      {
+        streaming: false,
+        conversationId: 'conversation_multi',
+        messageId: 'message_multi',
+        blockKey: 's0',
+        onToolCall,
+        onApprove,
+      },
+    );
+    await settle();
+
+    expect(host.querySelectorAll('ul > li')).toHaveLength(2);
+    const agent = createUiAgent();
+    const labels = agent
+      .snapshot()
+      .filter((item) => !item.offPage && item.component === 'button')
+      .map((item) => item.label);
+    expect(labels).toContain('批准 tool_alpha');
+    expect(labels).toContain('批准 tool_beta');
+
+    const alphaBtn = [...host.querySelectorAll('button')].find((btn) =>
+      btn.textContent?.includes('批准 tool_alpha'),
+    );
+    if (!alphaBtn) throw new Error('missing alpha approve button');
+    alphaBtn.focus();
+    await act(async () => {
+      alphaBtn.click();
+    });
+    expect(alphaBtn.disabled).toBe(false);
+    expect(alphaBtn.hasAttribute('data-pending')).toBe(true);
+    expect(alphaBtn.getAttribute('aria-busy')).toBe('true');
+    expect(document.activeElement).toBe(alphaBtn);
+
+    await act(async () => {
+      resolveApprove();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(host.textContent).toContain('已批准');
+  });
+
+  it('merges top-level $bindings from latest state into continue_conversation formState', async () => {
+    const onAction = vi.fn();
+    await render(
+      [
+        'root = Card([setTier, form])',
+        'setTier = Button("选专业版", @Set($tier, "pro"), "secondary")',
+        'form = Form("order", buttons, [fc])',
+        'buttons = Buttons([submit])',
+        'submit = Button("下单", @ToAssistant("下单"), "primary")',
+        'fc = FormControl("姓名", name)',
+        'name = Input("fullName", "", "text", {})',
+      ].join('\n'),
+      { onAction },
+    );
+
+    const setTierBtn = [...host.querySelectorAll('button')].find(
+      (btn) => btn.textContent === '选专业版',
+    );
+    await act(async () => setTierBtn?.click());
+
+    const input = host.querySelector<HTMLInputElement>('input[name="fullName"]');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    await act(async () => {
+      setter?.call(input, '张三');
+      input?.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    const submitBtn = [...host.querySelectorAll('button')].find(
+      (btn) => btn.textContent === '下单',
+    );
+    await act(async () => submitBtn?.click());
+
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction.mock.calls[0]?.[0]?.formState).toMatchObject({
+      $tier: 'pro',
+      order: { fullName: { value: '张三' } },
+    });
+  });
+
+  it('keeps modified $binding when parent re-renders with a fresh equal initialState object', async () => {
+    const onAction = vi.fn();
+    const program = [
+      'root = Card([setTier, form])',
+      'setTier = Button("升专业版", @Set($tier, "pro"), "secondary")',
+      'form = Form("order", buttons, [fc])',
+      'buttons = Buttons([submit])',
+      'submit = Button("下单", @ToAssistant("下单"), "primary")',
+      'fc = FormControl("姓名", name)',
+      'name = Input("fullName", "", "text", {})',
+    ].join('\n');
+
+    await render(program, { onAction, initialState: { $tier: 'free' } });
+
+    const setTierBtn = [...host.querySelectorAll('button')].find(
+      (btn) => btn.textContent === '升专业版',
+    );
+    await act(async () => setTierBtn?.click());
+
+    await render(program, { onAction, initialState: { $tier: 'free' } });
+
+    const submitBtn = [...host.querySelectorAll('button')].find(
+      (btn) => btn.textContent === '下单',
+    );
+    await act(async () => submitBtn?.click());
+
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction.mock.calls[0]?.[0]?.formState).toMatchObject({
+      $tier: 'pro',
+    });
+  });
+
+  it('includes untouched program-declared default $binding in continue_conversation formState', async () => {
+    const onAction = vi.fn();
+    await render(
+      [
+        '$tier = "free"',
+        'root = Card([form])',
+        'form = Form("order", buttons, [fc])',
+        'buttons = Buttons([submit])',
+        'submit = Button("下单", @ToAssistant("下单"), "primary")',
+        'fc = FormControl("姓名", name)',
+        'name = Input("fullName", "", "text", {})',
+      ].join('\n'),
+      { onAction },
+    );
+
+    const submitBtn = [...host.querySelectorAll('button')].find(
+      (btn) => btn.textContent === '下单',
+    );
+    await act(async () => submitBtn?.click());
+
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction.mock.calls[0]?.[0]?.formState).toMatchObject({
+      $tier: 'free',
+    });
   });
 });
