@@ -66,7 +66,7 @@
   "packages/worker/test/knowledge-ingestion.test.ts": 2314,
   "packages/worker/test/knowledge-integrity-regressions.test.ts": 1564,
   "packages/worker/test/session-sandboxes.test.ts": 1699,
-  "scripts/check-project-contract.test.ts": 1689,
+  "scripts/check-project-contract.test.ts": 1682,
   "scripts/e2e-channel.ts": 2030,
   "scripts/visual-shots.mjs": 1072,
   "tests/dev-data/business.e2e.ts": 2576,
