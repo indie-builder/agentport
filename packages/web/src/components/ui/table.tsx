@@ -38,12 +38,18 @@ function TableBody({ className, ...props }: React.ComponentProps<'tbody'>) {
   );
 }
 
-function TableRow({ className, ...props }: React.ComponentProps<'tr'>) {
+function TableRow({
+  hover = 'row',
+  className,
+  ...props
+}: React.ComponentProps<'tr'> & { hover?: 'row' | 'none' }) {
   return (
     <tr
       data-slot="table-row"
+      data-hover={hover}
       className={cn(
-        'border-b-[length:var(--hairline)] transition-colors duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-hover data-[state=selected]:bg-selected',
+        'border-b-[length:var(--hairline)] transition-colors duration-150 ease-out-soft has-aria-expanded:bg-hover data-[state=selected]:bg-selected',
+        hover === 'row' && 'hover:bg-hover',
         className,
       )}
       {...props}

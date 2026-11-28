@@ -503,14 +503,14 @@ export function DataTable<T extends RowData>({
           <TableBody role="rowgroup" className="block">
             {loading && rows.length === 0 ? (
               Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
-                <TableRow key={key} role="row" className="block hover:bg-transparent">
+                <TableRow key={key} role="row" hover="none" className="block">
                   <TableCell role="cell" colSpan={visible.length + 1} className="block p-0">
                     <Skeleton className="h-14" />
                   </TableCell>
                 </TableRow>
               ))
             ) : rows.length === 0 ? (
-              <TableRow role="row" className="block hover:bg-transparent">
+              <TableRow role="row" hover="none" className="block">
                 <TableCell
                   role="cell"
                   colSpan={visible.length + 1}
@@ -622,8 +622,9 @@ export function DataTable<T extends RowData>({
                     {expandedContent !== null && (
                       <TableRow
                         role="row"
+                        hover="none"
                         aria-hidden={isOpen ? undefined : true}
-                        className={cn('block border-0 hover:bg-transparent', isOpen && 'border-b')}
+                        className={cn('block border-0', isOpen && 'border-b')}
                       >
                         <TableCell
                           id={panelId}

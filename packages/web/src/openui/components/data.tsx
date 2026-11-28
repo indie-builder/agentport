@@ -119,7 +119,7 @@ export function TableRenderer({ props, renderNode }: RenderProps<{ columns: unkn
         <TableBody>
           {Array.from({ length: rowCount }, (_, rowIndex) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: 行由模型按顺序生成
-            <TableRow key={rowIndex} className="hover:bg-transparent">
+            <TableRow key={rowIndex} hover="none">
               {columns.map((column, columnIndex) => {
                 const cell = rows[columnIndex]?.[rowIndex];
                 return (
@@ -440,7 +440,7 @@ function EditableTableBody({ props }: { props: EditableTableProps }) {
         </TableHeader>
         <TableBody>
           {draftOrSource.rows.map((row, rowIndex) => (
-            <TableRow key={row.id} className="hover:bg-transparent">
+            <TableRow key={row.id} hover="none">
               {columns.map((column, columnIndex) => {
                 const columnKey = columnKeys[columnIndex] ?? `col-${columnIndex}`;
                 return (

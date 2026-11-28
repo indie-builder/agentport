@@ -475,8 +475,9 @@ export function SkillsPage() {
               <div className="min-w-0 flex-1">
                 <Button
                   variant="ghost"
+                  size="none"
                   aria-label={`查看技能 ${skill.name}`}
-                  className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium"
+                  className="w-full min-w-0 justify-start text-left text-base"
                   onClick={(event) => {
                     actionTriggerRef.current = event.currentTarget;
                     setEditing(skill);
@@ -546,8 +547,9 @@ export function SkillsPage() {
                   <CardTitle className="min-w-0">
                     <Button
                       variant="ghost"
+                      size="none"
                       aria-label={`查看技能 ${skill.name}`}
-                      className="h-auto w-full min-w-0 justify-start p-0 text-left text-sm font-medium"
+                      className="w-full min-w-0 justify-start text-left"
                       onClick={(event) => {
                         actionTriggerRef.current = event.currentTarget;
                         setEditing(skill);
@@ -1228,12 +1230,12 @@ function SkillFilesEditor({
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
+                size="none"
                 aria-label={`${readOnly ? '查看' : '编辑'}支持文件 ${f.path}`}
                 aria-pressed={editingPath === f.path}
                 title={f.path}
                 disabled={pending || files.isError}
-                className="h-auto min-w-0 flex-1 justify-start px-1 py-0.5 text-left font-mono text-xs whitespace-normal break-all"
+                className="min-w-0 flex-1 justify-start px-1 py-0.5 text-left font-mono text-xs whitespace-normal break-all"
                 onClick={() => switchTo(() => selectFile(f.path, f.content))}
               >
                 {f.path}

@@ -852,9 +852,9 @@ const PermissionMatrix = memo(function PermissionMatrix({
             return (
               <TableRow
                 key={row.id}
+                hover="none"
                 data-group={data.kind === 'group' ? data.group.key : undefined}
                 data-permission={data.kind === 'leaf' ? data.leaf.id : undefined}
-                className="hover:bg-transparent"
               >
                 <TableHead
                   scope="row"

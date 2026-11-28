@@ -1,5 +1,6 @@
 import type { OutputFile, OutputList, OutputRef } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Download, FileArchive, History, Pencil } from 'lucide-react';
 import { useMemo } from 'react';
 import { can } from '../../lib/access.js';
@@ -160,8 +161,8 @@ export function ConversationOutputs({
                   const active = selection?.path === file.path;
                   return (
                     <li key={file.path}>
-                      <Button
-                        variant="ghost"
+                      <ButtonPrimitive
+                        type="button"
                         aria-current={active ? 'true' : undefined}
                         onClick={() =>
                           onSelect({
@@ -171,17 +172,17 @@ export function ConversationOutputs({
                           })
                         }
                         className={cn(
-                          'h-auto w-full min-w-0 items-start justify-between gap-2 px-2 py-1.5 text-left font-normal whitespace-normal',
+                          'flex w-full min-w-0 items-start justify-between gap-2 rounded-item px-2 py-1.5 text-left text-sm font-normal whitespace-normal outline-none transition-colors duration-150 ease-out-soft focus-visible:ring-2 focus-visible:ring-ring',
                           active
                             ? 'bg-selected text-selected-foreground hover:bg-selected hover:text-selected-foreground'
-                            : 'text-muted-foreground hover:bg-hover',
+                            : 'text-muted-foreground hover:bg-hover hover:text-foreground',
                         )}
                       >
                         <span className="min-w-0 break-words text-sm">{file.path}</span>
                         <span className="shrink-0 text-xs text-muted-foreground">
                           {formatRelative(file.createdAt)}
                         </span>
-                      </Button>
+                      </ButtonPrimitive>
                     </li>
                   );
                 })}
@@ -189,9 +190,9 @@ export function ConversationOutputs({
 
               {outputs.hasNextPage ? (
                 <Button
-                  variant="ghost"
+                  variant="muted"
                   size="sm"
-                  className="self-start text-muted-foreground"
+                  className="self-start"
                   disabled={outputs.isFetchingNextPage}
                   onClick={() => void outputs.fetchNextPage()}
                 >
@@ -232,14 +233,7 @@ export function ConversationOutputs({
                       {versions.length > 1 ? (
                         <DropdownMenu>
                           <DropdownMenuTrigger
-                            render={
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                aria-label="选择版本"
-                                className="text-muted-foreground"
-                              />
-                            }
+                            render={<Button variant="muted" size="sm" aria-label="选择版本" />}
                           >
                             <History />
                             {versionTriggerLabel}

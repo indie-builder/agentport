@@ -376,14 +376,10 @@ export function ServerFormDialog({
                     clearErrors();
                   }
                 }}
-                className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3"
+                className="grid w-full grid-cols-1 sm:grid-cols-3"
               >
                 {creatableKinds.map((value) => (
-                  <ToggleGroupItem
-                    key={value}
-                    value={value}
-                    className="h-auto min-w-0 flex-col items-start gap-1 whitespace-normal px-3 py-2.5 text-left"
-                  >
+                  <ToggleGroupItem key={value} value={value} size="tile">
                     <span>{kindMeta[value].label}</span>
                     <span className="text-sm font-normal text-muted-foreground">
                       {kindMeta[value].newHint}

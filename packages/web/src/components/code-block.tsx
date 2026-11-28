@@ -115,12 +115,14 @@ export function CodeBlock({
       )}
       <CollapsibleContent animated>
         {copyable && copyAllowed ? (
-          <CopyButton
-            value={code}
-            label={copyLabel}
-            showLabel
-            className="absolute right-2 top-2 z-10 bg-surface/90 text-fg [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 focus-visible:ring-code-block-fg"
-          />
+          <span className="absolute right-2 top-2 z-10 inline-flex [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 has-focus-visible:opacity-100 group-hover:opacity-100">
+            <CopyButton
+              value={code}
+              label={copyLabel}
+              showLabel
+              className="bg-surface/90 text-fg focus-visible:ring-code-block-fg"
+            />
+          </span>
         ) : null}
         <section
           // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动

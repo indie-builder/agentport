@@ -214,14 +214,14 @@ export function AgentDetailPage() {
           eyebrow={
             full?.hasDraft ? (
               <span className="flex flex-wrap items-center gap-1.5">
-                <StatusBadge className="max-w-full whitespace-normal break-words bg-chip">
-                  {roleLabel}
+                <StatusBadge className="h-auto max-w-full">
+                  <span className="whitespace-normal break-words">{roleLabel}</span>
                 </StatusBadge>
                 <StatusBadge tone="warn">有未发布改动</StatusBadge>
               </span>
             ) : (
-              <StatusBadge className="max-w-full whitespace-normal break-words bg-chip">
-                {roleLabel}
+              <StatusBadge className="h-auto max-w-full">
+                <span className="whitespace-normal break-words">{roleLabel}</span>
               </StatusBadge>
             )
           }

@@ -408,8 +408,9 @@ export function ServersPage() {
             ) : (
               <Button
                 variant="ghost"
+                size="none"
                 aria-label={`查看连接器 ${displayName}`}
-                className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium whitespace-normal text-fg"
+                className="w-full min-w-0 justify-start text-left text-base whitespace-normal"
                 onClick={(event) => openEdit(server, event.currentTarget)}
               >
                 <span className="break-words" title={displayName}>
@@ -669,8 +670,9 @@ export function ServersPage() {
                           ) : (
                             <Button
                               variant="ghost"
+                              size="none"
                               aria-label={`查看连接器 ${displayName}`}
-                              className="h-auto w-full min-w-0 justify-start p-0 text-left text-sm font-medium text-fg"
+                              className="w-full min-w-0 justify-start text-left"
                               onClick={(event) => openEdit(server, event.currentTarget)}
                             >
                               <span className="block min-w-0 truncate" title={displayName}>

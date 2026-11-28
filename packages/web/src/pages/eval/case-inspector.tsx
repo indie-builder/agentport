@@ -87,7 +87,7 @@ export function CaseInspector({
             <div className="text-xs text-muted-foreground">预期调用工具</div>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {testCase.expectedTools.map((tool) => (
-                <Badge key={tool} variant="secondary" className="font-mono">
+                <Badge key={tool} variant="mono">
                   {tool}
                 </Badge>
               ))}
@@ -100,8 +100,8 @@ export function CaseInspector({
             <div className="text-xs text-muted-foreground">禁止调用工具</div>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {testCase.forbiddenTools.map((tool) => (
-                <Badge key={tool} variant="destructive" className="font-mono">
-                  {tool}
+                <Badge key={tool} variant="destructive">
+                  <span className="font-mono">{tool}</span>
                 </Badge>
               ))}
             </div>

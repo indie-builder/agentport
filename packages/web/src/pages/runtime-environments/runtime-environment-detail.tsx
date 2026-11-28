@@ -346,9 +346,7 @@ export function RuntimeEnvironmentDetailPage() {
               <div className="flex flex-wrap items-center gap-1.5">
                 {current.isDefault ? <Badge variant="secondary">默认</Badge> : null}
                 {current.onlineVersionId ? (
-                  <Badge variant="outline" className="font-mono">
-                    线上 {shortId(current.onlineVersionId)}
-                  </Badge>
+                  <Badge variant="mono">线上 {shortId(current.onlineVersionId)}</Badge>
                 ) : (
                   <Badge variant="outline">未发布线上版本</Badge>
                 )}

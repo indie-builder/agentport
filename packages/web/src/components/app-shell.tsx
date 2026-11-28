@@ -88,10 +88,11 @@ function SidebarBrand({
       <Button
         ref={toggleRef}
         variant="plain"
+        size="icon"
         aria-label={expanded ? '收起为窄边' : '展开侧栏'}
         aria-expanded={!iconOnly}
         onClick={onToggle}
-        className="size-8 shrink-0 rounded-icon p-0 text-fg hover:bg-sidebar-hover"
+        className="shrink-0 text-fg hover:bg-sidebar-hover"
       >
         <PanelLeftClose className="size-4" />
       </Button>
@@ -100,9 +101,10 @@ function SidebarBrand({
           ref={logoRef}
           type="button"
           variant="plain"
+          size="none"
           aria-label="切换 PACE Logo"
           onClick={animateBrand}
-          className="h-8 min-w-0 flex-1 justify-start rounded-icon p-0"
+          className="h-8 min-w-0 flex-1 justify-start"
         >
           <Brand className="h-8 self-center" />
         </Button>
@@ -627,13 +629,11 @@ export function AppShell() {
           </Tooltip>
           {personalContext ? (
             <Button
-              variant="ghost"
+              variant="nav"
+              size={iconOnly ? 'icon' : 'nav'}
               aria-label="退出登录"
               onClick={() => void logout()}
-              className={cn(
-                'h-8 border-0 text-sm text-fg hover:bg-sidebar-hover',
-                iconOnly ? 'w-8 rounded-tag p-0' : 'justify-start gap-2.5 rounded-item px-2',
-              )}
+              className={iconOnly ? 'justify-center rounded-tag' : 'gap-2.5'}
             >
               <LogOut aria-hidden="true" />
               {!iconOnly ? <span>退出登录</span> : null}
@@ -665,10 +665,13 @@ export function AppShell() {
                 <PopoverTrigger
                   render={
                     <Button
-                      variant="ghost"
+                      variant="nav"
+                      size={iconOnly ? 'icon' : 'nav'}
                       aria-label="账户菜单"
                       aria-current={accountCurrent}
-                      className={cn('text-sm text-fg hover:bg-sidebar-hover', accountClass)}
+                      className={
+                        iconOnly ? 'justify-center rounded-full' : 'min-w-0 flex-1 pl-1.5 pr-2'
+                      }
                     >
                       {accountAvatar}
                       {accountLabel}
@@ -727,11 +730,12 @@ export function AppShell() {
                   <div className="p-2">
                     <Button
                       variant="ghost"
+                      size="lg"
                       onClick={() => {
                         setAccountOpen(false);
                         void logout();
                       }}
-                      className="h-9 w-full justify-start gap-2.5 rounded-item px-3 text-sm text-danger hover:bg-hover hover:text-danger"
+                      className="w-full justify-start gap-2.5 px-3 text-danger hover:text-danger"
                     >
                       <LogOut aria-hidden="true" className="shrink-0" />
                       退出登录
@@ -780,10 +784,10 @@ export function AppShell() {
           <SheetClose
             render={
               <Button
-                variant="ghost"
+                variant="muted"
                 size="icon-sm"
                 aria-label="关闭导航"
-                className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-sidebar-hover"
+                className="absolute right-3 top-6 z-10 hover:bg-sidebar-hover"
               >
                 <X className="size-3" />
               </Button>
@@ -797,11 +801,12 @@ export function AppShell() {
         <header className="flex h-11 shrink-0 items-center gap-3 px-3 lg:hidden">
           <Button
             variant="ghost"
+            size="icon"
             ref={navigationTrigger}
             aria-label="打开导航"
             aria-expanded={mobileOpen}
             onClick={() => setMobileOpen(true)}
-            className="-ml-1 rounded-icon p-1.5 hover:bg-hover"
+            className="-ml-1"
           >
             <Menu aria-hidden="true" />
           </Button>

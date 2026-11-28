@@ -229,12 +229,9 @@ export function MessagePane({
                     .flatMap((item) => (item.kind === 'text' ? [item.text] : []))
                     .join('\n\n');
                   const copyReply = assistantText.trim() ? (
-                    <CopyButton
-                      value={assistantText}
-                      label="复制回复"
-                      variant="ghost"
-                      className="shrink-0 opacity-0 transition-opacity duration-150 ease-out-soft group-hover/turn:opacity-100 group-focus-within/turn:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
-                    />
+                    <span className="inline-flex shrink-0 opacity-0 transition-opacity duration-150 ease-out-soft group-hover/turn:opacity-100 group-focus-within/turn:opacity-100 has-focus-visible:opacity-100 motion-reduce:transition-none">
+                      <CopyButton value={assistantText} label="复制回复" variant="ghost" />
+                    </span>
                   ) : null;
                   const regenerateAction =
                     onRegenerate && latest ? (
@@ -481,11 +478,11 @@ export function MessagePane({
                             <RunOutputs files={runFiles} onSelect={onSelectOutput} />
                             {latest && runOutputs?.hasNextPage ? (
                               <Button
-                                variant="ghost"
+                                variant="muted"
                                 size="sm"
                                 disabled={runOutputs.loadingMore}
                                 onClick={runOutputs.onLoadMore}
-                                className="h-7 px-1.5 text-sm text-muted-foreground"
+                                className="px-1.5"
                               >
                                 {runOutputs.loadingMore ? '正在加载…' : '加载更多成果'}
                               </Button>
@@ -494,24 +491,27 @@ export function MessagePane({
                         ) : null}
                         {onBranchMessage && messageId ? (
                           <div className="mt-1 flex justify-end">
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label="从这条消息分支"
-                              title="从这条消息分支"
-                              disabled={branchingMessageId !== null || running}
-                              onClick={() => onBranchMessage(messageId)}
+                            <span
                               className={cn(
-                                'opacity-0 transition-opacity duration-150 ease-out-soft group-hover/turn:opacity-100 group-focus-within/turn:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none',
+                                'inline-flex opacity-0 transition-opacity duration-150 ease-out-soft group-hover/turn:opacity-100 group-focus-within/turn:opacity-100 has-focus-visible:opacity-100 motion-reduce:transition-none',
                                 branchingMessageId === messageId && 'opacity-100',
                               )}
                             >
-                              {branchingMessageId === messageId ? (
-                                <LoaderCircle className="animate-spin" aria-hidden="true" />
-                              ) : (
-                                <GitBranch aria-hidden="true" />
-                              )}
-                            </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="从这条消息分支"
+                                title="从这条消息分支"
+                                disabled={branchingMessageId !== null || running}
+                                onClick={() => onBranchMessage(messageId)}
+                              >
+                                {branchingMessageId === messageId ? (
+                                  <LoaderCircle className="animate-spin" aria-hidden="true" />
+                                ) : (
+                                  <GitBranch aria-hidden="true" />
+                                )}
+                              </Button>
+                            </span>
                           </div>
                         ) : null}
                       </div>
