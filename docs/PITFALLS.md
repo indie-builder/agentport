@@ -8,7 +8,7 @@
 
 | 症状或任务类别 | 相关条目（`##` 节名） |
 |---|---|
-| UI 卡片、间距与视觉 | UI：全站减重把已选定的卡片深度一并压平；实现：对齐/间距类改动没量实际坐标就宣布完成；UI 验证：类名和采样时序不能代替真实几何与性能；实现：按截图和记忆猜参考 UI 的交互与状态；UI：消息项延迟布局会干扰历史分页的阅读锚点；UI：子表单卸载不会自动结算外层 pending；UI：CodeMirror 的 id 不等于可访问名称；UI：`buttonVariants` 必须经过 `cn` 合并，不能直接拼接类名；UI：ui-sdk 折叠面板的 `hidden="until-found"` 不能被作者 `content-visibility` 覆盖；UI：ui-sdk beta.8+ 保留退场期间 owner 写的 `inert`，别在 render 里按 open 写 inert；UI：`@layer ui-sdk` 的声明顺序决定谁能覆盖谁；表单：RHF reset 后 undefined 受控字段被判为脏；recharts 的 `strokeWidth` 不是图标违例；验收：visual-shots 的 minimal 种子只有频道没有消息 |
+| UI 卡片、间距与视觉 | UI：全站减重把已选定的卡片深度一并压平；实现：对齐/间距类改动没量实际坐标就宣布完成；UI 验证：类名和采样时序不能代替真实几何与性能；实现：按截图和记忆猜参考 UI 的交互与状态；UI：消息项延迟布局会干扰历史分页的阅读锚点；UI：子表单卸载不会自动结算外层 pending；UI：CodeMirror 的 id 不等于可访问名称；UI：`buttonVariants` 必须经过 `cn` 合并，不能直接拼接类名；UI：ui-sdk 折叠面板的 `hidden="until-found"` 不能被作者 `content-visibility` 覆盖；UI：ui-sdk beta.8+ 保留退场期间 owner 写的 `inert`，别在 render 里按 open 写 inert；UI：`@layer ui-sdk` 的声明顺序决定谁能覆盖谁；表单：RHF reset 后 undefined 受控字段被判为脏；recharts 的 `strokeWidth` 不是图标违例；验收：visual-shots 的 minimal 种子只有频道没有消息；验收：visual-shots 登录未就绪会让多页截图静默落成登录页 |
 | worktree 与依赖安装 | 复制到 worktree 的 `.env` 可能比刚确认的配置旧；多个 worktree 同时跑全栈 compose 会互相踩；EnterWorktree 的 name 只接受 ASCII slug；实现：新 worktree 不一定基于最新 `origin/main`；迁移：删依赖后旧 `node_modules` 残留会掩盖未迁移的测试与 E2E；不要把任务跟踪资料写进 `.claude/worktrees/` |
 | 检索失败 / 命令被拒 | 未加引号的 glob 让检索命令整条失败；worktree 里两类命令会被拒绝，原因不同；流程：worktree 内的 shell 守卫会拒绝拼接运行时密钥与复杂复合命令 |
 | 数据库与迁移 | 数据库：迁移账本漂移或共享库已有列时不要手改账本；迁移台账与仓库 journal 不一致，所有登录 500；数据库：新增运行触发值要同步扩展 CHECK 约束；数据库：Drizzle `sql` 模板里的 JS 数组会展开成多个占位符；数据库：单表 SELECT 的 SQL 子查询可能丢失外层列限定名；数据库：Drizzle DESC NULLS LAST 索引未必匹配默认倒序；数据库：复合外键的引用目标必须是 UNIQUE 约束，不能是 uniqueIndex；数据库：partial index 的 eq 参数会被 drizzle-kit 序列化成 $1；数据库：`userId` 改 `businessId` 必须选 rename，且 Vite 会把真实迁移错误掩成 `charCodeAt`；数据库：partial unique index 只保证「至多一个」，不保证「恰好一个」；数据库（历史背景）：ON DELETE RESTRICT 报 23001，不是 23503 |
@@ -26,7 +26,7 @@
 | 模型调用与供应商 | 模型客户端：响应头已到后的读流失败不能归为 `bad_response`；模型供应商预算：预算耗尽的优先供应商会挡住可用备用；运行保留：按天清理 `agent_runs` 会重置当月供应商成本 |
 | 知识库与归档 | 知识库：COW 事务提交后失败清理不能删除已发布文件；知识库：Wiki 最新版本不能用 `created_at`/`now()` 排序；归档：fflate `zipSync` 会把条目复制进普通对象，`__proto__` 文件名被吞；解析：Docling pageMap 不能用整文 indexOf 反查来源；归档：ZIP 预检的 central/local 与目录身份必须同解释；知识库：`file-type` 的 AIFF 识别只认 `FORM` 头，普通文本会被误判；知识重试：只放在 worker 摄取层，不要放进共享 HTTP 客户端；导入：ZIP 库的定长输出长度不等于真实解压大小 |
 | SSE 与频道 | 频道：SSE 初始游标不能取乐观消息的 seq；频道：markRead 去掉频道行锁后必须用 greatest 防回退；频道：频道作用域复用私有组件时，内部 mutation 会绕过频道授权；频道：持久 system 行只写库不发布会与本地流锚点重复 |
-| 运行与工具 | 运行：宿主直跑 worker 时模型网关地址不能被改写成 host.docker.internal；浏览器：ego-browser 的四个高频误用；运行：超长连续文本会使正则最小量词耗尽V8栈；运行：Node 子进程的 exit 与 close 不能混用，等 close 会与后代互等 |
+| 运行与工具 | 运行：宿主直跑 worker 时模型网关地址不能被改写成 host.docker.internal；浏览器：ego-browser 的四个高频误用；运行：超长连续文本会使正则最小量词耗尽V8栈；运行：Node 子进程的 exit 与 close 不能混用，等 close 会与后代互等；运行：仓库根执行 bun -e 导入 react 会报找不到包 |
 | OpenUI | 实现：OpenUI 补丁合并会移除 root 不可达的语句；OpenUI：JSON Schema 不能反推等价的真实组件库 |
 | 接口与默认助手 | 接口：前后端各兜一次同一个默认值，服务端的兜底分支会变成死代码；接口：非幂等操作提交后不要返回可重试 5xx；默认助手：默认解析点必须唯一 |
 | 记忆与上下文 | 记忆：`UserPromptSubmit` 的 `additionalContext` 上限是 10,000 字符；记忆：`MEMORY.md` 只加载前 200 行或 25KB |
@@ -95,9 +95,9 @@
 
 ## 未加引号的 glob 让检索命令整条失败
 
-- **现象**：检索命令整条失败并报 `(eval):1: no matches found: --include=*.ts`，换成 `--include=*.tsx`、`compose*.yml` 等同样报错，即使目标文件确实存在。
-- **原因**：zsh 在命令执行前先展开未加引号的 glob；当前目录没有匹配项时直接中止整条命令，后面的 `grep`/`rg` 根本没运行。十次会话里 `--include=*.ts` 报错出现 188 次。
-- **规避**：给 glob 加引号（`--include='*.ts'`），或改用 ripgrep 自己的过滤参数（`rg -n PATTERN <path> -g '*.ts'`）；同一种未加引号的写法不要重试。
+- **现象**：检索或列举命令整条失败并报 `(eval):1: no matches found: --include=*.ts`，换成 `--include=*.tsx`、`compose*.yml` 或 `ls .../*foo*` 等路径通配符同样报错，即使目标文件确实存在。
+- **原因**：zsh 在命令执行前先展开未加引号的 glob；当前目录或路径下没有匹配项时直接中止整条命令，后面的 `grep`/`rg`/`ls` 根本没运行。十次会话里 `--include=*.ts` 报错出现 188 次。
+- **规避**：给 glob 与路径通配符加引号（`--include='*.ts'`），或改用 `rg -n PATTERN <path> -g '*.ts'`、`find` / `rg --files`；同一种未加引号的写法不要重试。
 
 ## 测试：队列消费者检查要看库号和队列名，不能只看实例
 
@@ -855,3 +855,15 @@
 - **现象**：运行环境重建并发布新版本后，平台默认助手「通用助手」的对话失败，worker 日志为 `session supervisor exited with code 127` / `tini exec bun failed`；正常发布的专家不受影响。
 - **原因**：默认助手不能被编辑或重新发布（`agentPermissionAllows` 只给它 `agents.read` / `agents.use`），其版本快照永久固定旧环境 `versionId`；旧版本的镜像过期或缺少 `bun` 时，容器无法启动。
 - **规避**：默认助手始终按所选环境的**线上**版本解析镜像，worker 不为它传 `runtimeEnvironmentVersionId`；普通已发布专家保持固定版本，环境版本变化后必须重新发布才会切换镜像。
+
+## 运行：仓库根执行 bun -e 导入 react 会报找不到包
+
+- **现象**：在仓库根或 worktree 根运行 `bun -e 'import ... from "react"'`（或探查 `node_modules/@openuidev/...`）报 `Cannot find package 'react'` 或 `ENOENT`。
+- **原因**：`react`、`@openuidev/*`、`@ui-sdk/*` 安装在 `packages/web/node_modules/`，未提升到仓库根 `node_modules/`。
+- **规避**：前端探测脚本统一用 `bun --cwd packages/web -e '...'`；查找前端依赖文档/源码统一看 `packages/web/node_modules/`；前端单测用 `bun run test:web`（Vitest），不用 `bun test`。
+
+## 验收：visual-shots 登录未就绪会让多页截图静默落成登录页
+
+- **现象**：多路由整页截图看似执行成功，但图片实际全是首页登录页，文字报告与图片内容不一致。
+- **原因**：旧版 `visual-shots` 存在登录态落库/跳转竞态，且未在落图前校验当前路由已离开 `/login` 及页面主内容已就绪（已在 PR #847 修复并加入落地强校验）。
+- **规避**：UI 验收必须核对每张输出长图的真实画面与目标路由一致，不得仅凭脚本 exit 0 或文字摘要宣称通过；若出现登录页重定向立即按 `scripts/visual-shots.mjs` 登录校验排查。

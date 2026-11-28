@@ -2,13 +2,17 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 const root = resolve(import.meta.dir, '..');
-const glob = new Bun.Glob('packages/*/AGENTS.md');
-const sources = [
+const MAX_ROOT_AGENTS_BYTES = 16 * 1024;
+const MAX_PKG_AGENTS_BYTES = 12 * 1024;
+const packageAgents = [...new Bun.Glob('packages/*/AGENTS.md').scanSync({ cwd: root })].sort();
+const docSources = [
   'AGENTS.md',
-  'docs/README.md',
-  'docs/ARCHITECTURE.md',
-  ...[...glob.scanSync({ cwd: root })].sort(),
+  'README.md',
+  ...[...new Bun.Glob('docs/*.md').scanSync({ cwd: root })].sort(),
+  ...packageAgents,
 ];
+const historical = /^docs\/(?:PITFALLS|CAPABILITY-GAP)\.md$/;
+const sources = docSources.filter((source) => !historical.test(source));
 
 const slug = (text) =>
   text
@@ -56,6 +60,23 @@ const inside = (path) => {
 const failures = [];
 let links = 0;
 let anchors = 0;
+
+const agentsLimits = [
+  ['AGENTS.md', MAX_ROOT_AGENTS_BYTES],
+  ...packageAgents.map((source) => [source, MAX_PKG_AGENTS_BYTES]),
+];
+const agentsChecked = agentsLimits.length;
+const agentByteFailures = (
+  await Promise.all(
+    agentsLimits.map(async ([source, limit]) => {
+      const bytes = Buffer.byteLength(await Bun.file(resolve(root, source)).text(), 'utf8');
+      return bytes > limit
+        ? `[docs-check] ${source}: ${bytes} bytes 超过上限 ${limit} bytes -> 请将详细参考/总表下沉到 docs/ 并保留上下文指针，避免规则注入被截断`
+        : null;
+    }),
+  )
+).filter((item) => item !== null);
+failures.push(...agentByteFailures);
 
 for (const source of sources) {
   const file = resolve(root, source);
@@ -109,14 +130,6 @@ for (const source of sources) {
     }
   }
 }
-
-const docSources = [
-  'AGENTS.md',
-  'README.md',
-  ...[...new Bun.Glob('docs/*.md').scanSync({ cwd: root })].sort(),
-  ...[...new Bun.Glob('packages/*/AGENTS.md').scanSync({ cwd: root })].sort(),
-];
-const historical = /^docs\/(?:PITFALLS|CAPABILITY-GAP)\.md$/;
 
 const inlineCode = (line) => [...line.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
 const repoPath = /^(?:packages|scripts|tests)\/\S+$/;
@@ -263,5 +276,5 @@ if (failures.length) {
 }
 
 console.log(
-  `docs navigation OK (${links} links, ${anchors} anchors in ${sources.length} files; ${paths} inline paths, ${commands} npm/pnpm commands, ${sectionTitles.length} pitfall sections indexed)`,
+  `docs navigation OK (${links} links, ${anchors} anchors in ${sources.length} files; ${agentsChecked} AGENTS byte caps; ${paths} inline paths, ${commands} npm/pnpm commands, ${sectionTitles.length} pitfall sections indexed)`,
 );
