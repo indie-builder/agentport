@@ -346,7 +346,7 @@ export function EvalPage() {
               );
             }}
           >
-            <TabsList variant="line">
+            <TabsList variant="line" aria-label="评估分区">
               <TabsTrigger value="runs">
                 {runningRun ? (
                   <span className="size-1.5 rounded-full bg-fg" aria-hidden="true" />
