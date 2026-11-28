@@ -38,7 +38,7 @@ import {
 } from 'react-hook-form';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { DialogShell } from '../components/dialog-shell.js';
+import { InspectorSheet } from '../components/inspector-sheet.js';
 import {
   Page,
   PageBody,
@@ -49,9 +49,9 @@ import {
 } from '../components/page.js';
 import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Checkbox } from '../components/ui/checkbox.js';
-import { Dialog } from '../components/ui/dialog.js';
 import { Field, FieldError, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
@@ -674,36 +674,25 @@ export function RolesPage() {
           />
         )}
       </PageBody>
-      <Dialog
-        open={settingsDialog.open}
-        onOpenChange={(next, details) => {
-          if (next) return;
-          if (pending) {
-            details.cancel();
-            return;
-          }
-          closeSettingsDialog();
-        }}
-        onOpenChangeComplete={settingsDialog.onOpenChangeComplete}
-      >
-        {settingsRole === undefined ? null : (
-          <RoleSettings
-            key={settingsRole.id}
-            role={settingsRole}
-            index={settingsIndex}
-            control={control}
-            baseline={baseline}
-            permissions={permissions}
-            canManage={canManage}
-            pending={pending}
-            finalFocus={roleSettingsFinalFocus}
-            onClose={closeSettingsDialog}
-            onDelete={setDeleteTarget}
-            onChangeName={changeName}
-            onChangeScopes={changeScopes}
-          />
-        )}
-      </Dialog>
+      {settingsRole === undefined ? null : (
+        <RoleSettings
+          key={settingsRole.id}
+          open={settingsDialog.open}
+          onOpenChangeComplete={settingsDialog.onOpenChangeComplete}
+          role={settingsRole}
+          index={settingsIndex}
+          control={control}
+          baseline={baseline}
+          permissions={permissions}
+          canManage={canManage}
+          pending={pending}
+          finalFocus={roleSettingsFinalFocus}
+          onClose={closeSettingsDialog}
+          onDelete={setDeleteTarget}
+          onChangeName={changeName}
+          onChangeScopes={changeScopes}
+        />
+      )}
       <ConfirmDialog
         open={reloadOpen}
         onClose={() => {
@@ -1128,7 +1117,24 @@ function MatrixCell({
   );
 }
 
+const SCOPE_FILTER_THRESHOLD = 6;
+
+type ScopeDomainGroup = {
+  domain: string;
+  leaves: PermissionDefinition[];
+};
+
+function groupGrantedByDomain(leaves: readonly PermissionDefinition[]): ScopeDomainGroup[] {
+  const domains = [...new Set(leaves.map((leaf) => leaf.treePath[0] ?? '其他'))];
+  return domains.map((domain) => ({
+    domain,
+    leaves: leaves.filter((leaf) => (leaf.treePath[0] ?? '其他') === domain),
+  }));
+}
+
 function RoleSettings({
+  open,
+  onOpenChangeComplete,
   role,
   index,
   control,
@@ -1142,6 +1148,8 @@ function RoleSettings({
   onChangeName,
   onChangeScopes,
 }: {
+  open: boolean;
+  onOpenChangeComplete: (open: boolean) => void;
   role: RoleField;
   index: number;
   control: Control<FormValues>;
@@ -1158,14 +1166,57 @@ function RoleSettings({
   const { field } = useController({ control, name: `roles.${index}.name` });
   const { name, displayName, error } = useRoleName(control, index, role.roleId, baseline);
   const scopes = useWatch({ control, name: `roles.${index}.scopes`, exact: false });
-  const granted = permissions.filter(
-    (leaf) => (scopes[indexOfPermission(leaf.id)]?.length ?? 0) > 0,
+  const [scopeQuery, setScopeQuery] = useState('');
+  const granted = useMemo(
+    () => permissions.filter((leaf) => (scopes[indexOfPermission(leaf.id)]?.length ?? 0) > 0),
+    [permissions, scopes],
   );
+  const needle = scopeQuery.trim().toLowerCase();
+  const filteredGranted = useMemo(
+    () =>
+      needle
+        ? granted.filter(
+            (leaf) =>
+              leaf.label.toLowerCase().includes(needle) ||
+              leaf.id.toLowerCase().includes(needle) ||
+              leaf.treePath.some((segment) => segment.toLowerCase().includes(needle)),
+          )
+        : granted,
+    [granted, needle],
+  );
+  const groupedScopes = useMemo(() => groupGrantedByDomain(filteredGranted), [filteredGranted]);
+  const showScopeFilter = granted.length > SCOPE_FILTER_THRESHOLD || scopeQuery.length > 0;
   const disabled = !canManage || pending;
+  const key = roleKey(role);
+  const footer = (
+    <div className="flex items-center justify-between gap-3">
+      <p className="text-xs text-muted-foreground">修改将在保存更改后生效。</p>
+      <Button variant="outline" disabled={pending} onClick={onClose}>
+        完成
+      </Button>
+    </div>
+  );
   return (
-    <DialogShell title={`角色设置：${displayName}`} closeDisabled={pending} finalFocus={finalFocus}>
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-col gap-1.5">
+    <InspectorSheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      onOpenChangeComplete={onOpenChangeComplete}
+      size="md"
+      title={`角色设置：${displayName}`}
+      {...(role.systemKey === 'admin'
+        ? {
+            eyebrow: <Badge variant="secondary">系统内置</Badge>,
+            description: '系统管理员权限不可修改',
+          }
+        : {})}
+      closeDisabled={pending}
+      finalFocus={finalFocus}
+      footer={footer}
+    >
+      <div className="flex flex-col gap-6">
+        <section className="flex flex-col gap-1.5">
           <Field
             orientation="horizontal"
             data-invalid={Boolean(error)}
@@ -1173,7 +1224,7 @@ function RoleSettings({
             className="gap-3"
           >
             <FieldLabel
-              htmlFor={`role-name-${roleKey(role)}`}
+              htmlFor={`role-name-${key}`}
               className="w-20 shrink-0 text-muted-foreground"
             >
               角色名称
@@ -1183,10 +1234,10 @@ function RoleSettings({
                 ref={field.ref}
                 name={field.name}
                 onBlur={field.onBlur}
-                id={`role-name-${roleKey(role)}`}
+                id={`role-name-${key}`}
                 aria-label="角色名称"
                 aria-invalid={Boolean(error)}
-                aria-describedby={error ? `role-name-error-${roleKey(role)}` : undefined}
+                aria-describedby={error ? `role-name-error-${key}` : undefined}
                 value={name}
                 disabled={disabled}
                 onChange={(event) => onChangeName(index, event.target.value)}
@@ -1197,21 +1248,37 @@ function RoleSettings({
                   variant="ghost"
                   size="icon-sm"
                   aria-label={`删除角色 ${displayName}`}
+                  title={`删除角色 ${displayName}`}
                   disabled={pending}
-                  onClick={() => onDelete(roleKey(role))}
+                  onClick={() => onDelete(key)}
+                  className="text-muted-foreground hover:text-danger"
                 >
                   <Trash2 />
                 </Button>
               ) : null}
             </div>
           </Field>
-          {error ? <FieldError id={`role-name-error-${roleKey(role)}`}>{error}</FieldError> : null}
-          {role.systemKey === 'admin' ? (
-            <p className="text-sm text-muted-foreground">系统管理员权限不可修改</p>
+          {error ? <FieldError id={`role-name-error-${key}`}>{error}</FieldError> : null}
+        </section>
+        <section className="flex flex-col gap-4 border-t border-line pt-5">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-fg">授权范围</h3>
+            {granted.length > 0 ? (
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {needle
+                  ? `显示 ${filteredGranted.length} / ${granted.length} 项`
+                  : `共 ${granted.length} 项`}
+              </span>
+            ) : null}
+          </div>
+          {showScopeFilter ? (
+            <SearchInput
+              label="筛选授权范围"
+              placeholder="筛选已授权功能…"
+              value={scopeQuery}
+              onChange={setScopeQuery}
+            />
           ) : null}
-        </div>
-        <div className="flex flex-col gap-3">
-          <h2 className="text-base font-medium text-fg">授权范围</h2>
           {granted.length === 0 ? (
             <EmptyState
               variant="idle"
@@ -1220,43 +1287,77 @@ function RoleSettings({
               title="尚未为该角色勾选功能权限"
               description="在左侧矩阵中勾选功能后，可在此配置授权范围。"
             />
+          ) : groupedScopes.length === 0 ? (
+            <EmptyState
+              variant="filter"
+              scale="inline"
+              title="没有匹配的授权项"
+              description="换个关键词或清空筛选条件。"
+              action={
+                <Button variant="outline" size="sm" onClick={() => setScopeQuery('')}>
+                  清除筛选
+                </Button>
+              }
+            />
           ) : (
-            granted.map((leaf) => (
-              <div key={leaf.id} className="flex flex-wrap items-center gap-2">
-                <span className="w-28 shrink-0 text-sm text-fg">{leaf.label}</span>
-                <ToggleGroup
-                  multiple
-                  size="sm"
-                  variant="outline"
-                  className="flex-wrap"
-                  aria-label={`${displayName}：${leaf.label} 授权范围`}
-                  value={(scopes[indexOfPermission(leaf.id)] ?? EMPTY_SCOPES).filter((scope) =>
-                    leaf.scopes.includes(scope),
-                  )}
-                  disabled={disabled || role.systemKey === 'admin'}
-                  onValueChange={(next) => onChangeScopes(index, leaf, next as AccessScope[])}
-                >
-                  {SCOPE_ORDER.filter((scope) => leaf.scopes.includes(scope)).map((scope) => (
-                    <ToggleGroupItem
-                      key={scope}
-                      value={scope}
-                      aria-label={`${SCOPE_LABELS[scope]}范围`}
-                    >
-                      {SCOPE_LABELS[scope]}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-              </div>
-            ))
+            <div className="flex flex-col gap-5">
+              {groupedScopes.map((group) => (
+                <div key={group.domain} className="flex flex-col">
+                  <div className="flex items-center justify-between gap-2 border-b border-line pb-1.5">
+                    <h4 className="text-xs font-medium text-muted-foreground">{group.domain}</h4>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {group.leaves.length}
+                    </span>
+                  </div>
+                  <div className="flex flex-col divide-y divide-line">
+                    {group.leaves.map((leaf) => (
+                      <div
+                        key={leaf.id}
+                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm text-fg">{leaf.label}</div>
+                          {leaf.treePath.length > 2 ? (
+                            <div className="text-xs text-muted-foreground">
+                              {leaf.treePath.slice(1).join(' / ')}
+                            </div>
+                          ) : null}
+                        </div>
+                        <ToggleGroup
+                          multiple
+                          size="sm"
+                          variant="outline"
+                          className="flex-wrap"
+                          aria-label={`${displayName}：${leaf.label} 授权范围`}
+                          value={(scopes[indexOfPermission(leaf.id)] ?? EMPTY_SCOPES).filter(
+                            (scope) => leaf.scopes.includes(scope),
+                          )}
+                          disabled={disabled || role.systemKey === 'admin'}
+                          onValueChange={(next) =>
+                            onChangeScopes(index, leaf, next as AccessScope[])
+                          }
+                        >
+                          {SCOPE_ORDER.filter((scope) => leaf.scopes.includes(scope)).map(
+                            (scope) => (
+                              <ToggleGroupItem
+                                key={scope}
+                                value={scope}
+                                aria-label={`${SCOPE_LABELS[scope]}范围`}
+                              >
+                                {SCOPE_LABELS[scope]}
+                              </ToggleGroupItem>
+                            ),
+                          )}
+                        </ToggleGroup>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-          <p className="text-sm text-muted-foreground">修改将在保存更改后生效。</p>
-          <Button variant="outline" disabled={pending} onClick={onClose}>
-            完成
-          </Button>
-        </div>
+        </section>
       </div>
-    </DialogShell>
+    </InspectorSheet>
   );
 }

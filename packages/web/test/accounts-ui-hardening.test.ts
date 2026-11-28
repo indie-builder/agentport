@@ -30,6 +30,12 @@ const CATALOG: PermissionDefinition[] = [
     scopes: ['platform'],
   },
   {
+    id: 'roles.read',
+    label: '查看角色',
+    treePath: ['平台', '角色'],
+    scopes: ['platform'],
+  },
+  {
     id: 'roles.manage',
     label: '管理角色',
     treePath: ['平台', '角色'],
@@ -187,7 +193,9 @@ async function pressEscape(): Promise<void> {
   await flush();
 }
 async function clickBackdrop(): Promise<void> {
-  const overlays = document.querySelectorAll<HTMLElement>('[data-slot="dialog-backdrop"]');
+  const overlays = document.querySelectorAll<HTMLElement>(
+    '[data-slot="dialog-backdrop"], [data-slot="drawer-backdrop"]',
+  );
   const overlay = overlays[overlays.length - 1];
   if (!overlay) throw new Error('Missing dialog backdrop');
   await act(async () => {
@@ -328,19 +336,19 @@ describe('账户弹窗的未保存保护', () => {
 
   it('编辑填写后按 Esc 先确认，确认后才关闭且不发请求', async () => {
     await openAccounts();
-    await click(button('编辑'));
+    await click(button('详情'));
     await type(field('account-edit-name'), '新名字');
     expect(maybeButton('保存')).toBeTruthy();
 
     await pressEscape();
     expect(dialog('放弃未保存的更改？')).toBeTruthy();
-    expect(maybeDialog('编辑账户「爱丽丝」')).toBeTruthy();
+    expect(maybeDialog('爱丽丝')).toBeTruthy();
     expect(
       calls.some((call) => call.method === 'PATCH' && call.path === '/api/accounts/alice'),
     ).toBe(false);
 
     await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
-    await waitFor(() => maybeDialog('编辑账户「爱丽丝」') === null);
+    await waitFor(() => maybeDialog('爱丽丝') === null);
   });
 
   it('重置密码填写后点遮罩先确认', async () => {
@@ -351,20 +359,20 @@ describe('账户弹窗的未保存保护', () => {
 
     await clickBackdrop();
     expect(dialog('放弃未保存的更改？')).toBeTruthy();
-    expect(maybeDialog('重置「爱丽丝」的密码')).toBeTruthy();
+    expect(maybeDialog('爱丽丝')).toBeTruthy();
     expect(
       calls.some((call) => call.method === 'POST' && call.path === '/api/accounts/alice/password'),
     ).toBe(false);
 
     await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
-    await waitFor(() => maybeDialog('重置「爱丽丝」的密码') === null);
+    await waitFor(() => maybeDialog('爱丽丝') === null);
   });
 
   it('分配角色改动后离开路由先确认，确认才离开且不发请求', async () => {
     await openAccounts();
     await openMenu('操作 爱丽丝');
     await click(menuItem('分配角色'));
-    const assignDialog = dialog('分配「爱丽丝」的角色');
+    const assignDialog = dialog('爱丽丝');
     const member = await waitFor(() =>
       assignDialog.querySelector<HTMLElement>('[role="checkbox"]'),
     );
@@ -376,7 +384,7 @@ describe('账户弹窗的未保存保护', () => {
     });
     await flush();
     expect(dialog('放弃未保存的更改？')).toBeTruthy();
-    expect(maybeDialog('分配「爱丽丝」的角色')).toBeTruthy();
+    expect(maybeDialog('爱丽丝')).toBeTruthy();
     expect(
       calls.some((call) => call.method === 'PUT' && call.path === '/api/accounts/alice/roles'),
     ).toBe(false);
@@ -424,13 +432,13 @@ describe('账户弹窗保存中', () => {
     expect(document.body.textContent).toContain('正在保存…');
 
     await pressEscape();
-    expect(maybeDialog('分配「爱丽丝」的角色')).toBeTruthy();
-    expect(button('取消', dialog('分配「爱丽丝」的角色')).disabled).toBe(true);
-    expect(button('关闭', dialog('分配「爱丽丝」的角色')).disabled).toBe(true);
+    expect(maybeDialog('爱丽丝')).toBeTruthy();
+    expect(button('取消', dialog('爱丽丝')).disabled).toBe(true);
+    expect(button('关闭', dialog('爱丽丝')).disabled).toBe(true);
 
     await act(async () => gate.resolve(json({ ok: true })));
     await flush();
-    await waitFor(() => maybeDialog('分配「爱丽丝」的角色') === null);
+    await waitFor(() => maybeDialog('爱丽丝') === null);
   });
 });
 
@@ -465,7 +473,7 @@ describe('账户字段错误关联', () => {
     route('PATCH', /^\/api\/accounts\/alice$/, () => problem(400, '用户名已被占用', 'CONFLICT'));
 
     await openAccounts();
-    await click(button('编辑'));
+    await click(button('详情'));
     await type(field('account-edit-username'), '');
     await type(field('account-edit-name'), '');
     await click(button('保存'));
@@ -498,7 +506,7 @@ describe('账户字段错误关联', () => {
     await click(menuItem('重置密码'));
     await type(field('account-reset-password'), 'abc');
     await type(field('account-reset-confirm'), 'xyz');
-    await click(button('重置密码', dialog('重置「爱丽丝」的密码')));
+    await click(button('重置密码', dialog('爱丽丝')));
 
     const password = field('account-reset-password');
     const confirm = field('account-reset-confirm');
@@ -586,7 +594,7 @@ describe('账户弹窗的角色目录', () => {
     await click(menuItem('分配角色'));
     await waitFor(() => document.body.textContent?.includes('角色目录没有加载出来'));
 
-    const assignDialog = dialog('分配「爱丽丝」的角色');
+    const assignDialog = dialog('爱丽丝');
     const member = assignDialog.querySelector<HTMLElement>('[role="checkbox"]');
     expect(member).toBeTruthy();
     expect(member?.getAttribute('aria-checked')).toBe('true');

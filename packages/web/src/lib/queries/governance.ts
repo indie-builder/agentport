@@ -129,7 +129,7 @@ export function useGovernanceResources(resourceKind: ResourceKind, q: string, en
   });
 }
 
-export function useGovernanceIdentities(q: string) {
+export function useGovernanceIdentities(q: string, enabled = true) {
   const query = q.trim();
   return useCursorList({
     queryKey: governanceKeys.identities(q),
@@ -142,6 +142,7 @@ export function useGovernanceIdentities(q: string) {
         },
         signal,
       ),
+    enabled,
     staleTime: 10_000,
     select: (data) => data.pages.flatMap((page) => page.items),
   });

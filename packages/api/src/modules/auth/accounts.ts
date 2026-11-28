@@ -21,6 +21,8 @@ export const accountRouter = {
       limit: input.query.limit,
       offset: input.query.offset,
       ...(input.query.q === undefined ? {} : { q: input.query.q }),
+      ...(input.query.status === undefined ? {} : { status: input.query.status }),
+      ...(input.query.roleId === undefined ? {} : { roleId: input.query.roleId }),
     }),
   ),
   create: os.accounts.create.handler(async ({ input: { body }, context }) => {

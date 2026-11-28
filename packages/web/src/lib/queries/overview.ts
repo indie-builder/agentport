@@ -27,10 +27,10 @@ export function useAttention() {
   return useQuery(attentionQuery);
 }
 
-export function useOverview() {
-  return useQuery(overviewQuery);
+export function useOverview(enabled = true) {
+  return useQuery({ ...overviewQuery, enabled });
 }
 
-export function useOverviewTimeseries(days = 7) {
-  return useQuery(overviewTimeseriesQuery(days));
+export function useOverviewTimeseries(days = 7, enabled = true) {
+  return useQuery({ ...overviewTimeseriesQuery(days), enabled });
 }

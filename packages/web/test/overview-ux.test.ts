@@ -249,7 +249,6 @@ describe('overview trend accessibility', () => {
     });
     queryClient.setQueryData(healthMetricsQuery.queryKey, metrics);
 
-    state.search = { tab: 'agents' };
     await render(createElement(OverviewPage), queryClient);
 
     const link = host.querySelector('a[href="/agents/agt_trend"]');
@@ -266,6 +265,7 @@ describe('overview usage export', () => {
     ['=1+1', "'=1+1"],
   ])('导出用量 CSV：%s', async (name, csvName) => {
     const queryClient = client();
+    queryClient.setQueryData(['me'], allAccessMe);
     const data = overview(3);
     data.agents = data.agents.map((agent) => ({
       ...agent,
@@ -281,7 +281,6 @@ describe('overview usage export', () => {
     });
     queryClient.setQueryData(healthMetricsQuery.queryKey, metrics);
 
-    state.search = { tab: 'agents' };
     await render(createElement(OverviewPage), queryClient);
 
     const button = [...host.querySelectorAll('button')].find((item) =>
@@ -315,6 +314,7 @@ describe('overview attention placement', () => {
     vi.spyOn(api, 'overviewTimeseries').mockResolvedValue(points);
 
     const queryClient = client();
+    queryClient.setQueryData(['me'], allAccessMe);
     queryClient.setQueryData(overviewQuery.queryKey, overview(3));
     queryClient.setQueryData(overviewTimeseriesQuery(3).queryKey, points);
     queryClient.setQueryData(healthMetricsQuery.queryKey, metrics);

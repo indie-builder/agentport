@@ -70,6 +70,8 @@ beforeEach(() => {
     pageParams: [undefined],
   });
   client.setQueryData(['health-metrics'], null);
+  client.setQueryData(['overview', 'timeseries', 7], []);
+  client.setQueryData(['attention'], { approvals: [], failedRuns: [], total: 0 });
   client.setQueryData(['runs', null, null, null, null, 50], {
     pages: [{ items: [], nextCursor: null }],
     pageParams: [undefined],
@@ -119,22 +121,45 @@ async function mount(path = '/operations') {
 }
 
 describe('overview retained run history', () => {
-  it.each(['failed', 'succeeded', 'queued'] as const)(
-    'keeps %s history visible with no resources and zero runs in the statistics window',
-    async (status) => {
+  it.each([true, false])(
+    'renders aggregated expert metrics without duplicating recent run rows (canReadAgents=%s)',
+    async (canReadAgents) => {
+      client.setQueryData(
+        ['me'],
+        canReadAgents
+          ? allAccessMe
+          : {
+              ...allAccessMe,
+              grants: allAccessMe.grants.filter((grant) => grant.permissionId !== 'agents.read'),
+            },
+      );
       client.setQueryData(['overview'], {
         ...noConfiguration,
-        recent: [
-          { ...retainedRun, status, startedAt: status === 'queued' ? null : retainedRun.startedAt },
+        recent: [retainedRun],
+        agents: [
+          {
+            agentId: 'agt_retained',
+            name: '巡检专家',
+            slug: 'inspector',
+            createdAt: '2026-01-01T00:00:00Z',
+            enabled: true,
+            lastRunStartTime: '2026-01-02T00:00:00Z',
+            runCount: 3,
+            totalCost: 0.12,
+            errorRate: 0,
+            latencyP50: 400,
+            latencyP99: 900,
+            totalTokens: 1200,
+          },
         ],
       } satisfies Overview);
       await mount();
-      expect(host.querySelector('table[aria-label="最近运行"]')?.textContent).toContain('已删除');
-      expect(host.querySelector('[title="run_retained"]')).not.toBeNull();
-      if (status === 'failed') {
-        expect(host.querySelector('table[aria-label="最近运行"]')?.textContent).toContain('失败');
-        expect(host.querySelector('[title="Retained execution failed"]')).not.toBeNull();
-      }
+      expect(host.textContent).toContain('专家运行');
+      expect(host.querySelector('table[aria-label="最近运行"]')).toBeNull();
+      const metricsTable = host.querySelector('table[aria-label="专家指标"]');
+      expect(metricsTable?.textContent).toContain('巡检专家');
+      expect(Boolean(host.querySelector('a[href="/agents/agt_retained"]'))).toBe(canReadAgents);
+      expect(Boolean(host.querySelector('a[href="/agents"]'))).toBe(canReadAgents);
     },
   );
 
@@ -148,7 +173,8 @@ describe('overview retained run history', () => {
     } satisfies Overview);
     await mount();
     expect(host.textContent).not.toContain('还没有运行数据');
-    expect(host.querySelector('a[href="/runs"]')?.textContent).toBe('查看运行');
+    expect(host.textContent).toContain('专家运行');
+    expect(host.querySelector('table[aria-label="最近运行"]')).toBeNull();
   });
 
   it('shows empty state when no resources or executions exist', async () => {
@@ -167,7 +193,7 @@ describe('overview retained run history', () => {
     await mount();
     expect(host.textContent).toContain('Overview unavailable');
     expect(host.textContent).not.toContain('还没有运行数据');
-    expect(host.querySelector('table[aria-label="最近运行"]')).toBeNull();
+    expect(host.querySelector('table[aria-label="专家指标"]')).toBeNull();
   });
 
   it('reports loading without declaring an empty platform', async () => {
@@ -201,13 +227,15 @@ describe('overview retained run history', () => {
     expect(runs).not.toHaveBeenCalled();
   });
 
-  it('uses a truthful run destination label when configured', async () => {
+  it('uses a truthful expert management destination when configured', async () => {
     client.setQueryData(['overview'], {
       ...noConfiguration,
       counts: { ...noConfiguration.counts, agents: 1 },
     } satisfies Overview);
     await mount();
-    expect(host.querySelector('a[href="/runs"]')?.textContent).toBe('查看运行');
+    expect(host.textContent).toContain('专家运行');
+    expect(host.querySelector('a[href="/agents"]')?.textContent).toBe('管理专家');
+    expect(host.querySelector('table[aria-label="最近运行"]')).toBeNull();
   });
 });
 

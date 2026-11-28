@@ -1,5 +1,5 @@
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   Activity,
   Bot,
@@ -29,7 +29,6 @@ import {
   PageToolbar,
   PageTopbar,
 } from '../components/page.js';
-import { RunStatusBadge } from '../components/run/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
@@ -43,9 +42,8 @@ import {
   TableRow,
 } from '../components/ui/table.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
-import { SegmentedToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
-import { errorMessage, type OverviewAgentRow, type RecentRun } from '../lib/api.js';
+import { errorMessage, type OverviewAgentRow } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
 import { toCsv } from '../lib/csv.js';
 import {
@@ -242,83 +240,6 @@ const buildAgentColumns = (canReadAgents: boolean): DataColumn<OverviewAgentRow>
   },
 ];
 
-const runColumns: DataColumn<RecentRun>[] = [
-  {
-    id: 'id',
-    header: '运行',
-    width: '110px',
-    cell: (run) => (
-      <code className="font-mono text-xs text-muted-foreground" title={run.id}>
-        {shortId(run.id)}
-      </code>
-    ),
-  },
-  {
-    id: 'agent',
-    header: '专家',
-    locked: true,
-    width: 'minmax(140px,1fr)',
-    sortValue: (run) => run.agentName ?? '',
-    cell: (run) => (
-      <span className="min-w-0 text-fg [overflow-wrap:anywhere]">
-        {run.agentName ?? <span className="text-muted-foreground">已删除的专家</span>}
-      </span>
-    ),
-  },
-  {
-    id: 'status',
-    header: '状态',
-    width: 'minmax(140px,1.2fr)',
-    sortValue: (run) => run.status,
-    cell: (run) => (
-      <div className="flex min-w-0 items-center gap-2">
-        <RunStatusBadge status={run.status} />
-        {run.error ? (
-          <span className="min-w-0 line-clamp-1 text-xs text-danger" title={run.error}>
-            {run.error}
-          </span>
-        ) : null}
-      </div>
-    ),
-  },
-  {
-    id: 'latency',
-    header: '耗时',
-    numeric: true,
-    width: '80px',
-    hiddenByDefault: true,
-    sortValue: (run) => run.latencyMs ?? null,
-    cell: (run) => formatDuration(run.latencyMs ?? null),
-  },
-  {
-    id: 'startedAt',
-    header: '开始',
-    width: '96px',
-    sortValue: (run) => run.startedAt ?? '',
-    cell: (run) => (
-      <span className="text-sm text-muted-foreground" title={formatDateTime(run.startedAt)}>
-        {formatRelative(run.startedAt)}
-      </span>
-    ),
-  },
-  {
-    id: 'turns',
-    header: '轮次',
-    numeric: true,
-    width: '64px',
-    sortValue: (run) => run.turns ?? null,
-    cell: (run) => run.turns ?? '—',
-  },
-  {
-    id: 'cost',
-    header: '成本',
-    numeric: true,
-    width: '76px',
-    sortValue: (run) => run.costUsd ?? null,
-    cell: (run) => formatCost(run.costUsd),
-  },
-];
-
 function HealthLine() {
   const { data, isPending, isError, isFetching, refetch } = useQuery(healthMetricsQuery);
   if (!data) {
@@ -381,8 +302,8 @@ const RunTrendChart = lazy(() =>
   import('./overview-trend-chart.js').then((module) => ({ default: module.RunTrendChart })),
 );
 
-export function RunTrendCard({ days }: { days: number }) {
-  const { data, isPending, isError, error, refetch } = useOverviewTimeseries(days);
+export function RunTrendCard({ days, enabled = true }: { days: number; enabled?: boolean }) {
+  const { data, isPending, isError, error, refetch } = useOverviewTimeseries(days, enabled);
   const [open, setOpen] = useState(false);
   const points = data ?? [];
   const hasRuns = points.some((point) => point.runs > 0);
@@ -502,18 +423,17 @@ export function OverviewPage() {
   const queryClient = useQueryClient();
   const search = useSearch({ from: '/_shell/operations' });
   const section: OperationsSection = search.section ?? 'overview';
-  const tab = search.tab ?? 'recent';
   const obsTab: ObservabilityTab = search.obsTab ?? 'slo';
   const windowMinutes: ObservabilityWindowMinutes = search.windowMinutes ?? 60;
-  const location = useLocation();
   const me = useQuery(meQuery);
+  const canReadOverview = can(me.data, 'overview.read');
   const canReadServers = can(me.data, 'servers.read');
   const canReadRuns = can(me.data, 'runs.read');
   const canReadAgents = can(me.data, 'agents.read');
   const canManage = can(me.data, 'operations.manage');
   const agentColumns = useMemo(() => buildAgentColumns(canReadAgents), [canReadAgents]);
-  const overview = useOverview();
-  const data = overview.data ?? null;
+  const overview = useOverview(section === 'overview' && canReadOverview);
+  const data = canReadOverview ? (overview.data ?? null) : null;
 
   const [retentionOpen, setRetentionOpen] = useState(false);
   const retentionButtonRef = useRef<HTMLButtonElement>(null);
@@ -533,9 +453,10 @@ export function OverviewPage() {
   });
   const healthFetching = healthFetchingCount > 0;
 
-  const error = overview.isError ? overview.error : null;
-  const loading = overview.isPending && !error;
+  const error = canReadOverview && overview.isError ? overview.error : null;
+  const loading = canReadOverview && overview.isPending && !error;
   const empty =
+    canReadOverview &&
     !loading &&
     !error &&
     data !== null &&
@@ -543,7 +464,7 @@ export function OverviewPage() {
     data.counts.agents === 0 &&
     data.counts.runs === 0 &&
     data.counts.running === 0 &&
-    data.recent.length === 0;
+    data.agents.length === 0;
 
   const days = data?.window.days ?? 7;
   const headerDescription =
@@ -662,217 +583,171 @@ export function OverviewPage() {
           <TabsContent value={section} className="flex min-w-0 flex-col gap-6">
             {section === 'overview' ? (
               <>
-                {error && !data ? (
-                  <ErrorState error={error} onRetry={() => void overview.refetch()} />
-                ) : null}
+                {canReadOverview ? (
+                  <>
+                    {error && !data ? (
+                      <ErrorState error={error} onRetry={() => void overview.refetch()} />
+                    ) : null}
 
-                {error && data ? (
-                  <PageNote
-                    tone="danger"
-                    title="刷新失败，已保留加载的内容"
-                    description={errorMessage(error)}
-                    action={
-                      <Button variant="outline" size="sm" onClick={() => void overview.refetch()}>
-                        重试
-                      </Button>
-                    }
-                  />
-                ) : null}
+                    {error && data ? (
+                      <PageNote
+                        tone="danger"
+                        title="刷新失败，已保留加载的内容"
+                        description={errorMessage(error)}
+                        action={
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void overview.refetch()}
+                          >
+                            重试
+                          </Button>
+                        }
+                      />
+                    ) : null}
 
-                {loading ? <LoadingState rows={3} /> : null}
+                    {loading ? <LoadingState rows={3} /> : null}
 
-                {empty ? (
-                  <EmptyState
-                    variant="stage"
-                    scale="page"
-                    specimen="runs"
-                    title="还没有运行数据"
-                    description="创建专家并发起对话后，这里会展示 7 日运行趋势与汇总指标。"
-                    action={
-                      canReadAgents ? (
-                        <Link to="/agents" className={buttonVariants()}>
-                          前往找专家
-                        </Link>
-                      ) : canReadServers ? (
-                        <Link to="/servers" className={buttonVariants()}>
-                          接入连接器
-                        </Link>
-                      ) : (
-                        <Link to="/chat" className={buttonVariants()}>
-                          开始对话
-                        </Link>
-                      )
-                    }
-                    secondaryAction={
-                      canReadAgents || canReadServers ? (
-                        <Link to="/chat" className={buttonVariants({ variant: 'outline' })}>
-                          开始对话
-                        </Link>
-                      ) : undefined
-                    }
-                  />
-                ) : null}
+                    {empty ? (
+                      <EmptyState
+                        variant="stage"
+                        scale="page"
+                        specimen="runs"
+                        title="还没有运行数据"
+                        description="创建专家并发起对话后，这里会展示 7 日运行趋势与汇总指标。"
+                        action={
+                          canReadAgents ? (
+                            <Link to="/agents" className={buttonVariants()}>
+                              前往找专家
+                            </Link>
+                          ) : canReadServers ? (
+                            <Link to="/servers" className={buttonVariants()}>
+                              接入连接器
+                            </Link>
+                          ) : (
+                            <Link to="/chat" className={buttonVariants()}>
+                              开始对话
+                            </Link>
+                          )
+                        }
+                        secondaryAction={
+                          canReadAgents || canReadServers ? (
+                            <Link to="/chat" className={buttonVariants({ variant: 'outline' })}>
+                              开始对话
+                            </Link>
+                          ) : undefined
+                        }
+                      />
+                    ) : null}
 
-                {data && !empty ? (
+                    {data && !empty ? (
+                      <>
+                        <HealthLine />
+                        <MetricGrid columns={4}>
+                          {[
+                            {
+                              label: '运行次数',
+                              value: data.counts.runs,
+                              hint: failedCount > 0 ? `${failedCount} 次失败` : null,
+                              icon: Activity,
+                            },
+                            {
+                              label: '运行成本',
+                              value: formatCost(data.counts.costUsd),
+                              hint:
+                                data.counts.tokens === 0
+                                  ? null
+                                  : `${formatTokens(data.counts.tokens)} tokens`,
+                              icon: Sparkles,
+                            },
+                            { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
+                            {
+                              label: '连接器',
+                              value: data.counts.servers,
+                              hint: null,
+                              icon: Server,
+                            },
+                          ].map(({ label, value, hint, icon }) => (
+                            <MetricCard
+                              key={label}
+                              label={label}
+                              value={value}
+                              hint={hint}
+                              icon={icon}
+                            />
+                          ))}
+                        </MetricGrid>
+
+                        <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                          <RunTrendCard days={days} enabled={canReadOverview} />
+                          <AttentionPanel layout="card" canOpenRuns={canReadRuns} />
+                        </div>
+
+                        <PageSection
+                          title="专家运行"
+                          divided={false}
+                          className="overflow-x-clip"
+                          actions={
+                            data.agents.length > 0 || canReadAgents ? (
+                              <>
+                                {data.agents.length > 0 ? (
+                                  <Button variant="outline" size="sm" onClick={exportUsageCsv}>
+                                    <Download data-icon="inline-start" aria-hidden="true" /> 导出
+                                    CSV
+                                  </Button>
+                                ) : null}
+                                {canReadAgents ? (
+                                  <Link
+                                    to="/agents"
+                                    data-variant="ghost"
+                                    data-size="sm"
+                                    className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+                                  >
+                                    管理专家
+                                  </Link>
+                                ) : null}
+                              </>
+                            ) : null
+                          }
+                        >
+                          {data.agents.length > 0 ? (
+                            <DataTable
+                              rows={data.agents}
+                              columns={agentColumns}
+                              rowKey={(row) => row.agentId}
+                              label="专家指标"
+                              storageKey="pace.overview.agent-columns"
+                              className="max-h-96 overflow-y-auto"
+                              hideRowCount
+                            />
+                          ) : (
+                            <EmptyState
+                              variant="idle"
+                              scale="inline"
+                              icon={<Bot className="size-4" aria-hidden="true" />}
+                              title="创建专家后统计活跃表现"
+                              action={
+                                canReadAgents ? (
+                                  <Link
+                                    to="/agents"
+                                    className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                                  >
+                                    去创建
+                                  </Link>
+                                ) : undefined
+                              }
+                            />
+                          )}
+                        </PageSection>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
                   <>
                     <HealthLine />
-                    <MetricGrid columns={4}>
-                      {[
-                        {
-                          label: '运行次数',
-                          value: data.counts.runs,
-                          hint: failedCount > 0 ? `${failedCount} 次失败` : null,
-                          icon: Activity,
-                        },
-                        {
-                          label: '运行成本',
-                          value: formatCost(data.counts.costUsd),
-                          hint:
-                            data.counts.tokens === 0
-                              ? null
-                              : `${formatTokens(data.counts.tokens)} tokens`,
-                          icon: Sparkles,
-                        },
-                        { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
-                        { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
-                      ].map(({ label, value, hint, icon }) => (
-                        <MetricCard
-                          key={label}
-                          label={label}
-                          value={value}
-                          hint={hint}
-                          icon={icon}
-                        />
-                      ))}
-                    </MetricGrid>
-
-                    <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                      <RunTrendCard days={days} />
-                      <AttentionPanel layout="card" canOpenRuns={canReadRuns} />
-                    </div>
-
-                    <PageSection
-                      title="运行"
-                      divided={false}
-                      className="overflow-x-clip"
-                      actions={
-                        <>
-                          <SegmentedToggle
-                            label="切换区段"
-                            value={tab}
-                            options={[
-                              { value: 'recent', label: '最近运行' },
-                              { value: 'agents', label: '专家运行' },
-                            ]}
-                            onChange={(value) =>
-                              void navigate({
-                                to: '/operations',
-                                search: (prev) => ({ ...prev, tab: value }),
-                              })
-                            }
-                          />
-                          {tab === 'recent' && canReadRuns ? (
-                            <Link
-                              to="/runs"
-                              data-variant="ghost"
-                              data-size="sm"
-                              className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-                            >
-                              查看运行
-                            </Link>
-                          ) : null}
-                          {tab === 'agents' ? (
-                            <>
-                              {data.agents.length > 0 ? (
-                                <Button variant="outline" size="sm" onClick={exportUsageCsv}>
-                                  <Download data-icon="inline-start" aria-hidden="true" /> 导出 CSV
-                                </Button>
-                              ) : null}
-                              {canReadAgents ? (
-                                <Link
-                                  to="/agents"
-                                  data-variant="ghost"
-                                  data-size="sm"
-                                  className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-                                >
-                                  管理专家
-                                </Link>
-                              ) : null}
-                            </>
-                          ) : null}
-                        </>
-                      }
-                    >
-                      {tab === 'recent' ? (
-                        data.recent.length > 0 ? (
-                          <DataTable
-                            rows={data.recent.slice(0, 6)}
-                            columns={runColumns}
-                            rowKey={(run) => run.id}
-                            rowLabel={(run) =>
-                              `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
-                            }
-                            label="最近运行"
-                            storageKey="pace.overview.run-columns"
-                            hideRowCount
-                            {...(canReadRuns
-                              ? {
-                                  onRowClick: (run: RecentRun) =>
-                                    void navigate({
-                                      to: '/runs/$runId',
-                                      params: { runId: run.id },
-                                      search: { backTo: location.href },
-                                    }),
-                                }
-                              : {})}
-                          />
-                        ) : (
-                          <EmptyState
-                            variant="idle"
-                            scale="inline"
-                            icon={<Activity className="size-4" aria-hidden="true" />}
-                            title="发起对话后在这里查看最近运行"
-                            action={
-                              <Link
-                                to="/chat"
-                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                              >
-                                去对话
-                              </Link>
-                            }
-                          />
-                        )
-                      ) : data.agents.length > 0 ? (
-                        <DataTable
-                          rows={data.agents}
-                          columns={agentColumns}
-                          rowKey={(row) => row.agentId}
-                          label="专家指标"
-                          storageKey="pace.overview.agent-columns"
-                          className="max-h-96 overflow-y-auto"
-                          hideRowCount
-                        />
-                      ) : (
-                        <EmptyState
-                          variant="idle"
-                          scale="inline"
-                          icon={<Bot className="size-4" aria-hidden="true" />}
-                          title="创建专家后统计活跃表现"
-                          action={
-                            canReadAgents ? (
-                              <Link
-                                to="/agents"
-                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                              >
-                                去创建
-                              </Link>
-                            ) : undefined
-                          }
-                        />
-                      )}
-                    </PageSection>
+                    <AttentionPanel layout="card" canOpenRuns={canReadRuns} />
                   </>
-                ) : null}
+                )}
 
                 <RetentionSheet
                   open={retentionOpen}

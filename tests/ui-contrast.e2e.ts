@@ -1451,36 +1451,36 @@ test('ui contrast: authenticated routes resting, hover, focus, selected, and pop
 
     await app.open('/operations');
     await expect(screen.getByRole('heading', '概况')).toBeVisible();
-    await expect(browser.locator('[data-slot="segmented-control"]')).toBeVisible();
+    await expect(screen.getByRole('button', '导出 CSV')).toBeVisible();
     await browser.mouse.move(0, 0);
 
-    await scanContrast(browser, '/operations', 'resting-recent');
-    await checkPairDifferentiation(
-      browser,
-      '[data-slot="segmented-control"] [role="radio"][aria-checked="true"]',
-      '[data-slot="segmented-control"] [role="radio"][aria-checked="false"]',
-      'segmented',
-      '/operations segmented control',
-    );
-
-    await measureHoverElement(
-      browser,
-      screen.getByRole('radio', '专家运行'),
-      '/operations segmented option hover',
-    );
-
-    await screen.getByRole('radio', '专家运行').tap();
-    await expect(screen.getByRole('button', '导出 CSV')).toBeVisible();
-    await scanContrast(browser, '/operations', 'agents-table');
-
+    await scanContrast(browser, '/operations', 'resting-overview');
     await measureHoverElement(
       browser,
       screen.getByRole('button', '导出 CSV'),
       '/operations outline export button hover',
     );
-    await screen.getByRole('radio', '专家运行').focus();
+    await screen.getByRole('button', '导出 CSV').focus();
     await browser.keyboard.press('Tab');
     await measureActiveFocusRing(browser, '/operations button focus-visible');
+
+    await screen.getByRole('tab', 'SLO 与队列').tap();
+    await expect(browser.locator('[data-slot="segmented-control"]')).toBeVisible();
+    await browser.mouse.move(0, 0);
+
+    await scanContrast(browser, '/operations', 'observability-slo');
+    await checkPairDifferentiation(
+      browser,
+      '[data-slot="segmented-control"] [role="radio"][aria-checked="true"]',
+      '[data-slot="segmented-control"] [role="radio"][aria-checked="false"]',
+      'segmented',
+      '/operations observability segmented control',
+    );
+    await measureHoverElement(
+      browser,
+      screen.getByRole('radio', '队列'),
+      '/operations segmented option hover',
+    );
 
     await app.open(`/eval?agent=${agentId}`);
     await expect(screen.getByRole('heading', '评估')).toBeVisible();
@@ -1519,15 +1519,16 @@ test('ui contrast: authenticated routes resting, hover, focus, selected, and pop
     await app.open('/accounts');
     await expect(screen.getByRole('heading', '账户')).toBeVisible();
     await expect(screen.getByRole('button', '新建账户')).toBeVisible();
+    await expect(browser.locator('table[aria-label="账户列表"]')).toBeVisible();
     await browser.mouse.move(0, 0);
 
-    await scanContrast(browser, '/accounts', 'resting-cards');
+    await scanContrast(browser, '/accounts', 'resting-table');
     await checkPairDifferentiation(
       browser,
       '[data-slot="segmented-control"] [role="radio"][aria-checked="true"]',
       '[data-slot="segmented-control"] [role="radio"][aria-checked="false"]',
       'segmented',
-      '/accounts ViewToggle cards',
+      '/accounts ViewToggle table',
     );
 
     await measureHoverElement(
@@ -1535,9 +1536,6 @@ test('ui contrast: authenticated routes resting, hover, focus, selected, and pop
       screen.getByRole('button', '新建账户'),
       '/accounts primary button hover',
     );
-    await screen.getByRole('radio', '表格').tap();
-    await expect(browser.locator('table[aria-label="账户列表"]')).toBeVisible();
-    await scanContrast(browser, '/accounts', 'table-view');
 
     await screen.getByRole('radio', '表格').focus();
     await browser.keyboard.press('Tab');
@@ -1551,6 +1549,10 @@ test('ui contrast: authenticated routes resting, hover, focus, selected, and pop
     await scanContrast(browser, '/accounts', 'row-menu-open', '[role="menu"]');
     await browser.keyboard.press('Escape');
     await accountMenu.waitFor({ state: 'hidden' });
+
+    await screen.getByRole('radio', '卡片').tap();
+    await expect(browser.locator('ul[aria-label="账户列表"]')).toBeVisible();
+    await scanContrast(browser, '/accounts', 'cards-view');
 
     console.log(`CONTRAST_SUMMARY=${JSON.stringify(contrastSummary)}`);
   } catch (error) {
