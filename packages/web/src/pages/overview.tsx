@@ -1,12 +1,19 @@
-import { type RetentionSettings, retentionUpdateSchema } from '@agentport/shared';
-import { useQuery } from '@tanstack/react-query';
+import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { Activity, Bot, Download, Server, Sparkles } from 'lucide-react';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Controller } from 'react-hook-form';
+import {
+  Activity,
+  Bot,
+  Download,
+  ListChecks,
+  RefreshCw,
+  Server,
+  Settings2,
+  Sparkles,
+} from 'lucide-react';
+import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import { AttentionPanel } from '../components/attention-panel.js';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
+import { FilterSelect } from '../components/filter-select.js';
 import { MetricCard, MetricGrid } from '../components/metric-card.js';
 import {
   Collapsible,
@@ -19,6 +26,7 @@ import {
   PageHeader,
   PageNote,
   PageSection,
+  PageToolbar,
   PageTopbar,
 } from '../components/page.js';
 import { RunStatusBadge } from '../components/run/run-status-badge.js';
@@ -27,19 +35,6 @@ import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
 import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from '../components/ui/field.js';
-import {
-  NumberInput,
-  NumberInputControl,
-  NumberInputGroup,
-} from '../components/ui/number-input.js';
-import {
   Table,
   TableBody,
   TableCell,
@@ -47,12 +42,12 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { SegmentedToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { errorMessage, type OverviewAgentRow, type RecentRun } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
 import { toCsv } from '../lib/csv.js';
-import { useFormBlocker } from '../lib/form.js';
 import {
   formatCost,
   formatDateTime,
@@ -64,15 +59,29 @@ import {
 } from '../lib/format.js';
 import { judgeQueue } from '../lib/health.js';
 import {
+  healthLiveQuery,
   healthMetricsQuery,
+  healthReadyQuery,
   meQuery,
   useOverview,
   useOverviewTimeseries,
-  useRetention,
-  useUpdateRetention,
 } from '../lib/queries.js';
-import { toastError, toastSuccess } from '../lib/toast.js';
-import { useZodForm } from '../lib/use-zod-form.js';
+import { HealthSection } from './operations/health-section.js';
+import {
+  OBSERVABILITY_WINDOW_OPTIONS,
+  ObservabilitySection,
+  type ObservabilityTab,
+  type ObservabilityWindowMinutes,
+} from './operations/observability-section.js';
+import { RetentionSheet } from './operations/retention-sheet.js';
+
+const SECTIONS = [
+  { value: 'overview', label: '总览' },
+  { value: 'observability', label: 'SLO 与队列' },
+  { value: 'health', label: '系统健康' },
+] as const;
+
+type OperationsSection = (typeof SECTIONS)[number]['value'];
 
 function toUsageCsv(agents: OverviewAgentRow[]) {
   const rows = agents.map((agent) => [
@@ -328,7 +337,8 @@ function HealthLine() {
           </Button>
         )}
         <Link
-          to="/status"
+          to="/operations"
+          search={{ section: 'health' }}
           className="text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
         >
           查看健康
@@ -357,7 +367,8 @@ function HealthLine() {
         </Button>
       ) : null}
       <Link
-        to="/status"
+        to="/operations"
+        search={{ section: 'health' }}
         className="text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
       >
         查看健康
@@ -486,197 +497,41 @@ export function RunTrendCard({ days }: { days: number }) {
   );
 }
 
-const retentionFormSchema = retentionUpdateSchema.required();
-
-type RetentionFormValues = Pick<RetentionSettings, 'runDays' | 'messageDays' | 'agentVersions'>;
-
-const RETENTION_FIELDS = [
-  {
-    name: 'runDays',
-    id: 'retention-run-days',
-    label: '运行记录保留天数',
-    hint: '超过该天数的运行记录及其消息会被清理。',
-  },
-  {
-    name: 'messageDays',
-    id: 'retention-message-days',
-    label: '消息保留天数',
-    hint: '无运行归属的会话消息与频道消息超过该天数后清理（随运行的对话消息按运行记录保留天数清理）。',
-  },
-  {
-    name: 'agentVersions',
-    id: 'retention-agent-versions',
-    label: '版本保留个数',
-    hint: '每个专家保留最近的历史版本数量。',
-  },
-] as const satisfies ReadonlyArray<{
-  name: keyof RetentionFormValues;
-  id: string;
-  label: string;
-  hint: string;
-}>;
-
-function RetentionForm({
-  settings,
-  canManage,
-}: {
-  settings: RetentionSettings;
-  canManage: boolean;
-}) {
-  const save = useUpdateRetention();
-  const { control, handleSubmit, reset, formState } = useZodForm(retentionFormSchema, {
-    defaultValues: {
-      runDays: settings.runDays,
-      messageDays: settings.messageDays,
-      agentVersions: settings.agentVersions,
-    },
-  });
-  const { errors, isDirty: dirty } = formState;
-  const pending = save.isPending;
-  const disabled = pending || !canManage;
-  const blocker = useFormBlocker(dirty, pending);
-
-  const settingsRef = useRef(settings);
-  useEffect(() => {
-    if (settingsRef.current === settings) return;
-    settingsRef.current = settings;
-    if (!dirty) {
-      reset({
-        runDays: settings.runDays,
-        messageDays: settings.messageDays,
-        agentVersions: settings.agentVersions,
-      });
-    }
-  }, [settings, dirty, reset]);
-
-  const submit = handleSubmit((values) => {
-    if (disabled) return;
-    save.mutate(values, {
-      onSuccess: (saved) => {
-        reset({
-          runDays: saved.runDays,
-          messageDays: saved.messageDays,
-          agentVersions: saved.agentVersions,
-        });
-        toastSuccess('数据保留策略已保存');
-      },
-      onError: toastError,
-    });
-  });
-
-  return (
-    <>
-      <form className="flex flex-col gap-5" noValidate onSubmit={submit}>
-        <FieldGroup className="gap-4">
-          {RETENTION_FIELDS.map((field) => {
-            const error = errors[field.name]?.message;
-            return (
-              <Field
-                key={field.name}
-                orientation="horizontal"
-                className="items-start gap-3"
-                data-disabled={disabled}
-                data-invalid={Boolean(error)}
-              >
-                <FieldContent>
-                  <FieldLabel htmlFor={field.id}>{field.label}</FieldLabel>
-                  <FieldDescription id={`${field.id}-hint`}>{field.hint}</FieldDescription>
-                  <FieldError id={`${field.id}-error`}>{error}</FieldError>
-                </FieldContent>
-                <Controller
-                  control={control}
-                  name={field.name}
-                  render={({ field: controllerField }) => (
-                    <NumberInput
-                      name={controllerField.name}
-                      value={Number.isFinite(controllerField.value) ? controllerField.value : null}
-                      onValueChange={(next, details) => {
-                        if (details?.reason === 'input-commit') {
-                          details.cancel();
-                          return;
-                        }
-                        controllerField.onChange(next ?? Number.NaN);
-                      }}
-                      step={1}
-                      disabled={disabled}
-                      className="w-24"
-                    >
-                      <NumberInputGroup>
-                        <NumberInputControl
-                          ref={controllerField.ref}
-                          id={field.id}
-                          inputMode="numeric"
-                          onBlur={controllerField.onBlur}
-                          aria-invalid={Boolean(error)}
-                        />
-                      </NumberInputGroup>
-                    </NumberInput>
-                  )}
-                />
-              </Field>
-            );
-          })}
-        </FieldGroup>
-
-        <div className="flex items-center justify-end gap-3">
-          {settings.updatedAt && settings.updatedBy ? (
-            <span className="mr-auto text-xs text-muted-foreground">
-              上次修改：{formatDateTime(settings.updatedAt)} · {settings.updatedBy}
-            </span>
-          ) : null}
-          {canManage ? (
-            <Button type="submit" disabled={disabled || !dirty} aria-busy={pending}>
-              {pending ? '保存中…' : '保存'}
-            </Button>
-          ) : null}
-        </div>
-      </form>
-      <ConfirmDialog
-        open={blocker.status === 'blocked'}
-        onClose={() => blocker.reset?.()}
-        title="放弃未保存的数据保留策略？"
-        description="离开后本次修改不会保存。可以先保存再继续。"
-        confirmLabel="放弃并离开"
-        confirmDisabled={pending}
-        onConfirm={async () => blocker.proceed()}
-      />
-    </>
-  );
-}
-
-function RetentionSection() {
-  const me = useQuery(meQuery);
-  const canManage = can(me.data, 'operations.manage');
-  const retention = useRetention();
-  return (
-    <PageSection
-      title="数据保留"
-      description="每日维护任务据此清理；修改后下次维护生效。"
-      divided={false}
-    >
-      {retention.isPending ? (
-        <LoadingState rows={3} />
-      ) : retention.data ? (
-        <RetentionForm settings={retention.data} canManage={canManage} />
-      ) : (
-        <ErrorState error={retention.error} onRetry={() => void retention.refetch()} />
-      )}
-    </PageSection>
-  );
-}
-
 export function OverviewPage() {
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: '/operations' });
+  const queryClient = useQueryClient();
   const search = useSearch({ from: '/_shell/operations' });
+  const section: OperationsSection = search.section ?? 'overview';
   const tab = search.tab ?? 'recent';
+  const obsTab: ObservabilityTab = search.obsTab ?? 'slo';
+  const windowMinutes: ObservabilityWindowMinutes = search.windowMinutes ?? 60;
   const location = useLocation();
   const me = useQuery(meQuery);
   const canReadServers = can(me.data, 'servers.read');
   const canReadRuns = can(me.data, 'runs.read');
   const canReadAgents = can(me.data, 'agents.read');
+  const canManage = can(me.data, 'operations.manage');
   const agentColumns = useMemo(() => buildAgentColumns(canReadAgents), [canReadAgents]);
   const overview = useOverview();
   const data = overview.data ?? null;
+
+  const [retentionOpen, setRetentionOpen] = useState(false);
+  const retentionButtonRef = useRef<HTMLButtonElement>(null);
+
+  const [sloOpen, setSloOpen] = useState(false);
+  const sloButtonRef = useRef<HTMLButtonElement>(null);
+
+  const [smokeOpen, setSmokeOpen] = useState(false);
+  const [smokeRunTrigger, setSmokeRunTrigger] = useState(0);
+  const smokeButtonRef = useRef<HTMLButtonElement>(null);
+
+  const healthFetchingCount = useIsFetching({
+    predicate: (query) => {
+      const key = query.queryKey[0];
+      return key === 'health-live' || key === 'health-ready' || key === 'health-metrics';
+    },
+  });
+  const healthFetching = healthFetchingCount > 0;
 
   const error = overview.isError ? overview.error : null;
   const loading = overview.isPending && !error;
@@ -691,7 +546,14 @@ export function OverviewPage() {
     data.recent.length === 0;
 
   const days = data?.window.days ?? 7;
-  const windowLabel = data && !empty ? `最近 ${days} 天` : '';
+  const headerDescription =
+    section === 'overview'
+      ? data && !empty
+        ? `最近 ${days} 天`
+        : undefined
+      : section === 'health'
+        ? '运行指标每 10 秒自动刷新'
+        : undefined;
   const failedCount = data?.counts.failed ?? 0;
 
   const exportUsageCsv = (): void => {
@@ -702,217 +564,351 @@ export function OverviewPage() {
     );
   };
 
-  const attentionSection = <AttentionPanel canOpenRuns={canReadRuns} />;
+  const handleWindowChange = (next: ObservabilityWindowMinutes): void => {
+    void navigate({
+      to: '/operations',
+      search: (prev) => ({ ...prev, windowMinutes: next }),
+      replace: true,
+    });
+  };
+
+  const handleObsTabChange = (next: ObservabilityTab): void => {
+    void navigate({
+      to: '/operations',
+      search: (prev) => ({ ...prev, obsTab: next }),
+      replace: true,
+    });
+  };
+
+  const openAndRunSmoke = (): void => {
+    setSmokeOpen(true);
+    setSmokeRunTrigger((count) => count + 1);
+  };
+
+  const refreshHealth = (): void => {
+    void queryClient.refetchQueries({ queryKey: healthLiveQuery.queryKey });
+    void queryClient.refetchQueries({ queryKey: healthReadyQuery.queryKey });
+    void queryClient.refetchQueries({ queryKey: healthMetricsQuery.queryKey });
+  };
+
+  const headerActions =
+    section === 'overview' ? (
+      <Button ref={retentionButtonRef} variant="outline" onClick={() => setRetentionOpen(true)}>
+        数据保留
+      </Button>
+    ) : section === 'observability' ? (
+      <>
+        <FilterSelect
+          value={String(windowMinutes)}
+          onValueChange={(next) => handleWindowChange(Number(next) as ObservabilityWindowMinutes)}
+          options={OBSERVABILITY_WINDOW_OPTIONS}
+          label="看板统计窗口"
+          className="w-28"
+        />
+        {canManage ? (
+          <Button ref={sloButtonRef} onClick={() => setSloOpen(true)}>
+            <Settings2 data-icon="inline-start" aria-hidden="true" /> SLO 设置
+          </Button>
+        ) : null}
+      </>
+    ) : (
+      <>
+        <Button ref={smokeButtonRef} variant="outline" onClick={openAndRunSmoke}>
+          <ListChecks data-icon="inline-start" aria-hidden="true" /> 运行冒烟检查
+        </Button>
+        <Button variant="outline" onClick={refreshHealth} disabled={healthFetching}>
+          <RefreshCw
+            data-icon="inline-start"
+            className={healthFetching ? 'animate-spin' : undefined}
+            aria-hidden="true"
+          />
+          {healthFetching ? '刷新中…' : '刷新'}
+        </Button>
+      </>
+    );
 
   return (
     <Page>
-      <PageTopbar>
-        <PageHeader title="概况" {...(windowLabel ? { description: windowLabel } : {})} />
-      </PageTopbar>
-
-      <PageBody className="pt-2">
-        {error && !data ? (
-          <ErrorState error={error} onRetry={() => void overview.refetch()} />
-        ) : null}
-
-        {error && data ? (
-          <PageNote
-            tone="danger"
-            title="刷新失败，已保留加载的内容"
-            description={errorMessage(error)}
-            action={
-              <Button variant="outline" size="sm" onClick={() => void overview.refetch()}>
-                重试
-              </Button>
-            }
+      <Tabs
+        value={section}
+        onValueChange={(next) => {
+          if (next === section || !SECTIONS.some((item) => item.value === next)) return;
+          void navigate({
+            to: '/operations',
+            search: (prev) => ({ ...prev, section: next as OperationsSection }),
+            replace: true,
+          });
+        }}
+        className="min-h-0 flex-1 gap-4"
+      >
+        <PageTopbar>
+          <PageHeader
+            title="概况"
+            {...(headerDescription ? { description: headerDescription } : {})}
+            actions={headerActions}
           />
-        ) : null}
-
-        {loading ? <LoadingState rows={3} /> : null}
-
-        {empty ? (
-          <EmptyState
-            variant="stage"
-            scale="page"
-            specimen="runs"
-            title="还没有运行数据"
-            description="创建专家并发起对话后，这里会展示 7 日运行趋势与汇总指标。"
-            action={
-              canReadAgents ? (
-                <Link to="/agents" className={buttonVariants()}>
-                  前往找专家
-                </Link>
-              ) : canReadServers ? (
-                <Link to="/servers" className={buttonVariants()}>
-                  接入连接器
-                </Link>
-              ) : (
-                <Link to="/chat" className={buttonVariants()}>
-                  开始对话
-                </Link>
-              )
-            }
-            secondaryAction={
-              canReadAgents || canReadServers ? (
-                <Link to="/chat" className={buttonVariants({ variant: 'outline' })}>
-                  开始对话
-                </Link>
-              ) : undefined
-            }
-          />
-        ) : null}
-
-        {data && !empty ? (
-          <>
-            <HealthLine />
-            <MetricGrid columns={4}>
-              {[
-                {
-                  label: '运行次数',
-                  value: data.counts.runs,
-                  hint: failedCount > 0 ? `${failedCount} 次失败` : null,
-                  icon: Activity,
-                },
-                {
-                  label: '运行成本',
-                  value: formatCost(data.counts.costUsd),
-                  hint:
-                    data.counts.tokens === 0 ? null : `${formatTokens(data.counts.tokens)} tokens`,
-                  icon: Sparkles,
-                },
-                { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
-                { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
-              ].map(({ label, value, hint, icon }) => (
-                <MetricCard key={label} label={label} value={value} hint={hint} icon={icon} />
+          <PageToolbar>
+            <TabsList variant="line" aria-label="概况分区">
+              {SECTIONS.map((item) => (
+                <TabsTrigger key={item.value} value={item.value}>
+                  {item.label}
+                </TabsTrigger>
               ))}
-            </MetricGrid>
+            </TabsList>
+          </PageToolbar>
+        </PageTopbar>
 
-            <RunTrendCard days={days} />
+        <PageBody className="pt-2">
+          <TabsContent value={section} className="flex min-w-0 flex-col gap-6">
+            {section === 'overview' ? (
+              <>
+                {error && !data ? (
+                  <ErrorState error={error} onRetry={() => void overview.refetch()} />
+                ) : null}
 
-            {attentionSection}
-
-            <PageSection
-              title="运行"
-              divided={false}
-              actions={
-                <>
-                  <SegmentedToggle
-                    label="切换区段"
-                    value={tab}
-                    options={[
-                      { value: 'recent', label: '最近运行' },
-                      { value: 'agents', label: '专家运行' },
-                    ]}
-                    onChange={(value) =>
-                      void navigate({
-                        to: '/operations',
-                        search: (prev) => ({ ...prev, tab: value }),
-                      })
-                    }
-                  />
-                  {tab === 'recent' && canReadRuns ? (
-                    <Link
-                      to="/runs"
-                      data-variant="ghost"
-                      data-size="sm"
-                      className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-                    >
-                      查看运行
-                    </Link>
-                  ) : null}
-                  {tab === 'agents' ? (
-                    <>
-                      {data.agents.length > 0 ? (
-                        <Button variant="outline" size="sm" onClick={exportUsageCsv}>
-                          <Download data-icon="inline-start" aria-hidden="true" /> 导出 CSV
-                        </Button>
-                      ) : null}
-                      {canReadAgents ? (
-                        <Link
-                          to="/agents"
-                          data-variant="ghost"
-                          data-size="sm"
-                          className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-                        >
-                          管理专家
-                        </Link>
-                      ) : null}
-                    </>
-                  ) : null}
-                </>
-              }
-            >
-              {tab === 'recent' ? (
-                data.recent.length > 0 ? (
-                  <DataTable
-                    rows={data.recent.slice(0, 6)}
-                    columns={runColumns}
-                    rowKey={(run) => run.id}
-                    rowLabel={(run) =>
-                      `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
-                    }
-                    label="最近运行"
-                    storageKey="pace.overview.run-columns"
-                    {...(canReadRuns
-                      ? {
-                          onRowClick: (run: RecentRun) =>
-                            void navigate({
-                              to: '/runs/$runId',
-                              params: { runId: run.id },
-                              search: { backTo: location.href },
-                            }),
-                        }
-                      : {})}
-                  />
-                ) : (
-                  <EmptyState
-                    variant="idle"
-                    scale="inline"
-                    icon={<Activity className="size-4" aria-hidden="true" />}
-                    title="发起对话后在这里查看最近运行"
+                {error && data ? (
+                  <PageNote
+                    tone="danger"
+                    title="刷新失败，已保留加载的内容"
+                    description={errorMessage(error)}
                     action={
-                      <Link
-                        to="/chat"
-                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                      >
-                        去对话
-                      </Link>
+                      <Button variant="outline" size="sm" onClick={() => void overview.refetch()}>
+                        重试
+                      </Button>
                     }
                   />
-                )
-              ) : data.agents.length > 0 ? (
-                <DataTable
-                  rows={data.agents}
-                  columns={agentColumns}
-                  rowKey={(row) => row.agentId}
-                  label="专家指标"
-                  storageKey="pace.overview.agent-columns"
-                  className="max-h-96 overflow-y-auto"
-                />
-              ) : (
-                <EmptyState
-                  variant="idle"
-                  scale="inline"
-                  icon={<Bot className="size-4" aria-hidden="true" />}
-                  title="创建专家后统计活跃表现"
-                  action={
-                    canReadAgents ? (
-                      <Link
-                        to="/agents"
-                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                      >
-                        去创建
-                      </Link>
-                    ) : undefined
+                ) : null}
+
+                {loading ? <LoadingState rows={3} /> : null}
+
+                {empty ? (
+                  <EmptyState
+                    variant="stage"
+                    scale="page"
+                    specimen="runs"
+                    title="还没有运行数据"
+                    description="创建专家并发起对话后，这里会展示 7 日运行趋势与汇总指标。"
+                    action={
+                      canReadAgents ? (
+                        <Link to="/agents" className={buttonVariants()}>
+                          前往找专家
+                        </Link>
+                      ) : canReadServers ? (
+                        <Link to="/servers" className={buttonVariants()}>
+                          接入连接器
+                        </Link>
+                      ) : (
+                        <Link to="/chat" className={buttonVariants()}>
+                          开始对话
+                        </Link>
+                      )
+                    }
+                    secondaryAction={
+                      canReadAgents || canReadServers ? (
+                        <Link to="/chat" className={buttonVariants({ variant: 'outline' })}>
+                          开始对话
+                        </Link>
+                      ) : undefined
+                    }
+                  />
+                ) : null}
+
+                {data && !empty ? (
+                  <>
+                    <HealthLine />
+                    <MetricGrid columns={4}>
+                      {[
+                        {
+                          label: '运行次数',
+                          value: data.counts.runs,
+                          hint: failedCount > 0 ? `${failedCount} 次失败` : null,
+                          icon: Activity,
+                        },
+                        {
+                          label: '运行成本',
+                          value: formatCost(data.counts.costUsd),
+                          hint:
+                            data.counts.tokens === 0
+                              ? null
+                              : `${formatTokens(data.counts.tokens)} tokens`,
+                          icon: Sparkles,
+                        },
+                        { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
+                        { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
+                      ].map(({ label, value, hint, icon }) => (
+                        <MetricCard
+                          key={label}
+                          label={label}
+                          value={value}
+                          hint={hint}
+                          icon={icon}
+                        />
+                      ))}
+                    </MetricGrid>
+
+                    <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                      <RunTrendCard days={days} />
+                      <AttentionPanel layout="card" canOpenRuns={canReadRuns} />
+                    </div>
+
+                    <PageSection
+                      title="运行"
+                      divided={false}
+                      className="overflow-x-clip"
+                      actions={
+                        <>
+                          <SegmentedToggle
+                            label="切换区段"
+                            value={tab}
+                            options={[
+                              { value: 'recent', label: '最近运行' },
+                              { value: 'agents', label: '专家运行' },
+                            ]}
+                            onChange={(value) =>
+                              void navigate({
+                                to: '/operations',
+                                search: (prev) => ({ ...prev, tab: value }),
+                              })
+                            }
+                          />
+                          {tab === 'recent' && canReadRuns ? (
+                            <Link
+                              to="/runs"
+                              data-variant="ghost"
+                              data-size="sm"
+                              className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+                            >
+                              查看运行
+                            </Link>
+                          ) : null}
+                          {tab === 'agents' ? (
+                            <>
+                              {data.agents.length > 0 ? (
+                                <Button variant="outline" size="sm" onClick={exportUsageCsv}>
+                                  <Download data-icon="inline-start" aria-hidden="true" /> 导出 CSV
+                                </Button>
+                              ) : null}
+                              {canReadAgents ? (
+                                <Link
+                                  to="/agents"
+                                  data-variant="ghost"
+                                  data-size="sm"
+                                  className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+                                >
+                                  管理专家
+                                </Link>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </>
+                      }
+                    >
+                      {tab === 'recent' ? (
+                        data.recent.length > 0 ? (
+                          <DataTable
+                            rows={data.recent.slice(0, 6)}
+                            columns={runColumns}
+                            rowKey={(run) => run.id}
+                            rowLabel={(run) =>
+                              `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
+                            }
+                            label="最近运行"
+                            storageKey="pace.overview.run-columns"
+                            hideRowCount
+                            {...(canReadRuns
+                              ? {
+                                  onRowClick: (run: RecentRun) =>
+                                    void navigate({
+                                      to: '/runs/$runId',
+                                      params: { runId: run.id },
+                                      search: { backTo: location.href },
+                                    }),
+                                }
+                              : {})}
+                          />
+                        ) : (
+                          <EmptyState
+                            variant="idle"
+                            scale="inline"
+                            icon={<Activity className="size-4" aria-hidden="true" />}
+                            title="发起对话后在这里查看最近运行"
+                            action={
+                              <Link
+                                to="/chat"
+                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                              >
+                                去对话
+                              </Link>
+                            }
+                          />
+                        )
+                      ) : data.agents.length > 0 ? (
+                        <DataTable
+                          rows={data.agents}
+                          columns={agentColumns}
+                          rowKey={(row) => row.agentId}
+                          label="专家指标"
+                          storageKey="pace.overview.agent-columns"
+                          className="max-h-96 overflow-y-auto"
+                          hideRowCount
+                        />
+                      ) : (
+                        <EmptyState
+                          variant="idle"
+                          scale="inline"
+                          icon={<Bot className="size-4" aria-hidden="true" />}
+                          title="创建专家后统计活跃表现"
+                          action={
+                            canReadAgents ? (
+                              <Link
+                                to="/agents"
+                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                              >
+                                去创建
+                              </Link>
+                            ) : undefined
+                          }
+                        />
+                      )}
+                    </PageSection>
+                  </>
+                ) : null}
+
+                <RetentionSheet
+                  open={retentionOpen}
+                  onOpenChange={setRetentionOpen}
+                  canManage={canManage}
+                  finalFocus={() =>
+                    retentionButtonRef.current?.isConnected ? retentionButtonRef.current : null
                   }
                 />
-              )}
-            </PageSection>
-          </>
-        ) : null}
+              </>
+            ) : null}
 
-        <RetentionSection />
-      </PageBody>
+            {section === 'observability' ? (
+              <ObservabilitySection
+                windowMinutes={windowMinutes}
+                obsTab={obsTab}
+                onWindowChange={handleWindowChange}
+                onObsTabChange={handleObsTabChange}
+                sloOpen={sloOpen}
+                onSloOpenChange={setSloOpen}
+                canManage={canManage}
+                sloButtonRef={sloButtonRef}
+              />
+            ) : null}
+
+            {section === 'health' ? (
+              <HealthSection
+                smokeOpen={smokeOpen}
+                onSmokeOpenChange={setSmokeOpen}
+                smokeRunTrigger={smokeRunTrigger}
+                smokeButtonRef={smokeButtonRef}
+              />
+            ) : null}
+          </TabsContent>
+        </PageBody>
+      </Tabs>
     </Page>
   );
 }

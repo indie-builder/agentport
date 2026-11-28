@@ -319,7 +319,7 @@
 | CI 扩展 | ✅ | 本地 CI `bun run ci` 覆盖 lint/typecheck/build/test/test:web，`bun run ci:e2e` 追加 `e2e:suite`（Playwright 已退役）；GitHub CI 已删除，`release.yml` 独立保留 |
 | 发布流程 | ✅ | `v*` tag 触发 release.yml，推送 `ghcr.io/<repo>/api` 与 `/sandbox` |
 | 运维手册 | ✅ | [RUNBOOK.md](RUNBOOK.md)：症状 → 判断 → 处置 → 验证，含 token 泄露与审计取证 |
-| 系统状态页 | ✅ | `/status`：live / ready / metrics 三面板，10 秒刷新，浏览器内只读自检 |
+| 系统状态页 | ✅ | `/operations?section=health`：live / ready / metrics 面板，10 秒刷新，浏览器内只读自检 |
 
 ### 下一轮优先级（按对「生产可用」的影响排序）
 

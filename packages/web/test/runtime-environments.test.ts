@@ -3,6 +3,7 @@ import type {
   RuntimeEnvironmentVersion,
   RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
+import { EditorView } from '@codemirror/view';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
@@ -386,6 +387,39 @@ async function editInput(
   await flush();
 }
 
+async function waitForDockerfileEditor(scope: ParentNode): Promise<HTMLElement> {
+  let editor: HTMLElement | null = null;
+  await vi.waitFor(() => {
+    editor = scope.querySelector<HTMLElement>('#runtime-environment-dockerfile');
+    expect(editor?.classList.contains('cm-content')).toBe(true);
+  });
+  if (!editor) throw new Error('Missing dockerfile editor');
+  return editor;
+}
+
+async function editDockerfile(scope: ParentNode, value: string): Promise<void> {
+  const element = await waitForDockerfileEditor(scope);
+  const view = EditorView.findFromDOM(element);
+  if (!view) throw new Error('Missing CodeMirror view');
+  await act(async () => {
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+  });
+  await flush();
+}
+
+function dockerfileValue(scope: ParentNode): string {
+  const element = scope.querySelector<HTMLElement>('#runtime-environment-dockerfile');
+  if (element instanceof HTMLTextAreaElement) return element.value;
+  const view = element ? EditorView.findFromDOM(element) : null;
+  return view?.state.doc.toString() ?? '';
+}
+
+function codeBlockText(scope: ParentNode): string {
+  return [...scope.querySelectorAll('pre code > span > span:last-child')]
+    .map((node) => node.textContent ?? '')
+    .join('\n');
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   client = new QueryClient({
@@ -466,7 +500,7 @@ describe('runtime environments page', () => {
     expect(cards).toContain('线上版本');
     expect(cards).toContain('更新时间');
     expect(cards).toContain('共 1 个运行环境');
-    expect(cards).toContain('查看详情');
+    expect(cards).toContain('href="/runtime-environments/$environmentId"');
 
     state.search = { view: 'table' };
     const table = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
@@ -605,8 +639,9 @@ describe('runtime environment detail page', () => {
     ];
     state.search = { status: 'failed' };
     const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentDetailPage)));
-    expect(html).toContain('bbbbbbbb');
-    expect(html).not.toContain('aaaaaaaa');
+    const tableHtml = html.match(/<table[\s\S]*<\/table>/)?.[0] ?? '';
+    expect(tableHtml).toContain('bbbbbbbb');
+    expect(tableHtml).not.toContain('aaaaaaaa');
   });
 
   it('shows the frozen Dockerfile and the build log for a version', async () => {
@@ -619,17 +654,14 @@ describe('runtime environment detail page', () => {
       error: 'exit code 1',
     });
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
-    const details = dialog('版本详情 · cccccccc');
+    const details = dialog('版本 cccccccc');
     expect(details.textContent).toContain('失败');
-    expect(
-      details.querySelector<HTMLTextAreaElement>('#runtime-environment-version-dockerfile')?.value,
-    ).toBe('FROM registry/custom:1\nRUN echo hi');
-    expect(
-      details.querySelector<HTMLTextAreaElement>('#runtime-environment-version-log')?.value,
-    ).toBe('step 1/2\nstep 2/2');
+    expect(codeBlockText(details)).toBe('step 1/2\nstep 2/2');
     expect(details.textContent).toContain('rtev_cccccccc');
     expect(details.textContent).toContain('exit code 1');
     expect(details.textContent).toContain('检查 Dockerfile');
+    await click(button('Dockerfile 快照', details));
+    expect(codeBlockText(details)).toBe('FROM registry/custom:1\nRUN echo hi');
     await page.unmount();
   });
 
@@ -641,11 +673,10 @@ describe('runtime environment detail page', () => {
       error: '基础镜像拉取失败',
     });
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
-    const details = dialog('版本详情 · cccccccc');
+    const details = dialog('版本 cccccccc');
     expect(details.textContent).toContain('基础镜像拉取失败');
-    expect(
-      details.querySelector<HTMLTextAreaElement>('#runtime-environment-version-log')?.value,
-    ).toBe('');
+    expect(details.textContent).toContain('没有日志');
+    expect(details.querySelector('pre')).toBeNull();
     await page.unmount();
   });
 
@@ -722,7 +753,7 @@ describe('runtime environment detail page', () => {
   it('releases the draft guard and returns to the list after a dirty environment is deleted', async () => {
     state.environment = environment;
     state.versions = [];
-    state.search = {};
+    state.search = { tab: 'dockerfile' };
     state.remove.mockResolvedValueOnce(undefined);
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
     const input = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
@@ -743,7 +774,7 @@ describe('runtime environment detail page', () => {
     const conflict = new ApiError(409, '运行环境仍被智能体绑定，请先解除绑定');
     state.environment = environment;
     state.versions = [];
-    state.search = {};
+    state.search = { tab: 'dockerfile' };
     state.remove.mockRejectedValueOnce(conflict);
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
     const input = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
@@ -774,7 +805,7 @@ describe('runtime environment detail page', () => {
   it('keeps an unsaved draft when the environment query refreshes', async () => {
     state.environment = environment;
     state.versions = [];
-    state.search = {};
+    state.search = { tab: 'dockerfile' };
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
     const draftInput = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
     if (!draftInput) throw new Error('Missing environment name');
@@ -804,15 +835,13 @@ describe('runtime environment detail page', () => {
   it('keeps the config draft and inline error when the detail refresh fails, and retries', async () => {
     state.environment = environment;
     state.versions = [];
-    state.search = {};
+    state.search = { tab: 'dockerfile' };
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
     const name = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
-    const dockerfile = page.host.querySelector<HTMLTextAreaElement>(
-      '#runtime-environment-dockerfile',
-    );
-    if (!name || !dockerfile) throw new Error('Missing environment fields');
+    const dockerfile = await waitForDockerfileEditor(page.host);
+    if (!name) throw new Error('Missing environment fields');
     await editInput(name, '未保存名称');
-    await editInput(dockerfile, 'FROM draft');
+    await editDockerfile(page.host, 'FROM draft');
     name.focus();
     expect(document.activeElement).toBe(name);
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
@@ -832,7 +861,7 @@ describe('runtime environment detail page', () => {
     expect(page.host.querySelector('#runtime-environment-dockerfile')).toBe(dockerfile);
     expect(document.activeElement).toBe(name);
     expect(name.value).toBe('未保存名称');
-    expect(dockerfile.value).toBe('FROM draft');
+    expect(dockerfileValue(page.host)).toBe('FROM draft');
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
 
     await click(button('重试'));
@@ -842,22 +871,20 @@ describe('runtime environment detail page', () => {
     await flush();
     expect(page.host.textContent).not.toContain('详情刷新失败');
     expect(name.value).toBe('未保存名称');
-    expect(dockerfile.value).toBe('FROM draft');
+    expect(dockerfileValue(page.host)).toBe('FROM draft');
     await page.unmount();
   });
 
   it('keeps a same-entity draft and its original baseline across a failed refresh and later server changes', async () => {
     state.environment = environment;
     state.versions = [];
-    state.search = {};
+    state.search = { tab: 'dockerfile' };
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
     const name = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
-    const dockerfile = page.host.querySelector<HTMLTextAreaElement>(
-      '#runtime-environment-dockerfile',
-    );
-    if (!name || !dockerfile) throw new Error('Missing environment fields');
+    const dockerfile = await waitForDockerfileEditor(page.host);
+    if (!name) throw new Error('Missing environment fields');
     await editInput(name, '本地草稿');
-    await editInput(dockerfile, 'FROM local draft');
+    await editDockerfile(page.host, 'FROM local draft');
     expect(button('保存更改').disabled).toBe(false);
 
     state.environmentError = new Error('详情刷新失败');
@@ -868,7 +895,7 @@ describe('runtime environment detail page', () => {
     expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
     expect(page.host.querySelector('#runtime-environment-dockerfile')).toBe(dockerfile);
     expect(name.value).toBe('本地草稿');
-    expect(dockerfile.value).toBe('FROM local draft');
+    expect(dockerfileValue(page.host)).toBe('FROM local draft');
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
 
     state.environmentError = null;
@@ -879,7 +906,7 @@ describe('runtime environment detail page', () => {
     await flush();
     expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
     expect(name.value).toBe('本地草稿');
-    expect(dockerfile.value).toBe('FROM local draft');
+    expect(dockerfileValue(page.host)).toBe('FROM local draft');
     expect(button('保存更改').disabled).toBe(false);
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
 
@@ -890,7 +917,7 @@ describe('runtime environment detail page', () => {
     await flush();
     expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
     expect(name.value).toBe('本地草稿');
-    expect(dockerfile.value).toBe('FROM local draft');
+    expect(dockerfileValue(page.host)).toBe('FROM local draft');
     expect(button('保存更改').disabled).toBe(false);
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
     await page.unmount();
@@ -899,9 +926,10 @@ describe('runtime environment detail page', () => {
   it('saves the trimmed name, clears dirty and lets the new version build', async () => {
     state.environment = environment;
     state.versions = [];
-    state.search = {};
+    state.search = { tab: 'dockerfile' };
     state.update.mockResolvedValueOnce({ ...environment, name: '新环境' });
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    await waitForDockerfileEditor(page.host);
     const saveInput = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
     if (!saveInput) throw new Error('Missing environment name');
     await editInput(saveInput, ' 新环境 ');
@@ -924,9 +952,7 @@ describe('runtime environment detail page', () => {
     expect(page.host.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
       '服务器新名称',
     );
-    expect(
-      page.host.querySelector<HTMLTextAreaElement>('#runtime-environment-dockerfile')?.value,
-    ).toBe('FROM server');
+    expect(dockerfileValue(page.host)).toBe('FROM server');
     expect(button('保存更改').disabled).toBe(true);
     await page.unmount();
   });
@@ -1056,6 +1082,7 @@ describe('runtime environment navigation guards with the real router', () => {
       await page.router.navigate({
         to: '/runtime-environments/$environmentId',
         params: { environmentId: 'rte_1' },
+        search: { tab: 'dockerfile' },
       });
     });
     await flush();
@@ -1068,7 +1095,7 @@ describe('runtime environment navigation guards with the real router', () => {
       await page.router.navigate({
         to: '/runtime-environments/$environmentId',
         params: { environmentId: 'rte_1' },
-        search: { status: 'ready' },
+        search: { tab: 'dockerfile', status: 'ready' },
         replace: true,
       });
     });

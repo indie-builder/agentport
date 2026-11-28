@@ -31,7 +31,7 @@ export function RunTrendChart({ points }: { points: OverviewTimeseriesPoint[] })
           minTickGap={24}
           tickFormatter={(value: string) => value.slice(5)}
         />
-        <YAxis allowDecimals={false} axisLine={false} tickLine={false} tickMargin={8} width={28} />
+        <YAxis allowDecimals={false} axisLine={false} tickLine={false} tickMargin={8} width={48} />
         <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
         <ChartLegend content={<ChartLegendContent />} />
         <Area

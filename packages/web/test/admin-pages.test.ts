@@ -13,7 +13,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type HealthMetrics, type Overview } from '../src/lib/api.js';
 import { LoginPage } from '../src/pages/login.js';
 import { OverviewPage } from '../src/pages/overview.js';
-import { StatusPage } from '../src/pages/status.js';
 import { operationsSearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
 
@@ -233,16 +232,52 @@ describe('overview summaries', () => {
   });
 });
 
-describe('smoke check announcements', () => {
-  it('keeps the live region mounted before results arrive', async () => {
-    await mountPage('/status', StatusPage, '/status');
+function docButton(text: string): HTMLButtonElement {
+  const element = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (item) => item.textContent?.trim() === text,
+  );
+  if (!element) throw new Error(`Missing button: ${text}`);
+  return element;
+}
 
-    const liveRegion = host.querySelector('[aria-live="polite"]');
+describe('smoke check announcements', () => {
+  const emptyOverview: Overview = {
+    window: { days: 7, since: '2026-01-01T00:00:00Z' },
+    counts: {
+      agents: 0,
+      servers: 0,
+      runs: 0,
+      running: 0,
+      failed: 0,
+      tokens: 0,
+      costUsd: 0,
+      avgLatencyMs: null,
+    },
+    recent: [],
+    agents: [],
+  };
+
+  it('keeps the live region mounted before results arrive', async () => {
+    client.setQueryData(['overview'], emptyOverview);
+    vi.spyOn(api, 'healthLive').mockImplementation(() => new Promise(() => {}));
+
+    await mountPage(
+      '/operations?section=health',
+      OverviewPage,
+      '/operations',
+      operationsSearchSchema,
+    );
+    await click(button('运行冒烟检查'));
+
+    const liveRegion = await waitFor(() =>
+      document.querySelector('[role="dialog"] [aria-live="polite"]'),
+    );
     expect(liveRegion).not.toBeNull();
-    expect(liveRegion?.textContent).toContain('就绪检查尚未运行');
+    expect(liveRegion?.textContent).toContain('正在依次检查…');
   });
 
   it('renders readable success and failure with the actual probe outcomes', async () => {
+    client.setQueryData(['overview'], emptyOverview);
     vi.spyOn(api, 'healthLive').mockResolvedValue({
       reachable: true,
       httpStatus: 200,
@@ -252,13 +287,18 @@ describe('smoke check announcements', () => {
     vi.spyOn(api, 'healthReady').mockRejectedValue(new Error('Offline'));
     vi.spyOn(api, 'healthMetrics').mockResolvedValue(null);
 
-    await mountPage('/status', StatusPage, '/status');
+    await mountPage(
+      '/operations?section=health',
+      OverviewPage,
+      '/operations',
+      operationsSearchSchema,
+    );
     await click(button('运行冒烟检查'));
 
     const liveRegion = await waitFor(() => {
-      const region = host.querySelector('[aria-live="polite"]');
-      const runButton = button('运行冒烟检查');
-      return region?.textContent?.includes('GET /health/metrics') && !runButton.disabled
+      const region = document.querySelector('[role="dialog"] [aria-live="polite"]');
+      const rerunButton = docButton('重新运行');
+      return region?.textContent?.includes('GET /health/metrics') && !rerunButton.disabled
         ? region
         : null;
     });

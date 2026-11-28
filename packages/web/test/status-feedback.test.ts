@@ -1,9 +1,19 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HealthMetrics } from '../src/lib/api.js';
-import { StatusPage } from '../src/pages/status.js';
+import { OverviewPage } from '../src/pages/overview.js';
+import { operationsSearchSchema } from '../src/routes/-search.js';
+import { allAccessMe } from './me-fixture.js';
 
 const metrics: HealthMetrics = {
   process: { uptimeSeconds: 120, memoryRssBytes: 1024, bunVersion: '1.4.3' },
@@ -41,6 +51,7 @@ let metricsFetches: Array<() => Promise<Response>> = [];
 let root: Root;
 let client: QueryClient;
 let container: HTMLDivElement;
+let history: ReturnType<typeof createMemoryHistory> | undefined;
 
 function installFetch() {
   vi.spyOn(globalThis, 'fetch').mockImplementation((async (input: RequestInfo | URL) => {
@@ -52,6 +63,24 @@ function installFetch() {
     }
     if (path === '/health/live') return json({ status: 'ok' });
     if (path === '/health/ready') return json({ status: 'ok', db: 'ok', redis: 'ok' });
+    if (path === '/api/auth/me') return json(allAccessMe);
+    if (path === '/api/overview') {
+      return json({
+        window: { days: 7, since: '2026-01-01T00:00:00Z' },
+        counts: {
+          agents: 0,
+          servers: 0,
+          runs: 0,
+          running: 0,
+          failed: 0,
+          tokens: 0,
+          costUsd: 0,
+          avgLatencyMs: null,
+        },
+        recent: [],
+        agents: [],
+      });
+    }
     throw new Error(`unexpected fetch ${path}`);
   }) as typeof fetch);
 }
@@ -62,11 +91,27 @@ async function mount() {
       queries: { retry: false, retryOnMount: false, refetchOnWindowFocus: false, gcTime: Infinity },
     },
   });
+  const rootRoute = createRootRoute({ component: Outlet });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
+  const operations = createRoute({
+    getParentRoute: () => shell,
+    path: '/operations',
+    validateSearch: operationsSearchSchema,
+    component: OverviewPage,
+  });
+  history = createMemoryHistory({ initialEntries: ['/operations?section=health'] });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([shell.addChildren([operations])]),
+    history,
+  });
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
   await act(async () => {
-    root.render(createElement(QueryClientProvider, { client }, createElement(StatusPage)));
+    await router.load();
+    root.render(
+      createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
+    );
   });
 }
 
@@ -89,12 +134,15 @@ async function click(label: string) {
 }
 
 beforeEach(() => {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   metricsFetches = [];
   installFetch();
 });
 
 afterEach(async () => {
   await act(async () => root?.unmount());
+  history?.destroy();
+  history = undefined;
   client?.clear();
   container?.remove();
   vi.restoreAllMocks();
@@ -135,11 +183,11 @@ describe('status metrics failure feedback', () => {
       metricsFetches = [async () => json({ ...metrics, queue: { ...queueCounts, ...queue } })];
       await click('刷新');
       await waitFor(() => expect(container.textContent).toContain(message));
-      const queueSection = [...container.querySelectorAll('section')].find(
-        (section) => section.querySelector('h2')?.textContent === '队列 agent-runs',
+      const queueCard = [...container.querySelectorAll('[data-slot="card"]')].find(
+        (card) => card.querySelector('h2')?.textContent === '队列 agent-runs',
       );
-      expect(queueSection?.querySelector('[data-slot="badge"]')?.textContent).toBe('注意');
-      expect(queueSection?.textContent).toContain(message);
+      expect(queueCard?.querySelector('[data-slot="badge"]')?.textContent).toBe('注意');
+      expect(queueCard?.textContent).toContain(message);
     }
     expect(container.textContent).not.toContain('队列指标不可用');
   });

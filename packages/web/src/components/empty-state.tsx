@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '../lib/cn.js';
+import { Button } from './ui/button.js';
 
 export type EmptyStateVariant = 'stage' | 'filter' | 'clear' | 'permission' | 'idle';
 
@@ -116,10 +117,16 @@ function defaultVariantIcon(variant: EmptyStateVariant): ReactNode {
   return null;
 }
 
-function FilterChipList({ filters }: { filters: readonly EmptyFilterChip[] }) {
+export interface ActiveFilterChipsProps {
+  filters: readonly EmptyFilterChip[];
+  onClearAll?: (() => void) | undefined;
+  className?: string | undefined;
+}
+
+export function ActiveFilterChips({ filters, onClearAll, className }: ActiveFilterChipsProps) {
   if (filters.length === 0) return null;
   return (
-    <div className="mt-3 flex max-w-[440px] flex-wrap items-center justify-center gap-1.5">
+    <div className={cn('flex flex-wrap items-center gap-1.5', className)}>
       {filters.map((chip) => (
         <span
           key={chip.key}
@@ -138,8 +145,17 @@ function FilterChipList({ filters }: { filters: readonly EmptyFilterChip[] }) {
           ) : null}
         </span>
       ))}
+      {onClearAll ? (
+        <Button variant="ghost" size="sm" onClick={onClearAll}>
+          清除筛选
+        </Button>
+      ) : null}
     </div>
   );
+}
+
+function FilterChipList({ filters }: { filters: readonly EmptyFilterChip[] }) {
+  return <ActiveFilterChips filters={filters} className="mt-3 max-w-[440px] justify-center" />;
 }
 
 export function EmptyState({

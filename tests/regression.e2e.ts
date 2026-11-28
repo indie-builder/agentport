@@ -172,7 +172,7 @@ test('all workspaces render the shared page shell', { session: 'admin' }, async 
   await screen.getByRole('link', '运维', { exact: true }).tap();
   await expect(browser).toHaveURL(/\/operations$/);
   await expect(screen.getByRole('link', '返回工作区', { exact: true })).toBeVisible();
-  for (const label of ['概况', '运行', '运行环境', '健康', '审计']) {
+  for (const label of ['概况', '运行', '运行环境', '审计']) {
     await expect(screen.getByRole('link', label, { exact: true })).toBeVisible();
   }
 
@@ -184,8 +184,9 @@ test('all workspaces render the shared page shell', { session: 'admin' }, async 
     ['/servers', '连接器'],
     ['/eval', '评估'],
     ['/operations', '概况'],
+    ['/operations?section=observability', '概况'],
+    ['/operations?section=health', '概况'],
     ['/runs', '运行'],
-    ['/status', '健康'],
     ['/audit', '审计'],
     ['/unknown-layout-check', '页面不存在'],
   ] as const;

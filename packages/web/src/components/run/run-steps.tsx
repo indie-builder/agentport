@@ -1,11 +1,13 @@
 import type { PublicRunQuestion } from '@agentport/shared';
 import { Bot, MousePointerClick, User, Wrench } from 'lucide-react';
+import { useState } from 'react';
 import type { RunStep } from '../../lib/api.js';
 import { questionFromContent } from '../../lib/chat-state.js';
 import { formatDateTime, shortId } from '../../lib/format.js';
 import { CodeBlock, CollapsibleText, prettyJson } from '../code-block.js';
 import { CopyButton } from '../copy-button.js';
 import { EmptyState } from '../states.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs.js';
 import { RunQuestionCard } from './run-question.js';
 
 export const stepIcons = { user: User, assistant: Bot, tool: Wrench } as const;
@@ -25,6 +27,46 @@ export function questionForStep(
     step.question ?? questionFromContent(step.content) ?? questionFromContent(step.result);
   const current = step.toolUseId === null ? undefined : questionsByToolUseId.get(step.toolUseId);
   return live ? (current ?? snapshot) : (snapshot ?? current);
+}
+
+function ToolStepTabs({ input, output }: { input: unknown | null; output: unknown | null }) {
+  const [tab, setTab] = useState<'input' | 'output'>(() => (output !== null ? 'output' : 'input'));
+  const activeCopy =
+    tab === 'input'
+      ? input !== null
+        ? { value: prettyJson(input), label: '复制参数' }
+        : null
+      : output !== null
+        ? { value: prettyJson(output), label: '复制结果' }
+        : null;
+
+  return (
+    <Tabs<'input' | 'output'> value={tab} onValueChange={setTab} className="gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <TabsList aria-label="工具调用数据">
+          <TabsTrigger value="input">参数</TabsTrigger>
+          <TabsTrigger value="output">结果</TabsTrigger>
+        </TabsList>
+        {activeCopy ? <CopyButton value={activeCopy.value} label={activeCopy.label} /> : null}
+      </div>
+      <TabsContent value="input">
+        {input !== null ? (
+          <CodeBlock code={prettyJson(input)} json maxHeight="28rem" />
+        ) : (
+          <p className="text-xs text-muted-foreground">无参数。</p>
+        )}
+      </TabsContent>
+      <TabsContent value="output">
+        {output !== null ? (
+          <CodeBlock code={prettyJson(output)} json maxHeight="28rem" />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            没有结果：可能等待批准、被拒绝，或运行在返回前结束。
+          </p>
+        )}
+      </TabsContent>
+    </Tabs>
+  );
 }
 
 export function StepInspector({
@@ -51,10 +93,12 @@ export function StepInspector({
   const input = step.kind === 'tool' ? (step.content ?? null) : null;
   const output = step.kind === 'tool' ? (step.result ?? null) : null;
   const nested = step.kind === 'tool' && step.parentToolUseId !== null;
+  const toolTabKey =
+    step.kind === 'tool' ? `${index}:${step.at}:${step.toolUseId ?? step.name ?? ''}` : '';
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b pb-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line pb-3">
         <span className="font-mono text-2xs tabular-nums text-muted-foreground">#{index + 1}</span>
         <span className="min-w-0 break-all font-mono text-xs text-fg">{stepName(step)}</span>
         <span className="font-mono text-2xs tabular-nums text-muted-foreground">
@@ -85,32 +129,7 @@ export function StepInspector({
           className="whitespace-pre-wrap [overflow-wrap:anywhere] text-md text-fg"
         />
       ) : (
-        <>
-          <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">参数</span>
-              {input !== null ? <CopyButton value={prettyJson(input)} label="复制参数" /> : null}
-            </div>
-            {input !== null ? (
-              <CodeBlock code={prettyJson(input)} json maxHeight="18rem" />
-            ) : (
-              <p className="text-xs text-muted-foreground">无参数。</p>
-            )}
-          </div>
-          <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">结果</span>
-              {output !== null ? <CopyButton value={prettyJson(output)} label="复制结果" /> : null}
-            </div>
-            {output !== null ? (
-              <CodeBlock code={prettyJson(output)} json maxHeight="22rem" />
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                没有结果：可能等待批准、被拒绝，或运行在返回前结束。
-              </p>
-            )}
-          </div>
-        </>
+        <ToolStepTabs key={toolTabKey} input={input} output={output} />
       )}
     </div>
   );

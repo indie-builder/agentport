@@ -21,7 +21,6 @@ import { Route as ShellGovernanceRouteImport } from './routes/_shell/governance'
 import { Route as ShellIntegrationsRouteImport } from './routes/_shell/integrations'
 import { Route as ShellModelsRouteImport } from './routes/_shell/models'
 import { Route as ShellNotificationsRouteImport } from './routes/_shell/notifications'
-import { Route as ShellObservabilityRouteImport } from './routes/_shell/observability'
 import { Route as ShellOperationsRouteImport } from './routes/_shell/operations'
 import { Route as ShellPersonalRouteImport } from './routes/_shell/personal'
 import { Route as ShellRolesRouteImport } from './routes/_shell/roles'
@@ -30,7 +29,6 @@ import { Route as ShellSearchRouteImport } from './routes/_shell/search'
 import { Route as ShellSecurityRouteImport } from './routes/_shell/security'
 import { Route as ShellServersRouteImport } from './routes/_shell/servers'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
-import { Route as ShellStatusRouteImport } from './routes/_shell/status'
 import { Route as SShareIdRouteImport } from './routes/s.$shareId'
 import { Route as ShellAgentsIndexRouteImport } from './routes/_shell/agents.index'
 import { Route as ShellAgentsAgentIdRouteImport } from './routes/_shell/agents.$agentId'
@@ -114,11 +112,6 @@ const ShellNotificationsRoute = ShellNotificationsRouteImport.update({
   path: '/notifications',
   getParentRoute: () => ShellRoute,
 } as any)
-const ShellObservabilityRoute = ShellObservabilityRouteImport.update({
-  id: '/observability',
-  path: '/observability',
-  getParentRoute: () => ShellRoute,
-} as any)
 const ShellOperationsRoute = ShellOperationsRouteImport.update({
   id: '/operations',
   path: '/operations',
@@ -157,11 +150,6 @@ const ShellServersRoute = ShellServersRouteImport.update({
 const ShellSkillsRoute = ShellSkillsRouteImport.update({
   id: '/skills',
   path: '/skills',
-  getParentRoute: () => ShellRoute,
-} as any)
-const ShellStatusRoute = ShellStatusRouteImport.update({
-  id: '/status',
-  path: '/status',
   getParentRoute: () => ShellRoute,
 } as any)
 const SShareIdRoute = SShareIdRouteImport.update({
@@ -295,7 +283,6 @@ export interface FileRoutesByFullPath {
   '/integrations': typeof ShellIntegrationsRoute
   '/models': typeof ShellModelsRoute
   '/notifications': typeof ShellNotificationsRoute
-  '/observability': typeof ShellObservabilityRoute
   '/operations': typeof ShellOperationsRoute
   '/personal': typeof ShellPersonalRouteWithChildren
   '/roles': typeof ShellRolesRoute
@@ -304,7 +291,6 @@ export interface FileRoutesByFullPath {
   '/security': typeof ShellSecurityRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
-  '/status': typeof ShellStatusRoute
   '/s/$shareId': typeof SShareIdRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/channels/$channelId': typeof ShellChannelsChannelIdRoute
@@ -340,7 +326,6 @@ export interface FileRoutesByTo {
   '/integrations': typeof ShellIntegrationsRoute
   '/models': typeof ShellModelsRoute
   '/notifications': typeof ShellNotificationsRoute
-  '/observability': typeof ShellObservabilityRoute
   '/operations': typeof ShellOperationsRoute
   '/roles': typeof ShellRolesRoute
   '/schedules': typeof ShellSchedulesRoute
@@ -348,7 +333,6 @@ export interface FileRoutesByTo {
   '/security': typeof ShellSecurityRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
-  '/status': typeof ShellStatusRoute
   '/s/$shareId': typeof SShareIdRoute
   '/': typeof ShellIndexRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
@@ -387,7 +371,6 @@ export interface FileRoutesById {
   '/_shell/integrations': typeof ShellIntegrationsRoute
   '/_shell/models': typeof ShellModelsRoute
   '/_shell/notifications': typeof ShellNotificationsRoute
-  '/_shell/observability': typeof ShellObservabilityRoute
   '/_shell/operations': typeof ShellOperationsRoute
   '/_shell/personal': typeof ShellPersonalRouteWithChildren
   '/_shell/roles': typeof ShellRolesRoute
@@ -396,7 +379,6 @@ export interface FileRoutesById {
   '/_shell/security': typeof ShellSecurityRoute
   '/_shell/servers': typeof ShellServersRoute
   '/_shell/skills': typeof ShellSkillsRoute
-  '/_shell/status': typeof ShellStatusRoute
   '/s/$shareId': typeof SShareIdRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/agents/$agentId': typeof ShellAgentsAgentIdRoute
@@ -436,7 +418,6 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/models'
     | '/notifications'
-    | '/observability'
     | '/operations'
     | '/personal'
     | '/roles'
@@ -445,7 +426,6 @@ export interface FileRouteTypes {
     | '/security'
     | '/servers'
     | '/skills'
-    | '/status'
     | '/s/$shareId'
     | '/agents/$agentId'
     | '/channels/$channelId'
@@ -481,7 +461,6 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/models'
     | '/notifications'
-    | '/observability'
     | '/operations'
     | '/roles'
     | '/schedules'
@@ -489,7 +468,6 @@ export interface FileRouteTypes {
     | '/security'
     | '/servers'
     | '/skills'
-    | '/status'
     | '/s/$shareId'
     | '/'
     | '/agents/$agentId'
@@ -527,7 +505,6 @@ export interface FileRouteTypes {
     | '/_shell/integrations'
     | '/_shell/models'
     | '/_shell/notifications'
-    | '/_shell/observability'
     | '/_shell/operations'
     | '/_shell/personal'
     | '/_shell/roles'
@@ -536,7 +513,6 @@ export interface FileRouteTypes {
     | '/_shell/security'
     | '/_shell/servers'
     | '/_shell/skills'
-    | '/_shell/status'
     | '/s/$shareId'
     | '/_shell/'
     | '/_shell/agents/$agentId'
@@ -655,13 +631,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellNotificationsRouteImport
       parentRoute: typeof ShellRoute
     }
-    '/_shell/observability': {
-      id: '/_shell/observability'
-      path: '/observability'
-      fullPath: '/observability'
-      preLoaderRoute: typeof ShellObservabilityRouteImport
-      parentRoute: typeof ShellRoute
-    }
     '/_shell/operations': {
       id: '/_shell/operations'
       path: '/operations'
@@ -716,13 +685,6 @@ declare module '@tanstack/react-router' {
       path: '/skills'
       fullPath: '/skills'
       preLoaderRoute: typeof ShellSkillsRouteImport
-      parentRoute: typeof ShellRoute
-    }
-    '/_shell/status': {
-      id: '/_shell/status'
-      path: '/status'
-      fullPath: '/status'
-      preLoaderRoute: typeof ShellStatusRouteImport
       parentRoute: typeof ShellRoute
     }
     '/s/$shareId': {
@@ -925,7 +887,6 @@ interface ShellRouteChildren {
   ShellIntegrationsRoute: typeof ShellIntegrationsRoute
   ShellModelsRoute: typeof ShellModelsRoute
   ShellNotificationsRoute: typeof ShellNotificationsRoute
-  ShellObservabilityRoute: typeof ShellObservabilityRoute
   ShellOperationsRoute: typeof ShellOperationsRoute
   ShellPersonalRoute: typeof ShellPersonalRouteWithChildren
   ShellRolesRoute: typeof ShellRolesRoute
@@ -934,7 +895,6 @@ interface ShellRouteChildren {
   ShellSecurityRoute: typeof ShellSecurityRoute
   ShellServersRoute: typeof ShellServersRoute
   ShellSkillsRoute: typeof ShellSkillsRoute
-  ShellStatusRoute: typeof ShellStatusRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellAgentsAgentIdRoute: typeof ShellAgentsAgentIdRoute
   ShellChannelsChannelIdRoute: typeof ShellChannelsChannelIdRoute
@@ -962,7 +922,6 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellIntegrationsRoute: ShellIntegrationsRoute,
   ShellModelsRoute: ShellModelsRoute,
   ShellNotificationsRoute: ShellNotificationsRoute,
-  ShellObservabilityRoute: ShellObservabilityRoute,
   ShellOperationsRoute: ShellOperationsRoute,
   ShellPersonalRoute: ShellPersonalRouteWithChildren,
   ShellRolesRoute: ShellRolesRoute,
@@ -971,7 +930,6 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellSecurityRoute: ShellSecurityRoute,
   ShellServersRoute: ShellServersRoute,
   ShellSkillsRoute: ShellSkillsRoute,
-  ShellStatusRoute: ShellStatusRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellAgentsAgentIdRoute: ShellAgentsAgentIdRoute,
   ShellChannelsChannelIdRoute: ShellChannelsChannelIdRoute,

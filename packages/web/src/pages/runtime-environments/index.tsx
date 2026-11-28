@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { CursorListFooter } from '../../components/cursor-list-footer.js';
+import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
@@ -18,19 +19,11 @@ import { RequiredMark } from '../../components/required-mark.js';
 import { SearchInput } from '../../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
-import { Button, buttonVariants } from '../../components/ui/button.js';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
+import { Button } from '../../components/ui/button.js';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../components/ui/table.js';
 import { Textarea } from '../../components/ui/textarea.js';
 import { ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
@@ -57,6 +50,57 @@ export function RuntimeEnvironmentsPage() {
       .filter((environment) => environment.name.toLocaleLowerCase().includes(needle))
       .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
   }, [environments.data, query]);
+
+  const columns = useMemo<DataColumn<RuntimeEnvironment>[]>(
+    () => [
+      {
+        id: 'name',
+        header: '名称',
+        locked: true,
+        width: 'minmax(220px,2fr)',
+        sortValue: (environment) => environment.name,
+        cell: (environment) => (
+          <div className="flex min-w-0 items-center gap-2">
+            <Link
+              to="/runtime-environments/$environmentId"
+              params={{ environmentId: environment.id }}
+              search={{ backTo: location.href }}
+              className="min-w-0 truncate font-medium text-fg hover:underline"
+            >
+              {environment.name}
+            </Link>
+            {environment.isDefault && environment.name !== DEFAULT_RUNTIME_ENVIRONMENT_NAME ? (
+              <Badge variant="secondary">默认</Badge>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: 'onlineVersion',
+        header: '线上版本',
+        width: 'minmax(140px,1fr)',
+        sortValue: (environment) => environment.onlineVersionId,
+        cell: (environment) =>
+          environment.onlineVersionId ? (
+            <code className="font-mono text-xs text-muted-foreground">
+              {shortId(environment.onlineVersionId)}
+            </code>
+          ) : (
+            <span className="text-muted-foreground">未发布</span>
+          ),
+      },
+      {
+        id: 'updatedAt',
+        header: '更新时间',
+        width: 'minmax(120px,1fr)',
+        sortValue: (environment) => Date.parse(environment.updatedAt),
+        cell: (environment) => (
+          <span className="text-muted-foreground">{formatRelative(environment.updatedAt)}</span>
+        ),
+      },
+    ],
+    [location.href],
+  );
 
   const me = useQuery(meQuery);
   const canCreate = can(me.data, 'runtime_environments.create');
@@ -141,7 +185,10 @@ export function RuntimeEnvironmentsPage() {
           />
         ) : null}
 
-        {fullyLoaded && environments.data && environments.data.length > 0 && shown.length === 0 ? (
+        {query.trim().length > 0 &&
+        environments.data &&
+        environments.data.length > 0 &&
+        shown.length === 0 ? (
           <EmptyState
             variant="filter"
             scale="section"
@@ -179,49 +226,22 @@ export function RuntimeEnvironmentsPage() {
         ) : null}
 
         {shown.length > 0 && view === 'table' ? (
-          <Table aria-label="运行环境列表">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[50%]">名称</TableHead>
-                <TableHead className="w-[25%]">线上版本</TableHead>
-                <TableHead className="w-[25%] text-right">更新时间</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {shown.map((environment) => (
-                <TableRow key={environment.id}>
-                  <TableCell className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <Link
-                        to="/runtime-environments/$environmentId"
-                        params={{ environmentId: environment.id }}
-                        search={{ backTo: location.href }}
-                        className="min-w-0 truncate font-medium text-fg hover:underline"
-                      >
-                        {environment.name}
-                      </Link>
-                      {environment.isDefault &&
-                      environment.name !== DEFAULT_RUNTIME_ENVIRONMENT_NAME ? (
-                        <Badge variant="secondary">默认</Badge>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {environment.onlineVersionId ? (
-                      <code className="font-mono text-xs text-muted-foreground">
-                        {shortId(environment.onlineVersionId)}
-                      </code>
-                    ) : (
-                      <span className="text-muted-foreground">未发布</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right text-muted-foreground">
-                    {formatRelative(environment.updatedAt)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            rows={shown}
+            columns={columns}
+            rowKey={(environment) => environment.id}
+            rowLabel={(environment) => environment.name}
+            label="运行环境列表"
+            storageKey="pace.runtime-environments.columns"
+            hideRowCount
+            onRowClick={(environment) => {
+              void navigate({
+                to: '/runtime-environments/$environmentId',
+                params: { environmentId: environment.id },
+                search: { backTo: location.href },
+              });
+            }}
+          />
         ) : null}
 
         {shown.length > 0 && view === 'cards' ? (
@@ -266,18 +286,6 @@ export function RuntimeEnvironmentsPage() {
                       ]}
                     />
                   </CardContent>
-                  <CardFooter className="justify-end">
-                    <Link
-                      to="/runtime-environments/$environmentId"
-                      params={{ environmentId: environment.id }}
-                      search={{ backTo: location.href }}
-                      data-variant="ghost"
-                      data-size="sm"
-                      className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-                    >
-                      查看详情
-                    </Link>
-                  </CardFooter>
                 </Card>
               </li>
             ))}

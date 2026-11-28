@@ -89,7 +89,6 @@ async function mount(
     '/operations',
     '/runs',
     '/runtime-environments',
-    '/status',
     '/audit',
     '/personal/profile',
     '/personal/security',

@@ -403,6 +403,15 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 - **性能**：2026-10-31 在迁移前后用同一脚本、同一隔离夹具（89 个权限叶、4 个角色、556 个复选框）、1480×840 开发模式下，从 React 根 fiber 读取 `actualDuration`，预热 2 次、采样 12 次对比。迁移前（页内 memo + 手写草稿）点击窗口内全部 commit 合计中位/P95 为 23.95ms/34.10ms，迁移后（RHF + TanStack Table）为 16.70ms/18.40ms；角色名输入路径从 23.00ms/44.20ms 降到 15.95ms/23.80ms。点击的首次 commit 从 15.05ms 变为 16.60ms、事件到首次 commit 从 17.50ms 变为 21.85ms，略有回退；角色名输入的首次 commit 从 23.00ms 降到 13.40ms、事件到首次 commit 从 29.6ms 降到 19.6ms，因此不能概括为所有指标更快。数字为 React commit 时间，不等于绘制延迟，本轮未测绘制。基线以 RHF `defaultValues` 为唯一来源，变化计数按 `roleId` 统计 scope；重新加载返回 503 时保留草稿。本轮 90 个 web 用例及 typecheck/build/lint:focus/lint:contract/Biome/diffcheck 均通过。
 - **视觉验收**：2026-10-31 以真实组件 + 固定数据隔离夹具实测（89 个权限叶、4 个默认角色；夹具拦截全部 API 写请求）：1492px 窗口页头 139px、556 个数据 `td` 每格一个 checkbox，列头浅灰、功能行头白；1024px 窗口文档宽 1024、表格容器 client 宽 738；新增第 5 个角色后容器 `scrollWidth` 799，`scrollLeft` 为 60.5 时 sticky 功能行头仍在 x=248；关闭角色设置后焦点回到实际触发器，整组折叠与搜索展开均已实测。未覆盖真实登录与 PUT 写库，不代表用户认可。
 
+### Operations（运维）
+
+- **导航：** 进入 `/operations` 后，主侧栏切换为运维上下文：**运维** 4 项（概况 `/operations`、运行 `/runs`、运行环境 `/runtime-environments`、审计 `/audit`；原观测与健康已收拢进 `/operations`）与**平台** 6 项（账户、角色、治理、模型供应商、安全运营、集成），底部保留「返回工作区」。
+- **右侧检查抽屉（`InspectorSheet`）：** 共享 `components/inspector-sheet.tsx` 承载运维列表速览、审计详情、版本日志/快照、运行上下文、冒烟诊断与数据保留 / SLO 设置，固定三档最大宽：`sm` 480px、`md` 560px、`lg` 640px，沿用 Overlay 阴影、内部滚动与关闭焦点还原。
+- **概况（`/operations`）：** 三分区 Line Tabs（总览 / SLO 与队列 / 系统健康，`?section=`）。总览为 4 指标卡 + 宽屏 2:1（左运行趋势卡含可展开同源数据表，右待处理事项卡）+ 下方「最近运行 / 专家运行」`DataTable` 切换，数据保留进 `sm` `InspectorSheet`；SLO 与队列为 4 指标卡 + 单行可点击告警链接条 + 三张 `DataTable`（SLO / 队列 / 供应商），SLO 设置在 `sm` `InspectorSheet` 支持 0–100% 百分比直输；系统健康为顶部存活/就绪探针条 + 2×2 共享 `Card`（`size="sm"` `hover="static"`）+ `RecordRows`，冒烟检查在 `sm` `InspectorSheet` 流式呈现。
+- **运行（`/runs` 与 `/runs/$runId`）：** 列表默认 `table` 视图并保留 `ViewToggle` 切换紧凑 `cards`（`view=table|cards`），行内与卡片均支持在右侧 `md` `InspectorSheet`（`?preview=`）速览核心指标、错误与最近步骤。运行详情为常驻顶栏摘要 + Line Tabs（执行轨迹 / 交付与验收，`?tab=`）；执行轨迹在有界 `PageBody` 内组成独立滚动双栏工作台（`xl` 起左 320px 步骤时间线含全部 / 工具 / 消息快筛，右 `StepInspector` 工具参数/结果用 `Tabs` 切换），运行上下文 9 项收进 `sm` `InspectorSheet`。
+- **运行环境详情（`/runtime-environments/$environmentId`）：** 页头 `eyebrow` 展示默认标记与线上版本摘要，下接 Line Tabs（版本与构建 / Dockerfile 配置，`?tab=`）。版本列表点击行或「日志」打开右侧 `lg` `InspectorSheet`（640px，`?version=`），以 `SegmentedToggle` 切换构建日志与 Dockerfile 快照并支持设为线上；配置页使用满高 `SourceEditor`。
+- **审计（`/audit`）：** 保持 `DataTable`，默认 6 列且操作者前置（时间 / 操作者 / 动作 / 目标 / 状态 / 耗时；请求 ID 默认隐藏、`storageKey="pace.audit.columns"` 持久化）；工具栏为动作前缀搜索 + `FilterPopover` 并在顶部区外显 `ActiveFilterChips`，行详情在右侧 `md` `InspectorSheet` 呈现事件信息与变更明细。
+
 ## Elevation & Depth
 
 外壳的收起与展开态、表格与连续列表行保持平面（连续行只换各自既有底色，不位移、不加投影）；所有业务卡片常驻 `.cds-card-surface` 的 `--shadow-panel`（1px `line` 环 + 轻投影），hover 按「共享卡片深度」的三态契约（`static` / `shadow` / `lift`），阴影与 transform 均以 200ms `--ease-out-soft` 过渡。主侧栏导航选中项是平面灰色胶囊，保留导航几何、不套卡片深度、不随 hover 上浮。深度用于卡片、浮层与 Composer：所有菜单、Select、Popover、Dialog、Sheet、Toast 共用 CDS 双环 overlay 阴影；Composer 使用默认/hover/聚焦三态阴影，普通输入聚焦只用中性暖灰边框，不叠加光晕。

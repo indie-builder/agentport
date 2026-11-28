@@ -4,6 +4,8 @@ import { Button } from './ui/button.js';
 import { Skeleton } from './ui/skeleton.js';
 
 export {
+  ActiveFilterChips,
+  type ActiveFilterChipsProps,
   type EmptyFilterChip,
   type EmptySpecimenName,
   EmptyState,

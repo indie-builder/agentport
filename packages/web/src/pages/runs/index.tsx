@@ -7,12 +7,14 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
-import { Download, EllipsisVertical, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import { CircleAlert, Download, EllipsisVertical, RefreshCw } from 'lucide-react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { CopyButton } from '../../components/copy-button.js';
 import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterPopover } from '../../components/filter-popover.js';
 import { FilterSelect } from '../../components/filter-select.js';
+import { InspectorSheet } from '../../components/inspector-sheet.js';
 import {
   Page,
   PageBody,
@@ -23,7 +25,9 @@ import {
 } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
 import { RunStatusBadge } from '../../components/run/run-status-badge.js';
+import { stepIcons, stepName } from '../../components/run/run-steps.js';
 import {
+  ActiveFilterChips,
   type EmptyFilterChip,
   EmptyState,
   ErrorState,
@@ -51,6 +55,7 @@ import { api, errorMessage, type RunListItem, type RunStatus } from '../../lib/a
 import { downloadBlob, downloadJson } from '../../lib/browser-files.js';
 import { cn } from '../../lib/cn.js';
 import { toCsv } from '../../lib/csv.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import {
   formatCost,
   formatDateTime,
@@ -62,7 +67,7 @@ import {
   shortId,
   timeRangeOptions,
 } from '../../lib/format.js';
-import { meQuery, useAgents, useRuns } from '../../lib/queries.js';
+import { meQuery, useAgents, useRun, useRuns } from '../../lib/queries.js';
 import { toastError } from '../../lib/toast.js';
 
 const statuses = runStatusSchema.options;
@@ -84,8 +89,11 @@ function ExpandableError({ error }: { error: string }) {
       </span>
       <ButtonPrimitive
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-fg"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((value) => !value);
+        }}
+        className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {open ? '收起' : '展开全文'}
       </ButtonPrimitive>
@@ -93,99 +101,139 @@ function ExpandableError({ error }: { error: string }) {
   );
 }
 
-const columns: DataColumn<RunListItem>[] = [
-  {
-    id: 'id',
-    header: '运行 ID',
-    locked: true,
-    width: '148px',
-    sortValue: (run) => run.id,
-    cell: (run) => (
-      <code className="font-mono text-xs text-muted-foreground" title={run.id}>
-        {shortId(run.id)}
-      </code>
-    ),
-  },
-  {
-    id: 'agent',
-    header: '专家',
-    locked: true,
-    width: 'minmax(140px,1fr)',
-    sortValue: (run) => run.agentName ?? '',
-    cell: (run) => (
-      <span className="truncate text-fg">
-        {run.agentName ?? <span className="text-muted-foreground">已删除的专家</span>}
-      </span>
-    ),
-  },
-  {
-    id: 'status',
-    header: '状态',
-    width: '104px',
-    sortValue: (run) => run.status,
-    cell: (run) => <RunStatusBadge status={run.status} />,
-  },
-  {
-    id: 'startedAt',
-    header: '开始',
-    width: '96px',
-    sortValue: (run) => run.startedAt,
-    cell: (run) => (
-      <span className="text-sm text-muted-foreground" title={formatDateTime(run.startedAt)}>
-        {formatRelative(run.startedAt)}
-      </span>
-    ),
-  },
-  {
-    id: 'latency',
-    header: '耗时',
-    numeric: true,
-    width: '80px',
-    sortValue: (run) => run.latencyMs ?? null,
-    cell: (run) => formatDuration(run.latencyMs),
-  },
-  {
-    id: 'turns',
-    header: '轮次',
-    numeric: true,
-    width: '64px',
-    sortValue: (run) => run.turns ?? null,
-    cell: (run) => run.turns ?? '—',
-  },
-  {
-    id: 'cost',
-    header: '成本',
-    numeric: true,
-    width: '80px',
-    sortValue: (run) => run.costUsd ?? null,
-    cell: (run) => formatCost(run.costUsd),
-  },
-  {
-    id: 'tokens',
-    header: 'Tokens',
-    numeric: true,
-    width: '104px',
-    sortValue: (run) => (run.inputTokens ?? 0) + (run.outputTokens ?? 0),
-    cell: (run) => (
-      <span title={`输入 ${run.inputTokens ?? '—'} / 输出 ${run.outputTokens ?? '—'}`}>
-        {formatTokens(run.inputTokens)} / {formatTokens(run.outputTokens)}
-      </span>
-    ),
-  },
-  {
-    id: 'error',
-    header: '错误',
-    width: 'minmax(140px,1fr)',
-    cell: (run) =>
-      run.error ? (
-        <ExpandableError error={run.error} />
-      ) : (
-        <span className="text-muted-foreground">—</span>
+function createColumns(
+  onPreview: (runId: string, trigger: HTMLElement) => void,
+): DataColumn<RunListItem>[] {
+  return [
+    {
+      id: 'id',
+      header: '运行 ID',
+      locked: true,
+      width: '148px',
+      sortValue: (run) => run.id,
+      cell: (run) => (
+        <code className="font-mono text-xs text-muted-foreground" title={run.id}>
+          {shortId(run.id)}
+        </code>
       ),
-  },
-];
+    },
+    {
+      id: 'agent',
+      header: '专家',
+      locked: true,
+      width: 'minmax(140px,1fr)',
+      sortValue: (run) => run.agentName ?? '',
+      cell: (run) => (
+        <span className="truncate text-fg">
+          {run.agentName ?? <span className="text-muted-foreground">已删除的专家</span>}
+        </span>
+      ),
+    },
+    {
+      id: 'status',
+      header: '状态',
+      width: '104px',
+      sortValue: (run) => run.status,
+      cell: (run) => <RunStatusBadge status={run.status} />,
+    },
+    {
+      id: 'startedAt',
+      header: '开始',
+      width: '96px',
+      sortValue: (run) => run.startedAt,
+      cell: (run) => (
+        <span className="text-sm text-muted-foreground" title={formatDateTime(run.startedAt)}>
+          {formatRelative(run.startedAt)}
+        </span>
+      ),
+    },
+    {
+      id: 'latency',
+      header: '耗时',
+      numeric: true,
+      width: '80px',
+      sortValue: (run) => run.latencyMs ?? null,
+      cell: (run) => formatDuration(run.latencyMs),
+    },
+    {
+      id: 'cost',
+      header: '成本',
+      numeric: true,
+      width: '80px',
+      sortValue: (run) => run.costUsd ?? null,
+      cell: (run) => formatCost(run.costUsd),
+    },
+    {
+      id: 'turns',
+      header: '轮次',
+      numeric: true,
+      hiddenByDefault: true,
+      width: '64px',
+      sortValue: (run) => run.turns ?? null,
+      cell: (run) => run.turns ?? '—',
+    },
+    {
+      id: 'tokens',
+      header: 'Tokens',
+      numeric: true,
+      hiddenByDefault: true,
+      width: '104px',
+      sortValue: (run) => (run.inputTokens ?? 0) + (run.outputTokens ?? 0),
+      cell: (run) => (
+        <span title={`输入 ${run.inputTokens ?? '—'} / 输出 ${run.outputTokens ?? '—'}`}>
+          {formatTokens(run.inputTokens)} / {formatTokens(run.outputTokens)}
+        </span>
+      ),
+    },
+    {
+      id: 'trigger',
+      header: '来源',
+      hiddenByDefault: true,
+      width: '88px',
+      sortValue: (run) => run.trigger ?? null,
+      cell: (run) => (run.trigger ? runTriggerLabel[run.trigger] : '—'),
+    },
+    {
+      id: 'error',
+      header: '错误',
+      width: 'minmax(140px,1fr)',
+      cell: (run) =>
+        run.error ? (
+          <ExpandableError error={run.error} />
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    {
+      id: 'actions',
+      header: '操作',
+      locked: true,
+      align: 'end',
+      width: '72px',
+      cell: (run) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`速览运行 ${shortId(run.id)}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onPreview(run.id, event.currentTarget);
+          }}
+        >
+          速览
+        </Button>
+      ),
+    },
+  ];
+}
 
-function RunCard({ run }: { run: RunListItem }) {
+function RunCard({
+  run,
+  onPreview,
+}: {
+  run: RunListItem;
+  onPreview: (runId: string, trigger: HTMLElement) => void;
+}) {
   const backTo = useLocation().href;
   const agentName = run.agentName ?? '已删除的专家';
   const detailLink = {
@@ -193,6 +241,7 @@ function RunCard({ run }: { run: RunListItem }) {
     params: { runId: run.id },
     search: { backTo },
   };
+  const hasTokens = run.inputTokens != null || run.outputTokens != null;
   return (
     <Card size="sm" className="h-full">
       <CardHeader>
@@ -213,18 +262,26 @@ function RunCard({ run }: { run: RunListItem }) {
             {
               label: '开始',
               value: (
-                <span title={formatDateTime(run.startedAt)}>{formatRelative(run.startedAt)}</span>
+                <span title={formatDateTime(run.startedAt)}>
+                  {formatRelative(run.startedAt)}
+                  {run.latencyMs != null ? ` · ${formatDuration(run.latencyMs)}` : ''}
+                </span>
               ),
             },
-            ...(run.latencyMs != null
-              ? [{ label: '耗时', value: formatDuration(run.latencyMs) }]
-              : []),
-            ...(run.turns != null ? [{ label: '轮次', value: run.turns }] : []),
-            ...(run.costUsd != null ? [{ label: '成本', value: formatCost(run.costUsd) }] : []),
-            ...(run.inputTokens != null || run.outputTokens != null
+            {
+              label: '成本 / 轮次',
+              ...(hasTokens
+                ? { title: `输入 ${run.inputTokens ?? '—'} / 输出 ${run.outputTokens ?? '—'}` }
+                : {}),
+              value: `${formatCost(run.costUsd)}${run.turns != null ? ` · ${run.turns} 轮` : ''}`,
+            },
+            ...(hasTokens
               ? [
-                  { label: '输入 Tokens', value: formatTokens(run.inputTokens) },
-                  { label: '输出 Tokens', value: formatTokens(run.outputTokens) },
+                  {
+                    label: 'Tokens',
+                    mono: true,
+                    value: `${formatTokens(run.inputTokens)} / ${formatTokens(run.outputTokens)}`,
+                  },
                 ]
               : []),
           ]}
@@ -236,24 +293,198 @@ function RunCard({ run }: { run: RunListItem }) {
           </div>
         ) : null}
       </CardContent>
-      <CardFooter className="mt-auto justify-between gap-3">
+      <CardFooter className="mt-auto justify-between gap-2">
         <span className="flex min-w-0 items-baseline gap-1.5">
           <span className="shrink-0 text-xs text-muted-foreground">运行 ID</span>
           <code className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={run.id}>
             {shortId(run.id)}
           </code>
         </span>
-        <Link
-          {...detailLink}
-          data-variant="ghost"
-          data-size="sm"
-          aria-label={`查看 ${agentName} 运行 ${shortId(run.id)} 详情`}
-          className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'shrink-0')}
-        >
-          查看详情
-        </Link>
+        <div className="flex shrink-0 items-center gap-1 -me-2.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`速览运行 ${shortId(run.id)}`}
+            onClick={(event) => onPreview(run.id, event.currentTarget)}
+          >
+            速览
+          </Button>
+          <Link
+            {...detailLink}
+            data-variant="ghost"
+            data-size="sm"
+            aria-label={`查看 ${agentName} 运行 ${shortId(run.id)} 详情`}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'shrink-0')}
+          >
+            查看详情
+          </Link>
+        </div>
       </CardFooter>
     </Card>
+  );
+}
+
+function RunPreviewSheet({
+  runId,
+  fallback,
+  backTo,
+  onClose,
+  finalFocus,
+}: {
+  runId: string;
+  fallback?: RunListItem | undefined;
+  backTo: string;
+  onClose: () => void;
+  finalFocus: () => HTMLElement | null;
+}) {
+  const sheet = useDialogClose(onClose);
+  const run = useRun(runId);
+  const detail = run.data?.run;
+  const conversation = run.data?.conversation;
+  const steps = run.data?.steps ?? [];
+  const status = detail?.status ?? fallback?.status;
+  const recentSteps = steps.slice(-5);
+  const recentStartIndex = Math.max(0, steps.length - recentSteps.length);
+  const cleanBackUrl = new URL(backTo, 'http://localhost');
+  cleanBackUrl.searchParams.delete('preview');
+  const cleanBackQuery = cleanBackUrl.searchParams.toString();
+  const cleanBackTo = `${cleanBackUrl.pathname}${cleanBackQuery ? `?${cleanBackQuery}` : ''}${cleanBackUrl.hash}`;
+
+  return (
+    <InspectorSheet
+      open={sheet.open}
+      onOpenChange={(next) => {
+        if (!next) sheet.close();
+      }}
+      onOpenChangeComplete={sheet.onOpenChangeComplete}
+      size="md"
+      title={`运行 ${shortId(runId)}`}
+      eyebrow={status ? <RunStatusBadge status={status} /> : null}
+      finalFocus={finalFocus}
+      footer={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Link
+            to="/chat"
+            search={
+              conversation ? { agent: conversation.agentId, conversation: conversation.id } : {}
+            }
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            打开对话
+          </Link>
+          <Link
+            to="/runs/$runId"
+            params={{ runId }}
+            search={{ backTo: cleanBackTo }}
+            className={buttonVariants({ size: 'sm' })}
+          >
+            进入完整轨迹
+          </Link>
+        </div>
+      }
+    >
+      {run.isPending ? (
+        <LoadingState rows={4} />
+      ) : run.data === undefined ? (
+        <ErrorState error={run.error} onRetry={() => void run.refetch()} />
+      ) : (
+        <div className="flex min-w-0 flex-col gap-5">
+          <RecordRows
+            rows={[
+              {
+                label: '专家',
+                value: detail?.agentName ?? (
+                  <span className="text-muted-foreground">已删除的专家</span>
+                ),
+              },
+              {
+                label: '状态',
+                value: detail ? runStatusLabel[detail.status] : '—',
+              },
+              {
+                label: '开始时间',
+                mono: true,
+                value: formatDateTime(detail?.startedAt),
+              },
+              {
+                label: '耗时',
+                mono: true,
+                value: formatDuration(detail?.latencyMs),
+              },
+              {
+                label: '轮次',
+                mono: true,
+                value: detail?.turns ?? '—',
+              },
+              {
+                label: '成本',
+                mono: true,
+                value: formatCost(detail?.costUsd),
+              },
+              {
+                label: 'Tokens',
+                mono: true,
+                value: `${formatTokens(detail?.inputTokens)} / ${formatTokens(detail?.outputTokens)}`,
+              },
+            ]}
+          />
+
+          {detail?.error ? (
+            <div
+              role="alert"
+              className="flex items-start gap-2.5 rounded-item border border-line bg-danger-soft p-3"
+            >
+              <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium text-fg">
+                  运行{runStatusLabel[detail.status]}
+                </div>
+                <pre className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere] font-mono text-xs leading-5 text-muted-foreground">
+                  {detail.error}
+                </pre>
+              </div>
+              <CopyButton value={detail.error} label="复制错误" />
+            </div>
+          ) : null}
+
+          <section className="flex min-w-0 flex-col gap-2 border-t border-line pt-4">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-sm font-medium text-fg">步骤概览</h3>
+              <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                共 {steps.length} 步
+              </span>
+            </div>
+            {recentSteps.length === 0 ? (
+              <p className="text-xs text-muted-foreground">暂无执行步骤。</p>
+            ) : (
+              <ol className="flex min-w-0 flex-col divide-y divide-line rounded-item border border-line bg-surface">
+                {recentSteps.map((step, offset) => {
+                  const Icon = stepIcons[step.kind];
+                  const number = recentStartIndex + offset + 1;
+                  return (
+                    <li
+                      key={`${number}:${step.at}:${step.kind}`}
+                      className="flex min-w-0 items-center gap-2 px-3 py-2 text-xs"
+                    >
+                      <span className="w-5 shrink-0 text-end font-mono text-2xs tabular-nums text-muted-foreground">
+                        {number}
+                      </span>
+                      <Icon className="shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate font-mono text-fg">
+                        {stepName(step)}
+                      </span>
+                      <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                        {formatDateTime(step.at)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </section>
+        </div>
+      )}
+    </InspectorSheet>
   );
 }
 
@@ -269,7 +500,11 @@ export function RunsPage() {
   const trigger = search.trigger ?? '';
   const range = search.range ?? 'all';
   const since = range === 'all' ? undefined : utcWindowStart(Number(range)).toISOString();
-  const view: ListView = search.view ?? 'cards';
+  const view: ListView = search.view ?? 'table';
+  const previewId = search.preview;
+  const previewTriggerRef = useRef<HTMLElement | null>(null);
+  const searchRef = useRef(search);
+  searchRef.current = search;
   const setFilter = (patch: {
     agent?: string | undefined;
     status?: RunStatus | undefined;
@@ -278,9 +513,36 @@ export function RunsPage() {
   }): void => {
     void navigate({ to: '/runs', search: { ...search, ...patch } });
   };
+  const clearAllFilters = (): void => {
+    setFilter({
+      agent: undefined,
+      status: undefined,
+      trigger: undefined,
+      range: undefined,
+    });
+  };
   const setView = (next: ListView): void => {
     void navigate({ to: '/runs', search: { ...search, view: next }, replace: true });
   };
+  const openPreview = useCallback(
+    (runId: string, triggerElement: HTMLElement): void => {
+      previewTriggerRef.current = triggerElement;
+      void navigate({
+        to: '/runs',
+        search: { ...searchRef.current, preview: runId },
+        replace: true,
+      });
+    },
+    [navigate],
+  );
+  const closePreview = useCallback((): void => {
+    void navigate({
+      to: '/runs',
+      search: { ...searchRef.current, preview: undefined },
+      replace: true,
+    });
+  }, [navigate]);
+  const columns = useMemo(() => createColumns(openPreview), [openPreview]);
   const runs = useRuns({
     ...(agentId ? { agentId } : {}),
     ...(status ? { status } : {}),
@@ -489,6 +751,9 @@ export function RunsPage() {
               className="w-full"
             />
           </FilterPopover>
+          {!empty && activeFilters.length > 0 ? (
+            <ActiveFilterChips filters={activeFilters} onClearAll={clearAllFilters} />
+          ) : null}
           <span className="sr-only">
             {`时间范围：${timeRangeOptions.find((option) => option.value === range)?.label ?? '全部时间'}`}
           </span>
@@ -536,18 +801,7 @@ export function RunsPage() {
                   title="没有匹配的运行记录"
                   activeFilters={activeFilters}
                   action={
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setFilter({
-                          agent: undefined,
-                          status: undefined,
-                          trigger: undefined,
-                          range: undefined,
-                        })
-                      }
-                    >
+                    <Button variant="outline" size="sm" onClick={clearAllFilters}>
                       清除全部筛选
                     </Button>
                   }
@@ -576,7 +830,7 @@ export function RunsPage() {
                 >
                   {items.map((run) => (
                     <li key={run.id} className="min-w-0">
-                      <RunCard run={run} />
+                      <RunCard run={run} onPreview={openPreview} />
                     </li>
                   ))}
                 </ul>
@@ -592,7 +846,7 @@ export function RunsPage() {
                 label="运行列表"
                 loading={runs.isPending}
                 hideRowCount
-                storageKey="pace.runs.columns"
+                storageKey="pace.runs.columns-v2"
                 initialSorting={[{ id: 'startedAt', desc: true }]}
                 empty="没有匹配的运行"
                 onRowClick={(run) =>
@@ -613,6 +867,19 @@ export function RunsPage() {
           </>
         )}
       </PageBody>
+
+      {previewId ? (
+        <RunPreviewSheet
+          key={previewId}
+          runId={previewId}
+          fallback={items.find((item) => item.id === previewId)}
+          backTo={location.href}
+          onClose={closePreview}
+          finalFocus={() =>
+            previewTriggerRef.current?.isConnected ? previewTriggerRef.current : null
+          }
+        />
+      ) : null}
     </Page>
   );
 }

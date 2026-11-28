@@ -113,29 +113,42 @@ async function mount(search = ''): Promise<void> {
   await flush();
 }
 
-function toggle(id: string): HTMLButtonElement {
-  const found = [...container.querySelectorAll<HTMLButtonElement>('button[data-row]')].find(
-    (button) => button.getAttribute('aria-controls')?.endsWith(`-row-panel-${id}`),
+function rowButton(actor: string): HTMLButtonElement {
+  const row = [...container.querySelectorAll('tbody tr')].find(
+    (tr) => tr.querySelector(`span[title="${actor}"]`) !== null,
   );
-  if (!found) throw new Error(`missing row toggle for ${id}`);
+  const found = row?.querySelector<HTMLButtonElement>('button[data-row]');
+  if (!found) throw new Error(`missing row trigger for ${actor}`);
   return found;
 }
 
-function rowActionLabel(prefix: '展开' | '收起', row: AuditEntry): string {
-  return `${prefix} ${row.action}${row.target ? ` ${row.target}` : ''} · ${formatDateTime(row.createdAt)}`;
+function rowActionLabel(row: AuditEntry): string {
+  return `打开 ${row.action}${row.target ? ` ${row.target}` : ''} · ${formatDateTime(row.createdAt)}`;
 }
 
-async function toggleRow(id: string): Promise<void> {
-  await act(async () => toggle(id).click());
+async function openRow(actor: string): Promise<void> {
+  await act(async () => rowButton(actor).click());
   await flush();
 }
 
-function panelOf(id: string): HTMLElement {
-  const panelId = toggle(id).getAttribute('aria-controls');
-  if (!panelId) throw new Error(`row ${id} is not expandable`);
-  const panel = document.getElementById(panelId);
-  if (!panel) throw new Error(`missing panel for ${id}`);
-  return panel;
+function inspectorSheet(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[role="dialog"]');
+}
+
+function requireInspector(): HTMLElement {
+  const sheet = inspectorSheet();
+  if (!sheet) throw new Error('missing inspector sheet');
+  return sheet;
+}
+
+async function closeInspector(): Promise<void> {
+  const sheet = requireInspector();
+  const close = [...sheet.querySelectorAll<HTMLButtonElement>('button')].find(
+    (node) => node.getAttribute('aria-label') === '关闭',
+  );
+  if (!close) throw new Error('missing close button');
+  await act(async () => close.click());
+  await flush();
 }
 
 function detailValue(panel: HTMLElement, label: string): string {
@@ -381,7 +394,7 @@ describe('audit integrity verification', () => {
 });
 
 describe('audit row details', () => {
-  it('opens exactly the requested row with actor, full event id and input digest, and collapses again', async () => {
+  it('opens exactly the requested row with actor, full event id and input digest, and closes again', async () => {
     vi.spyOn(api, 'audit').mockResolvedValue(
       page([
         entry('audit_aaa', { actor: 'admin', inputDigest: DIGEST }),
@@ -389,40 +402,30 @@ describe('audit row details', () => {
       ]),
     );
     await mount();
-    await waitFor(() => expect(toggle('audit_aaa')).not.toBeUndefined());
+    await waitFor(() => expect(rowButton('admin')).not.toBeUndefined());
 
-    const trigger = toggle('audit_aaa');
-    expect(trigger.getAttribute('aria-label')).toBe(rowActionLabel('展开', entry('audit_aaa')));
-    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    const trigger = rowButton('admin');
+    expect(trigger.getAttribute('aria-label')).toBe(rowActionLabel(entry('audit_aaa')));
+    expect(inspectorSheet()).toBeNull();
 
-    await toggleRow('audit_aaa');
-    const opened = panelOf('audit_aaa');
-    expect(toggle('audit_aaa').getAttribute('aria-label')).toBe(
-      rowActionLabel('收起', entry('audit_aaa')),
-    );
-    expect(toggle('audit_aaa').getAttribute('aria-expanded')).toBe('true');
+    await openRow('admin');
+    const opened = requireInspector();
     expect(detailValue(opened, '操作者')).toBe('admin');
     expect(detailValue(opened, '主体类型')).toBe('用户');
     expect(detailValue(opened, '事件 ID')).toBe('audit_aaa');
     expect(detailValue(opened, '输入摘要')).toBe(DIGEST);
-    expect(toggle('audit_bbb').getAttribute('aria-expanded')).toBe('false');
-    expect(panelOf('audit_bbb')).not.toBe(opened);
 
-    await toggleRow('audit_aaa');
-    expect(toggle('audit_aaa').getAttribute('aria-label')).toBe(
-      rowActionLabel('展开', entry('audit_aaa')),
-    );
-    expect(toggle('audit_aaa').getAttribute('aria-expanded')).toBe('false');
-    expect(panelOf('audit_aaa').textContent).not.toContain(DIGEST);
+    await closeInspector();
+    await waitFor(() => expect(inspectorSheet()).toBeNull());
   });
 
   it('shows a dash instead of inventing a digest when the event has none', async () => {
     vi.spyOn(api, 'audit').mockResolvedValue(page([entry('audit_login', { inputDigest: null })]));
     await mount();
-    await waitFor(() => expect(toggle('audit_login')).not.toBeUndefined());
+    await waitFor(() => expect(rowButton('actor-audit_login')).not.toBeUndefined());
 
-    await toggleRow('audit_login');
-    const panel = panelOf('audit_login');
+    await openRow('actor-audit_login');
+    const panel = requireInspector();
     expect(detailValue(panel, '操作者')).toBe('actor-audit_login');
     expect(detailValue(panel, '输入摘要')).toBe('—');
     expect(panel.textContent).not.toMatch(/[0-9a-f]{32}/);
@@ -445,10 +448,10 @@ describe('audit row details', () => {
       ]),
     );
     await mount();
-    await waitFor(() => expect(toggle('audit_change')).not.toBeUndefined());
+    await waitFor(() => expect(rowButton('actor-audit_change')).not.toBeUndefined());
 
-    await toggleRow('audit_change');
-    const panel = panelOf('audit_change');
+    await openRow('actor-audit_change');
+    const panel = requireInspector();
     expect(detailValue(panel, '工具')).toBe('github');
     expect(detailValue(panel, '工具 ID')).toBe('tool_x');
     expect(detailValue(panel, '变更前')).toBe('allow');
@@ -470,9 +473,9 @@ describe('audit row details', () => {
       ]),
     );
     await mount();
-    await waitFor(() => expect(toggle('audit_null')).not.toBeUndefined());
-    await toggleRow('audit_null');
-    const panel = panelOf('audit_null');
+    await waitFor(() => expect(rowButton('actor-audit_null')).not.toBeUndefined());
+    await openRow('actor-audit_null');
+    const panel = requireInspector();
     expect(detailValue(panel, 'policyId')).toBe('tap_x');
     expect(detailValue(panel, '变更后')).toBe('—');
   });
@@ -480,12 +483,21 @@ describe('audit row details', () => {
   it('adds no detail rows when the event has none', async () => {
     vi.spyOn(api, 'audit').mockResolvedValue(page([entry('audit_plain', { detail: null })]));
     await mount();
-    await waitFor(() => expect(toggle('audit_plain')).not.toBeUndefined());
+    await waitFor(() => expect(rowButton('actor-audit_plain')).not.toBeUndefined());
 
-    await toggleRow('audit_plain');
-    const panel = panelOf('audit_plain');
+    await openRow('actor-audit_plain');
+    const panel = requireInspector();
     const labels = [...panel.querySelectorAll('dt')].map((node) => node.textContent);
-    expect(labels).toEqual(['操作者', '主体类型', '事件 ID', '输入摘要']);
+    expect(labels).toEqual([
+      '操作者',
+      '主体类型',
+      '目标',
+      '耗时',
+      '事件 ID',
+      '请求 ID',
+      '输入摘要',
+    ]);
+    expect(panel.textContent).not.toContain('变更明细');
   });
 
   it('keeps the open row bound to its id when filtering returns different data', async () => {
@@ -501,19 +513,18 @@ describe('audit row details', () => {
           ]),
     );
     await mount();
-    await waitFor(() => expect(toggle('audit_aaa')).not.toBeUndefined());
-    await toggleRow('audit_aaa');
-    expect(detailValue(panelOf('audit_aaa'), '操作者')).toBe('admin');
+    await waitFor(() => expect(rowButton('admin')).not.toBeUndefined());
+    await openRow('admin');
+    expect(detailValue(requireInspector(), '操作者')).toBe('admin');
 
     await typeAction('auth.');
     await act(async () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 400));
     });
     expect(api.audit).toHaveBeenLastCalledWith({ action: 'auth.', limit: 100 }, expect.anything());
-    await waitFor(() => expect(detailValue(panelOf('audit_aaa'), '操作者')).toBe('bob'));
-    expect(detailValue(panelOf('audit_aaa'), '事件 ID')).toBe('audit_aaa');
-    expect(detailValue(panelOf('audit_aaa'), '输入摘要')).toBe('feed'.repeat(8));
-    expect(toggle('audit_zzz').getAttribute('aria-expanded')).toBe('false');
+    await waitFor(() => expect(detailValue(requireInspector(), '操作者')).toBe('bob'));
+    expect(detailValue(requireInspector(), '事件 ID')).toBe('audit_aaa');
+    expect(detailValue(requireInspector(), '输入摘要')).toBe('feed'.repeat(8));
   });
 
   it('opens a newly appended page row with its own details', async () => {
@@ -526,20 +537,22 @@ describe('audit row details', () => {
         : page(first, 'e99'),
     );
     await mount();
-    await waitFor(() => expect(toggle('e0')).not.toBeUndefined());
-    await toggleRow('e0');
-    expect(detailValue(panelOf('e0'), '操作者')).toBe('first-page');
+    await waitFor(() => expect(rowButton('first-page')).not.toBeUndefined());
+    await openRow('first-page');
+    expect(detailValue(requireInspector(), '操作者')).toBe('first-page');
+    await closeInspector();
 
     await act(async () => loadMore().click());
     await waitFor(() =>
       expect(api.audit).toHaveBeenLastCalledWith({ limit: 100, cursor: 'e99' }, expect.anything()),
     );
-    await waitFor(() => expect(toggle('new_row')).not.toBeUndefined());
+    await waitFor(() => expect(rowButton('new-user')).not.toBeUndefined());
 
-    await toggleRow('new_row');
-    expect(detailValue(panelOf('new_row'), '操作者')).toBe('new-user');
-    expect(detailValue(panelOf('new_row'), '事件 ID')).toBe('new_row');
-    expect(detailValue(panelOf('new_row'), '输入摘要')).toBe('feed'.repeat(8));
-    expect(panelOf('e0').textContent).not.toContain('first-page');
+    await openRow('new-user');
+    const panel = requireInspector();
+    expect(detailValue(panel, '操作者')).toBe('new-user');
+    expect(detailValue(panel, '事件 ID')).toBe('new_row');
+    expect(detailValue(panel, '输入摘要')).toBe('feed'.repeat(8));
+    expect(panel.textContent).not.toContain('first-page');
   });
 });
