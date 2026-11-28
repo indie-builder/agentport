@@ -31,9 +31,9 @@
 
 2. **建隔离环境**
    **每个独立新开发任务首次写入前建专属 worktree；续做同一未完成任务时复用原树与当前恢复上下文，不重新建树、不重置基线。** 任务按独立目标与验收划分，同一目标内的步骤与子任务共用该树，不各自建树。
-   新建任务时先 `git fetch origin main`。worktree 位置固定为主 checkout 的 `.claude/worktrees/<任务 slug>`（绝对路径 `<主 checkout>/.claude/worktrees/<slug>`）；默认用 `EnterWorktree`，手动执行时同样是 `git worktree add <主 checkout>/.claude/worktrees/<slug> -b <branch> origin/main`，起点为刚 fetch 的 `origin/main`（用 `EnterWorktree` 时同样核对其起点）。主 checkout 指仓库主目录本身，**不是当前任务 worktree**；新树不建在仓库同级，也不建在当前或其他任何已有**任务 worktree** 内部——现有旧位置属历史，不重构也不照抄。本地 main 不是最新，旧 worktree 也不是，二者都不作对齐依据。名字用 ASCII slug（如 `log-to-file`），工具不接受中文名。
+   新建任务时先 `git fetch origin main`。worktree 位置固定为主 checkout 的 `.claude/worktrees/<任务 slug>`（绝对路径 `<主 checkout>/.claude/worktrees/<slug>`）；Claude Code 默认用 `EnterWorktree`，Antigravity CLI 用 `git worktree add <主 checkout>/.claude/worktrees/<slug> -b <branch> origin/main`（需额外子代理隔离时可用 `Workspace: "share"`），起点均为刚 fetch 的 `origin/main`（用 `EnterWorktree` 时同样核对其起点）。主 checkout 指仓库主目录本身，**不是当前任务 worktree**；新树不建在仓库同级，也不建在当前或其他任何已有**任务 worktree** 内部——现有旧位置属历史，不重构也不照抄。本地 main 不是最新，旧 worktree 也不是，二者都不作对齐依据。名字用 ASCII slug（如 `log-to-file`），工具不接受中文名。
    主 checkout 默认不改动、保持干净，任务产出只在 worktree。
-   **主会话先进入目标任务树再派发代码执行**；子代理 `isolation: worktree` 只是额外隔离，不能替代这一步，且额外隔离树同样落在固定位置、禁止套娃。
+   **主会话先进入目标任务树再派发代码执行**；子代理额外隔离（Claude Code `isolation: worktree` / Antigravity `Workspace: "share"`）不能替代这一步，且额外隔离树同样落在固定位置、禁止套娃。
    树内尽量用单条普通命令：不用 `eval`，不把 heredoc 或脚本并进复合命令；git 一律写 `/usr/bin/git <args>`。被拒绝时按 `docs/PITFALLS.md`「worktree 里两类命令会被拒绝」处理。
    进树后记录一次绝对路径、`git rev-parse HEAD` 与 `git status`：已有未提交差异原地写明归属（他人/未完成），不顺手提交、还原或覆盖。这是开工时的一次性记录，后续不反复查全局 status，也不为核对额外加流程；所有动手只在本 worktree 内，子代理保持并行。
    **完成判据**：主会话已位于目标 worktree（`<主 checkout>/.claude/worktrees/<slug>`）；新建时 HEAD 与声明的起点一致（默认刚 fetch 的 `origin/main`，偏离时已注明原因），续做时保留原基线与恢复上下文、HEAD 可包含本任务后续提交；初始差异归属已记入当前对话或原生待办，产出不落到主 checkout。
@@ -45,7 +45,7 @@
 4. **实现（子代理并行）**
    主会话和执行子代理开工前按任务类别查 `docs/PITFALLS.md` 相关条目、报错时按症状查，将与当前任务相关的规避方式落实到方案、操作和验证中；任务范围变化时重新核对相关条目。不能只在报错后查阅，或只追加记录而不使用。
    涉及参考 UI 时，实现前实际操作目标控件，确认区域、数据与状态并写进当前对话或原生待办；无法操作时标为缺口，不凭截图或记忆猜测。参考维度分开：配色与控件外观以 `packages/web/DESIGN.md`（impeccable，Claude Design System，参考 open-claude-ui，仅亮色；token 见 `packages/web/src/styles.css`）为准，布局、尺寸与结构以 `docs/DESIGN-SYSTEM.md` 当前规范为准（含用户批准的布局契约），OpenUI 桌面基准仅保留为历史参考；任一维度不扩到另一维度。
-   按任务性质与模型分工派发；主会话只编排。派发时写明目标模块规则路径；跨包或改根目录 `scripts/`、`tests/`、`Dockerfile` 等共享文件时，先读所有相关 `packages/<pkg>/AGENTS.md`。子代理默认共享当前任务树，按文件边界并行，不各自建树。所有产出只写进 worktree。
+   按任务性质与模型分工派发；主会话只编排。派发时写明目标模块规则路径；跨包或改根目录 `scripts/`、`tests/`、`Dockerfile` 等共享文件时，先读所有相关 `packages/<pkg>/AGENTS.md`。子代理默认共享当前任务树，按文件边界并行，不各自建树。扫描或审计 ≥ 20 个文件时，优先写短脚本批量采集或用工作流分片，避免单个子代理串行 `read_file` 上百次拖垮耗时与上下文。所有产出只写进 worktree。
    工程纪律唯一来源是本文件：阶段固定为「先实现目标 → 完善实现 → 按规范交付」。第一阶段就要求正确且可验证，不把正确性推后；验证方式按改动范围选择，测试策略按根 `AGENTS.md`「测试」执行，不要求每次都必须新增测试。
    模块设计按 `codebase-design`：Interface 写清不变量、调用顺序、失败模式与配置，调用方不重复承担同一事实；模块按 leverage / locality 取舍深度；单文件硬上限 3000 行（`bun run lint:lines` 强制，按物理行计，覆盖受管 TS/TSX/JS/MJS/JSON，排除生成文件与 drizzle 迁移快照），超过上限时必须按领域/业务边界重构，可用 `codebase-design` / `domain-modeling`，不按行数机械均分；只在已有真实变化处放 Seam，不为单个 Adapter 预造抽象；调用方与测试经过同一 Seam，通过同一 Interface 验证行为。
    文件资源的路径语法、保留入口与文件/目录集合冲突在各独立入口调用同一共享校验判定，入口内不重复校验，表单、导入、导出复用同一规则；唯一性按实际目录命名空间比较（大小写规则见 `docs/ARCHITECTURE.md`），写入成功必须能整棵投影出对应文件。
@@ -57,7 +57,8 @@
 
 5. **Review**
    每轮固定基线（commit/diff 范围）、文件清单和审查重点，按模型分工交给独立 review 子代理；固定的是范围与重点，不是问题上限，独立审查仍可报清单外的新问题。review 同时检查改动是否遵循对应模块规则，规则放错层时先调整归属再改代码。新增发现或范围变化时先扩展基线与清单再继续，不压掉新问题；后续轮次复核已修复项及新增发现，不重扫已通过部分。涉及合并时先核用户最新明确决定，不以 main 的提交顺序推断哪条有效。
-   Sonnet 初审按需，不固定多加一轮；提交前保留独立 Opus 终审，按固定 diff、契约与验证证据聚焦判断，必要时扩读关联代码，不全量重复探索；后续只复核修复与新增影响。纯机械规则可直接跑 `bun run lint:focus`、`bunx biome check`（按需、秒级、不阻塞）。
+   初审按需，不固定多加一轮；提交前保留独立高能力只读评审子代理终审，按固定 diff、契约与验证证据聚焦判断，必要时扩读关联代码，不全量重复探索；后续只复核修复与新增影响。纯机械规则可直接跑 `bun run lint:focus`、`bunx biome check`（按需、秒级、不阻塞）。
+   **官方集成或新 lint 规则审计**：默认对照官方文档或规则全集产出完整缺口清单（含零豁免、零 warning 方案与成本），不以保守豁免截断审计范围。
    实现完成后、提交 review 前，可选跑一次 `/simplify` 简化本任务 diff 的代码（去冗余、降复杂度、提复用）；只作用于本次改动，不扩到全库；超过 3000 行的文件按上一条重构，未超限不因体量或注释扩大重构。
    **完成判据**：独立评审子代理明确给出通过结论，评审发现的问题已修复并复核；未返回结论的项不视为通过。
 
@@ -69,7 +70,7 @@
    把验证结果与剩余项留在当前对话或原生待办，只有用户明确要求保存时才写入指定路径；切回 main 时说明成果是否已合入。
    **完成判据**：所选验证通过、独立评审通过、记录已更新；默认开发任务的最终 PR 覆盖本任务全部成果且真实 `MERGED`。用户明确限定更窄范围时，只报告该范围的完成状态，不称「开发交付完成」。失败或受阻时报告具体状态与下一步，不满足默认开发交付完成判据。
 
-7. **工作区收尾（`ExitWorktree`）**
+7. **工作区收尾**
    开发交付后默认执行本任务的资源清理：清理本任务已交付的 worktree、退出回主 checkout、把主 checkout 的 main 更新到最新，不等待另一次「收尾工作区」口令；只处理本任务，不做全局清扫。清理前停掉本任务自己的后台子任务、服务与监听端口（用户明确要求继续运行或其他任务共享的服务不停，保留其依赖的 worktree、配置与数据），只清本任务自己的可重建临时产物；用户明确保留、共享基础设施、未交付成果与受保护数据不删。清理不改变本任务的合并状态与授权范围。
 
    **清理前核对**，满足下列条件才删：
@@ -77,7 +78,7 @@
    - `git status --porcelain` 为空。
    - 没有其他会话正在使用该 worktree。
 
-   满足后先 `ExitWorktree` 退出（有改动就 keep 保留分支），再 `git worktree remove`；本地与远程分支都保留，删树不丢代码。只有 `node_modules` 等可重建依赖挡住时用 `--force`；未提交、未合并且未获准废弃、或被占用时一律保留并报告，不删。
+   满足后先退出目标 worktree（Claude Code 用 `ExitWorktree`，有改动就 keep 保留分支；Antigravity 直接退出子路径回到主 checkout），再执行 `git worktree remove`；本地与远程分支都保留，删树不丢代码。只有 `node_modules` 等可重建依赖挡住时用 `--force`；未提交、未合并且未获准废弃、或被占用时一律保留并报告，不删。
 
    确认无复用价值或已被替代的调研、候选与临时验证资料可直接清理，不自动生成归档、快照、备份或清理报告；用户明确保留或属于业务/受保护数据的不在此列，未经确认不清除。已授权废弃且仍有值得未来提取的已提交代码时，可移除其工作树，前提是本地或远程分支完整保存提交；报告尚未合入的内容与具体剩余价值，不把保留 ref 说成任务已交付或缺口已解决。无需为收尾提交未评审变更。
    回到主 checkout 后确认身处 main 且工作区干净，再 `git fetch origin` 与 `git merge --ff-only origin/main`。不在 main、有本地差异或不能快进时保留现状并报告原因，不 reset、不 stash。
@@ -122,11 +123,11 @@
 ## 5. 门禁策略（个人项目）
 
 - **不加 blocking 钩子**：不装 pre-commit 跑 typecheck/build/test。
-- **CI 在本地运行**：`bun run ci` 先并行跑各项 `lint:*`（含 `lint:deadcode`、`lint:ratchet`、`lint:lines`）、`formal`、`scripts:test` 与全仓 `typecheck`（单进程 `tsc -b tsconfig.json packages/web` 合并检查并增量构建后端 7 包 `dist`）；`typecheck` 通过后并行跑 `typecheck:scripts`、`typecheck:e2e`、`typecheck:tests`、web 构建（`--filter @agentport/web build`）、`openui:check`（同轮已调度 `test` 时自动附带 `--no-tests` 去重，单独执行 `bun run openui:check` 仍保留行为测试）、`test:sharded` 与 `test:web`（两者独立直跑时都会先通过 `scripts/check-dist-fresh.ts` 做毫秒级 `dist` 过期预检，未构建时快速失败并提示 `--auto-build`）；上述已启用上游检查全部通过后才运行 `e2e`（`e2e:suite`，仅在开启 `--e2e` 时调度）。支持 `bun run ci:fast`（`--fast`，跳过 `build:web`、`openui:check`、`formal`、`test`、`test:web`、`e2e`）、`bun run ci:changed`（`--changed [base]`，按 git diff 与包依赖 DAG 仅运行受影响阶段）、`bun run ci:e2e`（`--e2e`，追加 `e2e:suite`），以及 `--json` / `--verbose`。不使用 GitHub CI（`ci.yml` 已删除），push 与 PR 不触发远端检查。
+- **CI 在本地运行**：`bun run ci` 先并行跑各项 `lint:*`（含 `lint:docs` 文档链接/路径/索引与 `AGENTS.md` 字节上限校验、`lint:deadcode`、`lint:ratchet`、`lint:lines`）、`openui:audit`（OpenUI 改动触发的毫秒级覆盖审计）、`formal`、`scripts:test` 与全仓 `typecheck`（单进程 `tsc -b tsconfig.json packages/web` 合并检查并增量构建后端 7 包 `dist`）；`typecheck` 通过后并行跑 `typecheck:scripts`、`typecheck:e2e`、`typecheck:tests`、web 构建（`--filter @agentport/web build`）、`openui:check`（同轮已调度 `test` 时自动附带 `--no-tests` 去重，单独执行 `bun run openui:check` 仍保留行为测试）、`test:sharded` 与 `test:web`（两者独立直跑时都会先通过 `scripts/check-dist-fresh.ts` 做毫秒级 `dist` 过期预检，未构建时快速失败并提示 `--auto-build`）；上述已启用上游检查全部通过后才运行 `e2e`（`e2e:suite`，仅在开启 `--e2e` 时调度）。支持 `bun run ci:fast`（`--fast`，跳过 `build:web`、`openui:check`、`formal`、`test`、`test:web`、`e2e`）、`bun run ci:changed`（`--changed [base]`，按 git diff 与包依赖 DAG 仅运行受影响阶段）、`bun run ci:e2e`（`--e2e`，追加 `e2e:suite`），以及 `--json` / `--verbose`。不使用 GitHub CI（`ci.yml` 已删除），push 与 PR 不触发远端检查。
 - **合并不等待 CI**：用户要求提交或合并时直接执行，不自动开启 PR 监控、冷却等待或远端检查门禁。只有用户明确要求时才监控 CI。
 - **本地验证按改动范围选择**：保留现有测试、类型检查和构建命令，不把全套检查固定绑定到每次修改或提交；需要完整检查时跑 `bun run ci`。发布工作流 `release.yml` 独立保留。
-- **机械检查按需跑**：`lint:focus`、`lint:design`、`lint:contract`、`lint:lines`、`lint:deadcode`、`lint:ratchet`、`bun run lint`、`openui:audit` 这类秒级脚本交给 review 阶段顺手执行；收紧行数或抑制注释基线用 `bun run ratchet:tighten`。
-- **判断类标准**交独立 review 代理：风格与跨文件一致性可交 Sonnet 初审，契约、架构与安全取舍交 Opus；规则不写进常驻上下文。
+- **机械检查按需跑**：`lint:docs`、`lint:focus`、`lint:design`、`lint:contract`、`lint:lines`、`lint:deadcode`、`lint:ratchet`、`bun run lint`、`openui:audit` 这类秒级脚本交给 review 阶段顺手执行；收紧行数或抑制注释基线用 `bun run ratchet:tighten`。
+- **判断类标准**交独立 review 代理：风格与跨文件一致性可按需做轻量初审，契约、架构与安全取舍交独立高能力只读评审子代理终审；规则不写进常驻上下文。
 
 ## 6. 依赖升级
 
@@ -134,3 +135,37 @@
 - 查过期用 `bun outdated --filter '*'`。
 - Node.js 与 `@types/node` 永久锁定 24.x，查过期与升级时忽略 26+。
 - 升级后按改动面跑 typecheck/build/相关测试，UI 改动加视觉验收；结果写进 PR 或 `CHANGELOG.md`。
+
+## 7. 规则与机械执行手段总表
+
+按「先架构、再类型、再 Lint/CI、再测试、最后文档」维护下表；每次纠偏后补齐机械执行入口，已由结构彻底消除的规则可精简散文。
+
+| 规则 / 错误类别 | 执行层级 | 唯一执行入口 |
+|---|---|---|
+| UI 原语只用 `@ui-sdk/react` + shadcn/ui，禁 `@radix-ui` / `@base-ui` | 架构 + Lint + CI | `packages/web/src/components/ui/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 禁硬编码 hex、禁 `dark:` 变体类、禁逐个传 `strokeWidth`/`size`、禁直接拼接 `buttonVariants` | 架构 + Lint + CI | `packages/web/src/styles.css`、`packages/web/src/App.tsx`、`packages/web/src/components/ui/button.tsx` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 前端本地存储走统一封装，禁直接访问 `localStorage` | 架构 + Lint + CI | `packages/web/src/lib/storage.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 焦点与边框单层契约（禁叠环、`outline-none`、slider 焦点态） | Lint + CI | `scripts/check-focus-contract.mjs`（`bun run lint:focus`） |
+| Tailwind 设计令牌、类名有效性、内联样式与组件样式契约（禁原始调色板与黑白字面色、未知类、非布局任意值、非 CSS 变量内联样式与 `<style>`、`no-restyle` 严格错误门禁） | Lint + CI | `packages/web/.oxlintrc.json`（`bun run lint:design`，已接入 `scripts/ci.ts`） |
+| 8 包跨包分层边界（`shared` / `contract` / `core` / `db` / `api` / `worker` / `web` / `sandbox` 单向依赖与纯子路径白名单） | 架构 + Lint + CI | `package.json`、`packages/*/package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 文件级、API 模块级与 Worker 子域级循环依赖禁止 | 架构 + Lint + CI | `packages/api/src/modules/`、`packages/worker/src/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| API 内部单向分层（`http`/`lib`/`queue` 不反向依赖 `modules/*`、禁跨模块 `router` 导入、禁散落 `process.env` 与裸 `bodyLimit`） | 架构 + Lint + CI | `packages/api/src/config.ts`、`packages/api/src/http/body-limit.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| DB 层禁读 `process.env`（连接与池上限由调用方经 `createDb(url, { max })` 传入） | 架构 + Lint + CI | `packages/db/src/client.ts`、`packages/shared/src/config.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| Worker 单组合根（`createDb` 与 `DockerSandboxProvider` 收口于主入口，独立 CLI 脚本除外） | 架构 + Lint + CI | `packages/worker/src/index.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 多包共享第三方依赖强制走 `workspaces.catalog` 单一版本源 | 架构 + Lint + CI | `package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 请求校验只在 oRPC 契约完成，handler/router 禁 `safeParse` | 架构 + Lint + CI | `packages/api/src/http/orpc.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| API 业务模块禁直接抛 `new ORPCError()` / `new z.ZodError()`，统一走 `AppError` / `fail()` 与 `http/orpc.ts` 错误管道（`api-no-orpc-zod-throw`） | 架构 + Lint + CI | `packages/api/src/http/orpc.ts`、`packages/core/src/errors.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| API 层禁直接 Drizzle 表 DML（`.insert`/`.update`/`.delete`）及 `sql` 模板写操作，收口至 `packages/db/src/repo/`（`api-no-raw-dml`） | 架构 + Lint + CI | `packages/db/src/repo/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 每条 oRPC 过程必须声明 `access` 元数据并经统一鉴权 | 架构 + 运行时 | `packages/api/src/http/orpc.ts`（`traverseContractProcedures`）+ `packages/api/src/http/middleware.ts`（`enforceAccess`） |
+| DB `LIKE`/`ILIKE` 必须转义通配符 | 架构 + Lint + CI | `packages/db/src/repo/like.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| DB 枚举列与 `CHECK` 约束从 `@agentport/shared` schema `.options` 派生 | 架构 + 类型 + Lint + CI | `packages/db/src/schema/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 业务日志统一走 `@agentport/core/logger`，禁直接值导入 `pino` | 架构 + Lint + CI | `packages/core/src/logger.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 单文件物理行数上限（源码 800 / 测试 1500 默认上限 + `file-lines.json` 单向棘轮 + 3000 行硬顶） | Lint + CI | `scripts/check-file-lines.mjs`（`bun run lint:lines`，收紧用 `bun run ratchet:tighten`，已接入 `scripts/ci.ts`） |
+| 零死代码 / 未使用导出 / 未使用依赖（Knip 门禁） | Lint + CI | `knip.json`（`bun run lint:deadcode`，已接入 `scripts/ci.ts`） |
+| 抑制注释理由校验与单向棘轮（`suppressions.json` 基线） | Lint + CI | `bun run lint:ratchet`（收紧用 `bun run ratchet:tighten`，已接入 `scripts/ci.ts`） |
+| 测试前 workspace `dist` 过期毫秒级预检 | CI + 测试入口 | `scripts/check-dist-fresh.ts` + `scripts/test-backend.ts` / `scripts/test-backend-sharded.ts` / `scripts/test-web.ts` |
+| OpenUI 生成物 `openui.spec.json` 与组件库保持同步及覆盖审计 | CI | `scripts/check-openui.mjs`（`bun run openui:check`）、`scripts/audit-openui-coverage.mjs`（`bun run openui:audit`，已接入 `scripts/ci.ts`） |
+| 核心文档链接/锚点/行内路径有效、禁 `pnpm`/`npm` 命令、`PITFALLS` 索引一致、`AGENTS.md`（≤ 16 KB）与 `packages/*/AGENTS.md`（≤ 12 KB）字节上限校验 | Lint + CI | `scripts/check-docs.mjs`（`bun run lint:docs`，已接入 `scripts/ci.ts`） |
+| 禁止显式 `any`、生产代码零警告契约（禁非空断言与缺失 hook 依赖等）、格式与 import 排序、全仓类型检查 | 类型 + Lint + CI | `biome.json`（`bun run lint`）+ `tsconfig.json` / `tsconfig.base.json` / `tsconfig.scripts.json` / `tsconfig.e2e.json` / `tsconfig.tests.json`（`bun run typecheck` 等）+ `scripts/ci.ts`（`bun run ci` / `ci:fast` / `ci:changed`） |
+| 并发/重放状态机不变量（Agent Run 生命周期、调度器 sync 单飞） | 形式化模型 + CI | `formal/agent-run-lifecycle/AgentRunLifecycle.tla`、`formal/scheduler-sync/SchedulerSync.tla`（`bun run verify:formal`，已接入 `scripts/ci.ts`） |
+| Node.js 与 `@types/node` 永久锁定 24.x（`node-version-lock`） | 架构 + Lint + CI | `package.json`、`Dockerfile` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |

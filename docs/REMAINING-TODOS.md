@@ -1,6 +1,6 @@
 # 剩余待办清单（2026-10-31）
 
-> 最后更新：2026-11-18（以本文件 git 最近提交为准）。
+> 最后更新：2026-11-28（以本文件 git 最近提交为准）。
 > 来源：原 LoopX `agentport-goal` 的 68 条 open todo，经代码与文档逐条核对后收敛。
 > 已核对 50 条为已完成/过时（见文末），不再跟踪。
 
@@ -78,6 +78,7 @@
 - 安全候选：OpenUI 来源链接 scheme 白名单（需先核对 React/CSP 处理 `javascript:`）；知识图片内联返回且接受 SVG。
 - 一致性/技术债：三个超大前端文件（agent-editor / knowledge-faq / memory-review）。
 - DX/文档：src 范围 Biome 39 error（26 为可自动修的 organizeImports）；`DECISIONS-PENDING.md` D-15 与 `PROJECT-BRIEF §9.4` 关于 `@bull-board/*` 的表述已过时（代码与 `OBSERVABILITY.md` 已接入 `/api/ops/queues`）。
+- 测试类型检查补齐：`tsconfig.tests.json` 目前仅覆盖 `shared`/`contract`/`core`/`sandbox`（63 文件），`db`(28) / `api`(166) / `worker`(106) / `web`(164) 共 464 个测试文件尚未纳入 `tsc`（2026-11-28 实测存量 1,019 处报错：`db` 108 / `api` 215 / `worker` 285 / `web` 411），待按包分批清零并接入 `ci-planner.ts`。
 
 ### 已考虑并否决（勿再报）
 
