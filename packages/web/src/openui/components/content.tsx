@@ -1,7 +1,7 @@
 import { isSafeOpenUrl } from '@agentport/shared';
 import { useIsStreaming, useStateField } from '@openuidev/react-lang';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Markdown } from '../../components/markdown.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
@@ -506,8 +506,8 @@ export function ImageText({
   return (
     <div className={cn('flex min-w-0 gap-3', vertical ? 'flex-col items-start' : 'items-center')}>
       <div
-        className="shrink-0 overflow-hidden rounded-icon bg-sunken"
-        style={{ width: size, height: size }}
+        className="size-(--media-size) shrink-0 overflow-hidden rounded-icon bg-sunken"
+        style={{ '--media-size': `${size}px` } as CSSProperties}
       >
         <img
           src={props.src}

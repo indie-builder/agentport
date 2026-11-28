@@ -6,7 +6,7 @@ import { Button as PrimitiveButton } from '@ui-sdk/react/button';
 import { createParts } from '@ui-sdk/react/primitive';
 import { createTooltipController } from '@ui-sdk/react/tooltip';
 import { ChevronRight, CircleAlert } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import { errorMessage } from '../../lib/api.js';
 import type {
   AgentInstruction,
@@ -512,8 +512,12 @@ export function AgentOverview({
                             className="group flex h-full min-w-0 flex-1 items-end justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <div
-                              className="w-full max-w-6 rounded-t-sm bg-chart-runs group-hover:opacity-80 group-focus-visible:opacity-80 forced-colors:bg-[CanvasText]"
-                              style={{ height: `${(day.runs / maxDailyRuns) * 100}%` }}
+                              className="h-(--bar-h) w-full max-w-6 rounded-t-sm bg-chart-runs group-hover:opacity-80 group-focus-visible:opacity-80 forced-colors:bg-[CanvasText]"
+                              style={
+                                {
+                                  '--bar-h': `${(day.runs / maxDailyRuns) * 100}%`,
+                                } as CSSProperties
+                              }
                             />
                           </TooltipTrigger>
                         ))}

@@ -247,14 +247,10 @@ function HealthLine() {
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
         <span>{isPending ? '健康指标加载中…' : '健康指标不可用'}</span>
         {isPending ? null : (
-          <Button
-            variant="plain"
-            size="xs"
-            className="h-auto p-0 font-normal text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
-            disabled={isFetching}
-            onClick={() => void refetch()}
-          >
-            重试
+          <Button variant="plain" size="none" disabled={isFetching} onClick={() => void refetch()}>
+            <span className="font-normal text-muted-foreground underline-offset-2 group-hover/button:text-fg group-hover/button:underline">
+              重试
+            </span>
           </Button>
         )}
         <Link
@@ -277,14 +273,10 @@ function HealthLine() {
       {redisIssue ? <span>Redis 指标不可用</span> : null}
       {isError ? <span>健康指标刷新失败，显示上次结果</span> : null}
       {isError ? (
-        <Button
-          variant="plain"
-          size="xs"
-          className="h-auto p-0 font-normal text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
-          disabled={isFetching}
-          onClick={() => void refetch()}
-        >
-          重试
+        <Button variant="plain" size="none" disabled={isFetching} onClick={() => void refetch()}>
+          <span className="font-normal text-muted-foreground underline-offset-2 group-hover/button:text-fg group-hover/button:underline">
+            重试
+          </span>
         </Button>
       ) : null}
       <Link
@@ -341,10 +333,7 @@ export function RunTrendCard({ days, enabled = true }: { days: number; enabled?:
                   </Suspense>
                 </div>
                 <Collapsible open={open} onOpenChange={setOpen}>
-                  <CollapsibleTrigger
-                    className="self-start text-muted-foreground"
-                    render={<Button variant="ghost" />}
-                  >
+                  <CollapsibleTrigger className="self-start" render={<Button variant="muted" />}>
                     {open ? '收起趋势数据' : '查看趋势数据'}
                   </CollapsibleTrigger>
                   <CollapsibleContent animated className="pt-2">

@@ -24,7 +24,16 @@ import {
   Columns3,
   GripVertical,
 } from 'lucide-react';
-import { Fragment, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { cn } from '../lib/cn.js';
 import { readJsonStorage, writeStorage } from '../lib/storage.js';
 import { EmptyState } from './empty-state.js';
@@ -394,14 +403,14 @@ export function DataTable<T extends RowData>({
         role="table"
         aria-label={label}
         aria-busy={loading}
-        className="block"
-        style={{ minWidth }}
+        className="block min-w-(--table-min-w)"
+        style={{ '--table-min-w': `${minWidth}px` } as CSSProperties}
       >
         <TableHeader role="rowgroup" className="block">
           <TableRow
             role="row"
-            className="grid items-center gap-3 px-3 pb-2"
-            style={{ gridTemplateColumns: template }}
+            className="grid grid-cols-(--table-cols) items-center gap-3 px-3 pb-2"
+            style={{ '--table-cols': template } as CSSProperties}
           >
             {visible.map((column, index) => {
               const source = sourceById.get(column.id);
@@ -557,11 +566,11 @@ export function DataTable<T extends RowData>({
                           : undefined
                       }
                       className={cn(
-                        'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left transition-colors duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-transparent',
+                        'grid min-h-14 w-full grid-cols-(--table-cols) items-start gap-3 rounded-item px-3 text-left transition-colors duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-transparent',
                         interactive ? 'cursor-pointer' : 'cursor-default',
                         isOpen && 'bg-hover has-aria-expanded:bg-hover',
                       )}
-                      style={{ gridTemplateColumns: template }}
+                      style={{ '--table-cols': template } as CSSProperties}
                     >
                       {row.getVisibleCells().map((cell, index) => {
                         const source = sourceById.get(cell.column.id);

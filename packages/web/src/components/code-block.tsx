@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext, useState } from 'react';
+import { type CSSProperties, createContext, type ReactNode, useContext, useState } from 'react';
 import { cn } from '../lib/cn.js';
 import { CopyButton } from './copy-button.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './motion-collapsible.js';
@@ -128,8 +128,13 @@ export function CodeBlock({
           // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
           tabIndex={0}
           aria-label="代码内容"
-          className="overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-code-block-fg"
-          style={{ maxHeight }}
+          className={cn(
+            'overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-code-block-fg',
+            maxHeight !== undefined && 'max-h-(--code-max-h)',
+          )}
+          style={
+            maxHeight !== undefined ? ({ '--code-max-h': maxHeight } as CSSProperties) : undefined
+          }
         >
           <pre className="py-3 font-mono text-xs leading-5">
             <CodeLines code={code} lineNumbers={lineNumbers} json={json} />

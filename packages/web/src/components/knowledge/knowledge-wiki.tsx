@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { BookOpen, FileText, GitCompare, History, Link2, Network, Plus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import type {
@@ -195,9 +195,9 @@ export function WikiTab({
                     setGraphOpen(false);
                     onSelect(page.id);
                   }}
-                  style={{ paddingLeft: `${8 + depth * 12}px` }}
+                  style={{ '--tree-indent': `${8 + depth * 12}px` } as CSSProperties}
                   className={cn(
-                    'flex w-full flex-col gap-0.5 rounded-item py-1.5 pr-2 text-left text-sm transition-colors duration-150 ease-out-soft',
+                    'flex w-full flex-col gap-0.5 rounded-item py-1.5 pr-2 pl-(--tree-indent) text-left text-sm transition-colors duration-150 ease-out-soft',
                     page.id === pageId
                       ? 'bg-selected font-medium text-selected-foreground'
                       : 'text-muted-foreground hover:bg-hover hover:text-fg',

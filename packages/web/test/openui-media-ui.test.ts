@@ -301,8 +301,8 @@ describe('ImageText', () => {
     expect(img?.getAttribute('src')).toBe('https://example.com/avatar.png');
     expect(img?.getAttribute('alt')).toBe('标题');
     const box = img?.parentElement as HTMLElement;
-    expect(box.style.width).toBe('40px');
-    expect(box.style.height).toBe('40px');
+    expect(box.className).toContain('size-(--media-size)');
+    expect(box.style.getPropertyValue('--media-size')).toBe('40px');
     expect(host.textContent).toContain('标题');
     expect(host.textContent).toContain('副标题');
   });
@@ -321,8 +321,8 @@ describe('ImageText', () => {
       }),
     );
     const box = host.querySelector('img')?.parentElement as HTMLElement;
-    expect(box.style.width).toBe('64px');
-    expect(box.style.height).toBe('64px');
+    expect(box.className).toContain('size-(--media-size)');
+    expect(box.style.getPropertyValue('--media-size')).toBe('64px');
   });
 
   it('stacks a vertical layout with the official default size', async () => {
@@ -338,8 +338,8 @@ describe('ImageText', () => {
       }),
     );
     const box = host.querySelector('img')?.parentElement as HTMLElement;
-    expect(box.style.width).toBe('40px');
-    expect(box.style.height).toBe('40px');
+    expect(box.className).toContain('size-(--media-size)');
+    expect(box.style.getPropertyValue('--media-size')).toBe('40px');
   });
 });
 

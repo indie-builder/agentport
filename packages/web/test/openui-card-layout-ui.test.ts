@@ -235,9 +235,9 @@ describe('CompositeCard chart height', () => {
         'radial = RadialChart(["甲", "乙"], [30, 70])',
       ].join('\n'),
     );
-    const heights = [...host.querySelectorAll<HTMLElement>('[data-openui-chart-frame]')].map(
-      (frame) => frame.style.height,
-    );
+    const frames = [...host.querySelectorAll<HTMLElement>('[data-openui-chart-frame]')];
+    expect(frames.every((frame) => frame.className.includes('h-(--chart-h)'))).toBe(true);
+    const heights = frames.map((frame) => frame.style.getPropertyValue('--chart-h'));
     expect(heights).toEqual(['192px', '120px', '192px', '256px']);
   });
 });
