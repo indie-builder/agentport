@@ -416,7 +416,7 @@ export function ObservabilitySection({
 
           <PageSection
             divided={false}
-            title="运行明细"
+            title="指标明细"
             {...(obsTab === 'slo' ? { description: `评估窗口 ${data.sloWindowMinutes} 分钟` } : {})}
             actions={
               <SegmentedToggle

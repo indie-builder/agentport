@@ -34,6 +34,10 @@ export const loginBodySchema = z.object({
 });
 
 const accountParams = z.object({ businessId: businessIdSchema });
+const accountListQuerySchema = listQuerySchema.extend({
+  status: accountStatusSchema.optional(),
+  roleId: z.string().min(1).optional(),
+});
 const sessionParams = z.object({ id: z.string().min(1).max(200) });
 const okSchema = z.object({ ok: z.literal(true) });
 
@@ -89,7 +93,7 @@ export const authContract = {
   accounts: {
     list: readAccounts
       .route({ method: 'GET', path: '/accounts' })
-      .input(z.object({ query: listQuerySchema }))
+      .input(z.object({ query: accountListQuerySchema }))
       .output(offsetPageSchema(accountSchema)),
     create: manageAccounts
       .errors(domainErrors('CONFLICT'))

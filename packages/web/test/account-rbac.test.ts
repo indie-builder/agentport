@@ -52,6 +52,12 @@ const CATALOG: PermissionDefinition[] = [
     scopes: ['maintained_agents', 'owned_agents', 'platform'],
   },
   {
+    id: 'roles.read',
+    label: '查看角色',
+    treePath: ['平台', '角色'],
+    scopes: ['platform'],
+  },
+  {
     id: 'roles.manage',
     label: '管理角色',
     treePath: ['平台', '角色'],

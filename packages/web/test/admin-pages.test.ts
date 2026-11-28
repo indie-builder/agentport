@@ -225,7 +225,7 @@ describe('overview summaries', () => {
       updatedBy: null,
     });
 
-    await mountPage('/operations?tab=agents', OverviewPage, '/operations', operationsSearchSchema);
+    await mountPage('/operations', OverviewPage, '/operations', operationsSearchSchema);
 
     await waitFor(() => host.textContent?.includes('LongExpertName'));
     expect(host.textContent).toContain(enabled ? '已启用' : '已停用');

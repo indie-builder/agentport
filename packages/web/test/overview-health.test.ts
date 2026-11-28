@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { HealthMetrics, Overview } from '../src/lib/api.js';
 import { healthMetricsQuery, overviewQuery } from '../src/lib/queries.js';
 import { OverviewPage } from '../src/pages/overview.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
@@ -80,6 +81,7 @@ function renderHealth({
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, retryOnMount: false, gcTime: Infinity } },
   });
+  client.setQueryData(['me'], allAccessMe);
   client.setQueryData(overviewQuery.queryKey, overview());
   if (!pending) {
     const query = client.getQueryCache().build(client, healthMetricsQuery);

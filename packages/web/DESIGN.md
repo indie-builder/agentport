@@ -397,7 +397,7 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 
 ### Roles（角色）
 
-- **布局**：顶部横向每个角色一列，左上角为功能表头，列头用 `sunken` 底区分；左侧纵向为功能层级树的行头，父功能下缩进查看、创建等子功能，整组可展开收起，不把父子平铺成「专家 · 查看」；数据区只用 `surface`/白底，单元格只放复选框（父级三态），授权范围在矩阵外的角色设置中配置，整张矩阵一次保存。矩阵占用页头与工具栏之后的可用高度，由同一表格容器承担纵横滚动；角色列头在纵向滚动时保持可见，功能行头在横向滚动时固定在左侧。
+- **布局**：顶部横向每个角色一列，左上角为功能表头，列头用 `sunken` 底区分；左侧纵向为功能层级树的行头，父功能下缩进查看、创建等子功能，整组可展开收起，不把父子平铺成「专家 · 查看」；数据区只用 `surface`/白底，单元格只放复选框（父级三态），整张矩阵一次保存。矩阵占用页头与工具栏之后的可用高度，由同一表格容器承担纵横滚动；角色列头在纵向滚动时保持可见，功能行头在横向滚动时固定在左侧。该双轴固定权限矩阵与下方 RHF + TanStack Table 实现保持受保护；「角色设置」从居中阻塞弹窗升级为右侧 `md` `InspectorSheet`（560px，按业务域分组 + 搜索筛选授权范围），编辑时左侧矩阵保持可见。
 - **展开与未保存反馈**：保留上述布局；工具栏提供「全部展开」「全部收起」，每个功能组行头仍可独立折叠，搜索期间强制展开并禁用折叠。单元格变化按保存基线的逐叶 scope 集合差异判定，新增、撤销与范围调整分别标记（`td data-changed` + 中性浅底/边界，title 与复选框 `aria-description` 说明），父组收起时聚合子叶变化仍可见。工具栏显示真实变化的叶权限数与最近一次角色/功能/动作，改回基线或保存成功即清除；父组只聚合不重复计数。
 - **实现机制**：矩阵的唯一表单草稿由 `src/lib/use-zod-form.ts` 的 `useZodForm` + React Hook Form 管理：`useFieldArray` 负责角色增删，单元格与角色列头按字段路径用 `useController`/`useWatch` 订阅，`defaultValues`/`reset`/`dirty` 与离开保护共用同一份状态，不另存基线副本。功能层级行的展开收起由 TanStack Table 9.3.1 `rowExpandingFeature`（`createExpandedRowModel`、`autoResetExpanded:false`）管理，全部展开/收起用 `toggleAllRowsExpanded`。服务端状态仍由 TanStack Query、可导航状态仍由 TanStack Router 承担，职责不变。
 - **性能**：2026-10-31 在迁移前后用同一脚本、同一隔离夹具（89 个权限叶、4 个角色、556 个复选框）、1480×840 开发模式下，从 React 根 fiber 读取 `actualDuration`，预热 2 次、采样 12 次对比。迁移前（页内 memo + 手写草稿）点击窗口内全部 commit 合计中位/P95 为 23.95ms/34.10ms，迁移后（RHF + TanStack Table）为 16.70ms/18.40ms；角色名输入路径从 23.00ms/44.20ms 降到 15.95ms/23.80ms。点击的首次 commit 从 15.05ms 变为 16.60ms、事件到首次 commit 从 17.50ms 变为 21.85ms，略有回退；角色名输入的首次 commit 从 23.00ms 降到 13.40ms、事件到首次 commit 从 29.6ms 降到 19.6ms，因此不能概括为所有指标更快。数字为 React commit 时间，不等于绘制延迟，本轮未测绘制。基线以 RHF `defaultValues` 为唯一来源，变化计数按 `roleId` 统计 scope；重新加载返回 503 时保留草稿。本轮 90 个 web 用例及 typecheck/build/lint:focus/lint:contract/Biome/diffcheck 均通过。
@@ -406,11 +406,20 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 ### Operations（运维）
 
 - **导航：** 进入 `/operations` 后，主侧栏切换为运维上下文：**运维** 4 项（概况 `/operations`、运行 `/runs`、运行环境 `/runtime-environments`、审计 `/audit`；原观测与健康已收拢进 `/operations`）与**平台** 6 项（账户、角色、治理、模型供应商、安全运营、集成），底部保留「返回工作区」。
-- **右侧检查抽屉（`InspectorSheet`）：** 共享 `components/inspector-sheet.tsx` 承载运维列表速览、审计详情、版本日志/快照、运行上下文、冒烟诊断与数据保留 / SLO 设置，固定三档最大宽：`sm` 480px、`md` 560px、`lg` 640px，沿用 Overlay 阴影、内部滚动与关闭焦点还原。
-- **概况（`/operations`）：** 三分区 Line Tabs（总览 / SLO 与队列 / 系统健康，`?section=`）。总览为 4 指标卡 + 宽屏 2:1（左运行趋势卡含可展开同源数据表，右待处理事项卡）+ 下方「最近运行 / 专家运行」`DataTable` 切换，数据保留进 `sm` `InspectorSheet`；SLO 与队列为 4 指标卡 + 单行可点击告警链接条 + 三张 `DataTable`（SLO / 队列 / 供应商），SLO 设置在 `sm` `InspectorSheet` 支持 0–100% 百分比直输；系统健康为顶部存活/就绪探针条 + 2×2 共享 `Card`（`size="sm"` `hover="static"`）+ `RecordRows`，冒烟检查在 `sm` `InspectorSheet` 流式呈现。
+- **右侧检查抽屉（`InspectorSheet`）：** 共享 `components/inspector-sheet.tsx` 承载运维与平台列表速览、审计详情、版本日志/快照、运行上下文、冒烟诊断、数据保留 / SLO 设置及平台条目的检查与次级配置，固定三档最大宽：`sm` 480px、`md` 560px、`lg` 640px，沿用 Overlay 阴影、内部滚动与关闭焦点还原。
+- **概况（`/operations`）：** 三分区 Line Tabs（总览 / SLO 与队列 / 系统健康，`?section=`）。总览为 4 指标卡 + 宽屏 2:1（左运行趋势卡含可展开同源数据表，右待处理事项卡）+ 底部单一按专家聚合的「专家运行」`DataTable`（含导出 CSV 与管理专家，不再重复展示「最近运行」明细，个体运行记录归属独立 `/runs`），数据保留进 `sm` `InspectorSheet`；SLO 与队列为 4 指标卡 + 单行可点击告警链接条 +「指标明细」分区下的三张 `DataTable`（SLO / 队列 / 供应商），SLO 设置在 `sm` `InspectorSheet` 支持 0–100% 百分比直输；系统健康为顶部存活/就绪探针条 + 2×2 共享 `Card`（`size="sm"` `hover="static"`）+ `RecordRows`，冒烟检查在 `sm` `InspectorSheet` 流式呈现。
 - **运行（`/runs` 与 `/runs/$runId`）：** 列表默认 `table` 视图并保留 `ViewToggle` 切换紧凑 `cards`（`view=table|cards`），行内与卡片均支持在右侧 `md` `InspectorSheet`（`?preview=`）速览核心指标、错误与最近步骤。运行详情为常驻顶栏摘要 + Line Tabs（执行轨迹 / 交付与验收，`?tab=`）；执行轨迹在有界 `PageBody` 内组成独立滚动双栏工作台（`xl` 起左 320px 步骤时间线含全部 / 工具 / 消息快筛，右 `StepInspector` 工具参数/结果用 `Tabs` 切换），运行上下文 9 项收进 `sm` `InspectorSheet`。
 - **运行环境详情（`/runtime-environments/$environmentId`）：** 页头 `eyebrow` 展示默认标记与线上版本摘要，下接 Line Tabs（版本与构建 / Dockerfile 配置，`?tab=`）。版本列表点击行或「日志」打开右侧 `lg` `InspectorSheet`（640px，`?version=`），以 `SegmentedToggle` 切换构建日志与 Dockerfile 快照并支持设为线上；配置页使用满高 `SourceEditor`。
 - **审计（`/audit`）：** 保持 `DataTable`，默认 6 列且操作者前置（时间 / 操作者 / 动作 / 目标 / 状态 / 耗时；请求 ID 默认隐藏、`storageKey="pace.audit.columns"` 持久化）；工具栏为动作前缀搜索 + `FilterPopover` 并在顶部区外显 `ActiveFilterChips`，行详情在右侧 `md` `InspectorSheet` 呈现事件信息与变更明细。
+
+### Platform（平台）
+
+- **账户（`/accounts`）：** 默认表格视图（`view=table`，仍支持 `ViewToggle` 切换精简卡片），工具栏提供状态/角色筛选与 `ActiveFilterChips`；资料、角色与安全配置统一收拢至右侧 `md` `InspectorSheet`（内含 `资料` / `角色` / `安全` Line Tabs）。
+- **角色（`/roles`）：** 完整矩阵、性能与视觉记录见上方 Roles；保持受保护的双轴固定权限矩阵与 RHF + TanStack Table 实现，「角色设置」升级为右侧 `md` `InspectorSheet`（按业务域分组 + 搜索筛选授权范围），编辑时左侧矩阵保持可见。
+- **治理（`/governance`）：** 消除三层嵌套页头，主操作收进 `PageHeader`；成本区顶部配 4 列指标摘要与可排序 `DataTable`；预算与部门升级为 `DataTable` + `⋮` 行菜单，预算编辑（`sm`）与部门成员管理（`md`）移入右侧 `InspectorSheet`；授权区桌面改为左右主从布局（280px 资源列表 + 右侧授权表）；交接区收紧为两步（可搜索 `Combobox` 选人 + 单行摘要 + `Accordion` 资产明细）；告警区保留对齐列表单规约。
+- **模型供应商（`/models`）：** 保持默认卡片与表格切换，移除单字段 `FilterPopover`（状态筛选直放工具栏并外显 `ActiveFilterChips`）；表格精简为 6 个默认列（移除硬编码协议列），卡片模型徽章上限 3 枚并折叠为 `+N`；完整诊断、错误、模型列表与操作收进右侧 `md` `InspectorSheet`。
+- **安全运营（`/security`）：** 移除各分区重复 `h2`，「新建策略」进 `PageHeader`，外发审批与违规处置 Tab 显示待处理计数；策略、审批、事件、违规 4 张 `DataTable` 统一精简为 6 个默认列并配 `hideRowCount` 与 `ActiveFilterChips`；策略、审批、事件与违规全部接入右侧 `md` `InspectorSheet`（只读用户亦可查看违规处置结果）。
+- **集成（`/integrations`）：** 按激活 Tab 按需拉取数据，补全搜索与状态/方向筛选及 `ActiveFilterChips`；API 令牌与 Webhook 两张 `DataTable` 支持排序与列偏好持久化，展示令牌过期时间并支持入站 Webhook URL 一键复制；入站签名协议文档与条目检查统一移入右侧 `InspectorSheet`。
 
 ## Elevation & Depth
 

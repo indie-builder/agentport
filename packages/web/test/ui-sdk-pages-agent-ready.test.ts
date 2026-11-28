@@ -1269,6 +1269,68 @@ describe('all 11 core application routes agent-readiness', () => {
           updatedBy: 'test-admin',
         }),
       ),
+      http.get('/api/observability', () =>
+        HttpResponse.json({
+          window: { minutes: 60, since: ISO_T2 },
+          sloWindowMinutes: 60,
+          sloEnabled: true,
+          generatedAt: ISO_T3,
+          runs: {
+            total: 12,
+            finished: 12,
+            succeeded: 11,
+            failed: 1,
+            timeout: 0,
+            cancelled: 0,
+            running: 0,
+            successRate: 11 / 12,
+            errorRate: 1 / 12,
+            p50LatencyMs: 700,
+            p95LatencyMs: 1400,
+            p99LatencyMs: 1500,
+            costUsd: 0.42,
+            inputTokens: 3000,
+            outputTokens: 1500,
+          },
+          queues: [
+            {
+              name: 'runs',
+              waiting: 0,
+              active: 1,
+              completed: 12,
+              failed: 1,
+              delayed: 0,
+              oldestWaitingMs: null,
+            },
+          ],
+          providers: [],
+          slo: [
+            {
+              key: 'run_success',
+              label: '运行成功率',
+              target: 0.95,
+              actual: 11 / 12,
+              ok: false,
+              sampleSize: 12,
+            },
+          ],
+          alerts: {
+            openViolations: 0,
+            pendingApprovals: 1,
+            recentOpsAlerts: 0,
+          },
+        }),
+      ),
+      http.get('/api/observability/slo', () =>
+        HttpResponse.json({
+          enabled: true,
+          windowMinutes: 60,
+          runSuccessTarget: 0.95,
+          runP95LatencyMs: 120_000,
+          queueOldestWaitMs: 60_000,
+          providerErrorRateTarget: 0.05,
+        }),
+      ),
       http.get('/health/metrics', () =>
         HttpResponse.json({
           process: { uptimeSeconds: 1200, memoryRssBytes: 134_217_728, bunVersion: '1.3.1' },
@@ -1300,7 +1362,8 @@ describe('all 11 core application routes agent-readiness', () => {
         Boolean(
           host?.textContent?.includes('需要处理') &&
             host?.textContent?.includes('等待批准 issue_refund') &&
-            host?.textContent?.includes('数据保留'),
+            host?.textContent?.includes('数据保留') &&
+            host?.querySelector('table[aria-label="专家指标"]'),
         ),
       '/operations loaded',
     );
@@ -1308,19 +1371,36 @@ describe('all 11 core application routes agent-readiness', () => {
     const controls = visibleControls();
     assertAllVisibleControlsNamed(controls);
     expect(controls.map((entry) => entry.label)).toEqual(
-      expect.arrayContaining(['概况分区', '数据保留', '切换区段']),
+      expect.arrayContaining(['概况分区', '数据保留', '导出 CSV']),
     );
     expect(host?.textContent).toContain('等待批准 issue_refund');
 
-    const switchSegment = await runAgentAct([
-      { ref: '切换区段', action: 'setValue', args: ['agents'] },
+    const switchSection = await runAgentAct([
+      { ref: '概况分区', action: 'setValue', args: ['observability'] },
     ]);
-    expect(switchSegment.ok, switchSegment.error?.message).toBe(true);
+    expect(switchSection.ok, switchSection.error?.message).toBe(true);
     await waitForPageReady(
       () =>
-        Boolean(host?.textContent?.includes('导出 CSV')) &&
-        router.state.location.searchStr.includes('agents'),
-      '/operations switched to agents segment',
+        Boolean(host?.textContent?.includes('指标明细')) &&
+        router.state.location.searchStr.includes('observability'),
+      '/operations switched to observability section',
+    );
+
+    const obsControls = visibleControls();
+    assertAllVisibleControlsNamed(obsControls);
+    expect(obsControls.map((entry) => entry.label)).toEqual(
+      expect.arrayContaining(['概况分区', '看板统计窗口', 'SLO 设置', '切换区段']),
+    );
+
+    const switchObsSegment = await runAgentAct([
+      { ref: '切换区段', action: 'setValue', args: ['queues'] },
+    ]);
+    expect(switchObsSegment.ok, switchObsSegment.error?.message).toBe(true);
+    await waitForPageReady(
+      () =>
+        Boolean(host?.querySelector('table[aria-label="队列"]')) &&
+        router.state.location.searchStr.includes('queues'),
+      '/operations switched to queues segment',
     );
   });
 
@@ -1459,7 +1539,7 @@ describe('all 11 core application routes agent-readiness', () => {
     const controls = visibleControls();
     assertAllVisibleControlsNamed(controls);
     expect(controls.map((entry) => entry.label)).toEqual(
-      expect.arrayContaining(['创建令牌', '集成分区', '切换视图']),
+      expect.arrayContaining(['新建令牌', '集成分区', '切换视图']),
     );
 
     const switchTab = await runAgentAct([
@@ -1478,11 +1558,11 @@ describe('all 11 core application routes agent-readiness', () => {
     ]);
     expect(backToTokens.ok, backToTokens.error?.message).toBe(true);
     await waitForPageReady(
-      () => Boolean(host?.textContent?.includes('创建令牌')),
+      () => Boolean(host?.textContent?.includes('新建令牌')),
       '/integrations back to tokens tab',
     );
 
-    const openDialog = await runAgentAct([{ ref: '创建令牌', action: 'press' }]);
+    const openDialog = await runAgentAct([{ ref: '新建令牌', action: 'press' }]);
     expect(openDialog.ok, openDialog.error?.message).toBe(true);
     await waitForPageReady(
       () => Boolean(document.getElementById('api-token-name')),
@@ -1491,7 +1571,7 @@ describe('all 11 core application routes agent-readiness', () => {
     const submitToken = await runAgentAct([
       { ref: '名称 必填', action: 'setValue', args: ['自动化集成令牌'] },
       { ref: '触发运行runs.create', action: 'setChecked', args: [true] },
-      { ref: '创建令牌', action: 'press', args: ['创建令牌'] },
+      { ref: '新建令牌', action: 'press', args: ['新建令牌'] },
     ]);
     expect(submitToken.ok, submitToken.error?.message).toBe(true);
     await waitForPageReady(
@@ -1564,7 +1644,13 @@ describe('all 11 core application routes agent-readiness', () => {
 
     const initialControls = visibleControls();
     expect(initialControls.map((entry) => entry.label)).toEqual(
-      expect.arrayContaining(['新建账户', '搜索账户', '切换视图', '编辑 张三', '编辑 李四']),
+      expect.arrayContaining([
+        '新建账户',
+        '搜索账户',
+        '切换视图',
+        '查看 张三 详情',
+        '查看 李四 详情',
+      ]),
     );
 
     const rowMenuEntry = initialControls.find(
@@ -1591,9 +1677,11 @@ describe('all 11 core application routes agent-readiness', () => {
     ]);
     expect(openReset.ok, openReset.error?.message).toBe(true);
     await waitForPageReady(
-      () => Boolean(document.body.textContent?.includes('重置「张三」的密码')),
-      'reset password dialog opened',
+      () => Boolean(document.getElementById('account-reset-password')),
+      'account inspector security tab opened',
     );
+
+    assertAllVisibleControlsNamed(visibleControls());
 
     const typePassword = await runAgentAct([
       { ref: '新密码', action: 'setValue', args: ['SuperSecret#2026'] },

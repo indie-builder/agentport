@@ -1,6 +1,6 @@
 import { AppError, fail } from '@agentport/core';
 import type { Account, RoleSummary } from '@agentport/shared';
-import { and, asc, count, eq, inArray, isNull, ne, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, exists, inArray, isNull, ne, or, type SQL, sql } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../client.js';
 import {
   apiTokens,
@@ -97,7 +97,13 @@ async function accountFromRow(db: DbHandle, row: AccountRow): Promise<Account> {
 
 export async function listAccounts(
   db: DbHandle,
-  input: { q?: string; limit: number; offset: number },
+  input: {
+    q?: string;
+    status?: Account['status'];
+    roleId?: string;
+    limit: number;
+    offset: number;
+  },
 ): Promise<{ items: Account[]; total: number }> {
   const filters: SQL[] = [];
   if (input.q !== undefined && input.q !== '') {
@@ -107,6 +113,21 @@ export async function listAccounts(
       ilikeContains(authUsers.name, input.q),
     );
     if (search) filters.push(search);
+  }
+  if (input.status !== undefined) {
+    filters.push(eq(authUsers.disabled, input.status === 'disabled'));
+  }
+  if (input.roleId !== undefined) {
+    filters.push(
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(userRoles)
+          .where(
+            and(eq(userRoles.businessId, authUsers.businessId), eq(userRoles.roleId, input.roleId)),
+          ),
+      ),
+    );
   }
   const where = and(...filters);
   const [rows, total] = await Promise.all([

@@ -81,6 +81,7 @@ type Features = typeof features;
 
 const dataTableRows = definePrimitive({
   name: 'data-table-rows',
+  agent: { shown: () => false },
   state: () => ({ focused: null as string | null }),
   api: (context) => {
     const roving = createRovingFocus(context, {

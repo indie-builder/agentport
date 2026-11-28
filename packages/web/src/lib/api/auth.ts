@@ -32,7 +32,13 @@ export default {
     rpc.auth.login({ body: { username, password } }),
   logout: (): Promise<{ ok: boolean }> => rpc.auth.logout(),
   accounts: (
-    query: { q?: string; limit?: number; offset?: number } = {},
+    query: {
+      q?: string;
+      status?: Account['status'];
+      roleId?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
     signal?: AbortSignal,
   ): Promise<AccountPage> => rpc.auth.accounts.list({ query }, clientOptions(signal)),
   createAccount: (input: CreateAccountInput): Promise<Account> =>

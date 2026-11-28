@@ -1,16 +1,27 @@
 import { type ModelProvider, modelProviderCreateSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { createMenuController, type MenuController } from '@ui-sdk/react/menu';
+import {
+  Activity,
+  CircleAlert,
+  CirclePause,
+  CirclePlay,
+  EllipsisVertical,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react';
+import { useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { CopyButton } from '../components/copy-button.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
-import { FilterPopover } from '../components/filter-popover.js';
 import { FilterSelect } from '../components/filter-select.js';
+import { InspectorSheet } from '../components/inspector-sheet.js';
 import {
   Page,
   PageBody,
@@ -23,6 +34,7 @@ import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
 import {
+  ActiveFilterChips,
   type EmptyFilterChip,
   EmptyState,
   ErrorState,
@@ -39,6 +51,14 @@ import {
   CardTitle,
 } from '../components/ui/card.js';
 import { Dialog } from '../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
 import {
   Field,
   FieldDescription,
@@ -64,7 +84,14 @@ import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
-import { formatCost, formatDateTime, formatRelative, formatTokens } from '../lib/format.js';
+import {
+  formatCost,
+  formatDateTime,
+  formatDuration,
+  formatPercent,
+  formatRelative,
+  formatTokens,
+} from '../lib/format.js';
 import {
   meQuery,
   useCreateModelProvider,
@@ -88,8 +115,51 @@ const statusOptions = [
   { value: 'disabled', label: '已停用' },
 ];
 
+function healthTone(state: ModelProvider['health']['state']): 'success' | 'danger' | 'default' {
+  if (state === 'healthy') return 'success';
+  if (state === 'unhealthy') return 'danger';
+  return 'default';
+}
+
+function providerCapabilityLabel(models: readonly string[]): string {
+  const hasEmbedding = models.some((model) => /embed/i.test(model));
+  const hasChat = models.some((model) => !/embed/i.test(model));
+  if (hasChat && hasEmbedding) return '对话 · 向量';
+  if (hasEmbedding) return '向量';
+  return '对话';
+}
+
 function baseHost(value: string): string {
   return URL.canParse(value) ? new URL(value).host : value;
+}
+
+function ProviderRowMenu({
+  provider,
+  menu,
+  onTrigger,
+}: {
+  provider: ModelProvider;
+  menu: MenuController<ModelProvider>;
+  onTrigger: (trigger: HTMLElement) => void;
+}) {
+  return (
+    <DropdownMenuTrigger
+      controller={menu}
+      payload={provider}
+      render={
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`更多操作 ${provider.name}`}
+          onFocus={(event) => onTrigger(event.currentTarget)}
+          onPointerDown={(event) => onTrigger(event.currentTarget)}
+          onClick={(event) => onTrigger(event.currentTarget)}
+        >
+          <EllipsisVertical aria-hidden="true" />
+        </Button>
+      }
+    />
+  );
 }
 
 export function ModelsPage() {
@@ -100,18 +170,34 @@ export function ModelsPage() {
   const providers = useModelProviders();
   const remove = useDeleteModelProvider();
   const test = useTestModelProvider();
+  const update = useUpdateModelProvider();
+  const [rowMenu] = useState(() => createMenuController<ModelProvider>());
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ModelProvider | null>(null);
   const [deleting, setDeleting] = useState<ModelProvider | null>(null);
+  const [inspectedId, setInspectedId] = useState<string | null>(null);
+  const inspectorTriggerRef = useRef<HTMLElement | null>(null);
+  const menuTriggerRef = useRef<HTMLElement | null>(null);
+  const providerDialogTriggerRef = useRef<HTMLElement | null>(null);
+  const deleteTriggerRef = useRef<HTMLElement | null>(null);
+  const lastProviderRef = useRef<ModelProvider | null>(null);
 
   const rows = providers.data ?? [];
-  const q = (search.q ?? '').trim().toLowerCase();
+  const trimmedQ = (search.q ?? '').trim();
+  const q = trimmedQ.toLowerCase();
   const status = search.status ?? 'all';
   const view: ListView = search.view ?? 'cards';
   const setView = (next: ListView): void => {
     void navigate({
       to: '/models',
       search: { ...search, view: next === 'cards' ? undefined : next },
+    });
+  };
+  const clearFilters = (): void => {
+    void navigate({
+      to: '/models',
+      search: search.view ? { view: search.view } : {},
+      replace: true,
     });
   };
   const filtered = rows.filter((provider) => {
@@ -124,6 +210,57 @@ export function ModelsPage() {
       provider.models.some((model) => model.toLowerCase().includes(q))
     );
   });
+  const isFilteredEmpty = rows.length > 0 && filtered.length === 0;
+  const activeFilters: EmptyFilterChip[] = [
+    ...(trimmedQ
+      ? [
+          {
+            key: 'q',
+            label: '关键词',
+            value: trimmedQ,
+            onRemove: () =>
+              void navigate({
+                to: '/models',
+                search: { ...search, q: undefined },
+                replace: true,
+              }),
+          },
+        ]
+      : []),
+    ...(status !== 'all'
+      ? [
+          {
+            key: 'status',
+            label: '状态',
+            value: status === 'enabled' ? '已启用' : '已停用',
+            onRemove: () =>
+              void navigate({
+                to: '/models',
+                search: { ...search, status: undefined },
+                replace: true,
+              }),
+          },
+        ]
+      : []),
+  ];
+
+  const inspectedProvider = inspectedId
+    ? (rows.find((provider) => provider.id === inspectedId) ?? null)
+    : null;
+  if (inspectedProvider) lastProviderRef.current = inspectedProvider;
+  const displayedProvider = inspectedProvider ?? lastProviderRef.current;
+  const inspector = useDialogClose(() => setInspectedId(null), inspectedProvider !== null);
+
+  const openInspector = (provider: ModelProvider, trigger: HTMLElement): void => {
+    inspectorTriggerRef.current = trigger;
+    setInspectedId(provider.id);
+  };
+
+  const openCreate = (trigger: HTMLElement): void => {
+    providerDialogTriggerRef.current = trigger;
+    setCreating(true);
+  };
+
   const totalCost = rows.reduce((sum, provider) => sum + provider.usage.costUsd, 0);
   const budgets = rows.flatMap((provider) =>
     provider.monthlyBudgetUsd === null ? [] : [provider.monthlyBudgetUsd],
@@ -143,120 +280,171 @@ export function ModelsPage() {
     });
   };
 
+  const toggleEnabled = (provider: ModelProvider): void => {
+    update.mutate(
+      { id: provider.id, input: { enabled: !provider.enabled } },
+      {
+        onSuccess: () => {
+          toastSuccess(provider.enabled ? `已停用 ${provider.name}` : `已启用 ${provider.name}`);
+        },
+        onError: toastError,
+      },
+    );
+  };
+
   const columns: DataColumn<ModelProvider>[] = [
     {
       id: 'name',
       header: '名称',
       locked: true,
-      width: 'minmax(150px,1.2fr)',
+      width: 'minmax(180px,1.5fr)',
       sortValue: (provider) => provider.name,
       cell: (provider) => (
-        <span className="min-w-0 font-medium text-fg [overflow-wrap:anywhere]">
-          {provider.name}
-        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-medium text-fg"
+            title={provider.name}
+          >
+            {provider.name}
+          </span>
+          <StatusBadge tone={provider.enabled ? 'success' : 'default'} className="shrink-0">
+            {provider.enabled ? '已启用' : '已停用'}
+          </StatusBadge>
+        </div>
       ),
     },
     {
-      id: 'protocol',
-      header: '协议',
-      width: '112px',
-      cell: () => 'Anthropic',
-    },
-    {
-      id: 'baseUrl',
-      header: 'Base URL',
+      id: 'capability',
+      header: '能力/类型',
       width: 'minmax(140px,1fr)',
+      sortValue: (provider) => provider.models.length,
       cell: (provider) => (
-        <span className="min-w-0 font-mono text-xs text-muted-foreground">
-          {baseHost(provider.baseUrl)}
-        </span>
-      ),
-    },
-    {
-      id: 'models',
-      header: '模型',
-      width: 'minmax(160px,1fr)',
-      cell: (provider) => (
-        <span className="flex min-w-0 flex-wrap items-center gap-1">
-          {provider.models.slice(0, 2).map((model) => (
-            <StatusBadge key={model} tone="mono">
-              {model}
-            </StatusBadge>
-          ))}
-          {provider.models.length > 2 ? (
-            <span className="text-xs text-muted-foreground">+{provider.models.length - 2}</span>
-          ) : null}
-        </span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-fg">
+            {providerCapabilityLabel(provider.models)}
+          </span>
+          <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+            {provider.models.length} 个模型
+          </span>
+        </div>
       ),
     },
     {
       id: 'priority',
       header: '优先级',
       numeric: true,
-      width: '76px',
+      width: '84px',
       sortValue: (provider) => provider.priority,
       cell: (provider) => provider.priority,
     },
     {
-      id: 'health',
-      header: '健康',
-      width: '116px',
-      sortValue: (provider) => provider.health.state,
-      cell: (provider) => (
-        <span className="flex min-w-0 flex-col gap-1">
-          <StatusBadge
-            tone={
-              provider.health.state === 'healthy'
-                ? 'success'
-                : provider.health.state === 'unhealthy'
-                  ? 'danger'
-                  : 'default'
-            }
-          >
-            {HEALTH_LABEL[provider.health.state]}
-          </StatusBadge>
-          {provider.health.message ? (
-            <span
-              className="text-xs text-muted-foreground [overflow-wrap:anywhere]"
-              title={provider.health.message}
-            >
-              {provider.health.message}
-            </span>
-          ) : null}
-        </span>
-      ),
+      id: 'monthlyBudget',
+      header: '月预算',
+      numeric: true,
+      width: '108px',
+      sortValue: (provider) => provider.monthlyBudgetUsd,
+      cell: (provider) =>
+        provider.monthlyBudgetUsd === null ? (
+          <span className="text-muted-foreground">未设预算</span>
+        ) : (
+          <span className="tabular-nums text-fg">{formatCost(provider.monthlyBudgetUsd)}</span>
+        ),
     },
     {
       id: 'usage',
-      header: '本月成本 / 预算',
+      header: '本月用量',
       numeric: true,
-      width: '132px',
+      width: '116px',
       sortValue: (provider) => provider.usage.costUsd,
       cell: (provider) => (
-        <span className="tabular-nums">
+        <span
+          className="block overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-fg"
+          title={`${provider.usage.requests} 次请求 · ${formatTokens(provider.usage.inputTokens)} 输入 / ${formatTokens(provider.usage.outputTokens)} 输出`}
+        >
           {formatCost(provider.usage.costUsd)}
-          <span className="text-muted-foreground">
-            {' / '}
-            {provider.monthlyBudgetUsd === null
-              ? '未设预算'
-              : formatCost(provider.monthlyBudgetUsd)}
-          </span>
         </span>
       ),
     },
     {
-      id: 'enabled',
-      header: '启用',
-      width: '76px',
+      id: 'baseUrl',
+      header: '端点地址',
+      hiddenByDefault: true,
+      width: 'minmax(160px,1fr)',
+      sortValue: (provider) => baseHost(provider.baseUrl),
       cell: (provider) => (
-        <StatusBadge tone={provider.enabled ? 'success' : 'default'}>
-          {provider.enabled ? '启用' : '停用'}
+        <span
+          className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs text-muted-foreground"
+          title={provider.baseUrl}
+        >
+          {baseHost(provider.baseUrl)}
+        </span>
+      ),
+    },
+    {
+      id: 'models',
+      header: '支持模型',
+      hiddenByDefault: true,
+      width: 'minmax(180px,1.2fr)',
+      cell: (provider) => (
+        <span
+          className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs text-muted-foreground"
+          {...(provider.models.length > 0 ? { title: provider.models.join(', ') } : {})}
+        >
+          {provider.models.length > 0 ? provider.models.join(', ') : '—'}
+        </span>
+      ),
+    },
+    {
+      id: 'health',
+      header: '健康状态',
+      hiddenByDefault: true,
+      width: '104px',
+      sortValue: (provider) => provider.health.state,
+      cell: (provider) => (
+        <StatusBadge tone={healthTone(provider.health.state)}>
+          {HEALTH_LABEL[provider.health.state]}
         </StatusBadge>
       ),
     },
     {
+      id: 'lastError',
+      header: '最近错误',
+      hiddenByDefault: true,
+      width: 'minmax(160px,1fr)',
+      cell: (provider) => (
+        <span
+          className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground"
+          {...(provider.lastError ? { title: provider.lastError } : {})}
+        >
+          {provider.lastError ?? '—'}
+        </span>
+      ),
+    },
+    {
+      id: 'credential',
+      header: '凭证状态',
+      hiddenByDefault: true,
+      width: '92px',
+      sortValue: (provider) => (provider.hasCredential ? 1 : 0),
+      cell: (provider) => (
+        <span className="text-xs text-muted-foreground">
+          {provider.hasCredential ? '已配置' : '未配置'}
+        </span>
+      ),
+    },
+    {
+      id: 'requests',
+      header: '本月请求',
+      hiddenByDefault: true,
+      numeric: true,
+      width: '92px',
+      sortValue: (provider) => provider.usage.requests,
+      cell: (provider) => provider.usage.requests,
+    },
+    {
       id: 'updatedAt',
       header: '更新时间',
+      hiddenByDefault: true,
       width: '108px',
       sortValue: (provider) => provider.updatedAt,
       cell: (provider) => (
@@ -265,88 +453,42 @@ export function ModelsPage() {
         </span>
       ),
     },
-    ...(canManage
-      ? [
-          {
-            id: 'actions',
-            header: '操作',
-            width: '196px',
-            align: 'end' as const,
-            cell: (provider: ModelProvider) => (
-              <div className="flex items-center justify-end gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`编辑供应商 ${provider.name}`}
-                  onClick={() => setEditing(provider)}
-                >
-                  编辑
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`测试供应商 ${provider.name} 连接`}
-                  disabled={test.isPending && test.variables === provider.id}
-                  onClick={() => runTest(provider)}
-                >
-                  测试连接
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`删除供应商 ${provider.name}`}
-                  onClick={() => setDeleting(provider)}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ),
-          },
-        ]
-      : []),
+    {
+      id: 'actions',
+      header: '操作',
+      locked: true,
+      width: canManage ? '116px' : '84px',
+      align: 'end',
+      cell: (provider) => (
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`查看供应商 ${provider.name} 详情`}
+            onClick={(event) => openInspector(provider, event.currentTarget)}
+          >
+            详情
+          </Button>
+          {canManage ? (
+            <ProviderRowMenu
+              provider={provider}
+              menu={rowMenu}
+              onTrigger={(trigger) => {
+                menuTriggerRef.current = trigger;
+              }}
+            />
+          ) : null}
+        </div>
+      ),
+    },
   ];
 
-  const expanded = (provider: ModelProvider) => (
-    <div className="flex flex-col gap-3 text-sm">
-      <div className="flex flex-wrap items-center gap-1">
-        {provider.models.map((model) => (
-          <StatusBadge key={model} tone="mono">
-            {model}
-          </StatusBadge>
-        ))}
-      </div>
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
-        <dt className="text-muted-foreground">凭证</dt>
-        <dd className="text-fg">{provider.hasCredential ? '已配置' : '未配置'}</dd>
-        <dt className="text-muted-foreground">最近成功</dt>
-        <dd className="text-fg">{formatDateTime(provider.lastSuccessAt)}</dd>
-        <dt className="text-muted-foreground">最近错误</dt>
-        <dd className="min-w-0 text-fg [overflow-wrap:anywhere]">
-          {provider.lastError ?? <span className="text-muted-foreground">无</span>}
-          {provider.lastErrorAt ? (
-            <span className="text-muted-foreground"> · {formatDateTime(provider.lastErrorAt)}</span>
-          ) : null}
-        </dd>
-        <dt className="text-muted-foreground">健康详情</dt>
-        <dd className="min-w-0 text-fg [overflow-wrap:anywhere]">
-          {provider.health.message ?? '—'}
-          {provider.health.checkedAt ? (
-            <span className="text-muted-foreground">
-              {' '}
-              · {formatDateTime(provider.health.checkedAt)}
-            </span>
-          ) : null}
-        </dd>
-        <dt className="text-muted-foreground">本月请求</dt>
-        <dd className="text-fg tabular-nums">{provider.usage.requests}</dd>
-        <dt className="text-muted-foreground">本月 token</dt>
-        <dd className="text-fg tabular-nums">
-          {formatTokens(provider.usage.inputTokens)} 输入 /{' '}
-          {formatTokens(provider.usage.outputTokens)} 输出
-        </dd>
-      </dl>
-    </div>
-  );
+  const displayedBudgetRatio =
+    displayedProvider &&
+    displayedProvider.monthlyBudgetUsd !== null &&
+    displayedProvider.monthlyBudgetUsd > 0
+      ? displayedProvider.usage.costUsd / displayedProvider.monthlyBudgetUsd
+      : null;
 
   return (
     <Page>
@@ -362,7 +504,7 @@ export function ModelsPage() {
             : {})}
           actions={
             canManage ? (
-              <Button onClick={() => setCreating(true)}>
+              <Button onClick={(event) => openCreate(event.currentTarget)}>
                 <Plus data-icon="inline-start" aria-hidden="true" /> 新建供应商
               </Button>
             ) : undefined
@@ -382,24 +524,22 @@ export function ModelsPage() {
             }
             className="w-full sm:w-56"
           />
-          <FilterPopover activeCount={status === 'all' ? 0 : 1}>
-            <FilterSelect
-              value={status}
-              onValueChange={(next) =>
-                void navigate({
-                  to: '/models',
-                  search: {
-                    ...search,
-                    status: next === 'all' ? undefined : (next as 'enabled' | 'disabled'),
-                  },
-                  replace: true,
-                })
-              }
-              options={statusOptions}
-              label="按启用状态筛选"
-              className="w-full"
-            />
-          </FilterPopover>
+          <FilterSelect
+            value={status}
+            onValueChange={(next) =>
+              void navigate({
+                to: '/models',
+                search: {
+                  ...search,
+                  status: next === 'all' ? undefined : (next as 'enabled' | 'disabled'),
+                },
+                replace: true,
+              })
+            }
+            options={statusOptions}
+            label="按启用状态筛选"
+            className="w-32"
+          />
           <div className="ml-auto flex min-w-0 flex-wrap items-center gap-3">
             {filtered.length > 0 ? (
               <>
@@ -411,6 +551,9 @@ export function ModelsPage() {
             ) : null}
           </div>
         </PageToolbar>
+        {!isFilteredEmpty && activeFilters.length > 0 ? (
+          <ActiveFilterChips filters={activeFilters} onClearAll={clearFilters} />
+        ) : null}
       </PageTopbar>
 
       <PageBody>
@@ -432,7 +575,7 @@ export function ModelsPage() {
               description="接入 LLM 与向量模型端点后，专家运行与知识库检索即可生效。"
               action={
                 canManage ? (
-                  <Button onClick={() => setCreating(true)}>
+                  <Button onClick={(event) => openCreate(event.currentTarget)}>
                     <Plus data-icon="inline-start" aria-hidden="true" /> 新建供应商
                   </Button>
                 ) : undefined
@@ -440,51 +583,14 @@ export function ModelsPage() {
               footer={canManage ? undefined : '当前账户没有管理模型供应商的权限。'}
             />
           ) : null}
-          {rows.length > 0 && filtered.length === 0 ? (
+          {isFilteredEmpty ? (
             <EmptyState
               variant="filter"
               scale="section"
               title="没有匹配的模型供应商"
-              activeFilters={
-                [
-                  ...(search.q?.trim()
-                    ? [
-                        {
-                          key: 'q',
-                          label: '关键词',
-                          value: search.q.trim(),
-                          onRemove: () =>
-                            void navigate({
-                              to: '/models',
-                              search: { ...search, q: undefined },
-                              replace: true,
-                            }),
-                        },
-                      ]
-                    : []),
-                  ...(status !== 'all'
-                    ? [
-                        {
-                          key: 'status',
-                          label: '状态',
-                          value: status === 'enabled' ? '已启用' : '已停用',
-                          onRemove: () =>
-                            void navigate({
-                              to: '/models',
-                              search: { ...search, status: undefined },
-                              replace: true,
-                            }),
-                        },
-                      ]
-                    : []),
-                ] satisfies EmptyFilterChip[]
-              }
+              activeFilters={activeFilters}
               action={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void navigate({ to: '/models', search: {} })}
-                >
+                <Button variant="outline" size="sm" onClick={clearFilters}>
                   清除全部筛选
                 </Button>
               }
@@ -497,8 +603,8 @@ export function ModelsPage() {
               rowKey={(provider) => provider.id}
               rowLabel={(provider) => provider.name}
               label="模型供应商"
-              storageKey="pace.models.provider-columns"
-              renderExpanded={expanded}
+              storageKey="pace.models.columns"
+              onRowClick={(provider, trigger) => openInspector(provider, trigger)}
               hideRowCount
             />
           ) : null}
@@ -509,44 +615,58 @@ export function ModelsPage() {
             >
               {filtered.map((provider) => (
                 <li key={provider.id} className="min-w-0">
-                  <Card size="sm" className="h-full">
+                  <Card size="sm" hover="shadow" className="h-full">
                     <CardHeader className="grid-cols-[minmax(0,1fr)_auto]! items-center">
                       <CardTitle className="min-w-0 truncate" title={provider.name}>
                         {provider.name}
                       </CardTitle>
                       <CardAction className="col-start-2 row-start-1 flex items-center gap-1 self-center">
                         <StatusBadge tone={provider.enabled ? 'success' : 'default'}>
-                          {provider.enabled ? '启用' : '停用'}
+                          {provider.enabled ? '已启用' : '已停用'}
                         </StatusBadge>
                       </CardAction>
                     </CardHeader>
                     <CardContent className="flex flex-1 flex-col gap-3">
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        {provider.models.length > 0 ? (
+                          <>
+                            {provider.models.slice(0, 3).map((model) => (
+                              <StatusBadge
+                                key={model}
+                                tone="mono"
+                                title={model}
+                                className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+                              >
+                                {model}
+                              </StatusBadge>
+                            ))}
+                            {provider.models.length > 3 ? (
+                              <StatusBadge tone="outline">
+                                +{provider.models.length - 3}
+                              </StatusBadge>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">未配置模型</span>
+                        )}
+                      </div>
                       <RecordRows
                         rows={[
                           {
-                            label: '模型',
-                            value: provider.models.length
-                              ? `${provider.models.length} 个：${provider.models.slice(0, 2).join('、')}${provider.models.length > 2 ? ' 等' : ''}`
-                              : '—',
-                          },
-                          {
-                            label: '健康',
+                            label: '健康 · 优先级',
                             value: (
-                              <StatusBadge
-                                tone={
-                                  provider.health.state === 'healthy'
-                                    ? 'success'
-                                    : provider.health.state === 'unhealthy'
-                                      ? 'danger'
-                                      : 'default'
-                                }
-                              >
-                                {HEALTH_LABEL[provider.health.state]}
-                              </StatusBadge>
+                              <span className="inline-flex items-center gap-2">
+                                <StatusBadge tone={healthTone(provider.health.state)}>
+                                  {HEALTH_LABEL[provider.health.state]}
+                                </StatusBadge>
+                                <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                                  #{provider.priority}
+                                </span>
+                              </span>
                             ),
                           },
                           {
-                            label: '本月成本 / 预算',
+                            label: '本月用量 / 预算',
                             value: (
                               <span className="tabular-nums">
                                 {formatCost(provider.usage.costUsd)}
@@ -562,35 +682,36 @@ export function ModelsPage() {
                         ]}
                       />
                     </CardContent>
-                    {canManage ? (
-                      <CardFooter className="justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`编辑供应商 ${provider.name}`}
-                          onClick={() => setEditing(provider)}
-                        >
-                          编辑
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`测试供应商 ${provider.name} 连接`}
-                          disabled={test.isPending && test.variables === provider.id}
-                          onClick={() => runTest(provider)}
-                        >
-                          测试连接
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`删除供应商 ${provider.name}`}
-                          onClick={() => setDeleting(provider)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </CardFooter>
-                    ) : null}
+                    <CardFooter className="justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`查看供应商 ${provider.name} 详情`}
+                        onClick={(event) => openInspector(provider, event.currentTarget)}
+                      >
+                        详情
+                      </Button>
+                      {canManage ? (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`测试供应商 ${provider.name} 连通性`}
+                            disabled={test.isPending && test.variables === provider.id}
+                            onClick={() => runTest(provider)}
+                          >
+                            测试连通
+                          </Button>
+                          <ProviderRowMenu
+                            provider={provider}
+                            menu={rowMenu}
+                            onTrigger={(trigger) => {
+                              menuTriggerRef.current = trigger;
+                            }}
+                          />
+                        </>
+                      ) : null}
+                    </CardFooter>
                   </Card>
                 </li>
               ))}
@@ -599,16 +720,323 @@ export function ModelsPage() {
         </PageSection>
       </PageBody>
 
-      {creating ? <ProviderDialog onClose={() => setCreating(false)} /> : null}
-      {editing ? <ProviderDialog provider={editing} onClose={() => setEditing(null)} /> : null}
+      <InspectorSheet
+        open={inspector.open}
+        onOpenChange={(next) => {
+          if (!next) inspector.close();
+        }}
+        onOpenChangeComplete={(next) => {
+          inspector.onOpenChangeComplete(next);
+          if (!next) lastProviderRef.current = null;
+        }}
+        size="md"
+        title={displayedProvider?.name ?? '供应商详情'}
+        eyebrow={
+          displayedProvider ? (
+            <StatusBadge tone={displayedProvider.enabled ? 'success' : 'default'}>
+              {displayedProvider.enabled ? '已启用' : '已停用'}
+            </StatusBadge>
+          ) : null
+        }
+        {...(displayedProvider
+          ? {
+              description: `${baseHost(displayedProvider.baseUrl)} · 优先级 ${displayedProvider.priority}`,
+            }
+          : {})}
+        finalFocus={() =>
+          inspectorTriggerRef.current?.isConnected ? inspectorTriggerRef.current : null
+        }
+        {...(displayedProvider && canManage
+          ? {
+              footer: (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      deleteTriggerRef.current = inspectorTriggerRef.current;
+                      inspector.finish(() => {
+                        setInspectedId(null);
+                        setDeleting(displayedProvider);
+                      });
+                    }}
+                  >
+                    <Trash2 data-icon="inline-start" aria-hidden="true" />
+                    删除
+                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={update.isPending && update.variables?.id === displayedProvider.id}
+                      onClick={() => toggleEnabled(displayedProvider)}
+                    >
+                      {displayedProvider.enabled ? '停用' : '启用'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={test.isPending && test.variables === displayedProvider.id}
+                      onClick={() => runTest(displayedProvider)}
+                    >
+                      测试连通
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        providerDialogTriggerRef.current = inspectorTriggerRef.current;
+                        inspector.finish(() => {
+                          setInspectedId(null);
+                          setEditing(displayedProvider);
+                        });
+                      }}
+                    >
+                      编辑
+                    </Button>
+                  </div>
+                </div>
+              ),
+            }
+          : {})}
+      >
+        {displayedProvider ? (
+          <div className="flex min-w-0 flex-col gap-6">
+            <section className="flex min-w-0 flex-col gap-3">
+              <h2 className="text-sm font-medium text-fg">基本配置</h2>
+              <dl className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2.5 text-xs">
+                <dt className="text-muted-foreground">状态</dt>
+                <dd className="min-w-0">
+                  <StatusBadge tone={displayedProvider.enabled ? 'success' : 'default'}>
+                    {displayedProvider.enabled ? '已启用' : '已停用'}
+                  </StatusBadge>
+                </dd>
+                <dt className="text-muted-foreground">优先级</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {displayedProvider.priority}
+                </dd>
+                <dt className="text-muted-foreground">能力/类型</dt>
+                <dd className="min-w-0 text-fg">
+                  {providerCapabilityLabel(displayedProvider.models)}
+                </dd>
+                <dt className="text-muted-foreground">协议</dt>
+                <dd className="min-w-0 font-mono text-fg">{displayedProvider.protocol}</dd>
+                <dt className="text-muted-foreground">端点地址</dt>
+                <dd className="flex min-w-0 items-start justify-between gap-2">
+                  <span className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
+                    {displayedProvider.baseUrl}
+                  </span>
+                  <CopyButton
+                    value={displayedProvider.baseUrl}
+                    label="复制端点地址"
+                    className="-my-1 -mr-1.5 shrink-0"
+                  />
+                </dd>
+                <dt className="text-muted-foreground">凭证</dt>
+                <dd className="min-w-0 text-fg">
+                  {displayedProvider.hasCredential ? '已配置' : '未配置'}
+                </dd>
+                <dt className="text-muted-foreground">更新时间</dt>
+                <dd className="min-w-0 text-fg">
+                  {formatDateTime(displayedProvider.updatedAt)}
+                  <span className="text-muted-foreground">
+                    {' '}
+                    · {formatRelative(displayedProvider.updatedAt)}
+                  </span>
+                </dd>
+              </dl>
+            </section>
+
+            <section className="flex min-w-0 flex-col gap-3 border-t border-line pt-5">
+              <div className="flex items-baseline justify-between gap-2">
+                <h2 className="text-sm font-medium text-fg">支持模型</h2>
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  共 {displayedProvider.models.length} 个
+                </span>
+              </div>
+              {displayedProvider.models.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {displayedProvider.models.map((model) => (
+                    <StatusBadge key={model} tone="mono">
+                      {model}
+                    </StatusBadge>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">未配置模型。</p>
+              )}
+            </section>
+
+            <section className="flex min-w-0 flex-col gap-3 border-t border-line pt-5">
+              <h2 className="text-sm font-medium text-fg">月预算与本月用量</h2>
+              <dl className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2.5 text-xs">
+                <dt className="text-muted-foreground">本月费用</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {formatCost(displayedProvider.usage.costUsd)}
+                </dd>
+                <dt className="text-muted-foreground">月预算</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {displayedProvider.monthlyBudgetUsd === null ? (
+                    <span className="font-sans text-muted-foreground">未设预算</span>
+                  ) : (
+                    formatCost(displayedProvider.monthlyBudgetUsd)
+                  )}
+                </dd>
+                {displayedBudgetRatio !== null ? (
+                  <>
+                    <dt className="text-muted-foreground">预算使用率</dt>
+                    <dd className="min-w-0 font-mono tabular-nums text-fg">
+                      {formatPercent(displayedBudgetRatio)}
+                    </dd>
+                  </>
+                ) : null}
+                <dt className="text-muted-foreground">告警阈值</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {formatPercent(displayedProvider.alertRatio)}
+                </dd>
+                <dt className="text-muted-foreground">本月请求</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {displayedProvider.usage.requests}
+                </dd>
+                <dt className="text-muted-foreground">本月 Token</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {formatTokens(displayedProvider.usage.inputTokens)} 输入 /{' '}
+                  {formatTokens(displayedProvider.usage.outputTokens)} 输出
+                </dd>
+              </dl>
+            </section>
+
+            <section className="flex min-w-0 flex-col gap-3 border-t border-line pt-5">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-sm font-medium text-fg">连通与诊断</h2>
+                <StatusBadge tone={healthTone(displayedProvider.health.state)}>
+                  {HEALTH_LABEL[displayedProvider.health.state]}
+                </StatusBadge>
+              </div>
+              <dl className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2.5 text-xs">
+                <dt className="text-muted-foreground">最近检测</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {formatDateTime(displayedProvider.health.checkedAt)}
+                </dd>
+                <dt className="text-muted-foreground">检测延迟</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {formatDuration(displayedProvider.health.latencyMs)}
+                </dd>
+                <dt className="text-muted-foreground">检测信息</dt>
+                <dd className="min-w-0 [overflow-wrap:anywhere] text-fg">
+                  {displayedProvider.health.message ?? (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </dd>
+                <dt className="text-muted-foreground">最近成功</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {formatDateTime(displayedProvider.lastSuccessAt)}
+                </dd>
+                <dt className="text-muted-foreground">最近错误时间</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {formatDateTime(displayedProvider.lastErrorAt)}
+                </dd>
+              </dl>
+              {displayedProvider.lastError ? (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2.5 rounded-item border border-line bg-danger-soft p-3"
+                >
+                  <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-medium text-fg">最近错误</div>
+                    <pre className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere] font-mono text-xs leading-5 text-muted-foreground">
+                      {displayedProvider.lastError}
+                    </pre>
+                  </div>
+                  <CopyButton value={displayedProvider.lastError} label="复制错误信息" />
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">暂无最近错误记录。</p>
+              )}
+            </section>
+          </div>
+        ) : null}
+      </InspectorSheet>
+
+      <DropdownMenu controller={rowMenu}>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-36">
+          {(state) => {
+            const provider = state.payload as ModelProvider | undefined;
+            if (!provider || !canManage) return null;
+            const testing = test.isPending && test.variables === provider.id;
+            const toggling = update.isPending && update.variables?.id === provider.id;
+            return (
+              <>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem disabled={testing} onSelect={() => runTest(provider)}>
+                    <Activity aria-hidden="true" /> 测试连通
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      providerDialogTriggerRef.current = menuTriggerRef.current;
+                      setEditing(provider);
+                    }}
+                  >
+                    <Pencil aria-hidden="true" /> 编辑
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={toggling} onSelect={() => toggleEnabled(provider)}>
+                    {provider.enabled ? (
+                      <CirclePause aria-hidden="true" />
+                    ) : (
+                      <CirclePlay aria-hidden="true" />
+                    )}
+                    {provider.enabled ? '停用' : '启用'}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => {
+                    deleteTriggerRef.current = menuTriggerRef.current;
+                    setDeleting(provider);
+                  }}
+                >
+                  <Trash2 aria-hidden="true" /> 删除
+                </DropdownMenuItem>
+              </>
+            );
+          }}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {creating ? (
+        <ProviderDialog
+          onClose={() => setCreating(false)}
+          finalFocus={() =>
+            providerDialogTriggerRef.current?.isConnected ? providerDialogTriggerRef.current : null
+          }
+        />
+      ) : null}
+      {editing ? (
+        <ProviderDialog
+          provider={editing}
+          onClose={() => setEditing(null)}
+          finalFocus={() =>
+            providerDialogTriggerRef.current?.isConnected ? providerDialogTriggerRef.current : null
+          }
+        />
+      ) : null}
       {deleting ? (
         <ConfirmDialog
           open
+          finalFocus={() =>
+            deleteTriggerRef.current?.isConnected ? deleteTriggerRef.current : null
+          }
           title="删除模型供应商"
           description={`只有未产生请求日志、也未被运行或审批引用的供应商才能删除。如果「${deleting.name}」已有历史记录，请停用。`}
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
-            await remove.mutateAsync(deleting.id);
+            const targetId = deleting.id;
+            await remove.mutateAsync(targetId);
+            if (inspectedId === targetId) {
+              setInspectedId(null);
+              lastProviderRef.current = null;
+            }
             toastSuccess('供应商已删除');
           }}
         />
@@ -639,9 +1067,11 @@ type ProviderFormValues = z.infer<typeof providerFormSchema>;
 function ProviderDialog({
   provider,
   onClose: onClosed,
+  finalFocus,
 }: {
   provider?: ModelProvider;
   onClose: () => void;
+  finalFocus?: (() => HTMLElement | null) | undefined;
 }) {
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
@@ -734,6 +1164,7 @@ function ProviderDialog({
         description={provider ? '凭证留空时保留现有配置。' : '凭证只保存到服务端，不会回显。'}
         className="max-w-xl sm:max-w-xl"
         closeDisabled={pending}
+        {...(finalFocus === undefined ? {} : { finalFocus })}
       >
         <form
           aria-label={provider ? '编辑供应商' : '新建供应商'}

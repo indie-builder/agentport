@@ -18,8 +18,26 @@ import {
 import { AGENTS_QUERY_KEY } from './agents.js';
 import { ME_QUERY_KEY } from './session.js';
 
+type AccountsQuery = {
+  q: string;
+  status?: Account['status'];
+  roleId?: string;
+  limit: number;
+  offset: number;
+};
+
+function normalizeAccountsQuery(query: AccountsQuery): AccountsQuery {
+  return {
+    q: query.q,
+    limit: query.limit,
+    offset: query.offset,
+    ...(query.status === undefined ? {} : { status: query.status }),
+    ...(query.roleId === undefined ? {} : { roleId: query.roleId }),
+  };
+}
+
 const authKeys = {
-  accounts: (query: { q: string; limit: number; offset: number }) => ['accounts', query] as const,
+  accounts: (query: AccountsQuery) => ['accounts', query] as const,
   accountsAll: ['accounts'] as const,
   permissionCatalog: ['permission-catalog'] as const,
   roleMatrix: ['role-matrix'] as const,
@@ -32,12 +50,14 @@ function invalidateAccountsAndMe(client: QueryClient) {
   void client.invalidateQueries({ queryKey: ME_QUERY_KEY });
 }
 
-export const accountQuery = (query: { q: string; limit: number; offset: number }) =>
-  queryOptions<AccountPage>({
-    queryKey: authKeys.accounts(query),
-    queryFn: ({ signal }) => api.accounts(query, signal),
+export const accountQuery = (query: AccountsQuery) => {
+  const normalized = normalizeAccountsQuery(query);
+  return queryOptions<AccountPage>({
+    queryKey: authKeys.accounts(normalized),
+    queryFn: ({ signal }) => api.accounts(normalized, signal),
     staleTime: 0,
   });
+};
 
 export const permissionCatalogQuery = queryOptions<PermissionCatalog>({
   queryKey: authKeys.permissionCatalog,
@@ -69,7 +89,7 @@ export function useIdentities(
   return useQuery(identitiesQuery(agentId, query));
 }
 
-export function useAccounts(query: { q: string; limit: number; offset: number }) {
+export function useAccounts(query: AccountsQuery) {
   return useQuery(accountQuery(query));
 }
 

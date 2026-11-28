@@ -162,6 +162,10 @@ export const channelsSearchSchema = z.object({ view: listViewSchema });
 
 export const integrationsSearchSchema = z.object({
   tab: z.enum(['tokens', 'webhooks']).optional().catch(undefined),
+  q: z.string().optional().catch(undefined),
+  tokenStatus: z.enum(['all', 'active', 'revoked']).optional().catch(undefined),
+  webhookStatus: z.enum(['all', 'enabled', 'disabled']).optional().catch(undefined),
+  direction: z.enum(['all', 'outbound', 'inbound']).optional().catch(undefined),
   view: listViewSchema,
 });
 
@@ -181,6 +185,8 @@ export const personalSecuritySearchSchema = z.object({ view: listViewSchema });
 
 export const accountsSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
+  status: z.enum(['all', 'active', 'disabled']).optional().catch(undefined),
+  role: z.string().min(1).optional().catch(undefined),
   view: listViewSchema,
   page: z.coerce.number().int().min(1).default(1).catch(1),
 });
@@ -224,7 +230,6 @@ export const securitySearchSchema = z.object({
 
 export const operationsSearchSchema = z.object({
   section: z.enum(['overview', 'observability', 'health']).optional().catch(undefined),
-  tab: z.enum(['recent', 'agents']).optional().catch(undefined),
   obsTab: z.enum(['slo', 'queues', 'providers']).optional().catch(undefined),
   windowMinutes: z.coerce
     .number()
