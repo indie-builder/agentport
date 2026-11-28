@@ -24,7 +24,7 @@ const DEFAULT_OPEN = ['skills', 'agents'];
 const ENTRY_FILE = 'SKILL.md';
 
 const ROW_CLASS =
-  'flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-icon)] border border-transparent px-2 py-1.5 text-left text-sm font-normal whitespace-nowrap select-none outline-none transition-colors duration-150 ease-out-soft group-focus-visible/tree-row:ring-2 group-focus-visible/tree-row:ring-ring';
+  'flex w-full min-w-0 items-center gap-1.5 rounded-icon border border-transparent px-2 py-1.5 text-left text-sm font-normal whitespace-nowrap select-none outline-none transition-colors duration-150 ease-out-soft group-focus-visible/tree-row:ring-2 group-focus-visible/tree-row:ring-ring';
 
 const GROUP_CLASS =
   'ms-4 border-s border-line overflow-hidden transition-[height,opacity] duration-150 ease-out-soft h-(--tree-group-height) data-starting-style:h-0 data-starting-style:opacity-0 data-ending-style:h-0 data-ending-style:opacity-0';

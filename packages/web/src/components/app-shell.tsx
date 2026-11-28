@@ -91,7 +91,7 @@ function SidebarBrand({
         aria-label={expanded ? '收起为窄边' : '展开侧栏'}
         aria-expanded={!iconOnly}
         onClick={onToggle}
-        className="size-8 shrink-0 rounded-[var(--radius-icon)] p-0 text-fg hover:bg-sidebar-hover"
+        className="size-8 shrink-0 rounded-icon p-0 text-fg hover:bg-sidebar-hover"
       >
         <PanelLeftClose className="size-4" />
       </Button>
@@ -102,7 +102,7 @@ function SidebarBrand({
           variant="plain"
           aria-label="切换 PACE Logo"
           onClick={animateBrand}
-          className="h-8 min-w-0 flex-1 justify-start rounded-[var(--radius-icon)] p-0"
+          className="h-8 min-w-0 flex-1 justify-start rounded-icon p-0"
         >
           <Brand className="h-8 self-center" />
         </Button>
@@ -549,7 +549,7 @@ export function AppShell() {
             <div key={group.label} className="mt-0.5">
               <div
                 className={cn(
-                  'whitespace-nowrap px-2 pb-1.5 pt-4 text-[13px] font-medium text-muted-foreground',
+                  'whitespace-nowrap px-2 pb-1.5 pt-4 text-sm font-medium text-muted-foreground',
                   iconOnly && 'invisible',
                 )}
               >
@@ -800,7 +800,7 @@ export function AppShell() {
             aria-label="打开导航"
             aria-expanded={mobileOpen}
             onClick={() => setMobileOpen(true)}
-            className="-ml-1 rounded-[var(--radius-icon)] p-1.5 hover:bg-hover"
+            className="-ml-1 rounded-icon p-1.5 hover:bg-hover"
           >
             <Menu aria-hidden="true" />
           </Button>

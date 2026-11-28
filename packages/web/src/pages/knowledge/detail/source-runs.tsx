@@ -182,7 +182,7 @@ export function SourceRuns({
                   </TimelineDescription>
                 ) : null}
                 <Collapsible className="ps-2">
-                  <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 rounded-[var(--radius-icon)] text-start text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 rounded-icon text-start text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <ChevronRight
                       className="size-3.5 shrink-0 transition-transform group-aria-expanded:rotate-90"
                       aria-hidden="true"

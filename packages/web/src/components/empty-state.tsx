@@ -233,7 +233,7 @@ export function EmptyState({
         <div
           aria-hidden="true"
           className={cn(
-            'mb-3 flex size-9 items-center justify-center rounded-[10px] [&_svg]:size-4',
+            'mb-3 flex size-9 items-center justify-center rounded-popover [&_svg]:size-4',
             variant === 'clear'
               ? 'bg-success-soft text-success'
               : 'border border-line bg-surface text-muted-foreground shadow-xs',

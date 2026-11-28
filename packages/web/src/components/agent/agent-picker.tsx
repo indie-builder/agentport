@@ -93,7 +93,7 @@ export function AgentPicker({
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedby}
               className={cn(
-                'flex w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none cds-focus-glow focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-[0.35]',
+                'flex w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none cds-focus-glow focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-35',
                 triggerClassName,
               )}
             />

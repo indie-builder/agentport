@@ -72,7 +72,7 @@ export function MemoryReviewDetail({
           : '查看专家规则';
   const targetLink =
     review.target.kind === 'personal' ? (
-      <Link to="/personal/memory" className="text-[var(--color-link)] underline underline-offset-4">
+      <Link to="/personal/memory" className="text-link underline underline-offset-4">
         {targetLinkLabel}
       </Link>
     ) : (
@@ -80,7 +80,7 @@ export function MemoryReviewDetail({
         to="/agents/$agentId"
         params={{ agentId: review.target.agentId }}
         search={{ tab: review.target.kind === 'agent_memory' ? 'memory' : 'rules' }}
-        className="text-[var(--color-link)] underline underline-offset-4"
+        className="text-link underline underline-offset-4"
       >
         {targetLinkLabel}
       </Link>
@@ -292,7 +292,7 @@ export function MemoryReviewDetail({
                   className={
                     pending
                       ? 'cursor-not-allowed text-muted-foreground underline underline-offset-4'
-                      : 'text-[var(--color-link)] underline underline-offset-4'
+                      : 'text-link underline underline-offset-4'
                   }
                 >
                   {source.title || source.conversationId}（{source.messageCount} 条消息）

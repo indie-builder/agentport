@@ -16,10 +16,7 @@ function highlightJson(text: string): ReactNode[] {
     const start = match.index;
     if (start > last) nodes.push(text.slice(last, start));
     const [token] = match;
-    const className =
-      match[1] === 'null'
-        ? 'text-[var(--color-code-block-dim)]'
-        : 'text-[var(--color-code-block-fg)]';
+    const className = match[1] === 'null' ? 'text-code-block-dim' : 'text-code-block-fg';
     nodes.push(
       <span key={index++} className={className}>
         {token}
@@ -66,12 +63,12 @@ function CodeLines({
           {lineNumbers ? (
             <span
               aria-hidden="true"
-              className="mr-3 inline-block w-8 shrink-0 select-none text-right text-[var(--color-code-block-faint)]"
+              className="mr-3 inline-block w-8 shrink-0 select-none text-right text-code-block-faint"
             >
               {i + 1}
             </span>
           ) : null}
-          <span className="whitespace-pre text-[var(--color-code-block-fg)]">
+          <span className="whitespace-pre text-code-block-fg">
             {json ? highlightJson(line) : line || ' '}
           </span>
         </span>
@@ -107,12 +104,12 @@ export function CodeBlock({
       open={open}
       onOpenChange={setExpanded}
       className={cn(
-        'cds-code-surface group relative overflow-hidden rounded-card border border-white/10 bg-[var(--color-code-block)] text-[var(--color-code-block-fg)]',
+        'cds-code-surface group relative overflow-hidden rounded-card border border-white/10 bg-code-block text-code-block-fg',
         className,
       )}
     >
       {large && (
-        <CollapsibleTrigger className="px-3 py-2 text-xs hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-code-block-fg)]">
+        <CollapsibleTrigger className="px-3 py-2 text-xs hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-code-block-fg">
           {expanded ? '收起内容' : '内容过大，点击查看'}
         </CollapsibleTrigger>
       )}
@@ -122,14 +119,14 @@ export function CodeBlock({
             value={code}
             label={copyLabel}
             showLabel
-            className="absolute right-2 top-2 z-10 bg-surface/90 text-fg [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 focus-visible:ring-[color:var(--color-code-block-fg)]"
+            className="absolute right-2 top-2 z-10 bg-surface/90 text-fg [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 focus-visible:ring-code-block-fg"
           />
         ) : null}
         <section
           // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
           tabIndex={0}
           aria-label="代码内容"
-          className="overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--color-code-block-fg)]"
+          className="overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-code-block-fg"
           style={{ maxHeight }}
         >
           <pre className="py-3 font-mono text-xs leading-5">
