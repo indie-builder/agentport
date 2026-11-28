@@ -238,47 +238,49 @@ export function InlineHeaderRenderer({
   );
 }
 
-export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown[] }>) {
-  const items = (props.items ?? []).filter((item) => childProps(item) !== undefined);
-  const seenTabs = new Map<string, number>();
-  const entries = items.map((item) => {
+function keyedItems(items: unknown[], fallback: string) {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
     const itemProps = childProps<{ value?: unknown; trigger?: unknown; content?: unknown }>(item);
     const raw = itemProps?.value ?? itemProps?.trigger;
-    const base = raw !== undefined && String(raw) !== '' ? String(raw) : 'tab';
-    const count = (seenTabs.get(base) ?? 0) + 1;
-    seenTabs.set(base, count);
-    const value = count === 1 ? base : `${base}-${count}`;
-    return { itemProps, value };
+    const base = raw !== undefined && String(raw) !== '' ? String(raw) : fallback;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return { itemProps, value: count === 1 ? base : `${base}-${count}` };
   });
+}
+
+export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown[] }>) {
+  const items = (props.items ?? []).filter((item) => childProps(item) !== undefined);
+  const entries = keyedItems(items, 'tab');
   const firstValue = entries[0]?.value ?? '';
   const streaming = useIsStreaming();
   const [active, setActive] = useState('');
   const touched = useRef(false);
   const previousSizes = useRef<Record<string, number> | null>(null);
+  const resolvedActive = entries.some((entry) => entry.value === active) ? active : firstValue;
 
   useEffect(() => {
-    if (entries.length > 0 && !active) setActive(firstValue);
-  }, [entries.length, active, firstValue]);
-
-  useEffect(() => {
-    if (touched.current) return;
+    if (touched.current || !streaming) return;
     const baseline = previousSizes.current;
-    let candidate: string | null = null;
-    const nextSizes: Record<string, number> = {};
-    for (const entry of entries) {
-      const size = JSON.stringify(entry.itemProps?.content).length;
-      nextSizes[entry.value] = size;
-      if (size > (baseline?.[entry.value] ?? 0)) candidate = entry.value;
-    }
+    const nextSizes = Object.fromEntries(
+      entries.map((entry) => [entry.value, JSON.stringify(entry.itemProps?.content)?.length ?? 0]),
+    );
     previousSizes.current = nextSizes;
-    if (baseline && streaming && candidate && candidate !== active) setActive(candidate);
+    if (!baseline) return;
+    const candidate = entries.reduce<string | null>(
+      (latest, entry) =>
+        (nextSizes[entry.value] ?? 0) > (baseline[entry.value] ?? 0) ? entry.value : latest,
+      null,
+    );
+    if (candidate && candidate !== resolvedActive) setActive(candidate);
   });
 
   if (entries.length === 0) return null;
 
   return (
     <Tabs
-      value={active}
+      value={resolvedActive}
       onValueChange={(value) => {
         touched.current = true;
         setActive(String(value));
@@ -307,23 +309,26 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
 
 export function AccordionRenderer({ props, renderNode }: RenderProps<{ items: unknown[] }>) {
   const items = (props.items ?? []).filter((item) => childProps(item) !== undefined);
-  const [open, setOpen] = useState<string[]>([]);
+  const entries = keyedItems(items, 'item');
+  const [open, setOpen] = useState<string[]>(() => (entries[0] ? [entries[0].value] : []));
   const touched = useRef(false);
   const previousCount = useRef<number | null>(null);
   const autoOpenIndex = useRef(-1);
 
-  if (!touched.current) {
-    if (previousCount.current === null) {
-      if (items.length > 0) autoOpenIndex.current = 0;
-    } else if (items.length > previousCount.current) {
-      autoOpenIndex.current = items.length - 1;
+  useEffect(() => {
+    if (!touched.current) {
+      if (previousCount.current === null) {
+        if (entries.length > 0) autoOpenIndex.current = 0;
+      } else if (entries.length > previousCount.current) {
+        autoOpenIndex.current = entries.length - 1;
+      }
+      const autoOpenValue = entries[autoOpenIndex.current]?.value;
+      if (autoOpenValue && autoOpenValue !== open[0]) setOpen([autoOpenValue]);
     }
-    const autoOpenValue = childProps<{ value?: string }>(items[autoOpenIndex.current])?.value;
-    if (autoOpenValue && autoOpenValue !== open[0]) setOpen([autoOpenValue]);
-  }
-  previousCount.current = items.length;
+    previousCount.current = entries.length;
+  });
 
-  if (items.length === 0) return null;
+  if (entries.length === 0) return null;
   return (
     <Accordion
       aria-label="折叠列表"
@@ -333,17 +338,14 @@ export function AccordionRenderer({ props, renderNode }: RenderProps<{ items: un
         setOpen(value.map(String));
       }}
     >
-      {items.map((item, index) => {
-        const value = String(childProps(item)?.value ?? index);
-        return (
-          <AccordionItem key={value} value={value}>
-            <AccordionTrigger>{String(childProps(item)?.trigger ?? '')}</AccordionTrigger>
-            <AccordionContent className="flex flex-col gap-3">
-              {renderNode(childProps(item)?.content)}
-            </AccordionContent>
-          </AccordionItem>
-        );
-      })}
+      {entries.map(({ itemProps, value }) => (
+        <AccordionItem key={value} value={value}>
+          <AccordionTrigger>{String(itemProps?.trigger ?? '')}</AccordionTrigger>
+          <AccordionContent className="flex flex-col gap-3">
+            {renderNode(itemProps?.content)}
+          </AccordionContent>
+        </AccordionItem>
+      ))}
     </Accordion>
   );
 }

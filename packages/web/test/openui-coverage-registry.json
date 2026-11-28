@@ -240,8 +240,8 @@
     },
     {
       "name": "IconButton",
-      "evidence": null,
-      "kind": "missing"
+      "evidence": "openui-form-fixes.test.ts",
+      "kind": "behavior"
     },
     {
       "name": "DatePicker",
@@ -300,8 +300,8 @@
     },
     {
       "name": "MetricIndicatorWithStrikethrough",
-      "evidence": null,
-      "kind": "missing"
+      "evidence": "openui-card-layout-ui.test.ts",
+      "kind": "render"
     },
     {
       "name": "TabItem",

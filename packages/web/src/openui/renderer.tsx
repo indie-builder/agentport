@@ -402,6 +402,7 @@ function ApprovalEntry({
                 size="sm"
                 disabled={busy !== null || !conversationId}
                 aria-busy={busy === approvalId}
+                data-agent-confirm={`批准工具 ${toolName} 在本会话内调用（8 小时内有效）`}
                 onClick={() => {
                   setBusy(approvalId);
                   setFailure(null);

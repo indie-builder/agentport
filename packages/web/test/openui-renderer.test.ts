@@ -1,5 +1,5 @@
 import { isSafeOpenUrl, OPENUI_COMPONENT_NAMES } from '@agentport/shared';
-import { act, createElement } from 'react';
+import { act, createElement, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPENUI_RENDERERS } from '../src/openui/components/index.js';
@@ -156,5 +156,103 @@ describe('OpenUiBlock', () => {
       ].join('\n'),
     );
     expect(host.textContent).toContain('标题');
+  });
+});
+
+describe('Tabs and Accordion resilience', () => {
+  it('selects the first tab immediately, handles streaming updates, and falls back when the active tab disappears', async () => {
+    await render(
+      [
+        'root = Card([tabs])',
+        'tabs = Tabs([t1, t2])',
+        't1 = TabItem("a", "页签一", [TextContent("内容一")])',
+        't2 = TabItem("b", "页签二", [TextContent("内容二")])',
+      ].join('\n'),
+      { streaming: true },
+    );
+
+    const activeTab = () => host.querySelector('[role="tab"][aria-selected="true"]');
+    expect(activeTab()?.textContent).toBe('页签一');
+    expect(host.querySelector('[role="tabpanel"]:not([hidden])')?.textContent).toContain('内容一');
+
+    const secondTab = [...host.querySelectorAll('[role="tab"]')].find(
+      (element) => element.textContent === '页签二',
+    ) as HTMLElement | undefined;
+    await act(async () => secondTab?.click());
+    expect(activeTab()?.textContent).toBe('页签二');
+    expect(host.querySelector('[role="tabpanel"]:not([hidden])')?.textContent).toContain('内容二');
+
+    await render(
+      [
+        'root = Card([tabs])',
+        'tabs = Tabs([t1, t3])',
+        't1 = TabItem("a", "页签一", [TextContent("内容一已更新")])',
+        't3 = TabItem("c", "页签三", [TextContent("内容三")])',
+      ].join('\n'),
+      { streaming: true },
+    );
+
+    expect(activeTab()?.textContent).toBe('页签一');
+    expect(host.querySelector('[role="tabpanel"]:not([hidden])')?.textContent).toContain(
+      '内容一已更新',
+    );
+
+    await render(
+      [
+        'root = Card([tabs])',
+        'tabs = Tabs([t1, t3])',
+        't1 = TabItem("a", "页签一", [TextContent("内容一已更新")])',
+        't3 = TabItem("c", "页签三", [TextContent("内容三已定稿")])',
+      ].join('\n'),
+      { streaming: false },
+    );
+
+    expect(activeTab()?.textContent).toBe('页签一');
+  });
+
+  it('deduplicates colliding Accordion values and adds streamed items inside StrictMode', async () => {
+    const renderStrict = async (program: string, streaming: boolean) => {
+      await act(async () => {
+        root.render(
+          createElement(StrictMode, null, createElement(OpenUiBlock, { program, streaming })),
+        );
+      });
+    };
+
+    await renderStrict(
+      [
+        'root = Card([tabs])',
+        'tabs = Tabs([t1])',
+        't1 = TabItem("main", "总览", [acc])',
+        'acc = Accordion([a1, a2])',
+        'a1 = AccordionItem("dup", "第一节", [TextContent("内容一")])',
+        'a2 = AccordionItem("dup", "第二节", [TextContent("内容二")])',
+      ].join('\n'),
+      true,
+    );
+
+    const triggers = () => [
+      ...host.querySelectorAll<HTMLButtonElement>('[data-slot="accordion-trigger"]'),
+    ];
+    expect(triggers().map((button) => button.textContent)).toEqual(['第一节', '第二节']);
+    expect(triggers()[0]?.getAttribute('aria-expanded')).toBe('true');
+    expect(triggers()[1]?.getAttribute('aria-expanded')).toBe('false');
+
+    await renderStrict(
+      [
+        'root = Card([tabs])',
+        'tabs = Tabs([t1])',
+        't1 = TabItem("main", "总览", [acc])',
+        'acc = Accordion([a1, a2, a3])',
+        'a1 = AccordionItem("dup", "第一节", [TextContent("内容一")])',
+        'a2 = AccordionItem("dup", "第二节", [TextContent("内容二")])',
+        'a3 = AccordionItem("dup", "第三节", [TextContent("内容三")])',
+      ].join('\n'),
+      true,
+    );
+
+    expect(triggers().map((button) => button.textContent)).toEqual(['第一节', '第二节', '第三节']);
+    expect(triggers()[2]?.getAttribute('aria-expanded')).toBe('true');
+    expect(host.textContent).toContain('内容三');
   });
 });

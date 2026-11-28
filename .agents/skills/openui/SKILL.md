@@ -11,7 +11,7 @@ OpenUI turns model output into user interfaces. The model writes **OpenUI Lang**
 - The model streams OpenUI Lang back.
 - The browser renders it with the same library.
 
-> **Project convention (applies to this file and the linked references):** This project already has its frontend on shadcn/ui, Base UI, and Tailwind 4 tokens defined in `styles.css`, with visuals governed by `docs/DESIGN-SYSTEM.md`; reuse them instead of OpenUI's own visual components or styles. Claude Agent SDK is the only agent runtime. Do not run Gateway/OpenAI/LangGraph migrations, scaffold a new app, or introduce external storage or deployment by default; neither is done during installation of this skill. Apply only what the current user task actually requires.
+> **Project convention (applies to this file and the linked references):** This project already has its frontend on shadcn/ui, ui-sdk (@ui-sdk/react), and Tailwind 4 tokens defined in `styles.css`, with visuals governed by `docs/DESIGN-SYSTEM.md`; reuse them instead of OpenUI's own visual components or styles. Claude Agent SDK is the only agent runtime. Do not run Gateway/OpenAI/LangGraph migrations, scaffold a new app, or introduce external storage or deployment by default; neither is done during installation of this skill. Apply only what the current user task actually requires.
 
 ## Before acting
 

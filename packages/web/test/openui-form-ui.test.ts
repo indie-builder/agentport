@@ -326,4 +326,56 @@ describe('FormControl field wiring', () => {
     expect(input?.disabled).toBe(true);
     expect(fieldFor(input as HTMLElement).hasAttribute('data-disabled')).toBe(true);
   });
+
+  it('wires both thumbs of a range Slider with labels, hint, error and aria-invalid', async () => {
+    await renderProgram(
+      [
+        'root = Card([form])',
+        'form = Form("prefs", buttons, [fcSlider])',
+        'buttons = Buttons([save])',
+        'save = Button("保存", @ToAssistant("保存"), "primary")',
+        'fcSlider = FormControl("预算范围", slider, "拖动选择上下限")',
+        'slider = Slider("budget", "discrete", 0, 100, 10, [20, 80], "", { min: 90 })',
+      ].join('\n'),
+    );
+
+    const ranges = all<HTMLInputElement>('input[type="range"]');
+    expect(ranges).toHaveLength(2);
+    expect(ranges.map((input) => input.getAttribute('aria-label'))).toEqual(['最小值', '最大值']);
+    for (const thumb of ranges) {
+      expect(thumb.getAttribute('aria-invalid')).toBeNull();
+      expect(describedBy(thumb).map((element) => element.textContent)).toContain('拖动选择上下限');
+    }
+
+    const submit = all('button').find((button) => button.textContent === '保存');
+    await act(async () => submit?.click());
+    await settle();
+
+    for (const thumb of ranges) {
+      expect(thumb.getAttribute('aria-invalid')).toBe('true');
+      const described = describedBy(thumb);
+      expect(described.map((element) => element.textContent)).toContain('拖动选择上下限');
+      expect(described.find((element) => element.getAttribute('role') === 'alert')).toBeTruthy();
+    }
+
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    await act(async () => {
+      setter?.call(ranges[1], '100');
+      ranges[1]?.dispatchEvent(new Event('input', { bubbles: true }));
+      ranges[1]?.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {
+      setter?.call(ranges[0], '90');
+      ranges[0]?.dispatchEvent(new Event('input', { bubbles: true }));
+      ranges[0]?.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await settle();
+
+    for (const thumb of ranges) {
+      expect(thumb.getAttribute('aria-invalid')).toBeNull();
+      expect(describedBy(thumb).some((element) => element.getAttribute('role') === 'alert')).toBe(
+        false,
+      );
+    }
+  });
 });

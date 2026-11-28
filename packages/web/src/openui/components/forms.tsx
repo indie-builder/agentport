@@ -2,6 +2,7 @@ import {
   ACTION_STEPS,
   FormNameContext,
   FormValidationContext,
+  type ParsedRule,
   parseStructuredRules,
   useCreateFormValidation,
   useFormName,
@@ -11,7 +12,7 @@ import {
   useStateField,
   useTriggerAction,
 } from '@openuidev/react-lang';
-import { Toggle } from '@ui-sdk/react/toggle';
+import { Toggle, ToggleGroup } from '@ui-sdk/react/toggle';
 import { CircleAlert } from 'lucide-react';
 import {
   createContext,
@@ -84,10 +85,18 @@ function useFieldWiring() {
   return useContext(FieldWiringContext);
 }
 
-function useFieldRules(name: string, rules: Rules | undefined, getValue: () => unknown) {
+function useFieldRules(
+  name: string,
+  rules: Rules | undefined,
+  getValue: () => unknown,
+  extraRules: readonly ParsedRule[] = [],
+) {
   const validation = useFormValidation();
   const streaming = useIsStreaming();
-  const parsed = useMemo(() => parseStructuredRules(rules), [rules]);
+  const parsed = useMemo(
+    () => [...parseStructuredRules(rules), ...extraRules],
+    [rules, extraRules],
+  );
   const hasRules = parsed.length > 0;
   const getter = useRef(getValue);
   getter.current = getValue;
@@ -105,23 +114,33 @@ function useField(
   name: string,
   value: unknown,
   rules: Rules | undefined,
-  defaults?: { componentType?: string; defaultValue?: unknown },
+  options?: {
+    componentType?: string;
+    defaultValue?: unknown;
+    extraRules?: readonly ParsedRule[];
+    getValidationValue?: () => unknown;
+  },
 ) {
   const field = useStateField(name, value);
   const formName = useFormName();
   useSetDefaultValue({
     ...(formName ? { formName } : {}),
-    ...(defaults?.componentType ? { componentType: defaults.componentType } : {}),
+    ...(options?.componentType ? { componentType: options.componentType } : {}),
     name,
     existingValue: field.value,
-    defaultValue: defaults?.defaultValue,
+    defaultValue: options?.defaultValue,
   });
   const {
     validation,
     rules: parsed,
     hasRules,
     streaming,
-  } = useFieldRules(name, rules, () => field.value);
+  } = useFieldRules(
+    name,
+    rules,
+    options?.getValidationValue ?? (() => field.value),
+    options?.extraRules,
+  );
   const error = validation?.errors[name];
   return {
     name,
@@ -132,6 +151,9 @@ function useField(
     },
     validate: (next: unknown = field.value) => {
       if (hasRules) validation?.validateField(name, next, parsed);
+    },
+    clearError: () => {
+      if (hasRules) validation?.clearFieldError(name);
     },
     error,
     streaming,
@@ -288,11 +310,12 @@ export function SelectRenderer({
     >
       <SelectTrigger
         id={wiring?.controlId ?? field.name}
+        size={props.size === 'small' ? 'sm' : 'default'}
         aria-invalid={field.error ? true : undefined}
         aria-describedby={wiring?.describedBy}
         className="w-full"
       >
-        <SelectValue placeholder={props.placeholder ?? 'Select...'} />
+        <SelectValue placeholder={props.placeholder ?? '请选择...'} />
       </SelectTrigger>
       <SelectContent>
         {items.map((item) => (
@@ -310,6 +333,10 @@ export function SelectItemRenderer() {
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const INVALID_DATE_SENTINEL = '__openui_invalid_date__';
+const INVALID_DATE_RULES: readonly ParsedRule[] = [
+  { type: 'pattern', arg: `^(?!${INVALID_DATE_SENTINEL}$)` },
+];
 
 function isoDate(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -325,18 +352,52 @@ export function DatePickerRenderer({
   rules?: Rules;
   value?: unknown;
 }>) {
-  const field = useField(props.name, props.value, props.rules);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const hasInvalidDateText = () => pickerRef.current?.hasAttribute('data-invalid') ?? false;
+  const latestValueRef = useRef<unknown>(props.value);
+  const field = useField(props.name, props.value, props.rules, {
+    extraRules: INVALID_DATE_RULES,
+    getValidationValue: () =>
+      hasInvalidDateText() ? INVALID_DATE_SENTINEL : latestValueRef.current,
+  });
+  latestValueRef.current = field.value;
   const wiring = useFieldWiring();
   const mode = props.mode ?? 'single';
   const selected = mode === 'range' ? null : isoDate(field.value);
-  const rangeValue = field.value as { from?: string; to?: string } | undefined;
+  const rangeValue =
+    mode === 'range' && typeof field.value === 'object' && field.value !== null
+      ? (field.value as { from?: unknown; to?: unknown })
+      : undefined;
   const from = mode === 'range' ? isoDate(rangeValue?.from) : null;
   const to = mode === 'range' ? isoDate(rangeValue?.to) : null;
   const range = from && to ? ([from, to] as [string, string]) : null;
   const monthSeed = selected ?? from;
 
+  const scheduleValidation = () => {
+    queueMicrotask(() => {
+      queueMicrotask(() => {
+        field.validate(hasInvalidDateText() ? INVALID_DATE_SENTINEL : latestValueRef.current);
+      });
+    });
+  };
+
+  const handleInput = (text: string) => {
+    queueMicrotask(() => {
+      queueMicrotask(() => {
+        if (hasInvalidDateText()) {
+          field.validate(INVALID_DATE_SENTINEL);
+        } else if (text.trim() === '') {
+          field.validate(latestValueRef.current);
+        } else {
+          field.clearError();
+        }
+      });
+    });
+  };
+
   return (
     <DatePicker
+      ref={pickerRef}
       mode={mode}
       name={field.name}
       value={mode === 'range' ? range : selected}
@@ -344,13 +405,19 @@ export function DatePickerRenderer({
       disabled={field.streaming}
       onValueChange={(next) => {
         if (mode === 'range') {
-          const [start, end] = Array.isArray(next) ? next : [];
-          const value = { from: start, to: end };
+          const start = Array.isArray(next) ? next[0] : undefined;
+          const end = Array.isArray(next) ? next[1] : undefined;
+          const value =
+            typeof start === 'string' && start !== '' && typeof end === 'string' && end !== ''
+              ? { from: start, to: end }
+              : '';
+          latestValueRef.current = value;
           field.setValue(value);
           field.validate(value);
           return;
         }
         const value = typeof next === 'string' ? next : '';
+        latestValueRef.current = value;
         field.setValue(value);
         field.validate(value);
       }}
@@ -358,9 +425,14 @@ export function DatePickerRenderer({
       <DatePickerGroup>
         <DatePickerInput
           id={wiring?.controlId ?? field.name}
-          placeholder={mode === 'range' ? 'Start date' : 'Select date...'}
+          placeholder={mode === 'range' ? '开始日期' : '选择日期'}
           aria-invalid={field.error ? true : undefined}
           aria-describedby={wiring?.describedBy}
+          onInput={(event) => handleInput(event.currentTarget.value)}
+          onBlur={scheduleValidation}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') scheduleValidation();
+          }}
         />
         {mode === 'range' ? (
           <>
@@ -369,10 +441,15 @@ export function DatePickerRenderer({
             </span>
             <DatePickerInput
               end
-              placeholder="End date"
-              aria-label="End date"
+              placeholder="结束日期"
+              aria-label="结束日期"
               aria-invalid={field.error ? true : undefined}
               aria-describedby={wiring?.describedBy}
+              onInput={(event) => handleInput(event.currentTarget.value)}
+              onBlur={scheduleValidation}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') scheduleValidation();
+              }}
             />
           </>
         ) : null}
@@ -429,6 +506,24 @@ export function SliderRenderer({
   );
 }
 
+function useDefaultCheckedMap(
+  items: ReadonlyArray<{ name: string; defaultChecked?: boolean | undefined }>,
+) {
+  const key = items.some((item) => item.defaultChecked === true)
+    ? JSON.stringify(items.map((item) => [item.name, Boolean(item.defaultChecked)]))
+    : '';
+  return useMemo(
+    () =>
+      key
+        ? (Object.fromEntries(JSON.parse(key) as Array<[string, boolean]>) as Record<
+            string,
+            boolean
+          >)
+        : undefined,
+    [key],
+  );
+}
+
 export function CheckBoxGroupRenderer({
   props,
 }: RenderProps<{
@@ -437,8 +532,6 @@ export function CheckBoxGroupRenderer({
   rules?: Rules;
   value?: Record<string, unknown>;
 }>) {
-  const field = useField(props.name, props.value, props.rules);
-  const wiring = useFieldWiring();
   const items = (props.items ?? [])
     .map((item) =>
       childProps<{ label: string; description: string; name: string; defaultChecked?: boolean }>(
@@ -451,6 +544,16 @@ export function CheckBoxGroupRenderer({
       ): item is { label: string; description: string; name: string; defaultChecked?: boolean } =>
         !!item,
     );
+  const defaultMap = useDefaultCheckedMap(items);
+  const field = useField(
+    props.name,
+    props.value,
+    props.rules,
+    defaultMap === undefined
+      ? undefined
+      : { componentType: 'CheckBoxGroup', defaultValue: defaultMap },
+  );
+  const wiring = useFieldWiring();
   const stored = (field.value ?? {}) as Record<string, unknown>;
   const aggregate: Record<string, boolean> = Object.fromEntries(
     items.map((item) => [item.name, Boolean(stored[item.name] ?? item.defaultChecked ?? false)]),
@@ -521,7 +624,7 @@ export function RadioGroupRenderer({
       aria-labelledby={wiring?.labelId}
       aria-describedby={wiring?.describedBy}
       aria-invalid={field.error ? true : undefined}
-      value={value}
+      value={value === '' ? null : value}
       disabled={field.streaming}
       onValueChange={(next) => {
         field.setValue(next);
@@ -564,8 +667,6 @@ export function SwitchGroupRenderer({
   items: unknown[];
   value?: Record<string, unknown>;
 }>) {
-  const field = useField(props.name, props.value, undefined);
-  const groupId = useId();
   const items = (props.items ?? [])
     .map((item) =>
       childProps<{ label?: string; description?: string; name: string; defaultChecked?: boolean }>(
@@ -578,6 +679,16 @@ export function SwitchGroupRenderer({
       ): item is { label?: string; description?: string; name: string; defaultChecked?: boolean } =>
         !!item,
     );
+  const defaultMap = useDefaultCheckedMap(items);
+  const field = useField(
+    props.name,
+    props.value,
+    undefined,
+    defaultMap === undefined
+      ? undefined
+      : { componentType: 'SwitchGroup', defaultValue: defaultMap },
+  );
+  const groupId = useId();
   const stored = (field.value ?? {}) as Record<string, unknown>;
   const aggregate: Record<string, boolean> = Object.fromEntries(
     items.map((item) => [item.name, Boolean(stored[item.name] ?? item.defaultChecked ?? false)]),
@@ -654,21 +765,13 @@ function useSelectionField(
     return typeof storedDefault === 'string' && storedDefault ? [storedDefault] : [];
   }, [stored, storedDefault, type]);
 
-  const toggle = (value: string) => {
-    const next =
-      type === 'single'
-        ? selection[0] === value
-          ? []
-          : [value]
-        : selection.includes(value)
-          ? selection.filter((item) => item !== value)
-          : [...selection, value];
+  const setSelection = (next: string[]) => {
     const storedValue = type === 'single' ? (next[0] ?? '') : next;
     field.setValue(storedValue);
     field.validate(type === 'single' ? (next[0] ?? undefined) : next);
   };
 
-  return { ...field, selection, toggle };
+  return { ...field, selection, setSelection };
 }
 
 export function ChipsRenderer({
@@ -681,13 +784,8 @@ export function ChipsRenderer({
   rules?: Rules;
   defaultValue?: string | string[];
 }>) {
-  const state = useSelectionField(
-    props.name,
-    props.type ?? 'multiple',
-    props.defaultValue,
-    props.rules,
-    'Chips',
-  );
+  const type = props.type ?? 'multiple';
+  const state = useSelectionField(props.name, type, props.defaultValue, props.rules, 'Chips');
   const items = (props.items ?? [])
     .map((item) =>
       childProps<{ value: string; label: string; icon?: unknown; disabled?: boolean }>(item),
@@ -699,29 +797,33 @@ export function ChipsRenderer({
   const wiring = useFieldWiring();
   if (items.length === 0) return null;
   return (
-    <RangeGroup
-      labelledBy={wiring?.labelId}
-      describedBy={wiring?.describedBy}
-      invalid={!!state.error}
-      className="flex flex-wrap gap-1.5"
+    <ToggleGroup
+      render={<fieldset />}
+      aria-labelledby={wiring?.labelId}
+      aria-describedby={wiring?.describedBy}
+      aria-invalid={state.error ? true : undefined}
+      disabled={state.streaming}
+      multiple={type === 'multiple'}
+      value={state.selection}
+      onValueChange={(next) => state.setSelection(next)}
+      className="m-0 flex min-w-0 flex-wrap gap-1.5 border-0 p-0"
     >
       {items.map((item) => {
         const selected = state.selection.includes(item.value);
         return (
           <Toggle
             key={item.value}
-            pressed={selected}
+            value={item.value}
             aria-invalid={state.error ? true : undefined}
             aria-describedby={wiring?.describedBy}
-            disabled={Boolean(state.streaming || item.disabled)}
-            onPressedChange={() => state.toggle(item.value)}
+            disabled={Boolean(item.disabled)}
             className={cn(
               'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-colors duration-150 ease-out-soft',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               selected
                 ? 'border-line-strong bg-selected text-selected-foreground'
                 : 'border-line bg-transparent text-muted-foreground hover:bg-hover',
-              'disabled:cursor-not-allowed disabled:opacity-50',
+              'disabled:cursor-not-allowed disabled:opacity-50 data-disabled:cursor-not-allowed data-disabled:opacity-50',
             )}
           >
             {item.icon ? renderNode(item.icon) : null}
@@ -729,7 +831,7 @@ export function ChipsRenderer({
           </Toggle>
         );
       })}
-    </RangeGroup>
+    </ToggleGroup>
   );
 }
 
@@ -747,13 +849,8 @@ export function OptionCardsRenderer({
   rules?: Rules;
   defaultValue?: string | string[];
 }>) {
-  const state = useSelectionField(
-    props.name,
-    props.type ?? 'single',
-    props.defaultValue,
-    props.rules,
-    'OptionCards',
-  );
+  const type = props.type ?? 'single';
+  const state = useSelectionField(props.name, type, props.defaultValue, props.rules, 'OptionCards');
   const items = (props.items ?? [])
     .map((item) =>
       childProps<{
@@ -778,29 +875,33 @@ export function OptionCardsRenderer({
   const wiring = useFieldWiring();
   if (items.length === 0) return null;
   return (
-    <RangeGroup
-      labelledBy={wiring?.labelId}
-      describedBy={wiring?.describedBy}
-      invalid={!!state.error}
-      className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+    <ToggleGroup
+      render={<fieldset />}
+      aria-labelledby={wiring?.labelId}
+      aria-describedby={wiring?.describedBy}
+      aria-invalid={state.error ? true : undefined}
+      disabled={state.streaming}
+      multiple={type === 'multiple'}
+      value={state.selection}
+      onValueChange={(next) => state.setSelection(next)}
+      className="m-0 grid min-w-0 grid-cols-1 gap-2 border-0 p-0 sm:grid-cols-2"
     >
       {items.map((item) => {
         const selected = state.selection.includes(item.value);
         return (
           <Toggle
             key={item.value}
-            pressed={selected}
+            value={item.value}
             aria-invalid={state.error ? true : undefined}
             aria-describedby={wiring?.describedBy}
-            disabled={Boolean(state.streaming || item.disabled)}
-            onPressedChange={() => state.toggle(item.value)}
+            disabled={Boolean(item.disabled)}
             className={cn(
               'cds-card-surface flex min-w-0 items-start gap-2 rounded-card border p-3 text-left',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               selected
                 ? 'border-line-strong bg-selected text-selected-foreground'
                 : 'border-transparent bg-surface',
-              'disabled:cursor-not-allowed disabled:opacity-50',
+              'disabled:cursor-not-allowed disabled:opacity-50 data-disabled:cursor-not-allowed data-disabled:opacity-50',
             )}
           >
             {item.topContent ? (
@@ -822,7 +923,7 @@ export function OptionCardsRenderer({
           </Toggle>
         );
       })}
-    </RangeGroup>
+    </ToggleGroup>
   );
 }
 
@@ -966,6 +1067,9 @@ export function ButtonRenderer({
               ? 'lg'
               : 'default'
       }
+      {...(props.type === 'destructive'
+        ? { 'data-agent-confirm': `执行危险操作「${props.label}」` }
+        : {})}
       disabled={streaming}
       onClick={() => {
         if (

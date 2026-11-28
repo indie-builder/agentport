@@ -2,6 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantText } from '../src/components/chat/openui-message.js';
+import { createUiAgent } from '../src/lib/ui-agent.js';
 import type { OpenUiStateSaveInput, OpenUiToolCallInput } from '../src/openui/renderer.js';
 import '../src/openui/renderer.js';
 
@@ -293,7 +294,19 @@ describe('approval entry', () => {
     expect(host.textContent).toContain('需要批准');
     expect(host.textContent).toContain('8 小时');
 
-    await act(async () => buttonByText('批准工具调用').click());
+    const approveButton = buttonByText('批准工具调用');
+    expect(approveButton.getAttribute('data-agent-confirm')).toBe(
+      '批准工具 risky 在本会话内调用（8 小时内有效）',
+    );
+    const approveSnap = createUiAgent()
+      .snapshot()
+      .find((entry) => !entry.offPage && entry.label === '批准工具调用');
+    expect(approveSnap).toMatchObject({
+      label: '批准工具调用',
+      confirm: '批准工具 risky 在本会话内调用（8 小时内有效）',
+    });
+
+    await act(async () => approveButton.click());
     await settle();
 
     expect(onApprove).toHaveBeenCalledWith({
@@ -502,5 +515,31 @@ describe('edit mode rendering', () => {
     expect(host.textContent).not.toContain('半补丁');
     expect(host.textContent).not.toContain('root = Card');
     expect(host.querySelector('[aria-busy="true"]')).toBeTruthy();
+  });
+});
+
+describe('destructive button confirmation', () => {
+  it('exposes confirm on destructive Button in ui agent snapshot', async () => {
+    await render({
+      text: FENCE([
+        'root = Card([buttons])',
+        'buttons = Buttons([danger])',
+        'danger = Button("删除记录", @ToAssistant("删除"), "primary", "destructive")',
+      ]),
+      streaming: false,
+      onAction: vi.fn(),
+    });
+
+    const dangerButton = buttonByText('删除记录');
+    expect(dangerButton.getAttribute('data-agent-confirm')).toBe('执行危险操作「删除记录」');
+
+    const snap = createUiAgent()
+      .snapshot()
+      .find((entry) => !entry.offPage && entry.label === '删除记录');
+    expect(snap).toMatchObject({
+      component: 'button',
+      label: '删除记录',
+      confirm: '执行危险操作「删除记录」',
+    });
   });
 });
