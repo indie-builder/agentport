@@ -1,3 +1,5 @@
+import { createRovingFocus, definePrimitive, selects, spatialMove } from '@ui-sdk/core';
+import { createParts } from '@ui-sdk/react/primitive';
 import { Network } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { KnowledgeWikiGraph as WikiGraph } from '../../lib/api.js';
@@ -10,6 +12,65 @@ const WIDTH = 760;
 const HEIGHT = 520;
 const CENTER_X = WIDTH / 2;
 const CENTER_Y = HEIGHT / 2;
+
+type WikiGraphPosition = { x: number; y: number; cos: number; sin: number };
+
+type WikiGraphOptions = {
+  positions: ReadonlyMap<string, WikiGraphPosition>;
+  onActivate: (pageId: string) => void;
+};
+
+const wikiGraph = definePrimitive({
+  name: 'wiki-graph',
+  options: { positions: 'value', onActivate: 'callback' },
+  state: (_options: WikiGraphOptions) => ({ focused: null as string | null }),
+  api: (context) => {
+    const roving = createRovingFocus(context, {
+      slot: 'node',
+      key: 'focused',
+      move: spatialMove({
+        rect: (el, key) => {
+          const position = context.options().positions.get(key);
+          if (!position) return el.getBoundingClientRect();
+          return { left: position.x, right: position.x, top: position.y, bottom: position.y };
+        },
+      }),
+    });
+    return {
+      roving,
+      activate: (key: string) => context.options().onActivate(key),
+    };
+  },
+  slots: (slot) => ({
+    root: slot({
+      role: 'group',
+    }),
+    node: slot<{ value: string }>({
+      role: 'button',
+      focus: 'roving',
+      props: { value: 'string' },
+      selects: selects({ focused: ({ key }) => [key, null] }),
+      attrs: (state, part) => ({
+        tabindex: part.api.roving.tabIndex(state, part),
+      }),
+      press: ({ api, key }) => api.activate(key),
+      on: {
+        keydown: (event, { el, api, key }) => {
+          if (el && api.roving.keydown(event, el)) return;
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          api.activate(key);
+        },
+      },
+      bind: (el, part) => part.api.roving.bind(el, part),
+    }),
+  }),
+});
+
+const { Root: WikiGraphRoot, Node: WikiGraphNode } = createParts(wikiGraph, {
+  root: 'svg',
+  node: 'g',
+});
 
 function labelOf(title: string): string {
   return title.length > 16 ? `${title.slice(0, 15)}…` : title;
@@ -144,10 +205,10 @@ export function KnowledgeWikiGraph({
           }
         />
       ) : (
-        // biome-ignore lint/a11y/useSemanticElements: SVG 图谱没有等价语义元素，group 保留子节点按钮语义
-        <svg
+        <WikiGraphRoot
+          positions={positions}
+          onActivate={onSelectPage}
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          role="group"
           aria-label={`Wiki 链接图谱：${graph.nodes.length} 个页面，${graph.edges.length} 条链接`}
           className="w-full"
         >
@@ -181,11 +242,9 @@ export function KnowledgeWikiGraph({
             const dimmed = connected !== null && !connected.has(node.id);
             const anchor = position.cos > 0.1 ? 'start' : position.cos < -0.1 ? 'end' : 'middle';
             return (
-              // biome-ignore lint/a11y/useSemanticElements: SVG 节点只能是 g，用 role="button" 提供键盘语义
-              <g
+              <WikiGraphNode
                 key={node.id}
-                role="button"
-                tabIndex={0}
+                value={node.id}
                 aria-label={`打开页面：${node.title}`}
                 className={cn(
                   'cursor-pointer outline-none transition-opacity',
@@ -195,12 +254,6 @@ export function KnowledgeWikiGraph({
                 onMouseLeave={() => setHovered(null)}
                 onFocus={() => setHovered(node.id)}
                 onBlur={() => setHovered(null)}
-                onClick={() => onSelectPage(node.id)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  event.preventDefault();
-                  onSelectPage(node.id);
-                }}
               >
                 <title>{node.title}</title>
                 <circle
@@ -217,10 +270,10 @@ export function KnowledgeWikiGraph({
                 >
                   {labelOf(node.title)}
                 </text>
-              </g>
+              </WikiGraphNode>
             );
           })}
-        </svg>
+        </WikiGraphRoot>
       )}
     </div>
   );

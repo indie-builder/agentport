@@ -154,7 +154,7 @@ function MentionListItem({
     { value },
     {
       className:
-        'flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-item px-3 py-1.5 text-left text-sm text-fg data-highlighted:bg-accent data-highlighted:text-accent-foreground',
+        'flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-item px-3 py-1.5 text-start text-sm text-fg data-highlighted:bg-accent data-highlighted:text-accent-foreground',
       children: (
         <>
           <span className="min-w-0 flex-1 truncate">{name}</span>

@@ -32,7 +32,7 @@ function CalendarPrevious({
       }
       {...props}
     >
-      {children ?? <ChevronLeftIcon aria-hidden="true" />}
+      {children ?? <ChevronLeftIcon aria-hidden="true" className="rtl:rotate-180" />}
     </CalendarPreviousPrimitive>
   );
 }
@@ -53,7 +53,7 @@ function CalendarNext({
       }
       {...props}
     >
-      {children ?? <ChevronRightIcon aria-hidden="true" />}
+      {children ?? <ChevronRightIcon aria-hidden="true" className="rtl:rotate-180" />}
     </CalendarNextPrimitive>
   );
 }
@@ -85,8 +85,8 @@ function CalendarDay({ className, ...props }: ComponentProps<typeof CalendarDayP
           state.today && !state.selected && !state.inRange && 'bg-muted',
           !state.inRange && 'rounded-(--cell-radius)',
           state.rangeStart && state.rangeEnd && 'rounded-(--cell-radius)',
-          state.rangeStart && !state.rangeEnd && 'rounded-l-(--cell-radius) rounded-r-none',
-          state.rangeEnd && !state.rangeStart && 'rounded-r-(--cell-radius) rounded-l-none',
+          state.rangeStart && !state.rangeEnd && 'rounded-s-(--cell-radius) rounded-e-none',
+          state.rangeEnd && !state.rangeStart && 'rounded-e-(--cell-radius) rounded-s-none',
           state.inRange && !state.rangeStart && !state.rangeEnd && 'rounded-none',
           typeof className === 'function' ? className(state) : className,
         )

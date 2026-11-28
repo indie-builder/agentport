@@ -108,7 +108,7 @@ function ComboboxItem<T = string>({
     <ComboboxItemPrimitive
       className={(state) =>
         cn(
-          "relative flex w-full cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+          "relative flex w-full cursor-default items-center gap-2 rounded-md py-1 pe-8 ps-1.5 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -117,7 +117,7 @@ function ComboboxItem<T = string>({
       {(state) => (
         <>
           {typeof children === 'function' ? children(state) : children}
-          <ComboboxItemIndicator className="pointer-events-none absolute right-2 flex size-4 items-center justify-center">
+          <ComboboxItemIndicator className="pointer-events-none absolute end-2 flex size-4 items-center justify-center">
             <CheckIcon aria-hidden="true" className="pointer-events-none" />
           </ComboboxItemIndicator>
         </>
@@ -162,7 +162,7 @@ function ComboboxChip<T = string>({
     <ComboboxChipPrimitive
       className={(state) =>
         cn(
-          'flex h-[calc(--spacing(5.25))] w-fit items-center justify-center gap-1 rounded-sm bg-muted px-1.5 text-xs font-medium whitespace-nowrap text-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50 has-data-[slot=combobox-chip-remove]:pr-0',
+          'flex h-[calc(--spacing(5.25))] w-fit items-center justify-center gap-1 rounded-sm bg-muted px-1.5 text-xs font-medium whitespace-nowrap text-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50 has-data-[slot=combobox-chip-remove]:pe-0',
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -183,7 +183,7 @@ function ComboboxChipRemove({
           variant: 'ghost',
           size: 'icon-xs',
           className: cn(
-            '-ml-1 opacity-50 hover:opacity-100',
+            '-ms-1 opacity-50 hover:opacity-100',
             typeof className === 'function' ? className(state) : className,
           ),
         })

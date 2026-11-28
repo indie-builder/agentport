@@ -11,6 +11,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KnowledgeCitations } from '../src/components/knowledge/knowledge-citations.js';
 import { WikiTab } from '../src/components/knowledge/knowledge-wiki.js';
 
+vi.mock('../src/lib/toast.js', () => ({
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
+
 interface Call {
   url: string;
   method: string;

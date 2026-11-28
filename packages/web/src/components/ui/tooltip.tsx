@@ -26,7 +26,7 @@ function TooltipContent<Payload = unknown>({
       sideOffset={sideOffset}
       className={(state) =>
         cn(
-          'z-50 inline-flex w-fit max-w-xs items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs text-background cds-overlay-enter data-instant:transition-none has-data-[slot=kbd]:pr-1.5 **:data-[slot=kbd]:relative **:data-[slot=kbd]:isolate **:data-[slot=kbd]:z-50 **:data-[slot=kbd]:rounded-sm data-ending-style:opacity-0 data-starting-style:opacity-0',
+          'z-50 inline-flex w-fit max-w-xs items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs text-background cds-overlay-enter data-instant:transition-none has-data-[slot=kbd]:pe-1.5 **:data-[slot=kbd]:relative **:data-[slot=kbd]:isolate **:data-[slot=kbd]:z-50 **:data-[slot=kbd]:rounded-sm data-ending-style:opacity-0 data-starting-style:opacity-0',
           typeof className === 'function' ? className(state) : className,
         )
       }

@@ -53,9 +53,7 @@ function DialogContent<Payload = unknown>({
             {typeof children === 'function' ? children(state) : children}
             {showCloseButton && (
               <DialogClose
-                render={
-                  <Button variant="ghost" className="absolute top-2 right-2" size="icon-sm" />
-                }
+                render={<Button variant="ghost" className="absolute top-2 end-2" size="icon-sm" />}
               >
                 <XIcon className="size-3" />
                 <span className="sr-only">关闭</span>

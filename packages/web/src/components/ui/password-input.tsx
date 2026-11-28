@@ -9,7 +9,7 @@ import type { ComponentProps } from 'react';
 import { cn } from '@/lib/cn';
 
 const passwordInputClassName =
-  'group/password-input relative flex h-8 w-full min-w-0 items-center gap-1 rounded-[var(--radius-item)] border border-input bg-transparent pr-1.5 transition-colors outline-none data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-[0.35] has-[[data-slot=password-input-control]:focus-visible]:border-input-focus has-[[data-slot=password-input-control][aria-invalid=true]]:border-destructive has-[[data-slot=password-input-control][aria-invalid=true]:focus-visible]:border-destructive dark:bg-input/30 dark:data-disabled:bg-input/80 dark:has-[[data-slot=password-input-control][aria-invalid=true]]:border-destructive/50';
+  'group/password-input relative flex h-8 w-full min-w-0 items-center gap-1 rounded-[var(--radius-item)] border border-input bg-transparent pe-1.5 transition-colors outline-none data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-[0.35] has-[[data-slot=password-input-control]:focus-visible]:border-input-focus has-[[data-slot=password-input-control][aria-invalid=true]]:border-destructive has-[[data-slot=password-input-control][aria-invalid=true]:focus-visible]:border-destructive dark:bg-input/30 dark:data-disabled:bg-input/80 dark:has-[[data-slot=password-input-control][aria-invalid=true]]:border-destructive/50';
 
 const passwordInputControlClassName =
   'h-full w-full min-w-0 flex-1 rounded-[var(--radius-item)] border-0 bg-transparent px-2.5 py-1 text-sm text-fg outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed';

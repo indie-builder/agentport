@@ -118,7 +118,7 @@ function FileInputItemRemove({
       className={(state) =>
         cn(
           buttonVariants({ variant: 'ghost', size: 'icon-xs' }),
-          'ml-auto',
+          'ms-auto',
           typeof className === 'function' ? className(state) : className,
         )
       }
