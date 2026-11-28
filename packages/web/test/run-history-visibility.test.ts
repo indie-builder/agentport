@@ -131,7 +131,6 @@ describe('overview retained run history', () => {
       await mount();
       expect(host.querySelector('table[aria-label="最近运行"]')?.textContent).toContain('已删除');
       expect(host.querySelector('[title="run_retained"]')).not.toBeNull();
-      expect(host.textContent).not.toContain('开始配置');
       if (status === 'failed') {
         expect(host.querySelector('table[aria-label="最近运行"]')?.textContent).toContain('失败');
         expect(host.querySelector('[title="Retained execution failed"]')).not.toBeNull();
@@ -209,7 +208,6 @@ describe('overview retained run history', () => {
     } satisfies Overview);
     await mount();
     expect(host.querySelector('a[href="/runs"]')?.textContent).toBe('查看运行');
-    expect(host.textContent).not.toContain('查看全部');
   });
 });
 

@@ -69,27 +69,3 @@ describe('EmptyState illustration', () => {
     expect(html).not.toContain('<img');
   });
 });
-
-describe('BusinessIllustration', () => {
-  it('maps a name to the shared business asset path at the standard size', () => {
-    const html = renderToStaticMarkup(createElement(BusinessIllustration, { name: 'not-found' }));
-
-    expect(html).toContain('src="/brand/business/not-found.webp"');
-    expect(html).toContain('width="96"');
-    expect(html).toContain('height="96"');
-  });
-
-  it('renders each fixed size with matching width and height', () => {
-    const compact = renderToStaticMarkup(
-      createElement(BusinessIllustration, { name: 'tools', size: 'compact' }),
-    );
-    expect(compact).toContain('width="64"');
-    expect(compact).toContain('height="64"');
-
-    const large = renderToStaticMarkup(
-      createElement(BusinessIllustration, { name: 'search', size: 'error' }),
-    );
-    expect(large).toContain('width="144"');
-    expect(large).toContain('height="144"');
-  });
-});

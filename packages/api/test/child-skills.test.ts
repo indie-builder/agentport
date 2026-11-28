@@ -124,20 +124,6 @@ describe.skipIf(!ready)('child skills in the rendered workspace', () => {
     expect(files.subAgents.map((subAgent) => subAgent.slug)).not.toContain(disabledChild.slug);
   });
 
-  it('downloads the child file byte-for-byte as previewed', async () => {
-    const files = (await preview()).json<WorkspaceFiles>();
-    const rendered = files.subAgents.find((subAgent) => subAgent.slug === child.slug);
-
-    const res = await request(app, {
-      method: 'GET',
-      url: `/api/agents/${parent.id}/subagents/${child.id}/file`,
-      headers: auth(),
-    });
-    expect(res.statusCode, res.body).toBe(200);
-    expect(res.body).toBe(rendered?.content);
-    expect(res.body).toContain(childSkill.slug);
-  });
-
   it('keeps preview behind auth', async () => {
     expectProblem(
       await request(app, { method: 'GET', url: `/api/agents/${parent.id}/files` }),

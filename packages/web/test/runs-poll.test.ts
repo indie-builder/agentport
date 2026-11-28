@@ -1,93 +1,135 @@
-import { beforeEach, expect, test, vi } from 'vitest';
-
-const rq = vi.hoisted(() => ({
-  useQuery: vi.fn(),
-  useMutation: vi.fn(),
-  useInfiniteQuery: vi.fn(),
-  useQueryClient: vi.fn(() => ({ invalidateQueries: vi.fn() })),
-}));
-
-vi.mock('@tanstack/react-query', () => ({
-  QueryClient: class {},
-  queryOptions: (options: unknown) => options,
-  useQuery: rq.useQuery,
-  useMutation: rq.useMutation,
-  useInfiniteQuery: rq.useInfiniteQuery,
-  useQueryClient: rq.useQueryClient,
-}));
-
-vi.mock('../src/lib/api.js', () => ({
-  api: {},
-  ApiError: class ApiError extends Error {},
-}));
-
-import type { RunList, RunQuery, RunStatus } from '../src/lib/api.js';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api, type RunList, type RunQuery, type RunStatus } from '../src/lib/api.js';
 import { useRuns } from '../src/lib/queries.js';
 
-interface RunsOptions {
-  queryKey: unknown[];
-  refetchInterval: (query: {
-    state: { data?: { pages: RunList[]; pageParams: unknown[] } };
-  }) => number | false;
-}
+let client: QueryClient;
+let host: HTMLDivElement;
+let root: Root;
 
-function capture(): RunsOptions {
-  return rq.useInfiniteQuery.mock.calls.at(-1)?.[0] as RunsOptions;
-}
-
-function useDefaultOptions(query: RunQuery = {}): RunsOptions {
-  rq.useInfiniteQuery.mockReturnValue({ data: undefined });
-  useRuns(query);
-  return capture();
-}
-
-function usePollInterval(statuses: RunStatus[]): number | false {
-  const data = {
-    pages: [
-      {
-        items: statuses.map((status, index) => ({
-          id: `r${index}`,
-          agentId: 'a1',
-          agentName: null,
-          status,
-          startedAt: null,
-          endedAt: null,
-          costUsd: null,
-          turns: null,
-          latencyMs: null,
-          error: null,
-          inputTokens: null,
-          outputTokens: null,
-        })),
-        nextCursor: null,
-      },
-    ],
-    pageParams: [undefined],
+function runPage(statuses: RunStatus[]): RunList {
+  return {
+    items: statuses.map((status, index) => ({
+      id: `r${index}`,
+      agentId: 'a1',
+      agentName: null,
+      status,
+      trigger: 'chat',
+      startedAt: null,
+      endedAt: null,
+      costUsd: null,
+      turns: null,
+      latencyMs: null,
+      error: null,
+      inputTokens: null,
+      outputTokens: null,
+    })),
+    nextCursor: null,
   };
-  return useDefaultOptions({ limit: 50 }).refetchInterval({ state: { data } });
+}
+
+function runsReads(): number {
+  return vi.mocked(api.runs).mock.calls.length;
+}
+
+function Probe({ query = {} }: { query?: RunQuery }) {
+  useRuns(query);
+  return null;
+}
+
+async function mount(query: RunQuery = {}) {
+  await act(async () => {
+    root.render(createElement(QueryClientProvider, { client }, createElement(Probe, { query })));
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
 }
 
 beforeEach(() => {
-  rq.useInfiniteQuery.mockReset();
+  vi.useFakeTimers();
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  vi.spyOn(api, 'runs').mockResolvedValue(runPage([]));
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
 });
 
-test('查询键保留过滤条件', () => {
-  expect(useDefaultOptions({ agentId: 'a1', status: 'failed', limit: 20 }).queryKey).toEqual([
-    'runs',
-    'a1',
-    'failed',
-    null,
-    null,
-    20,
-  ]);
-  expect(useDefaultOptions({ limit: 50 }).queryKey).toEqual(['runs', null, null, null, null, 50]);
+afterEach(async () => {
+  await act(async () => root.unmount());
+  client.clear();
+  host.remove();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
-test('有 queued/running 时每 5 秒轮询，全部结束后停止', () => {
-  expect(usePollInterval(['queued'])).toBe(5_000);
-  expect(usePollInterval(['running'])).toBe(5_000);
-  expect(usePollInterval(['succeeded', 'running', 'failed'])).toBe(5_000);
-  expect(usePollInterval(['succeeded', 'failed', 'cancelled', 'timeout'])).toBe(false);
-  expect(usePollInterval([])).toBe(false);
-  expect(useDefaultOptions().refetchInterval({ state: {} })).toBe(false);
+describe('useRuns polling and filtering', () => {
+  it('forwards filters to api.runs and separates cache entries by filter', async () => {
+    await mount({ agentId: 'a1', status: 'failed', limit: 20 });
+    expect(api.runs).toHaveBeenLastCalledWith(
+      { agentId: 'a1', status: 'failed', limit: 20 },
+      expect.any(AbortSignal),
+    );
+    expect(client.getQueryData(['runs', 'a1', 'failed', null, null, 20])).toBeDefined();
+
+    await mount({ limit: 50 });
+    expect(api.runs).toHaveBeenLastCalledWith({ limit: 50 }, expect.any(AbortSignal));
+    expect(client.getQueryData(['runs', null, null, null, null, 50])).toBeDefined();
+    expect(runsReads()).toBe(2);
+  });
+
+  it('polls every 5 seconds while queued or running and stops once all runs finish', async () => {
+    vi.mocked(api.runs)
+      .mockResolvedValueOnce(runPage(['queued']))
+      .mockResolvedValueOnce(runPage(['running']))
+      .mockResolvedValueOnce(runPage(['succeeded', 'running', 'failed']))
+      .mockResolvedValue(runPage(['succeeded', 'failed', 'cancelled', 'timeout']));
+
+    await mount({ limit: 50 });
+    expect(runsReads()).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(runsReads()).toBe(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(runsReads()).toBe(3);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(runsReads()).toBe(4);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(runsReads()).toBe(4);
+  });
+
+  it('does not poll when the list is empty or unavailable', async () => {
+    vi.mocked(api.runs).mockResolvedValue(runPage([]));
+    await mount({ limit: 50 });
+    expect(runsReads()).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(runsReads()).toBe(1);
+
+    vi.mocked(api.runs).mockRejectedValueOnce(new Error('offline'));
+    await mount({ agentId: 'a2', limit: 50 });
+    expect(runsReads()).toBe(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(runsReads()).toBe(2);
+  });
 });

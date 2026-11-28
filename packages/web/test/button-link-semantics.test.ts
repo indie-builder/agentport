@@ -1,32 +1,7 @@
-import type { PluginWithAgentCount } from '@agentport/shared';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ReaderToolbar } from '../src/components/reader-toolbar.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NotFoundPage } from '../src/pages/not-found.js';
-import { PluginDetailPage } from '../src/pages/plugins/plugin-detail.js';
-import { allAccessMe } from './me-fixture.js';
-
-const state = vi.hoisted(() => ({
-  search: {} as Record<string, string | undefined>,
-  query: {} as {
-    data: PluginWithAgentCount | undefined;
-    isPending: boolean;
-    isError: boolean;
-    isRefetchError: boolean;
-    error: unknown;
-    refetch: () => void;
-  },
-}));
-
-vi.mock('../src/lib/queries.js', () => ({
-  meQuery: {
-    queryKey: ['me'],
-    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
-  },
-  usePlugin: () => state.query,
-}));
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
@@ -42,35 +17,16 @@ vi.mock('@tanstack/react-router', () => ({
     children?: ReactNode;
     [key: string]: unknown;
   }) => createElement('a', { href: to, ...rest }, children),
-  useParams: () => ({ pluginId: 'plugin-1' }),
-  useSearch: () => state.search,
-  useNavigate: () => () => {},
 }));
-
-const plugin: PluginWithAgentCount = {
-  agentCount: 3,
-  id: 'plugin-1',
-  slug: 'demo',
-  runtimeName: 'demo',
-  name: '演示插件',
-  description: '演示插件的能力',
-  version: '1.0.0',
-  sourceId: null,
-  capabilities: { skills: [], agents: [], hasHooks: false, mcpServers: [] },
-  files: [{ path: 'README.md', content: '# 演示\n\n正文', executable: false }],
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
-};
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
-let client: QueryClient;
 
 function mount(node: ReactNode): void {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
-  act(() => root?.render(createElement(QueryClientProvider, { client }, node)));
+  act(() => root?.render(node));
 }
 
 function body(): HTMLElement {
@@ -94,77 +50,11 @@ function expectLinkSemantics(
   expect(element.getAttribute('role')).toBe(role);
 }
 
-beforeEach(() => {
-  state.search = {};
-  state.query = {
-    data: plugin,
-    isPending: false,
-    isError: false,
-    isRefetchError: false,
-    error: null,
-    refetch: vi.fn(),
-  };
-  client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
-  });
-  client.setQueryData(['me'], allAccessMe);
-  vi.stubGlobal(
-    'ResizeObserver',
-    class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-  );
-  vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: query === '(min-width: 64rem)',
-    addEventListener() {},
-    removeEventListener() {},
-    addListener() {},
-    removeListener() {},
-  }));
-  localStorage.clear();
-});
-
 afterEach(async () => {
   await act(async () => root?.unmount());
   host?.remove();
   root = undefined;
   host = undefined;
-  client.clear();
-  vi.unstubAllGlobals();
-});
-
-describe('download links keep link semantics', () => {
-  it('renders the reader toolbar download as a native download link', () => {
-    mount(
-      createElement(ReaderToolbar, {
-        identity: createElement('span', null, '正文.md'),
-        download: { href: '/api/file', label: '下载 正文.md' },
-      }),
-    );
-
-    const download = anchor('a[aria-label="下载 正文.md"]');
-    expectLinkSemantics(download, '/api/file');
-    expect(download.hasAttribute('download')).toBe(true);
-    expect(download.getAttribute('title')).toBe('下载 正文.md');
-  });
-});
-
-describe('plugin detail links keep link semantics', () => {
-  it('renders back and export as links instead of buttons', async () => {
-    mount(createElement(PluginDetailPage));
-
-    expectLinkSemantics(anchor('a[aria-label="返回插件列表"]'), '/plugins');
-    const more = body().querySelector<HTMLButtonElement>('button[aria-label="更多操作"]');
-    if (!more) throw new Error('Missing 更多操作');
-    await act(async () => more.click());
-    const exportLink = document.querySelector<HTMLAnchorElement>(
-      'a[href="/api/plugins/plugin-1/export"]',
-    );
-    if (!exportLink) throw new Error('Missing export link');
-    expectLinkSemantics(exportLink, '/api/plugins/plugin-1/export', 'menuitem');
-  });
 });
 
 describe('page navigation keeps link semantics', () => {

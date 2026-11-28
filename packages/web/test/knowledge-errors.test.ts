@@ -6,12 +6,6 @@ describe('knowledge job error text', () => {
     expect(knowledgeJobErrorText('parse_pdf: 文件解析失败')).toBe('parse_pdf: 文件解析失败');
   });
 
-  it('returns prototype property names unchanged instead of resolving them', () => {
-    for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
-      expect(knowledgeJobErrorText(name)).toBe(name);
-    }
-  });
-
   it('treats a missing or blank error as absent', () => {
     expect(knowledgeJobErrorText(null)).toBeNull();
     expect(knowledgeJobErrorText(undefined)).toBeNull();

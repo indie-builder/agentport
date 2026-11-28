@@ -376,22 +376,6 @@ describe('knowledgeConnectors range mapping', () => {
     expect(github.items.map((item) => item.sourceId)).toEqual([
       withConnection(`github:${fixtureUrl}/api/v3:77:main:docs/a.md`),
     ]);
-    expect(Object.keys(knowledgeConnectors).sort()).toEqual([
-      'confluence',
-      'dingtalk',
-      'feed',
-      'feishu_drive',
-      'feishu_wiki',
-      'github',
-      'gitlab',
-      'ima',
-      'lark_drive',
-      'lark_wiki',
-      'nextcloud',
-      'notion',
-      'seafile',
-      'yuque',
-    ]);
   });
 
   it('treats a narrower GitHub paths scope as a first sync, not the wider cursor', async () => {

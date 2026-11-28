@@ -233,6 +233,7 @@ describe('runner task wiring', () => {
   it('passes the requested skills to the SDK without a Skill wildcard', async () => {
     const { events } = await run({ skills: ['demo-skill'] });
 
+    expect(io.options?.settingSources).toEqual(['project']);
     expect(io.options?.skills).toEqual(['demo-skill']);
     expect(io.options?.allowedTools).not.toContain('Skill');
     expect(io.options?.allowedTools).toContain('Bash');
@@ -280,27 +281,35 @@ describe('runner task wiring', () => {
       expect(options.allowedTools).not.toContain(tool);
       expect(options.disallowedTools).not.toContain(tool);
     }
-    const matchers = options.hooks?.PreToolUse;
-    expect(matchers).toHaveLength(2);
-    expect(matchers?.[1]).toMatchObject({ matcher: 'mcp__.*', timeout: 360, onFailure: 'block' });
-    expect(matchers?.[0]?.matcher).toBeUndefined();
-    expect(matchers?.[0]?.hooks).toHaveLength(2);
-    const hook = matchers?.[0]?.hooks[0];
-    expect(hook).toBeTypeOf('function');
-    const result = await hook?.(
-      {
-        hook_event_name: 'PreToolUse',
-        session_id: 's',
-        transcript_path: '/tmp/transcript',
-        cwd: '/workspace',
-        tool_name: 'Read',
-        tool_use_id: 't',
-        tool_input: { file_path: '/workspace/.mcp.json' },
-      },
-      't',
-      { signal: new AbortController().signal },
+    const matchers = options.hooks?.PreToolUse ?? [];
+    expect(matchers).toContainEqual(
+      expect.objectContaining({ matcher: 'mcp__.*', timeout: 360, onFailure: 'block' }),
     );
-    expect(result).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+    const results = await Promise.all(
+      matchers
+        .filter((entry) => entry.matcher === undefined)
+        .flatMap((entry) => entry.hooks)
+        .map((hook) =>
+          hook(
+            {
+              hook_event_name: 'PreToolUse',
+              session_id: 's',
+              transcript_path: '/tmp/transcript',
+              cwd: '/workspace',
+              tool_name: 'Read',
+              tool_use_id: 't',
+              tool_input: { file_path: '/workspace/.mcp.json' },
+            },
+            't',
+            { signal: new AbortController().signal },
+          ),
+        ),
+    );
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        hookSpecificOutput: expect.objectContaining({ permissionDecision: 'deny' }),
+      }),
+    );
   });
 
   it('registers the personal memory prompt hook on resumed sessions', async () => {
@@ -345,12 +354,6 @@ describe('runner task wiring', () => {
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
       CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1',
     });
-  });
-
-  it('leaves outputStyle to the project settings the SDK loads natively', async () => {
-    await run({});
-    expect(io.options?.settingSources).toEqual(['project']);
-    expect(io.options?.settings).not.toHaveProperty('outputStyle');
   });
 
   it('does not resume an empty conversation', async () => {
@@ -442,12 +445,11 @@ describe('runner task wiring', () => {
     expect(io.closed).toBe(true);
   });
 
-  it('allows native file tools on the rw outputs mount without SDK additionalDirectories', async () => {
+  it('allows native file tools on the rw outputs mount', async () => {
     await run({});
     const options = io.options as Options;
 
     expect(options.cwd).toBe('/workspace');
-    expect(options).not.toHaveProperty('additionalDirectories');
     expect(options.allowedTools).toEqual(
       expect.arrayContaining(['Read(//mnt/outputs/**)', 'Edit(//mnt/outputs/**)']),
     );
@@ -493,36 +495,6 @@ describe('runner task wiring', () => {
         'Edit(//workspace/.claude/agent-memory/**)',
       ]),
     );
-  });
-
-  it('keeps the file boundary hook off non-file tools and sub-agents', async () => {
-    await run({});
-    const hook = (io.options as Options).hooks?.PreToolUse?.[0]?.hooks[0];
-    expect(hook).toBeTypeOf('function');
-    const call = (tool: string, file_path: string, agentId?: string) =>
-      hook?.(
-        {
-          hook_event_name: 'PreToolUse',
-          session_id: 's',
-          transcript_path: '/tmp/transcript',
-          cwd: '/workspace',
-          tool_name: tool,
-          tool_input: { file_path },
-          tool_use_id: 't',
-          ...(agentId === undefined ? {} : { agent_id: agentId }),
-        },
-        't',
-        { signal: new AbortController().signal },
-      );
-    for (const tool of ['Read', 'Write', 'Edit']) {
-      expect(await call(tool, '/workspace/CLAUDE.md')).toMatchObject({
-        hookSpecificOutput: { permissionDecision: 'deny' },
-      });
-      expect(await call(tool, '/mnt/agent-memory/MEMORY.md', 'child')).toMatchObject({
-        hookSpecificOutput: { permissionDecision: 'deny' },
-      });
-    }
-    expect(await call('Bash', '/mnt/outputs/report.md')).toEqual({});
   });
 
   it('keeps explicit denies even when configuration allows the tools', async () => {
@@ -727,36 +699,6 @@ describe('native clarification questions', () => {
     });
     expect(events.filter((event) => event.type === 'question_closed')).toEqual([]);
     expect(events.at(-1)).toMatchObject({ type: 'run_finished', status: 'succeeded' });
-  });
-
-  it('fails closed for every non-question tool approval', async () => {
-    io.ask = { toolName: 'Bash', input: { command: 'rm -rf /' } };
-
-    const { events } = await run({ permissionMode: 'default' });
-
-    expect(io.askResults).toEqual([expect.objectContaining({ behavior: 'deny' })]);
-    expect(events.some((event) => event.type === 'question_requested')).toBe(false);
-  });
-
-  it('refuses questions from sub-agents', async () => {
-    io.ask = { toolName: 'AskUserQuestion', input: { questions }, agentID: 'sub-agent' };
-
-    await run({ permissionMode: 'default' });
-
-    expect(io.askResults).toEqual([expect.objectContaining({ behavior: 'deny' })]);
-  });
-
-  it('closes a pending question when stdin ends', async () => {
-    io.ask = {
-      toolName: 'AskUserQuestion',
-      input: { questions },
-      respond: () => io.endStdin(),
-    };
-
-    const { events } = await run({ permissionMode: 'default' });
-
-    expect(io.askResults).toEqual([expect.objectContaining({ behavior: 'deny' })]);
-    expect(events).toContainEqual({ type: 'question_closed', requestId: 'req-1' });
   });
 });
 

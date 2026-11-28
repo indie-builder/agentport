@@ -980,8 +980,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(publishedPage?.currentVersionId).toBe(draft.id);
     expect(publishedPage?.status).toBe('published');
     expect((await knowledge.getReadableWikiPage(db, baseId, page.id))?.version.id).toBe(draft.id);
-    const listed = await knowledge.listReadableWikiPages(db, baseId);
-    expect(listed.items.map((item) => item.page.id)).toContain(page.id);
 
     const next = await knowledge.saveWikiDraft(db, page.id, {
       markdown: 'a\nb\nb',
@@ -2483,15 +2481,17 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     await expectOnlineUnchanged();
     await knowledge.updateSource(db, source.id, { secretsEncrypted: null });
 
-    await knowledge.replaceRanges(db, source.id, [
-      {
-        kind: 'gitlab_project',
-        externalId: 'snapshot',
-        ref: null,
-        paths: ['/other'],
-        enabled: true,
-      },
-    ]);
+    await knowledge.replaceSourceScope(db, source.id, {
+      ranges: [
+        {
+          kind: 'gitlab_project',
+          externalId: 'snapshot',
+          ref: null,
+          paths: ['/other'],
+          enabled: true,
+        },
+      ],
+    });
     expect(
       await knowledge.setDocumentSourceRanges(
         db,
@@ -2503,15 +2503,17 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     ).toBeNull();
     expect(await knowledge.setCurrentVersion(db, seeded.document.id, second.id, guard)).toBeNull();
     await expectOnlineUnchanged();
-    await knowledge.replaceRanges(db, source.id, [
-      {
-        kind: 'gitlab_project',
-        externalId: 'snapshot',
-        ref: null,
-        paths: ['/docs'],
-        enabled: true,
-      },
-    ]);
+    await knowledge.replaceSourceScope(db, source.id, {
+      ranges: [
+        {
+          kind: 'gitlab_project',
+          externalId: 'snapshot',
+          ref: null,
+          paths: ['/docs'],
+          enabled: true,
+        },
+      ],
+    });
     expect(
       await knowledge.setDocumentSourceRanges(
         db,
@@ -2527,15 +2529,17 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       contentHash: second.blobSha256,
     });
 
-    await knowledge.replaceRanges(db, source.id, [
-      {
-        kind: 'gitlab_project',
-        externalId: 'snapshot',
-        ref: null,
-        paths: ['/docs'],
-        enabled: false,
-      },
-    ]);
+    await knowledge.replaceSourceScope(db, source.id, {
+      ranges: [
+        {
+          kind: 'gitlab_project',
+          externalId: 'snapshot',
+          ref: null,
+          paths: ['/docs'],
+          enabled: false,
+        },
+      ],
+    });
     await expect(
       knowledge.activateDocumentVersion(db, {
         documentId: seeded.document.id,

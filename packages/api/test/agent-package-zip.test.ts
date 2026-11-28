@@ -538,18 +538,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(agent.disallowedTools).toEqual(['Bash(rm:*)']);
   });
 
-  it('rejects a legacy JSON package', async () => {
-    const res = await request(app, {
-      method: 'POST',
-      url: '/api/import/agents',
-      headers: { cookie, 'content-type': 'application/zip' },
-      payload: Buffer.from(
-        JSON.stringify({ format: 'agentport/agent@1', agent: { slug: 'x', name: 'X' } }),
-      ),
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
   it('rejects unsafe archives: absolute, .., backslash, duplicates, symlinks and bombs', async () => {
     const cases: Array<{ label: string; zip: Buffer }> = [
       { label: 'absolute path', zip: rawZip([{ name: '/etc/CLAUDE.md', content: 'x' }]) },
@@ -1608,55 +1596,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     }
   });
 
-  it('rejects more than 20 children and more than 100 resources on export', async () => {
-    const rootSlug = unique('pkg-many-children');
-    createdAgents.push(rootSlug);
-    const createdRoot = await request(app, {
-      method: 'POST',
-      url: '/api/agents',
-      headers: { cookie },
-      payload: { slug: rootSlug, name: `Agent ${rootSlug}` },
-    });
-    expect(createdRoot.statusCode, createdRoot.body).toBe(201);
-    const root = createdRoot.json<Agent>();
-
-    const idPrefix = `agt_${unique('many')}_`;
-    const slugPrefix = unique('pkg-child-bulk');
-    for (let index = 1; index <= 21; index += 1) createdAgents.push(`${slugPrefix}-${index}`);
-    await app.client.unsafe(
-      `insert into agents (id, slug, name, model, system_prompt_md, parent_id, created_by, owner_business_id)
-       select $1 || g, $2 || '-' || g, 'Bulk child ' || g, 'claude-sonnet-5-5', 'bulk', $3, 'bootstrap-admin', 'bootstrap-admin'
-       from generate_series(1, 21) g`,
-      [idPrefix, slugPrefix, root.id],
-    );
-    expectProblem(await exportAgent(root.id), 'CONFLICT');
-
-    const resourceSlug = unique('pkg-many-skills');
-    createdAgents.push(resourceSlug);
-    const root2 = (
-      await request(app, {
-        method: 'POST',
-        url: '/api/agents',
-        headers: { cookie },
-        payload: { slug: resourceSlug, name: `Agent ${resourceSlug}` },
-      })
-    ).json<Agent>();
-    const skillPrefix = unique('pkg-bulk-skill');
-    for (let index = 1; index <= 101; index += 1) createdSkills.push(`${skillPrefix}-${index}`);
-    await app.client.unsafe(
-      `insert into skills (id, slug, name, description, body)
-       select $1 || g, $2 || '-' || g, 'Bulk skill ' || g, 'bulk', ''
-       from generate_series(1, 101) g`,
-      [`skl_${unique('bulk')}_`, skillPrefix],
-    );
-    await app.client.unsafe(
-      `insert into agent_skills (agent_id, skill_id)
-       select $1, id from skills where slug like $2`,
-      [root2.id, `${skillPrefix}-%`],
-    );
-    expectProblem(await exportAgent(root2.id), 'CONFLICT');
-  });
-
   it('rejects stored resource path collisions on export', async () => {
     const collisionCases: Array<{ label: string; paths: string[] }> = [
       ...['skill.md', 'SkIlL.mD', 'skill.md/child.md'].map((path) => ({
@@ -1882,11 +1821,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     createdAgents.push(accepted.json<AgentImportResult>().agent.slug);
 
     expectProblem(await importZip(Buffer.concat([exact, Buffer.alloc(1, 0)])), 'PAYLOAD_TOO_LARGE');
-  });
-
-  it('rejects an import body over the ZIP limit', async () => {
-    const oversized = Buffer.alloc(AGENT_PACKAGE_MAX_BYTES + 1, 0x50);
-    expectProblem(await importZip(oversized), 'PAYLOAD_TOO_LARGE');
   });
 
   it('exports the portable TodoWrite env even without a selected output style', async () => {

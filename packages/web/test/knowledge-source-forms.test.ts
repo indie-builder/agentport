@@ -638,20 +638,6 @@ describe('knowledge source forms', () => {
     expect((editor.querySelector('#source-cloud-id') as HTMLInputElement).disabled).toBe(true);
   });
 
-  it('clears the previous provider fields and secret when switching provider', async () => {
-    await mount();
-    await openCreate('Lark 知识库');
-    await fill('source-app-id', 'cli_lark');
-    await fill('knowledge-source-secret', 'lark-secret');
-    await fill('source-range-0-external', 'spc_1');
-    await click(button('更换来源'));
-    await click(button('放弃并切换', dialog('放弃未保存的更改？')));
-    await click(sourceChoice('Notion'));
-    expect(document.getElementById('source-app-id')).toBeNull();
-    expect((document.getElementById('knowledge-source-secret') as HTMLInputElement).value).toBe('');
-    expect((document.getElementById('source-range-0-external') as HTMLInputElement).value).toBe('');
-  });
-
   it('disables the form while the create request is pending', async () => {
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => {

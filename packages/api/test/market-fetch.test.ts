@@ -13,14 +13,33 @@ const SEARCH_SKILL = {
 };
 const LEADERBOARD_HTML =
   '<a href="/owner/repo/skill"><h3>Skill</h3><span class="font-mono text-sm text-foreground">1.2K</span></a>';
+const leaderboardRow = (
+  rank: number,
+  owner: string,
+  repo: string,
+  skill: string,
+  installs: string,
+) => `
+  <a class="group grid" href="/${owner}/${repo}/${skill}">
+    <div class="min-w-7"><span class="text-sm font-mono">${rank}</span></div>
+    <div class="lg:col-span-11">
+      <h3 class="font-semibold text-foreground truncate whitespace-nowrap">${skill}</h3>
+      <p class="text-xs font-mono truncate">${owner}/${repo}</p>
+    </div>
+    <div class="lg:col-span-2 text-right">
+      <span class="font-mono text-sm text-foreground">${installs}</span>
+    </div>
+  </a>`;
 
 let server: Server;
 let baseUrl: string;
 let mode: 'fail' | 'ok';
+let leaderboardHtml: string;
 let state: { requests: number; closed: number };
 
 beforeEach(async () => {
   mode = 'fail';
+  leaderboardHtml = LEADERBOARD_HTML;
   state = { requests: 0, closed: 0 };
   const current = state;
   server = createServer((req, res) => {
@@ -38,7 +57,7 @@ beforeEach(async () => {
       return;
     }
     res.writeHead(200, { 'content-type': 'text/html' });
-    res.end(LEADERBOARD_HTML);
+    res.end(leaderboardHtml);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -165,5 +184,37 @@ describe('market fetch success caching', () => {
     ]);
     expect(second).toEqual(first);
     expect(state.requests).toBe(1);
+  });
+
+  it('parses shorthand install counts, deduplicates ids and skips invalid rows', async () => {
+    const { fetchLeaderboard } = await loadMarket();
+    mode = 'ok';
+    leaderboardHtml = `<!doctype html><html><body>
+      <nav><a href="/docs">Docs</a></nav>
+      <main>
+        ${leaderboardRow(1, 'vercel-labs', 'skills', 'find-skills', '4.0M')}
+        ${leaderboardRow(2, 'mattpocock', 'skills', 'grill-me', '60.7K')}
+        ${leaderboardRow(3, 'vercel-labs', 'skills', 'find-skills', '99')}
+        <a href="/broken/repo/skill"><h3>broken</h3><span class="font-mono text-sm text-foreground">n/a</span></a>
+        ${leaderboardRow(4, 'x', 'y', 'z', '?')}
+      </main>
+    </body></html>`;
+
+    expect(await fetchLeaderboard('hot')).toEqual([
+      {
+        id: 'vercel-labs/skills/find-skills',
+        source: 'vercel-labs/skills',
+        slug: 'find-skills',
+        name: 'find-skills',
+        installs: 4_000_000,
+      },
+      {
+        id: 'mattpocock/skills/grill-me',
+        source: 'mattpocock/skills',
+        slug: 'grill-me',
+        name: 'grill-me',
+        installs: 60_700,
+      },
+    ]);
   });
 });

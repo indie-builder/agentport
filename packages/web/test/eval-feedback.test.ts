@@ -382,6 +382,37 @@ describe('evaluation run detail refresh feedback', () => {
     expect(container.textContent).not.toContain('内容没有加载出来');
   });
 
+  it('shows the in-progress empty state when a running batch has no results yet', async () => {
+    vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [runningRun], nextCursor: null });
+    vi.spyOn(api, 'evalRun').mockResolvedValue(detail('running', []));
+
+    await mount();
+    await openRun(runningRun.id);
+    await actWaitFor(() => expect(container.textContent).toContain('正在逐个执行用例…'));
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('shows the failed empty-result notice without the idle empty state when a failed run has no results', async () => {
+    const failedEmptyRun: EvalRun = {
+      ...runningRun,
+      status: 'failed',
+      error: 'worker crashed',
+      finishedAt: finishedRun.finishedAt,
+    };
+    vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [failedEmptyRun], nextCursor: null });
+    vi.spyOn(api, 'evalRun').mockResolvedValue({
+      evalRun: failedEmptyRun,
+      results: [],
+    });
+
+    await mount();
+    await openRun(failedEmptyRun.id);
+    await actWaitFor(() => expect(container.textContent).toContain('评估失败，未生成结果'));
+    expect(container.textContent).toContain('worker crashed');
+    expect(container.textContent).not.toContain('评估已完成，没有结果记录');
+    expect(container.textContent).not.toContain('正在逐个执行用例…');
+  });
+
   it('keeps the empty-result explanation when a finished run has no results', async () => {
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [runningRun], nextCursor: null });
     vi.spyOn(api, 'evalRun').mockResolvedValue(detail('succeeded', []));

@@ -1,15 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  SCHEDULE_TRIGGERS_QUEUE,
-  scheduleTriggerArgs,
-  scheduleTriggerJobSchema,
-} from '../src/index.js';
+import { scheduleTriggerArgs, scheduleTriggerJobSchema } from '../src/index.js';
 
 describe('schedule trigger queue contract', () => {
-  it('uses the dedicated queue name', () => {
-    expect(SCHEDULE_TRIGGERS_QUEUE).toBe('schedule-triggers');
-  });
-
   it('builds the approved upsert arguments', () => {
     const [id, repeat, template] = scheduleTriggerArgs(
       'schedule_abc',

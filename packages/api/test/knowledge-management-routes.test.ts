@@ -990,32 +990,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(wrong.statusCode, wrong.body).toBe(404);
   });
 
-  it('probe job result is visible on the job detail', async () => {
-    const baseId = await createBase();
-    const jobId = 'kjob_probe_result';
-    await app.client.unsafe(
-      `insert into knowledge_jobs (id, type, base_id, status, payload, result, ended_at)
-       values ($1, 'source_probe', $2, 'succeeded', $3::jsonb, $4::jsonb, now())`,
-      [
-        jobId,
-        baseId,
-        JSON.stringify({ type: 'source_probe', sourceId: 'ksrc_x' }),
-        JSON.stringify({ ok: false, checks: [{ rangeId: 'krng_a', ok: false, code: 'AUTH' }] }),
-      ],
-    );
-    const res = await request(app, {
-      method: 'GET',
-      url: `/api/knowledge/jobs/${jobId}`,
-      headers: { cookie },
-    });
-    expect(res.statusCode, res.body).toBe(200);
-    expect(res.json()).toMatchObject({
-      id: jobId,
-      type: 'source_probe',
-      result: { ok: false, checks: [{ rangeId: 'krng_a', ok: false, code: 'AUTH' }] },
-    });
-  });
-
   it('knowledge package round-trips FAQ data and Wiki directory fields', async () => {
     const baseId = await createBase();
     const profileId = profileIds.at(-1)!;
@@ -1894,78 +1868,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       ['停用段', false],
     ]);
     expect(versionId).not.toBe(seeded.version.id);
-  });
-
-  it('batch copy fails and removes the new directory when declared images are missing', async () => {
-    const baseId = await createBase();
-    const seeded = await seedDocument(baseId, {
-      contents: ['带图正文'],
-      images: [
-        {
-          name: 'fig-1.png',
-          sha256: 'c'.repeat(64),
-          mimeType: 'image/png',
-          page: 1,
-          warnings: [],
-        },
-      ],
-    });
-    const countDocs = async () =>
-      (
-        await app.client.unsafe<{ count: string }[]>(
-          'select count(*)::text as count from knowledge_documents where base_id = $1',
-          [baseId],
-        )
-      )[0]!.count;
-    const dirsBefore = (await readdir(join(knowledgeDir, 'docs'))).length;
-    const before = await countDocs();
-
-    const copied = await request(app, {
-      method: 'POST',
-      url: `/api/knowledge/bases/${baseId}/documents/batch`,
-      headers: { cookie },
-      payload: { documentIds: [seeded.document.id], action: 'copy' },
-    });
-    expect(copied.statusCode, copied.body).toBe(200);
-    expect(
-      copied.json<{ results: Array<{ status: string; newDocumentId?: string }> }>().results[0],
-    ).toMatchObject({ status: 'failed' });
-    expect(await countDocs()).toBe(before);
-    expect((await readdir(join(knowledgeDir, 'docs'))).length).toBe(dirsBefore);
-
-    const imagesDir = join(knowledgeDir, 'docs', seeded.document.id, seeded.version.id, 'images');
-    await mkdir(imagesDir, { recursive: true });
-    await writeFile(join(imagesDir, 'fig-1.png'), Buffer.from('png'));
-    const ok = await request(app, {
-      method: 'POST',
-      url: `/api/knowledge/bases/${baseId}/documents/batch`,
-      headers: { cookie },
-      payload: { documentIds: [seeded.document.id], action: 'copy' },
-    });
-    const okResult = ok.json<{ results: Array<{ status: string; newDocumentId?: string }> }>()
-      .results[0]!;
-    expect(okResult).toMatchObject({ status: 'succeeded' });
-    const copiedVersion = await app.client.unsafe<
-      { current_version_id: string; images: unknown[] }[]
-    >(
-      `select d.current_version_id, v.images
-       from knowledge_documents d join knowledge_document_versions v on v.id = d.current_version_id
-       where d.id = $1`,
-      [okResult.newDocumentId],
-    );
-    expect(copiedVersion[0]?.images).toHaveLength(1);
-    expect(
-      await readFile(
-        join(
-          knowledgeDir,
-          'docs',
-          okResult.newDocumentId!,
-          copiedVersion[0]!.current_version_id,
-          'images',
-          'fig-1.png',
-        ),
-      ),
-    ).toEqual(Buffer.from('png'));
   });
 
   it('rejects generic chunk mutations on FAQ and Wiki internal documents', async () => {

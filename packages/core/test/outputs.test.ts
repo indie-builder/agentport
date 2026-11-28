@@ -16,7 +16,6 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { AppError } from '../src/errors.js';
-import { sha256Hex } from '../src/hash.js';
 
 const actualRename = fsActual.rename;
 const renameFault = {
@@ -983,19 +982,5 @@ describe('slug validation', () => {
     await expect(
       access(join(root, slug, 'conversation-outputs', conversationId)),
     ).rejects.toThrow();
-  });
-});
-
-describe('sha256Hex', () => {
-  it('hashes a string with the standard SHA-256 hex digest', () => {
-    expect(sha256Hex('hello')).toBe(
-      '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
-    );
-  });
-
-  it('hashes raw bytes the same way', () => {
-    expect(sha256Hex(Buffer.from([0, 1, 2, 255]))).toBe(
-      '3d1f57c984978ef98a18378c8166c1cb8ede02c03eeb6aee7e2f121dfeee3e56',
-    );
   });
 });

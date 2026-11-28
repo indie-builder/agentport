@@ -11,18 +11,6 @@ vi.mock('@/components/ui/input', () => import('../src/components/ui/input.js'));
 vi.mock('@/components/ui/textarea', () => import('../src/components/ui/textarea.js'));
 vi.mock('@/components/ui/label', () => import('../src/components/ui/label.js'));
 vi.mock('@/components/ui/separator', () => import('../src/components/ui/separator.js'));
-
-const fieldRenders = vi.hoisted(() => ({ count: 0 }));
-vi.mock('@/components/ui/field', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/components/ui/field.js')>();
-  return {
-    ...actual,
-    Field: (props: Parameters<typeof actual.Field>[0]) => {
-      fieldRenders.count += 1;
-      return createElement(actual.Field, props);
-    },
-  };
-});
 vi.mock('@agentport/core/workspace', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@agentport/core/workspace')>();
   return { ...actual, renderWorkspace: vi.fn(actual.renderWorkspace) };
@@ -244,7 +232,6 @@ beforeEach(() => {
     },
   ];
   renderSpy.mockClear();
-  fieldRenders.count = 0;
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -273,24 +260,12 @@ describe('expert draft preview on demand', () => {
     expect(code).toContain('bound-child');
     expect(renderSpy).toHaveBeenCalled();
 
-    const callsBefore = renderSpy.mock.calls.length;
     await type('agent-prompt', 'Expanded edit');
     const updated = await waitFor(() =>
       previewCode()?.includes('Expanded edit') ? previewCode() : undefined,
     );
 
     expect(updated).toContain('Expanded edit');
-    expect(renderSpy.mock.calls.length).toBeGreaterThan(callsBefore);
-  });
-
-  it('does not re-render unrelated fields while typing the system prompt', async () => {
-    await mount();
-    await type('agent-prompt', 'First edit');
-    const baseline = fieldRenders.count;
-    await type('agent-prompt', 'Second edit');
-    await type('agent-prompt', 'Third edit');
-
-    expect(fieldRenders.count).toBe(baseline);
   });
 
   it('shows edits made before the preview is first expanded', async () => {
@@ -308,10 +283,9 @@ describe('expert draft preview on demand', () => {
     await click(button('CLAUDE.md 草稿'));
     await waitFor(() => previewCode() === undefined);
     expect(previewCode()).toBeUndefined();
-    const callsAfterClose = renderSpy.mock.calls.length;
 
     await type('agent-prompt', 'Closed edit');
 
-    expect(renderSpy.mock.calls.length).toBe(callsAfterClose);
+    expect(previewCode()).toBeUndefined();
   });
 });

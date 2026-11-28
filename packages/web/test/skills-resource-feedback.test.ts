@@ -1,354 +1,338 @@
+import type { AuthMe, MarketSkill, SkillWithAgentCount } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
-import { createRoot } from 'react-dom/client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ResourcePage } from '../src/components/resource-page.js';
-import { EmptyState, ErrorState, LoadingState } from '../src/components/states.js';
-import { Button } from '../src/components/ui/button.js';
+import { createBrowserHistory, createRoute, RouterProvider } from '@tanstack/react-router';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api } from '../src/lib/api.js';
 import { SkillsPage } from '../src/pages/skills.js';
+import { skillsSearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
+import { routerFor } from './navigation-blocker.js';
 
-const state = vi.hoisted(() => ({
-  search: {} as Record<string, string | undefined>,
-  lastReplace: undefined as boolean | undefined,
-  skills: {} as Record<string, unknown>,
-  market: {} as Record<string, unknown>,
-  install: {} as Record<string, unknown>,
-  refetchSkills: vi.fn(),
-  refetchMarket: vi.fn(),
+vi.mock('../src/lib/toast.js', () => ({
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
-vi.mock('@tanstack/react-router', () => ({
-  useNavigate:
-    () =>
-    (options: {
-      search?: ((current: Record<string, unknown>) => object) | object;
-      replace?: boolean;
-    }) => {
-      const next =
-        typeof options.search === 'function' ? options.search(state.search) : options.search;
-      Object.assign(state.search, next ?? {});
-      state.lastReplace = options.replace;
-    },
-  useSearch: () => state.search,
-  Link: 'a',
-  useBlocker: () => ({ status: 'idle' }),
-}));
+const demoSkill: SkillWithAgentCount = {
+  id: 'skill',
+  slug: 'demo',
+  name: 'Demo',
+  description: '演示技能',
+  body: '# 步骤',
+  sourceId: null,
+  createdAt: '2026-01-01',
+  updatedAt: '2026-01-01',
+  agentCount: 0,
+  status: 'published',
+  submittedAt: null,
+  reviewedAt: null,
+  reviewedBy: null,
+  reviewNote: null,
+};
 
-vi.mock('../src/lib/queries.js', () => {
-  const mutation = () => ({ isPending: false, mutate: vi.fn() });
-  return {
-    meQuery: {
-      queryKey: ['me'],
-      queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
-    },
-    useSkills: () => state.skills,
-    useMarketSkills: () => state.market,
-    useInstallMarketSkill: () => state.install,
-    useCreateSkill: mutation,
-    useUpdateSkill: mutation,
-    useDeleteSkill: mutation,
-    useSubmitSkill: mutation,
-    useApproveSkill: mutation,
-    useRejectSkill: mutation,
-    useImportSkillFile: mutation,
-  };
-});
-
-type Element = ReactElement<Record<string, unknown>>;
-function elements(node: ReactNode): Element[] {
-  if (Array.isArray(node)) return node.flatMap(elements);
-  if (!isValidElement<Record<string, unknown>>(node)) return [];
-  return [
-    node,
-    ...elements(node.props.children as ReactNode),
-    ...elements(node.props.action as ReactNode),
-    ...elements(node.props.actions as ReactNode),
-    ...elements(node.props.filters as ReactNode),
-    ...elements(node.props.leadingFilters as ReactNode),
-  ];
-}
-
-const client = new QueryClient({
-  defaultOptions: { queries: { staleTime: Number.POSITIVE_INFINITY } },
-});
-client.setQueryData(['me'], allAccessMe);
-
-async function inspect(render: () => ReactNode, visit: (tree: Element[]) => void) {
-  const container = document.createElement('div');
-  const root = createRoot(container);
-  function Probe() {
-    visit(elements(render()));
-    return null;
-  }
-  await act(async () =>
-    root.render(createElement(QueryClientProvider, { client }, createElement(Probe))),
-  );
-  await act(async () => root.unmount());
-  container.remove();
-}
-
-function required(tree: Element[], predicate: (node: Element) => boolean) {
-  const node = tree.find(predicate);
-  if (!node) throw new Error('Missing expected element');
-  return node;
-}
-async function inspectMarket(visit: (tree: Element[]) => void) {
-  let market: Element | undefined;
-  await inspect(SkillsPage, (tree) => {
-    market = required(
-      tree,
-      (node) => typeof node.type === 'function' && node.type.name === 'MarketSkillsPage',
-    );
-  });
-  if (!market) throw new Error('Missing market page');
-  const marketElement = market;
-  await inspect(
-    () =>
-      (marketElement.type as (props: Record<string, unknown>) => ReactNode)(marketElement.props),
-    visit,
-  );
-}
-function installButtons(tree: Element[]) {
-  return tree.filter(
-    (node) =>
-      node.type === Button &&
-      typeof node.props['aria-label'] === 'string' &&
-      node.props['aria-label'].includes('安装'),
-  );
-}
-function marketItem(id: string) {
+function marketItem(id: string, name = 'PDF'): MarketSkill {
   return {
     id,
     source: id.split('/').slice(0, 2).join('/'),
-    slug: 'pdf',
-    name: 'PDF',
+    slug: name.toLowerCase(),
+    name,
     installs: 10,
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve, reject };
+}
+
+let client: QueryClient;
+let root: Root | undefined;
+let host: HTMLDivElement | undefined;
+let history: ReturnType<typeof createBrowserHistory> | undefined;
+let router: ReturnType<typeof routerFor> | undefined;
+
+function flush(ms = 10) {
+  return act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  });
+}
+
+async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
+  for (let index = 0; index < tries; index += 1) {
+    try {
+      const value = probe();
+      if (value) return value;
+    } catch {}
+    await flush();
+  }
+  return probe();
+}
+
+async function mount(url = '/skills', me: AuthMe = allAccessMe) {
+  client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
+      mutations: { retry: false },
+    },
+  });
+  client.setQueryData(['me'], me);
+  window.history.replaceState(null, '', url);
+  history = createBrowserHistory();
+  router = routerFor(history, (shell) => [
+    createRoute({
+      getParentRoute: () => shell,
+      path: '/skills',
+      validateSearch: skillsSearchSchema,
+      component: SkillsPage,
+    }),
+  ]);
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => {
+    await router?.load();
+    root?.render(
+      createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
+    );
+  });
+  await flush();
+}
+
+function button(text: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (item) => item.textContent?.trim() === text,
+  );
+  if (!found) throw new Error(`Missing button: ${text}`);
+  return found;
+}
+
+function byLabel(label: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (item) => item.getAttribute('aria-label') === label,
+  );
+  if (!found) throw new Error(`Missing button labelled: ${label}`);
+  return found;
+}
+
+function installButtons(): HTMLButtonElement[] {
+  return [...document.querySelectorAll<HTMLButtonElement>('button')].filter((item) =>
+    item.getAttribute('aria-label')?.includes('安装'),
+  );
+}
+
+async function click(element: HTMLElement) {
+  await act(async () => element.click());
+  await flush();
+}
+
+async function typeSearch(value: string) {
+  const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索技能"]');
+  if (!input) throw new Error('Missing search input');
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  await act(async () => {
+    setter?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await flush();
+}
+
 beforeEach(() => {
-  state.search = {};
-  state.skills = {
-    data: [],
-    status: 'success',
-    isPending: false,
-    isError: false,
-    error: null,
-    refetch: state.refetchSkills,
-  };
-  state.market = {
-    data: [],
-    status: 'success',
-    isPending: false,
-    isDebouncing: false,
-    isError: false,
-    error: null,
-    refetch: state.refetchMarket,
-  };
-  state.install = { isPending: false, variables: undefined, mutate: vi.fn() };
-  state.refetchSkills.mockClear();
-  state.refetchMarket.mockClear();
-  vi.clearAllMocks();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+  }));
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  vi.spyOn(api, 'skills').mockResolvedValue({ items: [], nextCursor: null });
+  vi.spyOn(api, 'marketSkills').mockResolvedValue([]);
+  vi.spyOn(api, 'installMarketSkill');
+});
+
+afterEach(async () => {
+  await act(async () => root?.unmount());
+  client?.clear();
+  history?.destroy();
+  host?.remove();
+  root = undefined;
+  host = undefined;
+  history = undefined;
+  router = undefined;
+  window.history.replaceState(null, '', '/');
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('internal skill library empty state', () => {
   it('points to the market instead of restating that the list is empty', async () => {
-    client.setQueryData(['me'], {
+    const meWithoutCreate: AuthMe = {
       ...allAccessMe,
       grants: allAccessMe.grants.filter((grant) => grant.permissionId !== 'skills.create'),
-    });
-    try {
-      await inspect(SkillsPage, (tree) => {
-        const note = required(
-          tree,
-          (node) => node.type === EmptyState && node.props.title === '为专家装配可复用技能',
-        );
-        expect(String(note.props.title)).not.toContain('暂无');
-        const action = required(
-          elements(note.props.action as ReactNode),
-          (node) => node.type === Button && node.props.children === '浏览技能市场',
-        );
-        (action.props.onClick as () => void)();
-      });
-    } finally {
-      client.setQueryData(['me'], allAccessMe);
-    }
-    expect(state.search.scope).toBe('market');
+    };
+    await mount('/skills', meWithoutCreate);
+    await waitFor(() => document.body.textContent?.includes('为专家装配可复用技能'));
+
+    expect(document.body.textContent).not.toContain('暂无');
+    await click(button('浏览技能市场'));
+
+    await waitFor(
+      () => (router?.state.location.search as { scope?: string } | undefined)?.scope === 'market',
+    );
+    expect((router?.state.location.search as { scope?: string } | undefined)?.scope).toBe('market');
   });
 
   it('keeps the clear-filters note when only the filter result is empty', async () => {
-    state.skills = {
-      ...state.skills,
-      data: [
-        {
-          id: 'skill',
-          slug: 'demo',
-          name: 'Demo',
-          description: '',
-          body: '',
-          sourceId: null,
-          agentCount: 0,
-          createdAt: '2026-01-01',
-          updatedAt: '2026-01-01',
-          status: 'published',
-          submittedAt: null,
-          reviewedAt: null,
-          reviewedBy: null,
-          reviewNote: null,
-        },
-      ],
-    };
-    state.search = { q: 'nomatch', usage: 'bound' };
-    await inspect(SkillsPage, (tree) => {
-      expect(
-        tree.some(
-          (node) => node.type === EmptyState && node.props.title === '为专家装配可复用技能',
-        ),
-      ).toBe(false);
-      expect(
-        tree.some((node) => node.type === EmptyState && node.props.title === '没有匹配的技能'),
-      ).toBe(true);
-    });
+    vi.mocked(api.skills).mockResolvedValue({ items: [demoSkill], nextCursor: null });
+    await mount('/skills?q=nomatch&usage=bound');
+    await waitFor(() => document.body.textContent?.includes('没有匹配的技能'));
+
+    expect(document.body.textContent).not.toContain('为专家装配可复用技能');
+    expect(document.body.textContent).toContain('没有匹配的技能');
   });
 });
 
 describe('shared resource search', () => {
   it('writes typing to the URL with replace so search does not stack history', async () => {
-    let page: Element | undefined;
-    await inspect(SkillsPage, (tree) => {
-      page = required(tree, (node) => node.type === ResourcePage);
-    });
-    if (!page) throw new Error('Missing resource page');
-    const resource = page;
-    await inspect(
-      () => (resource.type as (props: Record<string, unknown>) => ReactNode)(resource.props),
-      (tree) => {
-        const search = required(tree, (node) => node.props.label === '搜索技能');
-        (search.props.onChange as (value: string) => void)('pdf');
-      },
-    );
-    expect(state.search.q).toBe('pdf');
-    expect(state.lastReplace).toBe(true);
+    await mount('/skills');
+    const replaceSpy = vi.spyOn(history!, 'replace');
+    const pushSpy = vi.spyOn(history!, 'push');
+
+    await typeSearch('pdf');
+
+    await waitFor(() => (router?.state.location.search as { q?: string } | undefined)?.q === 'pdf');
+    expect((router?.state.location.search as { q?: string } | undefined)?.q).toBe('pdf');
+    expect(replaceSpy).toHaveBeenCalled();
+    expect(pushSpy).not.toHaveBeenCalled();
   });
 });
 
 describe('market readiness', () => {
-  beforeEach(() => {
-    state.search = { scope: 'market' };
-    state.market = {
-      ...state.market,
-      data: [marketItem('owner/repo/pdf')],
-      status: 'success',
-    };
-  });
-
   it('does not render cards or install actions while installed skills are pending', async () => {
-    state.skills = {
-      ...state.skills,
-      data: undefined,
-      status: 'pending',
-      isPending: true,
-    };
-    await inspect(SkillsPage, (tree) => {
-      const market = required(
-        tree,
-        (node) => typeof node.type === 'function' && node.type.name === 'MarketSkillsPage',
-      );
-      expect(market.props.install).toBe(state.install);
-    });
-    await inspectMarket((tree) => {
-      expect(tree.some((node) => node.type === LoadingState)).toBe(true);
-      expect(installButtons(tree)).toHaveLength(0);
-      expect(
-        tree.some((node) => node.type === EmptyState && node.props.title === '市场榜单暂时为空'),
-      ).toBe(false);
-    });
+    const pendingSkills = deferred<{ items: SkillWithAgentCount[]; nextCursor: string | null }>();
+    vi.mocked(api.skills).mockReturnValue(pendingSkills.promise);
+    vi.mocked(api.marketSkills).mockResolvedValue([marketItem('owner/repo/pdf')]);
+
+    await mount('/skills?scope=market');
+
+    expect(document.querySelector('[aria-label="加载中"]')).not.toBeNull();
+    expect(installButtons()).toHaveLength(0);
+    expect(document.body.textContent).not.toContain('市场榜单暂时为空');
   });
 
   it('retries the installed-skills query on error and stays without install actions', async () => {
-    state.skills = {
-      ...state.skills,
-      data: undefined,
-      status: 'error',
-      isError: true,
-      error: new Error('Skills unavailable'),
-    };
-    await inspectMarket((tree) => {
-      const error = required(tree, (node) => node.type === ErrorState);
-      expect(installButtons(tree)).toHaveLength(0);
-      (error.props.onRetry as () => void)();
-    });
-    expect(state.refetchSkills).toHaveBeenCalledOnce();
+    vi.mocked(api.skills)
+      .mockRejectedValueOnce(new Error('Skills unavailable'))
+      .mockResolvedValueOnce({ items: [], nextCursor: null });
+    vi.mocked(api.marketSkills).mockResolvedValue([marketItem('owner/repo/pdf')]);
+
+    await mount('/skills?scope=market');
+    await waitFor(() => document.body.textContent?.includes('Skills unavailable'));
+
+    expect(installButtons()).toHaveLength(0);
+    await click(button('重试'));
+
+    await waitFor(() => installButtons().length === 1);
+    expect(api.skills).toHaveBeenCalledTimes(2);
   });
 
   it('replaces the stale list with loading while the search term is debouncing', async () => {
-    state.market = { ...state.market, isDebouncing: true, status: 'pending' };
-    await inspectMarket((tree) => {
-      expect(tree.some((node) => node.type === LoadingState)).toBe(true);
-      expect(installButtons(tree)).toHaveLength(0);
-      expect(tree.some((node) => node.type === EmptyState && node.props.variant === 'filter')).toBe(
-        false,
-      );
-    });
+    vi.mocked(api.marketSkills).mockResolvedValue([marketItem('owner/repo/pdf')]);
+
+    await mount('/skills?scope=market');
+    await waitFor(() => installButtons().length === 1);
+
+    await typeSearch('react');
+
+    expect(document.querySelector('[aria-label="加载中"]')).not.toBeNull();
+    expect(installButtons()).toHaveLength(0);
+    expect(document.body.textContent).not.toContain('技能市场未找到');
   });
 
   it('marks only the installing card as pending and blocks the rest', async () => {
-    state.install = { isPending: true, variables: { id: 'owner/repo/pdf' }, mutate: vi.fn() };
-    await inspectMarket((tree) => {
-      const buttons = installButtons(tree);
-      expect(buttons).toHaveLength(1);
-      expect(buttons[0]?.props.disabled).toBe(true);
-      expect(buttons[0]?.props['aria-busy']).toBe(true);
-      expect(buttons[0]?.props.children).toBe('安装中…');
+    const installing = deferred<{ skill: SkillWithAgentCount; warnings: string[] }>();
+    vi.mocked(api.marketSkills).mockResolvedValue([
+      marketItem('owner/repo/pdf', 'PDF'),
+      marketItem('owner/repo/csv', 'CSV'),
+    ]);
+    vi.mocked(api.installMarketSkill).mockReturnValue(installing.promise);
+
+    await mount('/skills?scope=market');
+    const pdfButton = await waitFor(() => byLabel('安装 PDF'));
+
+    await click(pdfButton);
+
+    const activeButton = byLabel('安装 PDF');
+    const otherButton = byLabel('安装 CSV');
+    expect(activeButton.disabled).toBe(true);
+    expect(activeButton.getAttribute('aria-busy')).toBe('true');
+    expect(activeButton.textContent?.trim()).toBe('安装中…');
+    expect(otherButton.disabled).toBe(true);
+    expect(otherButton.getAttribute('aria-busy')).toBe('false');
+
+    await act(async () => {
+      installing.resolve({
+        skill: { ...demoSkill, sourceId: 'owner/repo/pdf', name: 'PDF' },
+        warnings: [],
+      });
     });
+    await flush();
   });
 
   it('treats an installed skill as done from the real installed set', async () => {
-    state.skills = {
-      ...state.skills,
-      data: [
-        {
-          id: 'skill',
-          sourceId: 'owner/repo/pdf',
-          agentCount: 0,
-          name: 'PDF',
-          status: 'published',
-          submittedAt: null,
-          reviewedAt: null,
-          reviewedBy: null,
-          reviewNote: null,
-        },
-      ],
-    };
-    await inspectMarket((tree) => {
-      const button = required(tree, (node) => installButtons([node]).length === 1);
-      expect(button.props.disabled).toBe(true);
-      expect(button.props.children).toBe('已安装');
+    vi.mocked(api.skills).mockResolvedValue({
+      items: [{ ...demoSkill, sourceId: 'owner/repo/pdf', name: 'PDF' }],
+      nextCursor: null,
     });
+    vi.mocked(api.marketSkills).mockResolvedValue([marketItem('owner/repo/pdf', 'PDF')]);
+
+    await mount('/skills?scope=market');
+    const doneButton = await waitFor(() => byLabel('PDF 已安装'));
+
+    expect(doneButton.disabled).toBe(true);
+    expect(doneButton.textContent?.trim()).toBe('已安装');
   });
 
   it('installs the exact market item behind the clicked action', async () => {
-    await inspectMarket((tree) => {
-      const button = required(tree, (node) => installButtons([node]).length === 1);
-      (button.props.onClick as () => void)();
+    vi.mocked(api.marketSkills).mockResolvedValue([
+      marketItem('owner/repo/pdf', 'PDF'),
+      marketItem('owner/repo/csv', 'CSV'),
+    ]);
+    vi.mocked(api.installMarketSkill).mockResolvedValue({
+      skill: { ...demoSkill, sourceId: 'owner/repo/pdf', name: 'PDF' },
+      warnings: [],
     });
-    expect(state.install.mutate).toHaveBeenCalledWith({ id: 'owner/repo/pdf' });
+
+    await mount('/skills?scope=market');
+    await click(await waitFor(() => byLabel('安装 PDF')));
+
+    expect(api.installMarketSkill).toHaveBeenCalledWith({ id: 'owner/repo/pdf' });
   });
 
   it('offers a refresh action when the empty ranking is not a failed search', async () => {
-    state.market = { ...state.market, data: [] };
-    await inspectMarket((tree) => {
-      const note = required(
-        tree,
-        (node) => node.type === EmptyState && node.props.title === '市场榜单暂时为空',
-      );
-      const action = required(
-        elements(note.props.action as ReactNode),
-        (node) => node.type === Button && node.props.children === '刷新榜单',
-      );
-      (action.props.onClick as () => void)();
-    });
-    expect(state.refetchMarket).toHaveBeenCalledOnce();
+    vi.mocked(api.marketSkills).mockResolvedValue([]);
+
+    await mount('/skills?scope=market');
+    await waitFor(() => document.body.textContent?.includes('市场榜单暂时为空'));
+
+    await click(button('刷新榜单'));
+
+    expect(api.marketSkills).toHaveBeenCalledTimes(2);
   });
 });

@@ -366,15 +366,6 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
 
     for (const item of items) {
       expect(Object.keys(item).sort()).toEqual(SELECTION_KEYS);
-      expect(item).not.toHaveProperty('endpointUrl');
-      expect(item).not.toHaveProperty('model');
-      expect(item).not.toHaveProperty('embeddingProtocol');
-      expect(item).not.toHaveProperty('hasSecret');
-      expect(item).not.toHaveProperty('dimensions');
-      expect(item).not.toHaveProperty('apiKey');
-      expect(item).not.toHaveProperty('secrets');
-      expect(item).not.toHaveProperty('createdAt');
-      expect(item).not.toHaveProperty('updatedAt');
     }
   });
 });

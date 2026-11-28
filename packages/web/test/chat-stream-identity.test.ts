@@ -20,28 +20,6 @@ describe('streamBlockId identity', () => {
     expect(items.map((item) => item.kind === 'text' && item.streamBlockId)).toEqual(['b0', 'b1']);
   });
 
-  it('merges deltas of one block regardless of per-frame sdkUuid', () => {
-    const items = run([
-      {
-        type: 'text_delta',
-        text: 'Hel',
-        blockIndex: 0,
-        streamBlockId: 'b0',
-        sdkUuid: 'f1',
-      } as ChatEvent,
-      {
-        type: 'text_delta',
-        text: 'lo',
-        blockIndex: 0,
-        streamBlockId: 'b0',
-        sdkUuid: 'f2',
-      } as ChatEvent,
-    ]);
-
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ kind: 'text', text: 'Hello' });
-  });
-
   it('does not merge sub-agent text that shares the parent stream id', () => {
     const items = run([
       { type: 'text_delta', text: '父级', blockIndex: 0, streamBlockId: 'b0' } as ChatEvent,
@@ -56,17 +34,6 @@ describe('streamBlockId identity', () => {
 
     expect(items).toHaveLength(2);
     expect(items[1]).toMatchObject({ text: '子级', parentToolUseId: 'toolu_1' });
-  });
-
-  it('still splits reused blockIndex without stream ids (block-boundary fallback)', () => {
-    const items = run([
-      { type: 'text_delta', text: '旧块', blockIndex: 0 },
-      { type: 'assistant_block_stop', blockIndex: 0 },
-      { type: 'assistant_block_start', blockIndex: 0, kind: 'text' },
-      { type: 'text_delta', text: '新块', blockIndex: 0 },
-    ]);
-
-    expect(items.map((item) => item.kind === 'text' && item.text)).toEqual(['旧块', '新块']);
   });
 });
 

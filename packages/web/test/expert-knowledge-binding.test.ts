@@ -1,71 +1,34 @@
 import { type Agent, agentInputSchema, PERMISSIONS, type Server } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
-  type ComponentProps,
-  createElement,
-  isValidElement,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Combobox, ComboboxItem, ComboboxList } from '../src/components/ui/combobox.js';
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
+import { HttpResponse, http } from 'msw';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentEditor } from '../src/pages/agents/agent-editor.js';
+import { agentDetailSearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
+import { createMsw, runCleanup } from './msw.js';
 
-vi.mock('@/components/ui/button', () => import('../src/components/ui/button.js'));
-vi.mock('@/components/ui/input-group', () => import('../src/components/ui/input-group.js'));
-vi.mock('@/components/ui/input', () => import('../src/components/ui/input.js'));
-vi.mock('@/components/ui/textarea', () => import('../src/components/ui/textarea.js'));
-vi.mock('@/components/ui/label', () => import('../src/components/ui/label.js'));
-vi.mock('@/components/ui/separator', () => import('../src/components/ui/separator.js'));
-vi.mock('@tanstack/react-router', () => ({
-  useBlocker: () => ({ status: 'idle' }),
-  useNavigate: () => () => {},
-  useSearch: () => ({ tab: 'config' }),
-  Link: 'a',
-}));
+const msw = createMsw();
+const { server, calls } = msw;
 
-const mocks = vi.hoisted(() => ({
-  servers: [] as unknown[],
-  bases: [] as unknown[],
-  agents: [] as unknown[],
-}));
-
-vi.mock('../src/lib/queries.js', async (original) => {
-  const queries = await original<typeof import('../src/lib/queries.js')>();
-  return {
-    ...queries,
-    meQuery: {
-      queryKey: ['me'],
-      queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
-    },
-    useServers: () => ({ data: mocks.servers, isPending: false, isError: false }),
-    useAgentOptions: () => ({
-      data: { servers: [], skills: [], plugins: [], runtimeEnvironments: [] },
-      isPending: false,
-      isError: false,
-      refetch: () => {},
-    }),
-    useKnowledgeBases: () => ({ data: mocks.bases, isPending: false, isError: false }),
-    useSkills: () => ({ data: [], isPending: false, isError: false }),
-    useExperts: () => ({ data: mocks.agents, isPending: false, isError: false }),
-    useUpdateAgent: () => ({ isPending: false, mutate: () => {} }),
-    useAgentFiles: () => ({ data: undefined, isPending: true, isError: false, refetch: () => {} }),
-    useAgentVersions: () => ({ data: [], isPending: false, isError: false }),
-    useRollbackAgent: () => ({ isPending: false, mutateAsync: () => {} }),
-  };
-});
-
-const server: Server = {
+const genericServer: Server = {
   id: 'server',
   name: 'connector',
   description: '',
   kind: 'http',
   url: 'https://example.com/mcp',
   headers: {},
-  createdAt: '2026-01-01',
-  updatedAt: '2026-01-01',
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
 };
 
 const bases = [
@@ -78,9 +41,10 @@ const bases = [
     status: 'active',
     embeddingProfileId: 'profile',
     rerankProfileId: null,
+    asrProfileId: null,
     settings: { chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false },
-    createdAt: '2026-01-01',
-    updatedAt: '2026-01-01',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
   },
   {
     id: 'kb_2',
@@ -91,9 +55,10 @@ const bases = [
     status: 'disabled',
     embeddingProfileId: 'profile',
     rerankProfileId: null,
+    asrProfileId: null,
     settings: { chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false },
-    createdAt: '2026-01-01',
-    updatedAt: '2026-01-01',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
   },
 ];
 
@@ -104,156 +69,215 @@ function agentWith(serverIds: string[]): Agent {
     isDefault: false,
     parentId: null,
     serverIds,
-    createdAt: '2026-01-01',
-    updatedAt: '2026-01-01',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
   };
 }
 
-type PickerProps = ComponentProps<typeof Combobox<string, true>>;
-type ChangePickerValue = (value: Parameters<NonNullable<PickerProps['onValueChange']>>[0]) => void;
-type Element = ReactElement<Record<string, unknown>>;
-function elements(node: ReactNode): Element[] {
-  if (Array.isArray(node)) return node.flatMap(elements);
-  if (!isValidElement<Record<string, unknown>>(node)) return [];
-  return [node, ...elements(node.props.children as ReactNode)];
-}
-function flatText(node: ReactNode): string {
-  if (Array.isArray(node)) return node.map(flatText).join(' ');
-  if (typeof node === 'string') return node;
-  if (isValidElement<Record<string, unknown>>(node))
-    return flatText(node.props.children as ReactNode);
-  return '';
-}
+let client: QueryClient | undefined;
+let host: HTMLDivElement | undefined;
+let root: Root | undefined;
 
-const clients: QueryClient[] = [];
-function inspect(agent: Agent, visit: (tree: Element[], pass: number) => void) {
-  mocks.servers = [server];
-  mocks.bases = bases;
-  mocks.agents = [agent];
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, retryOnMount: false, staleTime: Infinity } },
-  });
-  client.setQueryData(['me'], allAccessMe);
-  client.setQueryData(['agents'], { items: [agent], truncated: false });
-  client.setQueryData(['servers'], {
-    pages: [{ items: [server], nextCursor: null }],
-    pageParams: [undefined],
-  });
-  client.setQueryData(['knowledge', 'bases'], {
-    pages: [{ items: bases, nextCursor: null }],
-    pageParams: [null],
-  });
-  clients.push(client);
-  let pass = 0;
-  function Probe() {
-    visit(elements(render()), pass++);
-    return null;
-  }
-  const render = () =>
-    AgentEditor({
-      agent,
-      permissions: PERMISSIONS.map((permission) => permission.id),
-      onDirtyChange: () => {},
-      onPendingChange: () => {},
-      onDeleteRequest: () => {},
-    });
-  renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
-}
+beforeAll(() => msw.listen());
+afterAll(() => msw.close());
 
-function selectSection(tree: Element[], label: string) {
-  const item = tree.find(
-    (node) =>
-      typeof node.props.onClick === 'function' && flatText(node.props.children).includes(label),
-  );
-  if (!item) throw new Error(`Missing section nav: ${label}`);
-  (item.props.onClick as () => void)();
-}
-function pickerItems(picker: Element): Element[] {
-  const list = elements(picker).find((node) => node.type === ComboboxList);
-  return elements(list).filter((node) => node.type === ComboboxItem);
-}
-
-function knowledgePicker(tree: Element[], id: string) {
-  const picker = tree.find(
-    (node) => node.type === Combobox && pickerItems(node).some((item) => item.props.value === id),
-  );
-  if (!picker) throw new Error('Missing knowledge picker');
-  return picker;
-}
-
-function renderOption(picker: Element, value: string) {
-  const item = pickerItems(picker).find((node) => node.props.value === value);
-  if (!item) throw new Error(`Missing knowledge option: ${value}`);
-  return item;
-}
-
-afterEach(() => {
-  for (const client of clients.splice(0)) client.clear();
-  vi.restoreAllMocks();
+beforeEach(() => {
+  msw.reset();
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+  }));
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
 });
 
+afterEach(async () => {
+  const mountedRoot = root;
+  const mountedClient = client;
+  const mountedHost = host;
+  root = undefined;
+  client = undefined;
+  host = undefined;
+  await runCleanup([
+    () => mountedRoot && act(async () => mountedRoot.unmount()),
+    () => mountedClient?.clear(),
+    () => mountedHost?.remove(),
+    () => msw.waitForRequests(),
+    () => vi.restoreAllMocks(),
+    () => vi.unstubAllGlobals(),
+    () => msw.assertClean(),
+  ]);
+});
+
+async function flush(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  await msw.waitForRequests();
+}
+
+async function waitFor<T>(probe: () => T, tries = 40): Promise<T> {
+  for (let i = 0; i < tries; i += 1) {
+    try {
+      const value = probe();
+      if (value) return value;
+    } catch {}
+    await flush();
+  }
+  return probe();
+}
+
+async function click(element: HTMLElement): Promise<void> {
+  await act(async () => element.click());
+  await flush();
+}
+
+function button(text: string): HTMLButtonElement {
+  const element = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (item) => item.textContent?.trim() === text || item.getAttribute('aria-label') === text,
+  );
+  if (!element) throw new Error(`Missing button: ${text}`);
+  return element;
+}
+
+async function mountCapability(agent: Agent): Promise<void> {
+  server.use(
+    http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)),
+    http.get('/api/agents/options', () =>
+      HttpResponse.json({ servers: [], skills: [], plugins: [], runtimeEnvironments: [] }),
+    ),
+    http.get('/api/servers', () => HttpResponse.json({ items: [genericServer], nextCursor: null })),
+    http.get('/api/knowledge/bases', () => HttpResponse.json({ items: bases, nextCursor: null })),
+    http.get('/api/skills', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/plugins', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/agents/reference', () =>
+      HttpResponse.json({ items: [agent], truncated: false }),
+    ),
+    http.get('/api/runtime-environments', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.patch('/api/agents/expert', async ({ request }) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json({ kind: 'detail', agent: { ...agent, ...body } });
+    }),
+  );
+
+  const rootRoute = createRootRoute({ component: Outlet });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
+  const detail = createRoute({
+    getParentRoute: () => shell,
+    path: '/agents/$agentId',
+    validateSearch: agentDetailSearchSchema,
+    component: () =>
+      createElement(AgentEditor, {
+        agent,
+        permissions: PERMISSIONS.map((permission) => permission.id),
+        onDirtyChange: () => {},
+        onPendingChange: () => {},
+        onDeleteRequest: () => {},
+      }),
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([shell.addChildren([detail])]),
+    history: createMemoryHistory({ initialEntries: ['/agents/expert?tab=config'] }),
+  });
+
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, retryOnMount: false }, mutations: { retry: false } },
+  });
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+
+  await act(async () => {
+    await router.load();
+    root?.render(
+      createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
+    );
+  });
+  await flush();
+
+  await click(button('能力'));
+  await waitFor(() => document.querySelector<HTMLInputElement>('input[aria-label="知识库"]'));
+}
+
+async function openCombobox(ariaLabel: string): Promise<HTMLElement[]> {
+  const input = document.querySelector<HTMLInputElement>(`input[aria-label="${ariaLabel}"]`);
+  if (!input) throw new Error(`Missing combobox input: ${ariaLabel}`);
+  await act(async () => {
+    input.focus();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  });
+  await flush();
+  const listId = input.getAttribute('aria-controls');
+  const listbox = listId
+    ? document.getElementById(listId)
+    : document.querySelector('[data-slot="combobox-content"][data-open] [role="listbox"]');
+  if (!listbox) throw new Error(`Missing open listbox for: ${ariaLabel}`);
+  return [...listbox.querySelectorAll<HTMLElement>('[role="option"]')];
+}
+
+function optionByLabel(options: HTMLElement[], label: string): HTMLElement {
+  const option = options.find((item) => item.textContent?.includes(label));
+  if (!option) throw new Error(`Missing option: ${label}`);
+  return option;
+}
+
+function chipLabels(groupLabel: string): string[] {
+  const group = document.querySelector(`[aria-label="${groupLabel}"]`);
+  if (!group) throw new Error(`Missing chip group: ${groupLabel}`);
+  return [...group.querySelectorAll<HTMLElement>('[data-slot="combobox-chip"]')].map(
+    (item) => item.getAttribute('aria-label') ?? '',
+  );
+}
+
 describe('expert knowledge binding', () => {
-  it('offers knowledge bases the generic server list filters out', () => {
-    inspect(agentWith(['server']), (tree, pass) => {
-      if (pass === 0) {
-        selectSection(tree, '能力');
-        return;
-      }
-      const picker = knowledgePicker(tree, 'server-kb-active');
-      const items = pickerItems(picker);
-      expect(items.map((item) => item.props.value)).toEqual([
-        'server-kb-active',
-        'server-kb-disabled',
-      ]);
-      expect(items.map((item) => item.props.label)).toEqual(['产品手册', '归档库']);
-    });
+  it('offers knowledge bases the generic server list filters out', async () => {
+    await mountCapability(agentWith(['server']));
+
+    const connectorOptions = await openCombobox('MCP Server');
+    expect(connectorOptions.map((item) => item.textContent)).toEqual(['connectorhttp']);
+
+    const knowledgeOptions = await openCombobox('知识库');
+    expect(knowledgeOptions.some((item) => item.textContent?.includes('产品手册'))).toBe(true);
+    expect(knowledgeOptions.some((item) => item.textContent?.includes('归档库'))).toBe(true);
   });
 
-  it('keeps an existing binding to a disabled base selectable', () => {
-    inspect(agentWith(['server', 'server-kb-disabled']), (tree, pass) => {
-      if (pass === 0) {
-        selectSection(tree, '能力');
-        return;
-      }
-      const picker = knowledgePicker(tree, 'server-kb-disabled');
-      expect(picker.props.value as PickerProps['value']).toEqual(['server-kb-disabled']);
-      const bound = renderOption(picker, 'server-kb-disabled');
-      const active = renderOption(picker, 'server-kb-active');
-      expect(bound.props.disabled).toBe(false);
-      expect(active.props.disabled).toBe(false);
-    });
+  it('keeps an existing binding to a disabled base selectable', async () => {
+    await mountCapability(agentWith(['server', 'server-kb-disabled']));
+
+    expect(chipLabels('已选知识库')).toEqual(['归档库']);
+    const options = await openCombobox('知识库');
+    const bound = optionByLabel(options, '归档库');
+    const active = optionByLabel(options, '产品手册');
+    expect(bound.getAttribute('aria-disabled')).not.toBe('true');
+    expect(active.getAttribute('aria-disabled')).not.toBe('true');
   });
 
-  it('blocks binding a disabled base that is not bound yet', () => {
-    inspect(agentWith(['server']), (tree, pass) => {
-      if (pass === 0) {
-        selectSection(tree, '能力');
-        return;
-      }
-      const picker = knowledgePicker(tree, 'server-kb-active');
-      expect(renderOption(picker, 'server-kb-disabled').props.disabled).toBe(true);
-    });
+  it('blocks binding a disabled base that is not bound yet', async () => {
+    await mountCapability(agentWith(['server']));
+
+    const options = await openCombobox('知识库');
+    const disabledOption = optionByLabel(options, '归档库');
+    expect(disabledOption.getAttribute('aria-disabled')).toBe('true');
+    await click(disabledOption);
+    expect(chipLabels('已选知识库')).toEqual([]);
   });
 
-  it('binds a knowledge base without dropping existing connectors', () => {
-    inspect(agentWith(['server']), (tree, pass) => {
-      if (pass === 0) {
-        selectSection(tree, '能力');
-        return;
-      }
-      if (pass === 1) {
-        const picker = knowledgePicker(tree, 'server-kb-active');
-        (picker.props.onValueChange as ChangePickerValue)(['server-kb-active']);
-        return;
-      }
-      const picker = knowledgePicker(tree, 'server-kb-active');
-      expect(picker.props.value as PickerProps['value']).toEqual(['server-kb-active']);
-      const connector = tree.find(
-        (node) =>
-          node.type === Combobox && pickerItems(node).some((item) => item.props.value === 'server'),
-      );
-      if (!connector) throw new Error('Missing connector picker');
-      expect(connector.props.value as PickerProps['value']).toEqual(['server']);
-    });
+  it('binds a knowledge base without dropping existing connectors', async () => {
+    await mountCapability(agentWith(['server']));
+
+    expect(chipLabels('已选连接器')).toEqual(['connector']);
+    const options = await openCombobox('知识库');
+    await click(optionByLabel(options, '产品手册'));
+
+    expect(chipLabels('已选知识库')).toEqual(['产品手册']);
+    expect(chipLabels('已选连接器')).toEqual(['connector']);
+
+    await click(button('保存草稿'));
+    const patch = calls.find(
+      (item) => item.method === 'PATCH' && item.path === '/api/agents/expert',
+    );
+    expect(patch?.body).toMatchObject({ serverIds: ['server', 'server-kb-active'] });
   });
 });

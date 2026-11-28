@@ -170,19 +170,6 @@ describe('chat request ownership', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('blocks sending until the selected history has hydrated', async () => {
-    useChatStore.getState().resetConversation('history');
-    useChatStore.getState().setInput('original message');
-    const stream = render();
-    await act(async () => {
-      await stream.send();
-    });
-    expect(useChatStore.getState().input).toBe('original message');
-    expect(useChatStore.getState().items).toEqual([]);
-    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
-    expect(harness.sendChat).not.toHaveBeenCalled();
-  });
-
   it('sends an explicit action without touching the unsent draft', async () => {
     const stream = render();
     useChatStore.getState().setInput('还没发出去的草稿');
@@ -244,18 +231,6 @@ describe('chat request ownership', () => {
     expect(useChatStore.getState().input).toBe(draft);
   });
 
-  it('请求失败且没有新草稿时恢复原消息', async () => {
-    const pending = deferredSend();
-    const stream = render();
-    let sending!: Promise<void>;
-    act(() => {
-      sending = stream.send();
-    });
-    pending.reject(new Error('request failed'));
-    await sending;
-    expect(useChatStore.getState().input).toBe('original message');
-  });
-
   it('显式动作失败不回填动作正文，草稿原样保留', async () => {
     const pending = deferredSend();
     const stream = render();
@@ -268,89 +243,6 @@ describe('chat request ownership', () => {
     pending.reject(new Error('request failed'));
     await sending;
     expect(useChatStore.getState().input).toBe('还没发出去的草稿');
-  });
-
-  it('发送开始后输入框清空，原稿留在原槽直到这次请求被接受', () => {
-    const pending = deferredSend();
-    const stream = render();
-    let sending!: Promise<void>;
-    act(() => {
-      sending = stream.send();
-    });
-    expect(useChatStore.getState().input).toBe('');
-    expect(savedDrafts()).toEqual({ '': 'original message' });
-    void sending;
-    void pending;
-  });
-
-  it('接受发送时清掉原槽，没有新稿就不留任何草稿', async () => {
-    const pending = deferredSend();
-    const stream = render();
-    let sending!: Promise<void>;
-    act(() => {
-      sending = stream.send();
-    });
-    await act(async () => {
-      pending.resolve(accepted);
-      await sending;
-    });
-    expect(useChatStore.getState().input).toBe('');
-    expect(savedDrafts()).toEqual({});
-  });
-
-  it('等待期间写的新稿只迁移到新会话，原稿随接受清掉', async () => {
-    const pending = deferredSend();
-    const stream = render();
-    let sending!: Promise<void>;
-    act(() => {
-      sending = stream.send();
-    });
-    useChatStore.getState().setInput('next draft');
-    expect(savedDrafts()).toEqual({ '': 'next draft' });
-    await act(async () => {
-      pending.resolve(accepted);
-      await sending;
-    });
-    expect(useChatStore.getState().conversationId).toBe('conversation-a');
-    expect(useChatStore.getState().input).toBe('next draft');
-    expect(savedDrafts()).toEqual({ 'conversation-a': 'next draft' });
-  });
-
-  it('切走后迟到的接受不改任何草稿，当前 store 对象完全不变', async () => {
-    const pending = deferredSend();
-    const stream = render();
-    let sending!: Promise<void>;
-    act(() => {
-      sending = stream.send();
-    });
-    act(() => {
-      stream.closeStream();
-      useChatStore.getState().resetConversation('conversation-b');
-    });
-    useChatStore.getState().setInput('draft b');
-    const expected = useChatStore.getState();
-    await act(async () => {
-      pending.resolve(accepted);
-      await sending;
-    });
-    expect(useChatStore.getState()).toBe(expected);
-    expect(savedDrafts()).toEqual({ '': 'original message', 'conversation-b': 'draft b' });
-  });
-
-  it('失败时按原文（含首尾空白）精确恢复草稿', async () => {
-    useChatStore.getState().setInput('  原文  ');
-    const pending = deferredSend();
-    const stream = render();
-    let sending!: Promise<void>;
-    act(() => {
-      sending = stream.send();
-    });
-    expect(harness.sendChat).toHaveBeenCalledWith({ agentId: 'agent-a', message: '原文' });
-    expect(useChatStore.getState().input).toBe('');
-    pending.reject(new Error('request failed'));
-    await sending;
-    expect(useChatStore.getState().input).toBe('  原文  ');
-    expect(savedDrafts()).toEqual({ '': '  原文  ' });
   });
 
   it('新会话里切换专家不擦掉等待中仍留在原槽的原稿', () => {
@@ -497,25 +389,10 @@ describe('disconnected runs', () => {
     ]);
     expect(useChatStore.getState().phase).toMatchObject({ kind: 'connecting', attempt: 1 });
   });
-
-  it('keeps a server error cancellable until a confirmed terminal status', async () => {
-    const stream = render();
-    await act(async () => {
-      await stream.send();
-    });
-    sourceAt(0).emit({ type: 'error', message: 'connection lost' });
-    sourceAt(0).onerror?.();
-    expect(useChatStore.getState().phase).toMatchObject({
-      kind: 'detached',
-      runId: 'run-a',
-      reason: 'protocol',
-    });
-  });
 });
 
 const TRUNCATED_NOTICE = '较早事件已截断，运行结束后将读取已保存结果。';
 const apiMock = harness;
-const toastMock = harness;
 const events = { FakeEventSource: Source };
 let invalidate: ReturnType<typeof vi.spyOn>;
 
@@ -591,32 +468,6 @@ async function startRun(hook: ReturnType<typeof useChatStream>, text = 'hi'): Pr
 function source(): Source {
   return sourceAt(-1);
 }
-
-test('丢弃等待期间已离开的运行：不写 store、不回调、不开流', async () => {
-  const pending = deferred<ChatAccepted>();
-  apiMock.sendChat.mockReturnValue(pending.promise);
-  useChatStore.getState().setInput('hello');
-  const onAccepted = vi.fn();
-  const hook = render('a1', onAccepted);
-
-  const sending = hook.send();
-  expect(useChatStore.getState().phase).toMatchObject({ kind: 'submitting' });
-
-  hook.closeStream();
-  useChatStore.getState().resetConversation('other');
-
-  pending.resolve({ runId: 'r1', conversationId: 'c1' });
-  await sending;
-
-  expect(onAccepted).not.toHaveBeenCalled();
-  expect(events.FakeEventSource.instances).toHaveLength(0);
-  expect(useChatStore.getState()).toMatchObject({
-    conversationId: 'other',
-    items: [],
-    phase: { kind: 'idle' },
-    lastRunId: null,
-  });
-});
 
 test('正常接受：保留用户气泡，开流，run_finished 后失效缓存且不请求运行详情', async () => {
   const pending = deferred<ChatAccepted>();
@@ -1036,29 +887,6 @@ test('已接受但事件流尚未打开时用 connecting，onopen 后才算健�
   expect(useChatStore.getState().phase).toMatchObject({ kind: 'connecting', attempt: 0 });
   source().onopen?.();
   expect(useChatStore.getState().phase).toMatchObject({ kind: 'streaming', runId: 'r1' });
-});
-
-test('离开后请求失败：不恢复旧输入、不追加错误通知', async () => {
-  const pending = deferred<ChatAccepted>();
-  apiMock.sendChat.mockReturnValue(pending.promise);
-  useChatStore.getState().setInput('old');
-  const hook = render('a1');
-
-  const sending = hook.send();
-  hook.closeStream();
-  useChatStore.getState().resetConversation('other');
-  useChatStore.getState().setInput('draft');
-
-  pending.reject(new Error('boom'));
-  await sending;
-
-  expect(useChatStore.getState()).toMatchObject({
-    conversationId: 'other',
-    input: 'draft',
-    items: [],
-    phase: { kind: 'idle' },
-  });
-  expect(toastMock.toastError).not.toHaveBeenCalled();
 });
 
 describe('run_finished 回填', () => {

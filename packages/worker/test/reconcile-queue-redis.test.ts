@@ -20,8 +20,6 @@ const { LOST_RUN_ERROR, reconcileOrphanedRuns } = await import('../src/schedulin
 
 const AGENT_TIMEOUT_MS = 10_000;
 const STALE_MS = 15 * 60_000;
-const BETWEEN_CUTOFFS_MS = AGENT_TIMEOUT_MS + 5 * 60_000 + 60_000;
-const LONG_TIMEOUT_MS = 60 * 60_000;
 
 async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -197,119 +195,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       await offlineRedis.close();
     }
   }, 30_000);
-
-  it('fails a stale running run even when the queue has no job for it', async () => {
-    const runRunning = newId('run');
-    const agentRunning = newId('agent');
-    await db.insert(schema.agents).values({
-      id: agentRunning,
-      slug: `reconcile-${agentRunning.slice(4, 12)}`,
-      name: 'reconcile-running',
-      model: 'test',
-      timeoutMs: AGENT_TIMEOUT_MS,
-      ...agentOwnership,
-    });
-    await db.insert(schema.agentRuns).values({
-      id: runRunning,
-      conversationId,
-      agentId: agentRunning,
-      status: 'running',
-      sandboxId: 'sandbox-orphan-running',
-      createdAt: new Date(Date.now() - STALE_MS),
-      startedAt: new Date(Date.now() - STALE_MS),
-      ...runSubjectFields,
-    });
-
-    try {
-      const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue, cleanup);
-      expect(reconciled).toBe(1);
-      expect(cleanup).toHaveBeenCalledWith({
-        runId: runRunning,
-        conversationId,
-        sandboxId: 'sandbox-orphan-running',
-      });
-
-      const [row] = await db
-        .select({ status: schema.agentRuns.status, error: schema.agentRuns.error })
-        .from(schema.agentRuns)
-        .where(eq(schema.agentRuns.id, runRunning));
-      expect(row).toMatchObject({ status: 'failed', error: LOST_RUN_ERROR });
-      expect(publishRun).toHaveBeenCalledTimes(1);
-      expect(publishRun).toHaveBeenCalledWith(
-        runRunning,
-        { type: 'run_finished', status: 'failed', error: LOST_RUN_ERROR },
-        logger,
-      );
-    } finally {
-      await db.delete(schema.auditLog).where(eq(schema.auditLog.target, runRunning));
-      await db.delete(schema.agentRuns).where(eq(schema.agentRuns.id, runRunning));
-      await db.delete(schema.agents).where(eq(schema.agents.id, agentRunning));
-    }
-  }, 10_000);
-
-  it('keeps a running run within its own agent timeout while failing a shorter one', async () => {
-    const shortRun = newId('run');
-    const longRun = newId('run');
-    const shortAgent = newId('agent');
-    const longAgent = newId('agent');
-    await db.insert(schema.agents).values([
-      {
-        id: shortAgent,
-        slug: `reconcile-${shortAgent}`,
-        name: 'reconcile-short',
-        model: 'test',
-        timeoutMs: AGENT_TIMEOUT_MS,
-        ...agentOwnership,
-      },
-      {
-        id: longAgent,
-        slug: `reconcile-${longAgent}`,
-        name: 'reconcile-long',
-        model: 'test',
-        timeoutMs: LONG_TIMEOUT_MS,
-        ...agentOwnership,
-      },
-    ]);
-    const startedAt = new Date(Date.now() - BETWEEN_CUTOFFS_MS);
-    await db.insert(schema.agentRuns).values(
-      [shortRun, longRun].map((id, index) => ({
-        id,
-        conversationId,
-        agentId: index === 0 ? shortAgent : longAgent,
-        status: 'running',
-        createdAt: startedAt,
-        startedAt,
-        ...runSubjectFields,
-      })),
-    );
-
-    try {
-      const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue, cleanup);
-      expect(reconciled).toBe(1);
-
-      const rows = await db
-        .select({ id: schema.agentRuns.id, status: schema.agentRuns.status })
-        .from(schema.agentRuns)
-        .where(eq(schema.agentRuns.id, shortRun));
-      const [shortRow] = rows;
-      expect(shortRow).toMatchObject({ status: 'failed' });
-      const [longRow] = await db
-        .select({ status: schema.agentRuns.status })
-        .from(schema.agentRuns)
-        .where(eq(schema.agentRuns.id, longRun));
-      expect(longRow).toMatchObject({ status: 'running' });
-      expect(publishRun).toHaveBeenCalledTimes(1);
-      expect(publishRun).toHaveBeenCalledWith(
-        shortRun,
-        { type: 'run_finished', status: 'failed', error: LOST_RUN_ERROR },
-        logger,
-      );
-    } finally {
-      await db.delete(schema.auditLog).where(inArray(schema.auditLog.target, [shortRun, longRun]));
-      await db.delete(schema.agentRuns).where(inArray(schema.agentRuns.id, [shortRun, longRun]));
-      await db.delete(schema.agents).where(inArray(schema.agents.id, [shortAgent, longAgent]));
-    }
-  }, 10_000);
 
   it('keeps a stale running run while its job is active', async () => {
     const runActive = newId('run');

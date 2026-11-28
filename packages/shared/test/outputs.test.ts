@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { chatRequestSchema } from '../src/chat.js';
-import {
-  outputContentSchema,
-  outputFileSchema,
-  outputListSchema,
-  outputManifestSchema,
-  outputRefSchema,
-} from '../src/outputs.js';
+import { outputFileSchema, outputManifestSchema, outputRefSchema } from '../src/outputs.js';
 
 const sha = 'a'.repeat(64);
 
@@ -76,20 +70,5 @@ describe('output schemas', () => {
         files: [{ path: 'a.md', size: 1, sha256: sha, mediaType: 'text/markdown' }],
       }).success,
     ).toBe(false);
-  });
-
-  it('parses list and content envelopes', () => {
-    expect(outputListSchema.parse({ items: [file], nextCursor: 'cursor' })).toEqual({
-      items: [file],
-      nextCursor: 'cursor',
-    });
-    expect(outputListSchema.parse({ items: [], nextCursor: null })).toEqual({
-      items: [],
-      nextCursor: null,
-    });
-    expect(outputContentSchema.parse({ file, content: '# 报告\n' })).toEqual({
-      file,
-      content: '# 报告\n',
-    });
   });
 });

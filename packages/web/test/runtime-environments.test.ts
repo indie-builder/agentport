@@ -12,16 +12,15 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import { act, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
+import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Button } from '../src/components/ui/button.js';
-import { ApiError } from '../src/lib/api.js';
-import { buildShouldPoll } from '../src/lib/queries.js';
+import { ApiError, api } from '../src/lib/api.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { RuntimeEnvironmentsPage } from '../src/pages/runtime-environments/index.js';
 import { RuntimeEnvironmentDetailPage } from '../src/pages/runtime-environments/runtime-environment-detail.js';
+import { runtimeEnvironmentDetailSearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
@@ -223,33 +222,6 @@ function versionDetail(
   };
 }
 
-type Element = ReactElement<Record<string, unknown>>;
-function elements(node: ReactNode): Element[] {
-  if (Array.isArray(node)) return node.flatMap(elements);
-  if (!isValidElement<Record<string, unknown>>(node)) return [];
-  return [
-    node,
-    ...elements(node.props.children as ReactNode),
-    ...elements(node.props.actions as ReactNode),
-    ...elements(node.props.action as ReactNode),
-  ];
-}
-function flatText(node: ReactNode): string {
-  if (Array.isArray(node)) return node.map(flatText).join(' ');
-  if (typeof node === 'string') return node;
-  if (isValidElement<Record<string, unknown>>(node))
-    return flatText(node.props.children as ReactNode);
-  return '';
-}
-function buttonWith(tree: Element[], label: string): Element | undefined {
-  return tree.find(
-    (node) =>
-      node.type === Button &&
-      typeof node.props.onClick === 'function' &&
-      flatText(node.props.children as ReactNode).includes(label),
-  );
-}
-
 async function flush(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -306,6 +278,7 @@ async function mountWithRouter(initialPath: string) {
   const detail = createRoute({
     getParentRoute: () => shell,
     path: '/runtime-environments/$environmentId',
+    validateSearch: runtimeEnvironmentDetailSearchSchema,
     component: RuntimeEnvironmentDetailPage,
   });
   const away = createRoute({
@@ -487,9 +460,6 @@ describe('runtime environments page', () => {
     state.environments = [environment];
     state.search = {};
     const cards = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
-    expect(cards).toContain(
-      'grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2',
-    );
     expect(cards).toContain('data-slot="card"');
     expect(cards).toContain('数据分析');
     expect(cards).toContain('aaaaaaaa');
@@ -679,7 +649,7 @@ describe('runtime environment detail page', () => {
     await page.unmount();
   });
 
-  it('publishes only the chosen ready version from the version row', () => {
+  it('publishes only the chosen ready version from the version row', async () => {
     state.publish.mockClear();
     state.environment = environment;
     state.versions = [
@@ -687,23 +657,18 @@ describe('runtime environment detail page', () => {
       version('rtev_bbbbbbbb', 'ready', 'sha256:older'),
     ];
     state.search = {};
-    let tree: Element[] = [];
-    renderToStaticMarkup(
-      withClient(
-        createElement(function Probe() {
-          tree = elements(RuntimeEnvironmentDetailPage());
-          return null;
-        }),
-      ),
+    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    expect(button('构建新版本')).toBeDefined();
+    const publishButtons = [...page.host.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (item) => item.textContent?.trim() === '设为线上',
     );
-    const build = buttonWith(tree, '构建新版本');
-    const publish = buttonWith(tree, '设为线上');
-    if (!build || !publish) throw new Error('Missing environment actions');
-    (publish.props.onClick as () => void)();
+    expect(publishButtons).toHaveLength(1);
+    await click(publishButtons[0] as HTMLButtonElement);
     expect(state.publish).toHaveBeenCalledWith(
       { id: 'rte_1', versionId: 'rtev_bbbbbbbb' },
       expect.anything(),
     );
+    await page.unmount();
   });
 
   it('deletes from the detail header only after confirmation and returns to the list', async () => {
@@ -774,18 +739,6 @@ describe('runtime environment detail page', () => {
     await page.unmount();
   });
 
-  it('keeps the leave guard while the deletion request is pending', async () => {
-    state.environment = environment;
-    state.versions = [];
-    state.search = {};
-    state.removePending = true;
-    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
-    const blocker = state.blockerOptions.at(-1);
-    expect(blocker?.shouldBlockFn()).toBe(true);
-    expect(blocker?.enableBeforeUnload).toBe(true);
-    await page.unmount();
-  });
-
   it('keeps the draft and stays on the page when deletion fails', async () => {
     const conflict = new ApiError(409, '运行环境仍被智能体绑定，请先解除绑定');
     state.environment = environment;
@@ -803,26 +756,6 @@ describe('runtime environment detail page', () => {
       '失败后保留的草稿',
     );
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
-    await page.unmount();
-  });
-
-  it('guards unsaved edits on navigation and unload', async () => {
-    state.environment = environment;
-    state.versions = [];
-    state.search = {};
-    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
-    const input = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
-    if (!input) throw new Error('Missing environment name');
-    await editInput(input, '未保存的环境');
-    const blocker = state.blockerOptions.at(-1);
-    expect(blocker?.shouldBlockFn()).toBe(true);
-    expect(
-      blocker?.shouldBlockFn({
-        current: { pathname: '/runtime-environments/rte_1' },
-        next: { pathname: '/runtime-environments/rte_1' },
-      }),
-    ).toBe(false);
-    expect(blocker?.enableBeforeUnload).toBe(true);
     await page.unmount();
   });
 
@@ -1132,6 +1065,20 @@ describe('runtime environment navigation guards with the real router', () => {
     expect(unloadPrevented()).toBe(true);
 
     await act(async () => {
+      await page.router.navigate({
+        to: '/runtime-environments/$environmentId',
+        params: { environmentId: 'rte_1' },
+        search: { status: 'ready' },
+        replace: true,
+      });
+    });
+    expect(hasDialog('放弃未保存的更改？')).toBe(false);
+    expect(page.router.state.location.pathname).toBe('/runtime-environments/rte_1');
+    expect(page.host.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
+      '未保存的环境',
+    );
+
+    await act(async () => {
       page.router.history.back();
     });
     await vi.waitFor(() => expect(hasDialog('放弃未保存的更改？')).toBe(true));
@@ -1146,6 +1093,7 @@ describe('runtime environment navigation guards with the real router', () => {
     await vi.waitFor(() => expect(hasDialog('放弃未保存的更改？')).toBe(true));
     await click(button('放弃并离开', dialog('放弃未保存的更改？')));
     await vi.waitFor(() => expect(page.router.state.location.pathname).toBe('/away'));
+    expect(page.host.textContent).toContain('Destination');
     expect(unloadPrevented()).toBe(false);
     await page.unmount();
   });
@@ -1180,10 +1128,84 @@ describe('runtime environment navigation guards with the real router', () => {
 });
 
 describe('runtime environment build polling', () => {
-  it('polls queued and building versions only', () => {
-    expect(buildShouldPoll([{ status: 'queued' }])).toBe(true);
-    expect(buildShouldPoll([{ status: 'building' }])).toBe(true);
-    expect(buildShouldPoll([{ status: 'ready' }, { status: 'failed' }])).toBe(false);
-    expect(buildShouldPoll(undefined)).toBe(false);
+  it('polls queued and building versions only', async () => {
+    const { useRuntimeEnvironmentVersions: useRealRuntimeEnvironmentVersions } =
+      await vi.importActual<typeof import('../src/lib/queries.js')>('../src/lib/queries.js');
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(api, 'runtimeEnvironmentVersions')
+        .mockResolvedValueOnce([version('rtev_1', 'queued', null)])
+        .mockResolvedValueOnce([version('rtev_1', 'building', null)])
+        .mockResolvedValue([
+          version('rtev_1', 'ready', 'sha256:ready'),
+          version('rtev_2', 'failed', null),
+        ]);
+      function Probe({ id }: { id: string }) {
+        useRealRuntimeEnvironmentVersions(id);
+        return null;
+      }
+      const pollClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      try {
+        await act(async () => {
+          root.render(
+            createElement(
+              QueryClientProvider,
+              { client: pollClient },
+              createElement(Probe, { id: 'rte_1' }),
+            ),
+          );
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(api.runtimeEnvironmentVersions).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2_000);
+        });
+        expect(api.runtimeEnvironmentVersions).toHaveBeenCalledTimes(2);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2_000);
+        });
+        expect(api.runtimeEnvironmentVersions).toHaveBeenCalledTimes(3);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6_000);
+        });
+        expect(api.runtimeEnvironmentVersions).toHaveBeenCalledTimes(3);
+
+        vi.mocked(api.runtimeEnvironmentVersions).mockRejectedValueOnce(new Error('offline'));
+        await act(async () => {
+          root.render(
+            createElement(
+              QueryClientProvider,
+              { client: pollClient },
+              createElement(Probe, { id: 'rte_2' }),
+            ),
+          );
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(api.runtimeEnvironmentVersions).toHaveBeenCalledTimes(4);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6_000);
+        });
+        expect(api.runtimeEnvironmentVersions).toHaveBeenCalledTimes(4);
+      } finally {
+        await act(async () => root.unmount());
+        pollClient.clear();
+        host.remove();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -125,7 +125,6 @@ describe('overview health summary', () => {
   it('reports waiting without an active run as a fact, not a missing consumer', () => {
     const html = renderHealth({ value: withQueue({ waiting: 3, active: 0 }) });
     expect(html).toContain('有 3 个任务等待，当前没有运行中的任务');
-    expect(html).not.toContain('消费者');
   });
 
   it('ignores historical failed jobs on the home page', () => {

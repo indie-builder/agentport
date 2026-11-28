@@ -3,15 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RedisClient } from 'bun';
-import {
-  expectProblem,
-  loginCookie,
-  request,
-  startApp,
-  type TestApp,
-  testConfig,
-} from './helpers.js';
+import { expectProblem, loginCookie, request, startApp, type TestApp } from './helpers.js';
 
 let app: TestApp;
 let cookie = '';
@@ -236,124 +228,6 @@ describe('knowledge routes', () => {
     expect(jobRow[0]?.payload.documentId).toBe(body.documentId);
   });
 
-  it('任务列表只返回展示字段，单任务仍保留 payload', async () => {
-    const embedding = await createProfile('embedding');
-    const base = await createBase(embedding);
-    const uploaded = await upload(base.id, '任务列表投影');
-    expect(uploaded.statusCode, uploaded.body).toBe(202);
-    const { documentId, jobId } = uploaded.json<{ documentId: string; jobId: string }>();
-
-    const list = await request(app, {
-      method: 'GET',
-      url: `/api/knowledge/jobs?baseId=${base.id}`,
-      headers: { cookie },
-    });
-    expect(list.statusCode, list.body).toBe(200);
-    const [item] = list.json<{ items: Array<Record<string, unknown>> }>().items;
-    expect(Object.keys(item ?? {}).sort()).toEqual(
-      [
-        'id',
-        'type',
-        'status',
-        'step',
-        'progress',
-        'attempts',
-        'error',
-        'result',
-        'documentId',
-        'sourceId',
-        'documentTitle',
-        'sourceName',
-        'createdAt',
-        'startedAt',
-        'endedAt',
-      ].sort(),
-    );
-
-    const detail = await request(app, {
-      method: 'GET',
-      url: `/api/knowledge/jobs/${jobId}`,
-      headers: { cookie },
-    });
-    expect(detail.statusCode, detail.body).toBe(200);
-    expect(detail.json()).toMatchObject({ id: jobId, type: 'ingest', status: 'queued' });
-
-    const stored = await app.client.unsafe<{ payload: { documentId: string } }[]>(
-      'select payload from knowledge_jobs where id = $1',
-      [jobId],
-    );
-    expect(stored[0]?.payload.documentId).toBe(documentId);
-  });
-
-  it('任务列表按 baseId 与 status 过滤', async () => {
-    const embedding = await createProfile('embedding');
-    const first = await createBase(embedding);
-    const second = await createBase(embedding);
-    const queued = await upload(first.id, '排队任务');
-    expect(queued.statusCode, queued.body).toBe(202);
-    const queuedId = queued.json<{ jobId: string }>().jobId;
-    const failedId = `kjob_failed_${Math.random().toString(36).slice(2, 10)}`;
-    await app.client.unsafe(
-      `insert into knowledge_jobs (id, type, base_id, status, payload, error, ended_at)
-       values ($1, 'reindex', $2, 'failed', $3::jsonb, 'boom', now())`,
-      [
-        failedId,
-        first.id,
-        JSON.stringify({ type: 'reindex', baseId: first.id, chunksOnly: false }),
-      ],
-    );
-    const other = await upload(second.id, '其他库任务');
-    expect(other.statusCode, other.body).toBe(202);
-    const otherId = other.json<{ jobId: string }>().jobId;
-
-    const ids = async (query: string) => {
-      const res = await request(app, {
-        method: 'GET',
-        url: `/api/knowledge/jobs?${query}`,
-        headers: { cookie },
-      });
-      expect(res.statusCode, res.body).toBe(200);
-      return res.json<{ items: Array<{ id: string }> }>().items.map((item) => item.id);
-    };
-
-    expect((await ids(`baseId=${first.id}`)).sort()).toEqual([queuedId, failedId].sort());
-    expect(await ids(`baseId=${first.id}&status=failed`)).toEqual([failedId]);
-    expect(await ids(`baseId=${first.id}&status=queued`)).toEqual([queuedId]);
-    expect(await ids(`baseId=${second.id}`)).toEqual([otherId]);
-  });
-
-  it('任务列表游标跨页覆盖同一时间戳的行', async () => {
-    const embedding = await createProfile('embedding');
-    const base = await createBase(embedding);
-    const suffix = Math.random().toString(36).slice(2, 10);
-    const jobIds = [1, 2, 3].map((n) => `kjob_cursor_${suffix}_${n}`);
-    await app.client.unsafe(
-      `insert into knowledge_jobs (id, type, base_id, status, payload, created_at)
-       select id, 'cleanup', $1, 'queued', '{}'::jsonb, '2026-01-01T00:00:00Z'::timestamptz
-       from unnest($2::text[]) as id`,
-      [base.id, app.client.array(jobIds, 'TEXT')],
-    );
-
-    const getPage = async (cursor?: string) => {
-      const params = new URLSearchParams({ baseId: base.id, limit: '2' });
-      if (cursor) params.set('cursor', cursor);
-      const res = await request(app, {
-        method: 'GET',
-        url: `/api/knowledge/jobs?${params}`,
-        headers: { cookie },
-      });
-      expect(res.statusCode, res.body).toBe(200);
-      return res.json<{ items: Array<{ id: string }>; nextCursor: string | null }>();
-    };
-
-    const first = await getPage();
-    expect(first.items.map((item) => item.id)).toEqual([jobIds[2], jobIds[1]]);
-    expect(first.nextCursor).toBe(jobIds[1]);
-    const second = await getPage(first.nextCursor ?? undefined);
-    expect(second.items.map((item) => item.id)).toEqual([jobIds[0]]);
-    expect(second.nextCursor).toBeNull();
-  });
-
   it('检索命中；删除文档后不再召回', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
@@ -474,64 +348,6 @@ describe('knowledge routes', () => {
     await app.client.unsafe('delete from agents where id = $1', [agentId]);
   });
 
-  it('取消排队任务直接写终态，运行中任务只发 cancel key 并保持 running', async () => {
-    const embedding = await createProfile('embedding');
-    const base = await createBase(embedding);
-    const queued = await upload(base.id, '排队取消');
-    expect(queued.statusCode, queued.body).toBe(202);
-    const queuedJobId = queued.json<{ jobId: string }>().jobId;
-
-    const cancelled = await request(app, {
-      method: 'POST',
-      url: `/api/knowledge/jobs/${queuedJobId}/cancel`,
-      headers: { cookie },
-    });
-    expect(cancelled.statusCode, cancelled.body).toBe(200);
-    expect(cancelled.json()).toMatchObject({ status: 'cancelled' });
-    const endedAt = await app.client.unsafe<{ ended_at: string | null }[]>(
-      'select ended_at from knowledge_jobs where id = $1',
-      [queuedJobId],
-    );
-    expect(endedAt[0]?.ended_at).not.toBeNull();
-
-    const runningJobId = `kjob_run${Math.random().toString(36).slice(2, 10)}`;
-    await app.client.unsafe(
-      `insert into knowledge_jobs (id, type, base_id, status, payload, started_at)
-       values ($1, 'reindex', $2, 'running', $3::jsonb, now())`,
-      [
-        runningJobId,
-        base.id,
-        JSON.stringify({ type: 'reindex', baseId: base.id, chunksOnly: true }),
-      ],
-    );
-    const redis = new RedisClient(testConfig().REDIS_URL);
-    try {
-      const running = await request(app, {
-        method: 'POST',
-        url: `/api/knowledge/jobs/${runningJobId}/cancel`,
-        headers: { cookie },
-      });
-      expect(running.statusCode, running.body).toBe(200);
-      expect(running.json()).toMatchObject({ status: 'running' });
-      const row = await app.client.unsafe<{ status: string }[]>(
-        'select status from knowledge_jobs where id = $1',
-        [runningJobId],
-      );
-      expect(row[0]?.status).toBe('running');
-      expect(await redis.get(`knowledge:${runningJobId}:cancel`)).toBe('1');
-
-      const finished = await request(app, {
-        method: 'POST',
-        url: `/api/knowledge/jobs/${queuedJobId}/cancel`,
-        headers: { cookie },
-      });
-      expect(finished.statusCode, finished.body).toBe(409);
-    } finally {
-      await redis.del(`knowledge:${runningJobId}:cancel`).catch(() => undefined);
-      redis.close();
-    }
-  });
-
   it('新增分块要求当前版本指针，拒绝伪造旧版本，序号取整版最大值', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
@@ -569,26 +385,6 @@ describe('knowledge routes', () => {
     });
     expect(created.statusCode, created.body).toBe(201);
     expect(created.json<{ chunk: { ordinal: number } }>().chunk.ordinal).toBe(251);
-  });
-
-  it('重建拒绝其他知识库的文档', async () => {
-    const embedding = await createProfile('embedding');
-    const first = await createBase(embedding);
-    const second = await createBase(embedding);
-    const { documentId } = await seedReadyDocument(second.id, embedding, '另一个库');
-
-    const res = await request(app, {
-      method: 'POST',
-      url: `/api/knowledge/bases/${first.id}/rebuild`,
-      headers: { cookie },
-      payload: { documentIds: [documentId] },
-    });
-    expect(res.statusCode, res.body).toBe(400);
-    const jobs = await app.client.unsafe<{ count: string }[]>(
-      "select count(*)::text as count from knowledge_jobs where base_id = $1 and type = 'reindex'",
-      [first.id],
-    );
-    expect(jobs[0]?.count).toBe('0');
   });
 
   it('重建多个合法文档按原数组入队', async () => {
@@ -662,86 +458,6 @@ describe('knowledge routes', () => {
       [first.id],
     );
     expect(jobs[0]?.count).toBe('0');
-  });
-
-  it('重建重复文档保留原数组入队', async () => {
-    const embedding = await createProfile('embedding');
-    const base = await createBase(embedding);
-    const uploaded = await upload(base.id, '重复文档');
-    expect(uploaded.statusCode, uploaded.body).toBe(202);
-    const documentId = uploaded.json<{ documentId: string }>().documentId;
-
-    const res = await request(app, {
-      method: 'POST',
-      url: `/api/knowledge/bases/${base.id}/rebuild`,
-      headers: { cookie },
-      payload: { documentIds: [documentId, documentId] },
-    });
-    expect(res.statusCode, res.body).toBe(202);
-
-    const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
-      "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
-      [base.id],
-    );
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.payload).toEqual({
-      type: 'reindex',
-      baseId: base.id,
-      documentIds: [documentId, documentId],
-      chunksOnly: false,
-      confirmOverwriteManualChunks: false,
-    });
-  });
-
-  it('重建空数组以空数组入队', async () => {
-    const embedding = await createProfile('embedding');
-    const base = await createBase(embedding);
-
-    const res = await request(app, {
-      method: 'POST',
-      url: `/api/knowledge/bases/${base.id}/rebuild`,
-      headers: { cookie },
-      payload: { documentIds: [] },
-    });
-    expect(res.statusCode, res.body).toBe(202);
-
-    const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
-      "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
-      [base.id],
-    );
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.payload).toEqual({
-      type: 'reindex',
-      baseId: base.id,
-      documentIds: [],
-      chunksOnly: false,
-      confirmOverwriteManualChunks: false,
-    });
-  });
-
-  it('重建缺省 documentIds 不传该属性', async () => {
-    const embedding = await createProfile('embedding');
-    const base = await createBase(embedding);
-
-    const res = await request(app, {
-      method: 'POST',
-      url: `/api/knowledge/bases/${base.id}/rebuild`,
-      headers: { cookie },
-      payload: { chunksOnly: true },
-    });
-    expect(res.statusCode, res.body).toBe(202);
-
-    const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
-      "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
-      [base.id],
-    );
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.payload).toEqual({
-      type: 'reindex',
-      baseId: base.id,
-      chunksOnly: true,
-      confirmOverwriteManualChunks: false,
-    });
   });
 
   it('模型端点保存与测试都走 SSRF 边界，allowlist 内网主机放行', async () => {

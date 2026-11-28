@@ -252,22 +252,6 @@ async function replaceRangesTx(
   return rows;
 }
 
-export async function replaceRanges(
-  db: Database,
-  sourceId: string,
-  ranges: RangeInput[],
-): Promise<KnowledgeSourceRangeRow[]> {
-  return db.transaction(async (tx) => {
-    const [source] = await tx
-      .select({ id: knowledgeSources.id })
-      .from(knowledgeSources)
-      .where(eq(knowledgeSources.id, sourceId))
-      .for('update');
-    if (!source) throw new AppError('NOT_FOUND', KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE);
-    return replaceRangesTx(tx, sourceId, ranges);
-  });
-}
-
 export async function listRanges(
   db: Database,
   sourceId: string,

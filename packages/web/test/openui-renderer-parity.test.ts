@@ -279,46 +279,6 @@ describe('官方 vs 本地差分渲染', () => {
     });
   });
 
-  // 已知分歧：官方 formatDateRange 对快照值调 `from.toDateString()`，要求 Date 对象；本项目用 ISO
-  // 字符串（JSON 持久化、动作载荷直接可读）。这属于内部不透明快照，不对外兼容，故不跟随官方形状。
-  it('官方 range 快照要求 Date，本项目用 ISO 字符串（已知分歧）', async () => {
-    const p = dateProgram('range');
-    const isoState = {
-      booking: {
-        when: { value: { from: '2026-10-28', to: '2026-10-30' }, componentType: 'DatePicker' },
-      },
-    };
-    const dateState = {
-      booking: {
-        when: {
-          value: { from: new Date(2026, 9, 28), to: new Date(2026, 9, 30) },
-          componentType: 'DatePicker',
-        },
-      },
-    };
-
-    const b = await local(p, isoState);
-    expectNoErrors(b);
-    expect(days(b.host)).toEqual(['2026-10-28', '2026-10-30']);
-
-    const a = await official(p, dateState);
-    expectNoErrors(a);
-    expect(days(a.host)).toEqual(['2026-10-28', '2026-10-30']);
-
-    // 同一个程序、同一份快照形状喂给官方：抛错被错误边界吞掉，两天都展示不出来。
-    // 官方将来接受字符串时这里会变成“展示出了两天”，用例翻红提醒重新评估分歧。
-    const aIso = await official(p, isoState);
-    const errorDiagnostics = aIso.diagnostics.filter((item) => item.severity !== 'warning');
-    // 官方在嵌套边界上会重复上报同一次崩溃，允许重复但内容必须且只能是这一个错误。
-    expect(errorDiagnostics.length).toBeGreaterThan(0);
-    for (const diagnostic of errorDiagnostics) {
-      expect(diagnostic).toMatchObject({ code: 'render-error' });
-      expect(diagnostic.message).toContain('from.toDateString is not a function');
-    }
-    expect(days(aIso.host)).not.toContain('2026-10-28');
-    expect(days(aIso.host)).not.toContain('2026-10-30');
-  });
-
   it('DatePicker range 区间展示：官方 Date 快照与本地 ISO 快照日期集合一致', async () => {
     // 展示层可比：官方选 Date 对象、本地选 ISO 字符串，文本归一后应是同两天。
     const officialState = {

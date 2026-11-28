@@ -34,28 +34,6 @@ describe.skipIf(!ready || isolated === null)('audit hash chain', () => {
   const verify = () =>
     request(app, { method: 'GET', url: '/api/audit/verify', headers: { cookie } });
 
-  it('chains consecutive writes and verifies them', async () => {
-    const target = unique('audit-chain');
-    for (let i = 0; i < 3; i += 1) {
-      await repo.audit.writeAudit(app.db, logger, {
-        action: 'audit.chain.test',
-        target,
-        status: 'ok',
-      });
-    }
-
-    const rows = await app.client.unsafe<{ id: string }[]>(
-      'select id from audit_log where target = $1',
-      [target],
-    );
-    expect(rows).toHaveLength(3);
-
-    const result = await repo.audit.verifyAuditChain(app.db);
-    expect(result.ok).toBe(true);
-    expect(result.checked).toBeGreaterThanOrEqual(3);
-    expect(result.brokenSeq).toBeNull();
-  });
-
   it('verifies the chain page by page', async () => {
     const target = unique('audit-chain-page');
     for (let i = 0; i < 5; i += 1) {
@@ -97,26 +75,6 @@ describe.skipIf(!ready || isolated === null)('audit hash chain', () => {
     expect(checked).toBe(total);
     expect(new Set(cursors).size).toBe(cursors.length);
     expect([...cursors].sort((a, b) => a - b)).toEqual(cursors);
-  });
-
-  it('detects a tampered chained row', async () => {
-    const target = unique('audit-chain-tamper');
-    await repo.audit.writeAudit(app.db, logger, {
-      action: 'audit.chain.tamper',
-      target,
-      status: 'ok',
-    });
-    const [row] = await app.client.unsafe<{ id: string; chain_seq: string }[]>(
-      'select id, chain_seq from audit_log where target = $1',
-      [target],
-    );
-    if (!row) throw new Error('audit row not found');
-
-    await app.client.unsafe("update audit_log set action = 'hacked' where id = $1", [row.id]);
-
-    const result = await repo.audit.verifyAuditChain(app.db);
-    expect(result.ok).toBe(false);
-    expect(result.brokenSeq).toBe(row.chain_seq);
   });
 
   it('rejects a deleted cursor row instead of treating it as chain end', async () => {

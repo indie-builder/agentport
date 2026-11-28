@@ -715,7 +715,7 @@ export function CompositeCardBlockRenderer({
 
 const CARD_CHART_TYPES = new Set(['BarChart', 'LineChart', 'AreaChart']);
 
-export function withCardChartHeight(node: unknown) {
+function withCardChartHeight(node: unknown) {
   if (typeof node !== 'object' || node === null) return node;
   const element = node as { type?: unknown; typeName?: unknown; props?: Record<string, unknown> };
   if (element.type !== 'element' || !CARD_CHART_TYPES.has(String(element.typeName))) return node;

@@ -39,10 +39,6 @@ const journalSchema = z
 
 export type MemoryJournalEntry = z.infer<typeof journalSchema>;
 
-export function memorySha256(content: string | null): string | null {
-  return content === null ? null : sha256Hex(content);
-}
-
 export function bufferSha256(content: Buffer | null): string | null {
   return content === null ? null : sha256Hex(content);
 }

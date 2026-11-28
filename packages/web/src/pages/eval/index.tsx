@@ -554,5 +554,3 @@ export function EvalPage() {
     </Page>
   );
 }
-
-export { buildEvalPassRatePoints, EvalPassRateChart } from './pass-rate-chart.js';

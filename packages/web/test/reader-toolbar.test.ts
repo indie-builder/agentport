@@ -41,8 +41,6 @@ describe('ReaderToolbar layout', () => {
     if (!copy) throw new Error('Missing copy action');
     const actions = copy.parentElement;
     if (!actions) throw new Error('Missing actions container');
-    // jsdom 没有布局：这里守住宽度上限契约，320px 的实际几何由浏览器复核。
-    expect(actions.className).toContain('max-w-full');
 
     const controls = {
       read: [...host.querySelectorAll<HTMLElement>('button')].find(

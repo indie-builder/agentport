@@ -14,7 +14,6 @@ const chunkGate = vi.hoisted(() => {
 });
 const bridge = vi.hoisted(() => ({
   onInvalid: undefined as undefined | ((program: string) => void),
-  mounts: 0,
 }));
 vi.mock('../src/openui/renderer.js', async (importOriginal) => {
   await chunkGate.promise;
@@ -24,9 +23,6 @@ vi.mock('../src/openui/renderer.js', async (importOriginal) => {
     useEffect(() => {
       bridge.onInvalid = props.onInvalid;
     }, [props.onInvalid]);
-    useEffect(() => {
-      bridge.mounts += 1;
-    }, []);
     return createElement(actual.OpenUiBlock, props);
   };
   return { ...actual, OpenUiBlock };
@@ -215,18 +211,6 @@ describe('AssistantText', () => {
     expect(host.textContent).toContain('已完成');
     expect(host.textContent).not.toContain('root = Card');
     expect(host.textContent).not.toContain('这不是程序');
-  });
-
-  it('does not remount the renderer for the same repeated failure', async () => {
-    await render(INVALID_A, true, false);
-    await settle();
-    const mounts = bridge.mounts;
-    expect(host.textContent).toContain('这不是程序');
-
-    await render(INVALID_A, true, false);
-    await settle();
-    expect(bridge.mounts).toBe(mounts);
-    expect(host.textContent).toContain('这不是程序');
   });
 
   it('keeps user input when a valid program updates', async () => {

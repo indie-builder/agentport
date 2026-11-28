@@ -22,7 +22,7 @@ function runtimeEnvironmentQuery(id: string) {
   });
 }
 
-export function buildShouldPoll(
+function buildShouldPoll(
   versions: Array<Pick<RuntimeEnvironmentVersionSummary, 'status'>> | undefined,
 ): boolean {
   return (

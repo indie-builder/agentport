@@ -336,10 +336,16 @@ describe('rerun visibility and delivery', () => {
     vi.spyOn(api, 'run').mockImplementation((runId) =>
       runId === 'run-1' ? Promise.resolve(detailData) : new Promise(() => {}),
     );
+    let finish!: (value: { runId: string; conversationId: string }) => void;
     const send = vi
       .spyOn(api, 'sendChat')
       .mockRejectedValueOnce(new Error('send failed'))
-      .mockResolvedValueOnce({ runId: 'run-2', conversationId: 'conv-1' });
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
     const router = await mount();
     await vi.waitFor(() => expect(button('重跑')).not.toBeUndefined());
 
@@ -358,30 +364,13 @@ describe('rerun visibility and delivery', () => {
     await act(async () => button('重跑')?.click());
     await flush();
 
-    expect(send).toHaveBeenCalledTimes(2);
-    expect(router.state.location.pathname).toBe('/runs/run-2');
-  });
-
-  it('disables rerun while the resend is in flight', async () => {
-    vi.spyOn(api, 'run').mockResolvedValue(detail('succeeded', [userStep]));
-    let finish!: (value: { runId: string; conversationId: string }) => void;
-    vi.spyOn(api, 'sendChat').mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
-    const router = await mount();
-    await vi.waitFor(() => expect(button('重跑')).not.toBeUndefined());
-
-    await act(async () => button('重跑')?.click());
-    await flush();
-
     expect(button('提交中…')?.disabled).toBe(true);
     expect(router.state.location.pathname).toBe('/runs/run-1');
 
     await act(async () => finish({ runId: 'run-2', conversationId: 'conv-1' }));
     await flush();
+
+    expect(send).toHaveBeenCalledTimes(2);
     expect(router.state.location.pathname).toBe('/runs/run-2');
   });
 });

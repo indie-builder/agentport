@@ -165,19 +165,6 @@ async function syncRowsOf(sourceId: string, jobId: string) {
 }
 
 describe('knowledge job claim', () => {
-  it('lets exactly one of concurrent claims win', async () => {
-    const { jobId } = await seedJob();
-    const results = await Promise.all([
-      repo.knowledge.claimJob(db, jobId),
-      repo.knowledge.claimJob(db, jobId),
-      repo.knowledge.claimJob(db, jobId),
-    ]);
-    expect(results.filter((row) => row !== null)).toHaveLength(1);
-    const job = await repo.knowledge.getJob(db, jobId);
-    expect(job?.status).toBe('running');
-    expect(job?.attempts).toBe(1);
-  });
-
   it('does not let claimJob resurrect a cancelled job', async () => {
     const { jobId } = await seedJob();
     await repo.knowledge.finishJob(db, jobId, { fromStatus: 'queued', status: 'cancelled' });

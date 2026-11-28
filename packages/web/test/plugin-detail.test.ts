@@ -296,8 +296,6 @@ describe('plugin detail', () => {
     );
     const description = panel('intro').querySelector('p');
     expect(description?.textContent).toBe(plugin.description);
-    expect(description?.className).toContain('whitespace-pre-wrap');
-    expect(panel('intro').className).toContain('overflow-y-auto');
   });
 
   it('keeps the paragraph structure of a multi-line long description in the scrollable intro', () => {
@@ -313,18 +311,6 @@ describe('plugin detail', () => {
 
     const rendered = panel('intro').querySelector('p');
     expect(rendered?.textContent?.split('\n\n')).toEqual(paragraphs);
-    expect(rendered?.className).toContain('whitespace-pre-wrap');
-    expect(rendered?.className).toContain('break-words');
-    expect(panel('intro').className).toContain('overflow-y-auto');
-  });
-
-  it('never opens a Sheet or dialog for content, even with a file in the URL', () => {
-    state.search = { tab: 'content', file: 'README.md' };
-    mount();
-    expect(document.querySelector('[data-slot="sheet-content"]')).toBeNull();
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(tab('content').getAttribute('aria-selected')).toBe('true');
-    expect(scroller().textContent).toContain('README-TOKEN');
   });
 
   it('exposes real tabs with proper roles and control relationships', () => {
@@ -555,7 +541,6 @@ describe('plugin detail', () => {
     mount();
     const content = panel('intro');
     expect(content?.querySelector('p')?.textContent).toBe(plugin.description);
-    expect(content?.className).toContain('overflow-y-auto');
     expect(body().querySelector('[data-slot="page-topbar"]')?.textContent).toContain(
       `${plugin.slug} · ${plugin.description}`,
     );

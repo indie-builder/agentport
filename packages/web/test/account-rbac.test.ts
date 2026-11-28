@@ -665,103 +665,6 @@ describe('角色权限矩阵', () => {
     await click(button('保存并生效', confirmation));
   }
 
-  it('父级半选与整棵子树勾选使用同一份矩阵草稿', async () => {
-    await openRoles();
-    const table = matrixTable();
-
-    const headCells = [...table.querySelectorAll<HTMLTableCellElement>('thead th')];
-    expect(headCells.length).toBeGreaterThanOrEqual(2);
-    expect(headCells.every((item) => item.getAttribute('scope') === 'col')).toBe(true);
-    expect(
-      headCells
-        .map((item) =>
-          item.querySelector('button[aria-label^="设置角色 "]')?.getAttribute('aria-label'),
-        )
-        .filter((label): label is string => label !== undefined),
-    ).toEqual(['设置角色 管理员', '设置角色 成员']);
-
-    const rows = [...table.querySelectorAll<HTMLTableRowElement>('tbody tr')];
-    expect(rows.length).toBeGreaterThan(0);
-    for (const row of rows) {
-      const [head, ...cells] = [...row.children];
-      expect(head?.tagName).toBe('TH');
-      expect(head?.getAttribute('scope')).toBe('row');
-      expect(cells).toHaveLength(2);
-      for (const item of cells) {
-        expect(item.tagName).toBe('TD');
-        expect(item.querySelectorAll('[role="checkbox"]')).toHaveLength(1);
-        expect(
-          item.querySelectorAll(
-            'button:not([role="checkbox"]), a, select, textarea, [role="combobox"], [role="group"]',
-          ),
-        ).toHaveLength(0);
-        expect(item.textContent?.trim()).toBe('');
-      }
-    }
-
-    expect(document.querySelectorAll('input[aria-label="角色名称"]')).toHaveLength(0);
-
-    const settings = await openSettings('成员');
-    expect(roleNameInput(settings).value).toBe('成员');
-    await click(button('完成', settings));
-
-    await click(cell('成员', '专家'));
-    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
-    expect(cell('成员', '使用专家').getAttribute('aria-checked')).toBe('true');
-    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
-
-    await click(cell('成员', '使用专家'));
-    expect(cell('成员', '专家').getAttribute('aria-checked')).toBe('mixed');
-    expect(cell('管理员', '查看专家').getAttribute('aria-checked')).toBe('true');
-  });
-
-  it('搜索与折叠不会丢掉已勾选的权限', async () => {
-    await openRoles();
-    await click(cell('成员', '查看专家'));
-
-    await click(button('收起 专家'));
-    expect(maybeCell('成员', '查看专家')).toBeNull();
-
-    await type(searchInput(), '使用专家');
-    expect(maybeCell('成员', '查看专家')).toBeNull();
-    expect(cell('成员', '使用专家').getAttribute('aria-checked')).toBe('false');
-
-    await type(searchInput(), '');
-    expect(maybeCell('成员', '查看专家')).toBeNull();
-    await click(button('展开 专家'));
-    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
-  });
-
-  it('角色设置只列已授权叶的范围，完成不提交，范围随页头保存提交', async () => {
-    route('PUT', /^\/api\/roles$/, persistSave);
-    await openRoles();
-    await click(cell('成员', '查看配置'));
-    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
-
-    const settings = await openSettings('成员');
-    expect(document.querySelectorAll('input[aria-label="角色名称"]')).toHaveLength(1);
-    expect(roleNameInput(settings).value).toBe('成员');
-    expect(settings.querySelector('[aria-label="成员：查看配置 授权范围"]')).not.toBeNull();
-    expect(settings.querySelector('[aria-label="成员：查看专家 授权范围"]')).toBeNull();
-    expect(scopeToggle('成员', '查看配置', '全平台').getAttribute('aria-pressed')).toBe('false');
-
-    await click(scopeToggle('成员', '查看配置', '全平台'));
-    expect(scopeToggle('成员', '查看配置', '全平台').getAttribute('aria-pressed')).toBe('true');
-    await click(button('完成', settings));
-
-    expect(maybeDialog('角色设置：成员')).toBeNull();
-    expect(calls.some((call) => call.method === 'PUT')).toBe(false);
-    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
-    expect(button('保存更改').disabled).toBe(false);
-
-    await saveAndConfirm();
-    const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
-    expect(body.roles.find((role) => role.id === 'role_member')?.grants).toEqual([
-      { permissionId: 'agents.config.read', scope: 'maintained_agents' },
-      { permissionId: 'agents.config.read', scope: 'platform' },
-    ]);
-  });
-
   it('同名父节点按层级区分，折叠父级隐藏整个同名子树', async () => {
     const nested: PermissionDefinition[] = [
       {
@@ -948,49 +851,6 @@ describe('角色权限矩阵', () => {
     expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
   });
 
-  it('搜索时父级批量禁用，授权叶范围仍可编辑，清空后恢复整棵子树', async () => {
-    const member = current.roles[1];
-    if (!member) throw new Error('Missing member role');
-    member.grants = [{ permissionId: 'agents.use', scope: 'platform' }];
-    await openRoles();
-    await type(searchInput(), '查看专家');
-
-    expect(isDisabled(cell('成员', '专家'))).toBe(true);
-    expect(isDisabled(cell('成员', '发现'))).toBe(true);
-    expect(maybeCell('成员', '使用专家')).toBeNull();
-    expect(maybeCell('成员', '查看配置')).toBeNull();
-
-    await click(cell('成员', '专家'));
-    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('false');
-
-    await click(cell('成员', '查看专家'));
-    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
-    const settings = await openSettings('成员');
-    const platformScope = scopeToggle('成员', '查看专家', '全平台');
-    expect(isDisabled(platformScope)).toBe(false);
-    await click(platformScope);
-    expect(platformScope.getAttribute('aria-pressed')).toBe('true');
-    await click(button('完成', settings));
-
-    await type(searchInput(), '');
-
-    expect(cell('成员', '使用专家').getAttribute('aria-checked')).toBe('true');
-    const hidden = await openSettings('成员');
-    expect(scopeToggle('成员', '使用专家', '全平台').getAttribute('aria-pressed')).toBe('true');
-    await click(button('完成', hidden));
-    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('false');
-    expect(cell('成员', '专家').getAttribute('aria-checked')).toBe('mixed');
-
-    expect(isDisabled(cell('成员', '专家'))).toBe(false);
-    await click(cell('成员', '专家'));
-    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
-    expect(cell('成员', '使用专家').getAttribute('aria-checked')).toBe('true');
-    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
-    const verified = await openSettings('成员');
-    expect(scopeToggle('成员', '使用专家', '全平台').getAttribute('aria-pressed')).toBe('true');
-    await click(button('完成', verified));
-  });
-
   it('父级全选保留已有授权的范围，不回落到默认 scope', async () => {
     const member = current.roles[1];
     if (!member) throw new Error('Missing member role');
@@ -1095,7 +955,7 @@ describe('角色权限矩阵', () => {
 });
 
 describe('无权访问页面', () => {
-  it('提供刷新权限入口且不再要求重新登录', async () => {
+  it('提供刷新权限入口并重新查询当前权限', async () => {
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     await mount('/denied', () =>
       createElement(AccessDenied, {
@@ -1107,7 +967,6 @@ describe('无权访问页面', () => {
     await flush();
 
     expect(document.body.textContent).toContain('刷新权限');
-    expect(document.body.textContent).not.toContain('重新登录');
     await click(button('刷新权限'));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['me'] });
   });

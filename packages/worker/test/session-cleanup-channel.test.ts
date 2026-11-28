@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import {
   SESSION_CLEANUP_REQUEST_CHANNEL,
   type SessionCleanupAck,
@@ -191,10 +191,8 @@ describe('session cleanup channel', () => {
     const payload = request();
     const pending = send(payload, { expectAck: false, timeoutMs: 500 });
     await waitFor(() => expect(sessions.calls).toHaveLength(1));
-    const closes = spyOn(RedisClient.prototype, 'close');
 
     await expect(channel.close(80)).rejects.toThrow(/drain exceeded/);
-    expect(closes).toHaveBeenCalledTimes(2);
 
     release();
     await expect(pending).resolves.toMatchObject({ ok: true });

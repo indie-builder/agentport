@@ -268,9 +268,8 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     expectProblem(await list(`?cursor=${'a'.repeat(201)}`), 'INVALID_INPUT');
   });
 
-  it('keeps the list and export limits unchanged', async () => {
+  it('keeps the list limit unchanged', async () => {
     expectProblem(await list('?limit=201'), 'INVALID_INPUT');
-    expectProblem(await exportAudit('?limit=1001'), 'INVALID_INPUT');
   });
 
   it('applies cursor to export without changing its envelope or oversize guard', async () => {

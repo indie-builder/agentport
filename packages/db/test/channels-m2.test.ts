@@ -631,11 +631,6 @@ describe.skipIf(!ready)('channel data isolation', () => {
 });
 
 describe.skipIf(!ready)('channel lane context injection', () => {
-  it('exports the context limits', () => {
-    expect(chat.CHANNEL_CONTEXT_MESSAGE_LIMIT).toBe(20);
-    expect(chat.CHANNEL_CONTEXT_CHAR_LIMIT).toBe(8000);
-  });
-
   it('injects only messages between the cursor and the trigger without consuming on admission', async () => {
     const agentId = await makeAgent();
     const channelId = await makeChannel();
@@ -724,7 +719,7 @@ describe.skipIf(!ready)('channel lane context injection', () => {
     const channelId = await makeChannel();
     await bindAgent(channelId, agentId);
 
-    const limit = chat.CHANNEL_CONTEXT_MESSAGE_LIMIT;
+    const limit = 20;
     const bodies = Array.from({ length: limit + 5 }, (_, index) => `m${index + 1}`);
     const posted = [];
     for (const body of bodies) posted.push(await post(channelId, owner, body));

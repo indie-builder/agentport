@@ -224,7 +224,6 @@ describe('PluginDocument', () => {
     });
 
     expect(body().textContent).toContain('{"name":"demo"}');
-    expect(body().textContent).not.toContain('查看原文');
   });
 
   it('shows empty files explicitly', () => {

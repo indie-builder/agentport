@@ -1,4 +1,4 @@
-import { segmentOpenUi } from '@agentport/shared';
+import { hasOpenUiSegment, segmentOpenUi } from '@agentport/shared';
 import { describe, expect, it } from 'vitest';
 
 const parts = (text: string, streaming = false) =>
@@ -14,6 +14,7 @@ const kinds = (text: string, streaming = false) =>
 describe('segmentOpenUi', () => {
   it('keeps plain prose as one Markdown segment', () => {
     expect(parts('普通文字回答')).toEqual([{ kind: 'markdown', text: '普通文字回答' }]);
+    expect(hasOpenUiSegment('普通文字回答')).toBe(false);
   });
 
   it('splits a single fenced program out of the prose around it', () => {
@@ -70,5 +71,38 @@ describe('segmentOpenUi', () => {
   it('drops blank filler between fences', () => {
     const text = '```openui-lang\nroot = Card([])\n```\n```openui-lang\nroot = Card([])\n```';
     expect(segmentOpenUi(text).map((segment) => segment.kind)).toEqual(['openui', 'openui']);
+  });
+
+  it('recognises fenced programs with CRLF line endings', () => {
+    const text =
+      '说明\r\n\r\n```openui-lang\r\nroot = Card([t])\r\nt = TextContent("hi")\r\n```\r\n';
+    const segments = segmentOpenUi(text, false);
+    expect(segments.some((s) => s.kind === 'openui')).toBe(true);
+    expect(segments.find((s) => s.kind === 'openui')?.text).toContain('root = Card');
+  });
+
+  it('does not extract openui fences nested inside another language fence', () => {
+    const text = ['示例：', '```md', '```openui-lang', 'root = Card([t])', '```', '```'].join('\n');
+    const segments = segmentOpenUi(text, false);
+    expect(segments.every((s) => s.kind === 'markdown')).toBe(true);
+    expect(segments.map((s) => s.text).join('')).toContain('```openui-lang');
+  });
+
+  it('keeps blank lines between fences in the markdown segments', () => {
+    const text = [
+      '```openui-lang',
+      'root = Card([t])',
+      '```',
+      '',
+      '中间文字',
+      '',
+      '```openui-lang',
+      't = TextContent("x")',
+      '```',
+    ].join('\n');
+    const segments = segmentOpenUi(text, false);
+    const markdown = segments.filter((s) => s.kind === 'markdown').map((s) => s.text);
+    expect(markdown.join('')).toContain('中间文字');
+    expect(segments.filter((s) => s.kind === 'openui')).toHaveLength(2);
   });
 });

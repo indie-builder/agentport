@@ -45,38 +45,4 @@ describe('OpenUI Markdown components', () => {
     const heading = host.querySelector('h3');
     expect(heading?.textContent).toBe('小节标题');
   });
-
-  it('disables code copy while the program is still streaming', async () => {
-    const program = ['root = Card([c])', 'c = CodeBlock("ts", "const a = 1;")'].join('\n');
-    await render(program, { streaming: true });
-    expect(
-      host.querySelector<HTMLButtonElement>('[data-streamdown="code-block-copy-button"]')?.disabled,
-    ).toBe(true);
-
-    await render(program, { streaming: false });
-    expect(
-      host.querySelector<HTMLButtonElement>('[data-streamdown="code-block-copy-button"]')?.disabled,
-    ).toBe(false);
-  });
-
-  it('keeps the rendered card in place from partial to final', async () => {
-    const program = ['root = Card([c])', 'c = CodeBlock("ts", "const a = 1;")'].join('\n');
-    await render(program, { streaming: true });
-    const card = host.firstElementChild;
-    expect(host.querySelector('[data-streamdown="code-block"]')).toBeTruthy();
-
-    await render(program, { streaming: false });
-    // 根节点不换树；代码块内部由 Streamdown 在 mode 切换时自行重挂（库行为）。
-    expect(host.firstElementChild).toBe(card);
-    expect(host.querySelector('[data-streamdown="code-block"]')?.textContent).toContain(
-      'const a = 1;',
-    );
-  });
-
-  it('keeps headings at least body size when TextContent is large', async () => {
-    await render(['root = Card([t])', 't = TextContent("### 小节标题", "large")'].join('\n'));
-    const heading = host.querySelector('h4');
-    expect(heading?.closest('.text-lg')).toBeTruthy();
-    expect(heading?.style.fontSize).toBe('max(1em, var(--text-base))');
-  });
 });

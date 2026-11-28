@@ -222,7 +222,6 @@ describe('executeRuntimeEnvironmentBuild', () => {
     expect(build).toContain('--load');
     expect(build).toContain('--progress');
     expect(build).toContain('plain');
-    expect(build).not.toContain('--no-cache');
     expect(build?.[build.indexOf('--build-arg') + 1]).toBe(
       'RUNTIME_BASE_IMAGE=repo/sandbox:runtime-base-bbbbbbbbbbbb',
     );

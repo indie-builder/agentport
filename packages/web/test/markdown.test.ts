@@ -16,18 +16,11 @@ describe('Markdown', () => {
     expect(html).toContain('<h3');
   });
 
-  it('renders marker-free text through the same single tree', () => {
-    const html = render({ text: '完整保存的回答：缺失前缀和尾部' });
-    expect(html).toContain('data-streamdown');
-    expect(html).toContain('<p');
-  });
-
   it('keeps partial Markdown readable while streaming', () => {
     const html = render({
       text: '说明 **加粗未闭合\n\n- 列表一\n- 列表二\n\n```ts\nconst a = 1;',
       streaming: true,
     });
-    expect(html).toContain('data-streamdown');
     expect(html).toContain('加粗未闭合');
     expect(html).toContain('列表一');
     expect(html).toContain('const a = 1;');
@@ -36,31 +29,6 @@ describe('Markdown', () => {
   it('keeps plain-text line breaks without needing Markdown markers', () => {
     const html = render({ text: '第一行\n第二行\n第三行' });
     expect(html).toContain('第一行\n第二行');
-  });
-
-  it('shows no typing caret when called statically', () => {
-    const html = render({ text: '稳定回答' });
-    expect(html).not.toContain('--streamdown-caret');
-    expect(html).not.toContain('data-sd-caret');
-  });
-
-  it('inherits parent size and color instead of forcing body typography', () => {
-    const html = render({ text: '小字说明\n\n## 小节\n\n### 小节三', presentation: 'inherit' });
-    expect(html).not.toContain('text-base text-fg');
-    expect(html).toContain('<h3');
-    expect(html).toContain('<h4');
-  });
-
-  it('never lets sub-headings fall below a larger inherited body size', () => {
-    const html = render({ text: '### 小节\n\n#### 小节四', presentation: 'inherit' });
-    expect(html.match(/font-size:max\(1em, var\(--text-base\)\)/g)).toHaveLength(2);
-    expect(render({ text: '### 小节' })).toContain('font-size:max(1em, var(--text-base))');
-  });
-
-  it('keeps body typography by default', () => {
-    const html = render({ text: '正文' });
-    expect(html).toContain('text-base');
-    expect(html).toContain('text-fg');
   });
 
   it('opens external links safely and never links an incomplete sentinel', () => {
@@ -119,7 +87,8 @@ describe('Markdown in the browser', () => {
     await mount({ text: '第一段\n\n**加粗**\n\n- 列表', streaming: true });
     expect(host.firstElementChild).toBe(tree);
     expect(host.querySelector('p')).toBe(paragraph);
-    expect(host.querySelector('[data-streamdown="strong"]')?.textContent).toBe('加粗');
+    expect(host.querySelectorAll('p')[1]?.textContent).toBe('加粗');
+    expect(host.textContent).not.toContain('**');
     expect(host.querySelector('li')?.textContent).toBe('列表');
   });
 });

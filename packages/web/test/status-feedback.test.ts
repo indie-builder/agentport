@@ -135,12 +135,11 @@ describe('status metrics failure feedback', () => {
       metricsFetches = [async () => json({ ...metrics, queue: { ...queueCounts, ...queue } })];
       await click('刷新');
       await waitFor(() => expect(container.textContent).toContain(message));
-      expect(container.textContent).toContain('注意');
-      const reason = [...container.querySelectorAll('div.border-t')].find((element) =>
-        element.textContent?.startsWith(message),
+      const queueSection = [...container.querySelectorAll('section')].find(
+        (section) => section.querySelector('h2')?.textContent === '队列 agent-runs',
       );
-      expect(reason?.className).toContain('text-warning');
-      expect(reason?.className).not.toContain('text-danger');
+      expect(queueSection?.querySelector('[data-slot="badge"]')?.textContent).toBe('注意');
+      expect(queueSection?.textContent).toContain(message);
     }
     expect(container.textContent).not.toContain('队列指标不可用');
   });
@@ -177,7 +176,6 @@ describe('status metrics failure feedback', () => {
       expect(container.textContent).toContain('有 3 个任务等待，当前没有运行中的任务'),
     );
     expect(container.textContent).toContain('检查 worker 是否存活');
-    expect(container.textContent).not.toContain('消费者');
   });
 
   it('keeps the last successful readings through a failed refresh, disables retry while pending, and clears the error after recovery', async () => {

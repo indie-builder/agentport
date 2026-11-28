@@ -55,7 +55,7 @@ function decodeEntities(input: string): string {
 }
 
 // shortcut: 绑定 skills.sh 榜单 HTML；站点改版会取不到行，届时改用官方 v1（需 Vercel OIDC）。
-export async function parseLeaderboard(html: string): Promise<MarketSkill[]> {
+async function parseLeaderboard(html: string): Promise<MarketSkill[]> {
   const seen = new Set<string>();
   const rows: MarketSkill[] = [];
   type Row = { owner: string; repo: string; skill: string; name: string; installs: string };

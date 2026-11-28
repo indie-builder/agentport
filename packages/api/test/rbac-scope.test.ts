@@ -87,14 +87,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     await app.close();
   });
 
-  it('每条 /api 路由都有 access 声明，未登录返回 401，公开分享不要求登录', async () => {
-    expect(app).toBeDefined();
-    expectProblem(await request(app, { method: 'GET', url: '/api/runs' }), 'UNAUTHORIZED');
-    const share = await request(app, { method: 'GET', url: '/api/public/output-shares/missing' });
-    expect(share.statusCode).toBe(404);
-    expect((await request(app, { method: 'GET', url: '/health/live' })).statusCode).toBe(200);
-  });
-
   it('两个人各自的会话与运行互相不可见，列表按账户过滤', async () => {
     const listA = await request(app, {
       method: 'GET',

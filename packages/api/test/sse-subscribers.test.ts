@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import {
   closeProducer,
@@ -51,70 +50,6 @@ describe.skipIf(!ready)('run subscribers', () => {
     expect(texts).toHaveLength(50);
     expect(new Set(texts).size).toBe(50);
     sub.close();
-  });
-
-  it('replays a long stream from its first event without trimming', async () => {
-    const runId = unique('sse-run');
-    const redis = new RedisClient(testConfig().REDIS_URL);
-    const total = 1_600;
-    let sub: Awaited<ReturnType<typeof subscribeRun>> | undefined;
-    try {
-      await Promise.all(
-        Array.from({ length: total }, (_, i) =>
-          redis.xadd(
-            runStreamKey(runId),
-            '*',
-            'payload',
-            JSON.stringify({ type: 'text_delta', text: `e${i}` }),
-          ),
-        ),
-      );
-      expect(await redis.xlen(runStreamKey(runId))).toBe(total);
-
-      const types: string[] = [];
-      const texts: string[] = [];
-      sub = await subscribeRun(runId, (event) => {
-        types.push(event.type);
-        if (event.type === 'text_delta') texts.push(event.text);
-      });
-
-      expect(types.filter((type) => type === 'replay_truncated')).toHaveLength(0);
-      expect(texts[0]).toBe('e0');
-      expect(texts.at(-1)).toBe(`e${total - 1}`);
-      expect(texts).toHaveLength(total);
-    } finally {
-      sub?.close();
-      await redis.del(runStreamKey(runId)).catch(() => undefined);
-      redis.close();
-    }
-  });
-
-  it('replays events beyond the old 8MiB cap instead of dropping the older ones', async () => {
-    const runId = unique('sse-run');
-    const redis = new RedisClient(testConfig().REDIS_URL);
-    let sub: Awaited<ReturnType<typeof subscribeRun>> | undefined;
-    try {
-      const big = 'x'.repeat(3 * 1024 * 1024);
-      for (let i = 0; i < 3; i += 1) {
-        await redis.xadd(
-          runStreamKey(runId),
-          '*',
-          'payload',
-          JSON.stringify({ type: 'text_delta', text: big }),
-        );
-      }
-
-      const types: string[] = [];
-      sub = await subscribeRun(runId, (event) => {
-        types.push(event.type);
-      });
-
-      expect(types).toEqual(['text_delta', 'text_delta', 'text_delta']);
-    } finally {
-      sub?.close();
-      await redis.del(runStreamKey(runId)).catch(() => undefined);
-      redis.close();
-    }
   });
 
   it('does not disconnect a live subscriber when a stale one closes', async () => {

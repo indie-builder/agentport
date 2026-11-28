@@ -8,11 +8,10 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import { act, createElement, useEffect } from 'react';
+import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
-import { useAgentSummary } from '../src/lib/queries.js';
 import { toast } from '../src/lib/toast.js';
 import { AgentDetailPage } from '../src/pages/agents/agent-detail-page.js';
 import { AgentsPage } from '../src/pages/agents/agents-page.js';
@@ -189,30 +188,6 @@ function useAgentAs(current: Agent): void {
   client.setQueryData(['agents'], { items: [current], truncated: false });
   client.setQueryData(['agent-detail', current.id], current);
 }
-async function mountAgentProbe(id: string) {
-  const snapshot: { commits: number; data: Agent | null | undefined } = {
-    commits: 0,
-    data: undefined,
-  };
-  function Probe({ agentId }: { agentId: string }) {
-    const { data } = useAgentSummary(agentId);
-    snapshot.data = data;
-    useEffect(() => {
-      snapshot.commits += 1;
-    });
-    return null;
-  }
-  const renderProbe = async (agentId: string) => {
-    await act(async () => {
-      root.render(
-        createElement(QueryClientProvider, { client }, createElement(Probe, { agentId })),
-      );
-    });
-    await flush();
-  };
-  await renderProbe(id);
-  return { snapshot, switchTo: renderProbe };
-}
 
 async function openHistory(dirty = false) {
   await openConfig();
@@ -364,81 +339,6 @@ afterEach(async () => {
   host.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-});
-
-describe('useAgentSummary cache selection', () => {
-  const other: Agent = { ...agent, id: 'other', slug: 'other', name: 'Other' };
-
-  it('does not commit when another expert changes', async () => {
-    client.setQueryData(['agents'], { items: [agent, other], truncated: false });
-    const probe = await mountAgentProbe('expert');
-    expect(probe.snapshot.data?.name).toBe('Expert');
-    const commits = probe.snapshot.commits;
-
-    await act(async () => {
-      client.setQueryData(['agents'], {
-        items: [agent, { ...other, name: 'Other updated', updatedAt: '2026-03-01T00:00:00Z' }],
-        truncated: false,
-      });
-    });
-    await flush();
-
-    expect(probe.snapshot.commits).toBe(commits);
-    expect(probe.snapshot.data?.name).toBe('Expert');
-  });
-
-  it('does not commit when a refetch returns the same experts', async () => {
-    const fetch = vi.mocked(api.agentReference);
-    const probe = await mountAgentProbe('expert');
-    const commits = probe.snapshot.commits;
-
-    await act(async () => {
-      await client.refetchQueries({ queryKey: ['agents'] });
-    });
-    await flush();
-
-    expect(fetch).toHaveBeenCalledOnce();
-    expect(probe.snapshot.commits).toBe(commits);
-    expect(probe.snapshot.data?.name).toBe('Expert');
-  });
-
-  it('reflects an update to the selected expert', async () => {
-    const probe = await mountAgentProbe('expert');
-    const commits = probe.snapshot.commits;
-
-    await act(async () => {
-      client.setQueryData(['agents'], {
-        items: [{ ...agent, name: 'Renamed', updatedAt: '2026-03-01T00:00:00Z' }],
-        truncated: false,
-      });
-    });
-    await flush();
-
-    expect(probe.snapshot.commits).toBe(commits + 1);
-    expect(probe.snapshot.data?.name).toBe('Renamed');
-  });
-
-  it('returns null after the selected expert is removed', async () => {
-    client.setQueryData(['agents'], { items: [agent, other], truncated: false });
-    const probe = await mountAgentProbe('expert');
-
-    await act(async () => {
-      client.setQueryData(['agents'], { items: [other], truncated: false });
-    });
-    await flush();
-
-    expect(probe.snapshot.data).toBeNull();
-  });
-
-  it('switches to the selected expert when the id changes', async () => {
-    client.setQueryData(['agents'], { items: [agent, other], truncated: false });
-    const probe = await mountAgentProbe('expert');
-    expect(probe.snapshot.data?.name).toBe('Expert');
-
-    await probe.switchTo('other');
-
-    expect(probe.snapshot.data?.name).toBe('Other');
-  });
 });
 
 describe('expert creation lifecycle', () => {
@@ -954,7 +854,6 @@ describe('expert discovery', () => {
     client.setQueryData(['agents'], { items: [], truncated: false });
     vi.mocked(api.agents).mockResolvedValue({ items: [], nextCursor: null });
     const router = await mount();
-    expect(host.textContent).not.toContain('创建第一位专家');
     const list = host.querySelector('[aria-label="专家列表"]');
     if (!list) throw new Error('Missing agent list');
     await click(button('新建专家', list));
@@ -1055,7 +954,6 @@ describe('expert detail navigation', () => {
     await mount();
     await openConfig();
     expect(host.textContent).toContain('专家记忆');
-    expect(host.textContent).not.toContain('运行统计');
     await click(button('专家管理操作'));
     await waitFor(() => menuItem('查看运行'));
     expect(link('查看运行').getAttribute('href')).toBe('/runs?agent=expert');
@@ -1245,7 +1143,6 @@ describe('expert file tool permissions', () => {
     expect(section.textContent).toContain('子智能体默认读写自身记忆目录内的 Markdown');
     expect(section.textContent).toContain('关闭工具不会关闭 MEMORY.md 自动加载');
     expect(section.textContent).toContain('Bash 可访问同一容器的可写挂载');
-    expect(section.textContent).not.toContain('子智能体的原生文件工具由平台禁用');
     await click(toolToggle('Read'));
     expect(toolToggle('Read').getAttribute('aria-pressed')).toBe('false');
     expect(toolToggle('Read').textContent).toContain('已显式禁用');

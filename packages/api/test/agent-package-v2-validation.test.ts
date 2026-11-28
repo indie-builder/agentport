@@ -207,34 +207,6 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
       },
     },
     {
-      label: 'legacy fixed thinking budget on the root',
-      build: ({ spec }: Fixture) => {
-        const files = unzipPackage(packageZip(spec));
-        const sidecar = JSON.parse(files.get(AGENT_PACKAGE_SIDECAR) ?? '{}');
-        sidecar.agent.maxThinkingTokens = 2048;
-        return rawZip(
-          [...files].map(([name, content]) => ({
-            name,
-            content: name === AGENT_PACKAGE_SIDECAR ? `${JSON.stringify(sidecar)}\n` : content,
-          })),
-        );
-      },
-    },
-    {
-      label: 'legacy fixed thinking budget on a child',
-      build: ({ spec }: Fixture) => {
-        const files = unzipPackage(packageZip(spec));
-        const sidecar = JSON.parse(files.get(AGENT_PACKAGE_SIDECAR) ?? '{}');
-        sidecar.subAgents[0].maxThinkingTokens = 1024;
-        return rawZip(
-          [...files].map(([name, content]) => ({
-            name,
-            content: name === AGENT_PACKAGE_SIDECAR ? `${JSON.stringify(sidecar)}\n` : content,
-          })),
-        );
-      },
-    },
-    {
       label: 'duplicate child rule slugs',
       build: ({ spec }: Fixture) => {
         const target = structuredClone(spec);
@@ -438,16 +410,13 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
   });
 
   it('rejects a legacy JSON body and an unsupported content type', async () => {
-    const legacy = await request(app, {
+    const json = await request(app, {
       method: 'POST',
       url: '/api/import/agents',
       headers: { cookie, 'content-type': 'application/json' },
-      payload: {
-        format: 'agentport/agent@2',
-        agent: { slug: unique('pkgv-json'), name: 'Legacy' },
-      },
+      payload: { name: 'not-a-zip' },
     });
-    expectProblem(legacy, 'UNSUPPORTED_MEDIA_TYPE');
+    expectProblem(json, 'UNSUPPORTED_MEDIA_TYPE');
 
     const plain = await request(app, {
       method: 'POST',

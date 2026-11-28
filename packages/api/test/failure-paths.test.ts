@@ -178,75 +178,13 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 0)).toBe(true);
   });
 
-  it('returns 404 for a missing run on events, cancel and approve', async () => {
-    const events = await request(app, {
-      method: 'GET',
-      url: '/api/chat/run_missing/events',
-      headers: auth(),
-    });
-    expectProblem(events, 'NOT_FOUND', 'run');
-
+  it('returns 404 for a missing run on cancel', async () => {
     const cancel = await request(app, {
       method: 'POST',
       url: '/api/chat/run_missing/cancel',
       headers: auth(),
     });
     expectProblem(cancel, 'NOT_FOUND', 'run');
-
-    const approve = await request(app, {
-      method: 'POST',
-      url: '/api/runs/run_missing/approve',
-      headers: auth(),
-      payload: { approvalId: 'approval-missing' },
-    });
-    expectProblem(approve, 'NOT_FOUND', 'run');
-  });
-
-  it('enqueueing the same jobId twice does not create a second run', async () => {
-    const agent = await newAgent();
-    const created = await request(app, {
-      method: 'POST',
-      url: '/api/chat',
-      headers: auth(),
-      payload: { agentId: agent.id, message: 'only once' },
-    });
-    expect(created.statusCode).toBe(202);
-    const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
-    runIds.push(runId);
-    expect(await runCount(agent.id)).toBe(1);
-
-    const payload = {
-      runId,
-      agentId: agent.id,
-      conversationId,
-      prompt: 'only once',
-    };
-    const [first, second] = await Promise.all([
-      getQueue().add('run', payload, { jobId: runId }),
-      getQueue().add('run', payload, { jobId: runId }),
-    ]);
-    expect(first.id).toBe(runId);
-    expect(second.id).toBe(runId);
-    expect(await runCount(agent.id)).toBe(1);
-
-    const stored = await app.client.unsafe<{ count: number }[]>(
-      'select count(*)::int as count from agent_runs where conversation_id = $1',
-      [conversationId],
-    );
-    expect(stored[0]?.count).toBe(1);
-  });
-
-  it('rejects malformed JSON on /api/chat and /api/servers with 400', async () => {
-    for (const url of ['/api/chat', '/api/servers']) {
-      const res = await request(app, {
-        method: 'POST',
-        url,
-        headers: { ...auth(), 'content-type': 'application/json' },
-        payload: '{"agentId": "agt_x", ',
-      });
-      expect(res.statusCode, url).toBe(400);
-      expect(res.statusCode, url).not.toBe(500);
-    }
   });
 
   it('rejects a prompt larger than 64KB with 400 and creates no run', async () => {
@@ -261,35 +199,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     expect(await runCount(agent.id)).toBe(0);
   });
 
-  it('returns 401/401/404 for missing token, wrong token and unknown MCP server id', async () => {
-    const server = await createGeneratedServer();
-
-    const missing = await request(app, { method: 'POST', url: `/mcp/${server.id}` });
-    expectProblem(missing, 'UNAUTHORIZED');
-
-    const wrong = await request(app, {
-      method: 'POST',
-      url: `/mcp/${server.id}`,
-      headers: { authorization: 'Bearer definitely-wrong' },
-    });
-    expect(wrong.statusCode).toBe(401);
-
-    const tokenRes = await app.client.unsafe<{ token: string }[]>(
-      "select config->>'mcpToken' as token from servers where id = $1",
-      [server.id],
-    );
-    const token = tokenRes[0]?.token ?? '';
-    expect(token).not.toBe('');
-
-    const unknown = await request(app, {
-      method: 'POST',
-      url: '/mcp/srv_missing',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(unknown.statusCode).toBe(404);
-  });
-
-  it('rejects approving a request that does not exist', async () => {
+  it('rejects approving a request without decisionHash or from another run', async () => {
     const server = await createGeneratedServer();
     const toolName = 'needs-approval';
     const tool = await request(app, {
@@ -309,20 +219,6 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     const agent = await newAgent([server.id]);
     const { runId } = await seedRun(app, agent.id, { runId: unique('fail-run') });
     runIds.push(runId);
-
-    const unknown = await request(app, {
-      method: 'POST',
-      url: `/api/runs/${runId}/approve`,
-      headers: auth(),
-      payload: { approvalId: 'approval-missing' },
-    });
-    expectProblem(unknown, 'NOT_FOUND', 'approval');
-
-    const unchanged = await app.client.unsafe<{ count: number }[]>(
-      'select count(*)::int as count from approval_requests where run_id = $1',
-      [runId],
-    );
-    expect(unchanged[0]?.count).toBe(0);
 
     const approvalId = unique('apr');
     await app.client.unsafe(

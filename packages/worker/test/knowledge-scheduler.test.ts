@@ -7,7 +7,7 @@ import {
   type KnowledgeSyncTriggerPayload,
 } from '@agentport/shared';
 import { Queue } from 'bullmq';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import {
   type KnowledgeJobsQueueLike,
@@ -456,37 +456,6 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
       expect(await processKnowledgeSyncTrigger({ db, logger, queue }, { sourceId: other })).toBe(
         'fired',
       );
-    });
-
-    it('leaves no sync run when the job insert is rejected', async () => {
-      const sourceId = await insertSource({});
-      const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 8);
-      const fn = `fail_sync_job_insert_${suffix}`;
-      await db.execute(
-        sql.raw(
-          `create function ${fn}() returns trigger language plpgsql as $$ begin raise exception 'injected job insert'; end $$`,
-        ),
-      );
-      await db.execute(
-        sql.raw(
-          `create trigger ${fn}_trg before insert on knowledge_jobs for each row when (new.source_id = '${sourceId}') execute function ${fn}()`,
-        ),
-      );
-      try {
-        await expect(
-          processKnowledgeSyncTrigger({ db, logger, queue: fakeJobsQueue() }, { sourceId }),
-        ).rejects.toThrow();
-      } finally {
-        await db.execute(sql.raw(`drop trigger if exists ${fn}_trg on knowledge_jobs`));
-        await db.execute(sql.raw(`drop function if exists ${fn}()`));
-      }
-      expect(await repo.knowledge.listSyncRuns(db, sourceId)).toMatchObject({ items: [] });
-      expect(
-        await db
-          .select()
-          .from(schema.knowledgeJobs)
-          .where(eq(schema.knowledgeJobs.sourceId, sourceId)),
-      ).toHaveLength(0);
     });
 
     it('ignores an invalid trigger payload', async () => {

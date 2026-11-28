@@ -7,7 +7,7 @@ import { newId, repo } from '@agentport/db';
 import { AGENT_MEMORY_MAX_BYTES, MEMORY_FILE_MAX_BYTES } from '@agentport/shared';
 import { buildApp } from '../src/app.js';
 import { decodePackage } from '../src/lib/package-zip.js';
-import { memorySha256, writeMemoryJournal } from '../src/modules/memory/journal.js';
+import { writeMemoryJournal } from '../src/modules/memory/journal.js';
 import { readMemoryFile, writeMemoryFile } from '../src/modules/memory/memory-files.js';
 import {
   ADMIN_BUSINESS_ID,
@@ -26,6 +26,9 @@ import {
 } from './helpers.js';
 
 const ready = await infraReady;
+
+const sha256 = (value: string | null): string | null =>
+  value === null ? null : new Bun.CryptoHasher('sha256').update(value).digest('hex');
 
 interface AgentRef {
   id: string;
@@ -383,14 +386,14 @@ describe.skipIf(!ready)('memory changes', () => {
       files: [
         {
           name: 'A.md',
-          beforeSha256: memorySha256(null),
-          afterSha256: memorySha256('# A\n'),
+          beforeSha256: sha256(null),
+          afterSha256: sha256('# A\n'),
           beforeBase64: null,
         },
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256(indexBefore),
-          afterSha256: memorySha256('- [A.md](A.md)\n'),
+          beforeSha256: sha256(indexBefore),
+          afterSha256: sha256('- [A.md](A.md)\n'),
           beforeBase64: Buffer.from(indexBefore, 'utf8').toString('base64'),
         },
       ],
@@ -976,13 +979,13 @@ describe.skipIf(!ready)('memory changes', () => {
       files: [
         {
           name: 'deploy.md',
-          beforeSha256: memorySha256('# 部署\n'),
+          beforeSha256: sha256('# 部署\n'),
           afterSha256: null,
           beforeBase64: Buffer.from('# 部署\n', 'utf8').toString('base64'),
         },
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256(link),
+          beforeSha256: sha256(link),
           afterSha256: null,
           beforeBase64: Buffer.from(link, 'utf8').toString('base64'),
         },
@@ -1009,8 +1012,8 @@ describe.skipIf(!ready)('memory changes', () => {
       files: [
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256(null),
-          afterSha256: memorySha256('# 手工\n'),
+          beforeSha256: sha256(null),
+          afterSha256: sha256('# 手工\n'),
           beforeBase64: null,
         },
       ],
@@ -1065,14 +1068,14 @@ describe.skipIf(!ready)('memory changes', () => {
       files: [
         {
           name: 'deploy.md',
-          beforeSha256: memorySha256(null),
-          afterSha256: memorySha256('# 部署\n'),
+          beforeSha256: sha256(null),
+          afterSha256: sha256('# 部署\n'),
           beforeBase64: null,
         },
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256(null),
-          afterSha256: memorySha256('- [deploy.md](deploy.md)\n'),
+          beforeSha256: sha256(null),
+          afterSha256: sha256('- [deploy.md](deploy.md)\n'),
           beforeBase64: null,
         },
       ],
@@ -1111,8 +1114,8 @@ describe.skipIf(!ready)('memory changes', () => {
       files: [
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256(null),
-          afterSha256: memorySha256('# 手工\n'),
+          beforeSha256: sha256(null),
+          afterSha256: sha256('# 手工\n'),
           beforeBase64: null,
         },
       ],

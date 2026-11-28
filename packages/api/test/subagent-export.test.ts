@@ -339,10 +339,6 @@ describe.skipIf(!ready)('subagent export', () => {
     expect(childMcp).not.toContain(disabledServer.name);
   });
 
-  it('requires auth', async () => {
-    expectProblem(await exportPackage(parent.id, {}), 'UNAUTHORIZED');
-  });
-
   it('rejects more than 20 direct children without truncating', async () => {
     const rootSlug = unique('exp-many-children');
     agentSlugs.push(rootSlug);

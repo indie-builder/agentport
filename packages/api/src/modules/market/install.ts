@@ -17,7 +17,7 @@ interface SnapshotEntry {
   contents: string;
 }
 
-export function snapshotToSkill(
+function snapshotToSkill(
   slug: string,
   entries: unknown[],
 ): { skill: ParsedSkill; files: SkillFileDraft[]; warnings: string[] } {

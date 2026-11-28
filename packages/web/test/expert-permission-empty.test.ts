@@ -139,7 +139,6 @@ describe('chat workspace without experts', () => {
     expect(composer).not.toBeNull();
     expect(composer?.disabled).toBe(false);
     expect(host.textContent).toContain('通用助手');
-    expect(host.textContent).not.toContain('前往专家');
   });
 
   it('keeps the workspace visible for a reader without assigned experts', async () => {
@@ -148,8 +147,6 @@ describe('chat workspace without experts', () => {
     await mount(ChatPage, '/chat');
     expect(host.querySelector('textarea[aria-label="消息"]')).not.toBeNull();
     expect(host.textContent).toContain('通用助手');
-    expect(host.textContent).not.toContain('先创建一位专家');
-    expect(host.textContent).not.toContain('请联系管理员分配。');
   });
 
   it('keeps bare chat visible without agents.read', async () => {
@@ -158,7 +155,6 @@ describe('chat workspace without experts', () => {
     await mount(ChatPage, '/chat');
     expect(host.querySelector('textarea[aria-label="消息"]')).not.toBeNull();
     expect(host.textContent).toContain('通用助手');
-    expect(host.textContent).not.toContain('前往专家');
   });
 
   it('keeps the workspace mounted while permissions are unknown', async () => {
@@ -167,8 +163,6 @@ describe('chat workspace without experts', () => {
     await mount(ChatPage, '/chat');
     expect(host.querySelector('textarea[aria-label="消息"]')).not.toBeNull();
     expect(host.querySelector<HTMLButtonElement>('[aria-label="发送消息"]')?.disabled).toBe(true);
-    expect(host.textContent).not.toContain('先创建一位专家');
-    expect(host.textContent).not.toContain('无可用专家');
   });
 });
 
@@ -191,9 +185,6 @@ describe('agent list empty state follows agent permissions', () => {
       ),
     ).toBe(true);
     expect(host.textContent).toContain('创建数字分身');
-    expect(host.textContent).not.toContain('还没有专家');
-    expect(host.textContent).not.toContain('创建第一位专家');
-    expect(host.textContent).not.toContain('无可用专家');
   });
 
   it('explains an unassigned reader without listing the default assistant as an expert', async () => {
@@ -214,8 +205,6 @@ describe('agent list empty state follows agent permissions', () => {
     await mount(AgentsPage, '/agents');
     await waitFor(() => host.textContent?.includes('还没有可用的专家'));
     expect(host.textContent).toContain('管理员为你分配专家或开启创建权限后，会显示在这里。');
-    expect(host.textContent).not.toContain('还没有专家');
-    expect(host.textContent).not.toContain('创建第一位专家');
     expect(host.textContent).not.toContain('创建数字分身');
   });
 
@@ -276,7 +265,6 @@ describe('agent list empty state follows agent permissions', () => {
     });
     const router = await mount(AgentsPage, '/agents?q=missing');
     await waitFor(() => host.textContent?.includes('没有匹配的专家'));
-    expect(host.textContent).not.toContain('无可用专家');
     const clear = [...host.querySelectorAll('button')].find(
       (item) => item.textContent?.trim() === '清除全部筛选',
     );

@@ -555,7 +555,6 @@ describe('personal navigation context', () => {
       ]) {
         expect(navHrefs(view.host)).not.toContain(href);
       }
-      expect(view.host.querySelector('nav[aria-label="个人导航"]')).toBeNull();
       const account = [
         ...view.host.querySelectorAll<HTMLAnchorElement>('a[aria-label="个人资料"]'),
       ].find((link) => link.closest('nav') === null);
@@ -619,7 +618,6 @@ describe('personal navigation context', () => {
         '个人资料',
         '账号安全',
       ]);
-      expect(view.host.querySelector('nav[aria-label="个人导航"]')).toBeNull();
     } finally {
       await view.close();
     }
@@ -721,22 +719,13 @@ describe('personal entry', () => {
       const entry = view.host.querySelector<HTMLButtonElement>('button[aria-label="账户菜单"]');
       if (!entry) throw new Error('missing expanded account entry');
       expect(entry.closest('nav')).toBeNull();
-      expect(entry.classList.contains('justify-start')).toBe(true);
-      expect(entry.classList.contains('flex-1')).toBe(true);
-      expect(entry.classList.contains('h-8')).toBe(true);
-      expect(entry.classList.contains('text-sm')).toBe(true);
-      expect(entry.classList.contains('rounded-item')).toBe(true);
-      expect(entry.classList.contains('bg-sidebar-selected')).toBe(false);
-      expect(entry.querySelector('span')?.classList.contains('size-5')).toBe(true);
 
       const collapse = view.host.querySelector<HTMLButtonElement>(
         'button[aria-label="收起为窄边"]',
       );
       await act(async () => collapse?.click());
       const collapsed = view.host.querySelector<HTMLButtonElement>('button[aria-label="账户菜单"]');
-      expect(collapsed?.classList.contains('size-8')).toBe(true);
-      expect(collapsed?.classList.contains('rounded-full')).toBe(true);
-      expect(collapsed?.classList.contains('bg-sidebar-selected')).toBe(false);
+      expect(collapsed?.closest('nav')).toBeNull();
     } finally {
       await view.close();
     }
@@ -793,7 +782,6 @@ describe('sidebar collapse', () => {
       const collapsed = navLink(view.host);
       expect(collapsed).toBe(link);
       expect(collapsed.getAttribute('aria-label')).toBe('资源');
-      expect(collapsed.querySelector('span.truncate')).toBeNull();
       expect(collapsed.textContent).toBe('');
       expect(collapsed.getAttribute('aria-current')).toBe('page');
 
@@ -804,7 +792,6 @@ describe('sidebar collapse', () => {
       expect(navLink(view.host).getAttribute('aria-label')).toBe('资源');
       expect(navLink(view.host).querySelector('span:last-child')?.textContent).toBe('资源');
       expect(navLink(view.host).getAttribute('aria-current')).toBe('page');
-      expect(view.host.querySelector('nav[aria-label="主导航"] .sr-only')).toBeNull();
     } finally {
       await view.close();
     }

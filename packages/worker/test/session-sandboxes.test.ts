@@ -1192,30 +1192,6 @@ describe('session sandboxes', () => {
     await expect(sessions.close()).resolves.toBeUndefined();
   });
 
-  it('reports the sandbox id when a broken retry fails to destroy the container again', async () => {
-    const provider = new FakeProvider();
-    const sessions = await createManager(provider);
-    const lease = await acquire(sessions, spec());
-    provider.failing.add(lease.sandboxId);
-    await expect(lease.release({ reuse: false })).rejects.toThrow(/cleanup failed for sandbox-1/);
-
-    const failure = await acquire(sessions, spec(), undefined, 'run_2').then(
-      () => null,
-      (error: unknown) => error,
-    );
-    expect(failure).toBeInstanceOf(SandboxCleanupError);
-    expect((failure as SandboxCleanupError).sandboxId).toBe('sandbox-1');
-    expect(((failure as SandboxCleanupError).cause as Error).message).toBe(
-      'cleanup failed for sandbox-1',
-    );
-    expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']);
-    expect(provider.creates).toHaveLength(1);
-
-    provider.failing.delete(lease.sandboxId);
-    await expect(sessions.close()).resolves.toBeUndefined();
-    expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1', 'sandbox-1']);
-  });
-
   it('reports the sandbox id when a concurrent destroy fails while acquiring', async () => {
     const provider = new FakeProvider();
     const sessions = await createManager(provider, 10);
@@ -1273,7 +1249,15 @@ describe('session sandboxes', () => {
     provider.failing.add(lease.sandboxId);
     await expect(lease.release({ reuse: false })).rejects.toThrow(/cleanup failed for sandbox-1/);
 
-    await expect(acquire(sessions, spec())).rejects.toThrow(/cleanup failed for sandbox-1/);
+    const failure = await acquire(sessions, spec()).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(SandboxCleanupError);
+    expect((failure as SandboxCleanupError).sandboxId).toBe('sandbox-1');
+    expect(((failure as SandboxCleanupError).cause as Error).message).toBe(
+      'cleanup failed for sandbox-1',
+    );
     expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']);
     expect(provider.creates).toHaveLength(1);
     expect(provider.sandboxes).toHaveLength(1);

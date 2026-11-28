@@ -7,9 +7,8 @@ import { personalMemoryDir, personalMemoryPath } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { AGENT_MEMORY_MAX_BYTES, AGENT_MEMORY_MAX_LINES } from '@agentport/shared';
 import { buildApp } from '../src/app.js';
-import { memorySha256, writeMemoryJournal } from '../src/modules/memory/journal.js';
+import { writeMemoryJournal } from '../src/modules/memory/journal.js';
 import { readMemoryFile, writeMemoryFile } from '../src/modules/memory/memory-files.js';
-import { MEMORY_REVIEW_MAX_BYTES } from '../src/modules/memory-reviews/router.js';
 import { closeProducer, getQueue } from '../src/queue/producer.js';
 import {
   ADMIN_BUSINESS_ID,
@@ -27,6 +26,9 @@ import {
 } from './helpers.js';
 
 const ready = await infraReady;
+
+const sha256 = (value: string | null): string | null =>
+  value === null ? null : new Bun.CryptoHasher('sha256').update(value).digest('hex');
 
 const fsFaults = {
   failRename: false,
@@ -284,8 +286,8 @@ describe.skipIf(!ready)('memory reviews', () => {
       files: [
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256(null),
-          afterSha256: memorySha256(content),
+          beforeSha256: sha256(null),
+          afterSha256: sha256(content),
           beforeBase64: null,
         },
       ],
@@ -1379,8 +1381,8 @@ describe.skipIf(!ready)('memory reviews', () => {
       files: [
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256(null),
-          afterSha256: memorySha256('# 约定\n'),
+          beforeSha256: sha256(null),
+          afterSha256: sha256('# 约定\n'),
           beforeBase64: null,
         },
       ],
@@ -1404,8 +1406,8 @@ describe.skipIf(!ready)('memory reviews', () => {
       files: [
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256(null),
-          afterSha256: memorySha256('# 约定\n'),
+          beforeSha256: sha256(null),
+          afterSha256: sha256('# 约定\n'),
           beforeBase64: null,
         },
       ],
@@ -1445,8 +1447,8 @@ describe.skipIf(!ready)('memory reviews', () => {
       files: [
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256('新内容'),
-          afterSha256: memorySha256('旧内容'),
+          beforeSha256: sha256('新内容'),
+          afterSha256: sha256('旧内容'),
           beforeBase64: Buffer.from('新内容', 'utf8').toString('base64'),
         },
       ],
@@ -1492,8 +1494,8 @@ describe.skipIf(!ready)('memory reviews', () => {
       files: [
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256('旧内容'),
-          afterSha256: memorySha256('# 约定\n'),
+          beforeSha256: sha256('旧内容'),
+          afterSha256: sha256('# 约定\n'),
           beforeBase64: Buffer.from('旧内容', 'utf8').toString('base64'),
         },
       ],
@@ -1529,8 +1531,8 @@ describe.skipIf(!ready)('memory reviews', () => {
       files: [
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256('旧内容'),
-          afterSha256: memorySha256('# 约定\n'),
+          beforeSha256: sha256('旧内容'),
+          afterSha256: sha256('# 约定\n'),
           beforeBase64: Buffer.from('旧内容', 'utf8').toString('base64'),
         },
       ],
@@ -1571,8 +1573,8 @@ describe.skipIf(!ready)('memory reviews', () => {
       files: [
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256('旧内容'),
-          afterSha256: memorySha256('# 约定\n'),
+          beforeSha256: sha256('旧内容'),
+          afterSha256: sha256('# 约定\n'),
           beforeBase64: Buffer.from('旧内容', 'utf8').toString('base64'),
         },
       ],
@@ -1620,8 +1622,8 @@ describe.skipIf(!ready)('memory reviews', () => {
       files: [
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256('旧内容'),
-          afterSha256: memorySha256('# 约定\n'),
+          beforeSha256: sha256('旧内容'),
+          afterSha256: sha256('# 约定\n'),
           beforeBase64: Buffer.from('旧内容', 'utf8').toString('base64'),
         },
       ],
@@ -1959,14 +1961,14 @@ describe.skipIf(!ready)('memory reviews', () => {
       files: [
         {
           name: 'deploy.md',
-          beforeSha256: memorySha256(null),
-          afterSha256: memorySha256('body'),
+          beforeSha256: sha256(null),
+          afterSha256: sha256('body'),
           beforeBase64: null,
         },
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256(indexBefore),
-          afterSha256: memorySha256(indexAfter),
+          beforeSha256: sha256(indexBefore),
+          afterSha256: sha256(indexAfter),
           beforeBase64: Buffer.from(indexBefore, 'utf8').toString('base64'),
         },
       ],
@@ -1990,14 +1992,14 @@ describe.skipIf(!ready)('memory reviews', () => {
       files: [
         {
           name: 'ops.md',
-          beforeSha256: memorySha256(null),
-          afterSha256: memorySha256('ops'),
+          beforeSha256: sha256(null),
+          afterSha256: sha256('ops'),
           beforeBase64: null,
         },
         {
           name: 'MEMORY.md',
-          beforeSha256: memorySha256(opsIndexBefore),
-          afterSha256: memorySha256(opsIndexAfter),
+          beforeSha256: sha256(opsIndexBefore),
+          afterSha256: sha256(opsIndexAfter),
           beforeBase64: Buffer.from(opsIndexBefore, 'utf8').toString('base64'),
         },
       ],
@@ -2084,7 +2086,7 @@ describe.skipIf(!ready)('memory reviews', () => {
 
     const big = await newAgent();
     const bigConversation = await newConversation(big.id);
-    await seedMessage(bigConversation, 'user', 'x'.repeat(MEMORY_REVIEW_MAX_BYTES - 16 * 1024));
+    await seedMessage(bigConversation, 'user', 'x'.repeat(256 * 1024 - 16 * 1024));
     await writeMemoryFile(root, big.slug, 'MEMORY.md', 'y'.repeat(32 * 1024));
     const oversized = await postReview(
       reviewBody({

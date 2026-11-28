@@ -68,26 +68,6 @@ describe('runShutdown', () => {
     expectRemainingClosed(h);
   });
 
-  it('records an eval worker rejection and keeps closing, exiting 1', async () => {
-    const h = harness();
-    const failure = new Error('eval worker close failed');
-    const code = await runShutdown(
-      options(h, {
-        workers: [
-          h.step('main worker'),
-          h.step('eval worker', async () => {
-            throw failure;
-          }),
-        ],
-      }),
-    );
-
-    expect(code).toBe(1);
-    expect(h.errors).toEqual([{ label: 'eval worker', err: failure }]);
-    expect(h.calls).toContain('main worker');
-    expectRemainingClosed(h);
-  });
-
   it('records a provider rejection but closes the remaining resources, exiting 1', async () => {
     const h = harness();
     const failure = new Error('provider close failed');

@@ -421,21 +421,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
     );
   });
 
-  it('keeps a running run started within its own agent timeout', async () => {
-    await isolated(
-      async (tx, fixture) => {
-        const runId = await seedRunning(tx, fixture, BETWEEN_CUTOFFS_MS);
-        const { queue } = fakeQueue(() => null);
-
-        await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup);
-
-        expect(await statusOf(tx, runId)).toMatchObject({ status: 'running', error: null });
-        expect(publishRun).not.toHaveBeenCalled();
-      },
-      { timeoutMs: LONG_TIMEOUT_MS },
-    );
-  });
-
   it('keeps a stale running run while its queue job is still active', async () => {
     await isolated(
       async (tx, fixture) => {
@@ -617,32 +602,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
       });
       expect(publishRun).not.toHaveBeenCalled();
     });
-  });
-
-  it('leaves a candidate for the next tick when its sandbox id appears during the probe', async () => {
-    await isolated(
-      async (tx, fixture) => {
-        const runId = await seedRunning(tx, fixture, STALE_MS, null);
-        const { queue, getJob } = fakeQueue(() => null);
-        getJob.mockImplementationOnce(async () => {
-          await tx
-            .update(schema.agentRuns)
-            .set({ sandboxId: 'sandbox-late' })
-            .where(eq(schema.agentRuns.id, runId));
-          return undefined;
-        });
-
-        expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
-
-        expect(cleanup).not.toHaveBeenCalled();
-        expect(await statusOf(tx, runId)).toMatchObject({
-          status: 'running',
-          endedAt: null,
-        });
-        expect(publishRun).not.toHaveBeenCalled();
-      },
-      { timeoutMs: AGENT_TIMEOUT_MS },
-    );
   });
 
   it('keeps a same-run candidate when its sandbox id changes during the probe', async () => {

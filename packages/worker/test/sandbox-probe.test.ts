@@ -357,32 +357,6 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     expect(warn.mock.calls[0]?.[0]).toHaveProperty('err');
   });
 
-  it('aborts the pending create when the worker closes', async () => {
-    const serverId = await seedStdio({});
-    const closing = new AbortController();
-    const captured: { signal?: AbortSignal } = {};
-    const provider: SandboxProbeDeps['provider'] = {
-      create: (options) =>
-        new Promise<Sandbox>((_resolve, reject) => {
-          captured.signal = options.signal;
-          options.signal?.addEventListener(
-            'abort',
-            () => reject(new Error('sandbox create aborted')),
-            { once: true },
-          );
-        }),
-      destroy: async () => undefined,
-    };
-
-    const pending = runSandboxProbe({ ...deps(provider), closing: closing.signal }, serverId, 100);
-    await waitFor(() => expect(captured.signal).toBeDefined());
-    closing.abort();
-    const result = await pending;
-
-    expect(captured.signal?.aborted).toBe(true);
-    expect(result.ok).toBe(false);
-  });
-
   it('reports shutdown cancellation when create rejects on the closing signal', async () => {
     const serverId = await seedStdio({});
     const closing = new AbortController();

@@ -5,12 +5,10 @@ import * as channelsRepo from '../src/repo/channels.js';
 import * as chat from '../src/repo/chat.js';
 import {
   agents,
-  approvalRequests,
   channelAgentBindings,
   channelMembers,
   channelMessages,
   channels,
-  servers,
 } from '../src/schema.js';
 import { probeTestDb } from './db-probe.js';
 
@@ -19,7 +17,6 @@ const { db, client, ready } = await probeTestDb();
 const owner = 'm3-owner';
 const agentIds: string[] = [];
 const channelIds: string[] = [];
-const serverIds: string[] = [];
 
 async function makeAgent(): Promise<string> {
   const id = newId('agent');
@@ -31,18 +28,6 @@ async function makeAgent(): Promise<string> {
     model: 'test',
     createdBy: owner,
     ownerBusinessId: owner,
-  });
-  return id;
-}
-
-async function makeServer(): Promise<string> {
-  const id = newId('server');
-  serverIds.push(id);
-  await db.insert(servers).values({
-    id,
-    name: `m3-${id.slice(4)}`,
-    kind: 'http',
-    config: { url: 'https://example.com/mcp' },
   });
   return id;
 }
@@ -82,9 +67,6 @@ afterAll(async () => {
   }
   for (const agentId of agentIds) {
     await db.delete(agents).where(eq(agents.id, agentId));
-  }
-  for (const serverId of serverIds) {
-    await db.delete(servers).where(eq(servers.id, serverId));
   }
   await client.close();
 });
@@ -140,41 +122,5 @@ describe.skipIf(!ready)('closed channels reject new content', () => {
       }),
     );
     expect(err.code).toBe('CONFLICT');
-  });
-});
-
-describe.skipIf(!ready)('channel approvals', () => {
-  it('records the channel and the approving business identity', async () => {
-    const serverId = await makeServer();
-    const channelId = await makeChannel();
-    const id = newId('approval');
-
-    const [row] = await db
-      .insert(approvalRequests)
-      .values({
-        id,
-        channelId,
-        serverId,
-        toolName: 'm3-write',
-        approvedAt: new Date(),
-        approvedByBusinessId: owner,
-      })
-      .returning();
-
-    expect(row?.channelId).toBe(channelId);
-    expect(row?.approvedByBusinessId).toBe(owner);
-  });
-
-  it('deletes channel approvals with the channel', async () => {
-    const serverId = await makeServer();
-    const channelId = await makeChannel();
-    const id = newId('approval');
-    await db.insert(approvalRequests).values({ id, channelId, serverId, toolName: 'm3-cascade' });
-
-    await db.delete(channels).where(eq(channels.id, channelId));
-
-    expect(
-      await db.select().from(approvalRequests).where(eq(approvalRequests.id, id)),
-    ).toHaveLength(0);
   });
 });

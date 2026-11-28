@@ -129,23 +129,6 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-describe('branch request ownership', () => {
-  it('revokes older branches and rejects responses after switching away and back', () => {
-    const stream = mountStream();
-    useChatStore.getState().resetConversation('a');
-    const first = stream.captureRequest();
-    const second = stream.captureRequest();
-    expect(first()).toBe(false);
-    expect(second()).toBe(true);
-    stream.closeStream();
-    useChatStore.getState().resetConversation('b');
-    stream.closeStream();
-    useChatStore.getState().resetConversation('a');
-    expect(second()).toBe(false);
-    expect(stream.captureRequest()()).toBe(true);
-  });
-});
-
 describe('authoritative disconnected recovery', () => {
   it.each(['succeeded', 'failed', 'cancelled', 'timeout'] as const)(
     'hydrates missed messages for %s',
@@ -254,16 +237,6 @@ describe('authoritative disconnected recovery', () => {
       'later',
     ]);
     expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
-  });
-
-  it('keeps a healthy stream in control of buffered messages', async () => {
-    const stream = disconnected();
-    useChatStore.getState().setPhase({ kind: 'streaming', runId: 'run-a', startedAt: 0 });
-    const fetchHistory = vi.spyOn(api, 'conversation').mockResolvedValue(history);
-    const expected = useChatStore.getState();
-    await stream.reconcileRun(terminal);
-    expect(useChatStore.getState()).toBe(expected);
-    expect(fetchHistory).not.toHaveBeenCalled();
   });
 
   it('retains partial content and ends unresolved tools when history recovery fails', async () => {

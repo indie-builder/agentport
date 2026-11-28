@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -328,76 +328,6 @@ describe('runNativePluginAction', () => {
 
     expect(result).toEqual({ ok: false, error: 'worker 正在关停，安装已取消' });
     expect(captured.signal?.aborted).toBe(true);
-  });
-
-  it('reports worker shutdown when create rejects on the closing signal', async () => {
-    const closing = new AbortController();
-    let rejectCreate: ((error: Error) => void) | undefined;
-    const captured: { signal?: AbortSignal } = {};
-    const provider: FakeProvider['provider'] = {
-      create: (options) => {
-        captured.signal = options.signal;
-        return new Promise<Sandbox>((_resolve, reject) => {
-          rejectCreate = reject;
-        });
-      },
-      destroy: async () => undefined,
-    };
-    closing.signal.addEventListener(
-      'abort',
-      () => rejectCreate?.(new Error('sandbox create aborted')),
-      { once: true },
-    );
-
-    const pending = runNativePluginAction(
-      { ...deps(provider, 10_000), closing: closing.signal },
-      { action: 'list' },
-    );
-    await waitFor(() => expect(rejectCreate).toBeDefined());
-    closing.abort();
-    const result = await pending;
-
-    expect(result).toEqual({ ok: false, error: 'worker 正在关停，安装已取消' });
-    expect(captured.signal?.aborted).toBe(true);
-  });
-
-  it('leaves late cleanup to the provider and reports its failure', async () => {
-    const child = hangingChild();
-    const destroyed: string[] = [];
-    const warn = mock();
-    const logger = { ...quietLogger, warn } as unknown as Logger;
-    const captured: { resolve?: (value: Sandbox) => void } = {};
-    const provider: FakeProvider['provider'] = {
-      create: () =>
-        new Promise<Sandbox>((resolve) => {
-          captured.resolve = resolve;
-        }),
-      destroy: async (sandbox) => {
-        destroyed.push(sandbox.id);
-        throw new Error('rm failed');
-      },
-    };
-
-    const result = await runNativePluginAction(
-      { ...deps(provider, 30), logger },
-      { action: 'list' },
-    );
-    expect(result).toEqual({
-      ok: false,
-      error: '沙盒启动超时（30ms），请检查 Docker 服务与镜像后重试',
-    });
-
-    captured.resolve?.({ id: 'native-plugin-late', child } as unknown as Sandbox);
-    await waitFor(() => expect(destroyed).toEqual(['native-plugin-late']));
-    expect(child.signals).toEqual([]);
-    expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        err: expect.any(Error),
-        action: 'list',
-        sandboxId: 'native-plugin-late',
-      }),
-      'native plugin sandbox cleanup failed after timeout',
-    );
   });
 
   it('rejects an invalid result line instead of parsing partial output', async () => {

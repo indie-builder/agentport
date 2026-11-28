@@ -305,7 +305,7 @@
     },
     {
       "name": "TabItem",
-      "evidence": "openui-renderer.test.ts",
+      "evidence": "openui-component-coverage.test.ts",
       "kind": "render"
     }
   ]

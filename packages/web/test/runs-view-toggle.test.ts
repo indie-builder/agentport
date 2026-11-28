@@ -258,7 +258,6 @@ describe('run list view toggle', () => {
     const cell = expand.parentElement;
     let errorText = cell?.querySelector('span');
     expect(errorText?.textContent).toBe(longError);
-    expect(errorText?.className).toContain('whitespace-nowrap');
 
     await act(async () => expand.click());
 
@@ -266,8 +265,6 @@ describe('run list view toggle', () => {
     expect(expand.textContent?.trim()).toBe('收起');
     errorText = cell?.querySelector('span');
     expect(errorText?.textContent).toBe(longError);
-    expect(errorText?.className).not.toContain('whitespace-nowrap');
-    expect(errorText?.className).toContain('break-words');
     expect(router.state.location.pathname).toBe('/runs');
   });
 
@@ -287,8 +284,6 @@ describe('run list view toggle', () => {
 
     const error = expand.parentElement?.querySelector('span');
     expect(error?.textContent).toBe(longError);
-    expect(error?.className).toContain('whitespace-normal');
-    expect(error?.className).not.toContain('line-clamp');
     expect(card?.textContent).toContain('错误');
     expect(card?.textContent).toContain('运行 ID');
   });

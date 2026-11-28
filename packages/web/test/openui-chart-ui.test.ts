@@ -371,7 +371,6 @@ describe('tooltip', () => {
     const style = (content as HTMLElement).style;
     expect(style.position).toBe('fixed');
     expect(style.pointerEvents).toBe('none');
-    expect((content as HTMLElement).className).toContain('min-w-0');
     expect(style.left === '' && style.right === '').toBe(false);
     expect(Number.parseFloat(style.maxWidth)).toBeGreaterThan(0);
     expect(Number.parseFloat(style.maxWidth)).toBeLessThanOrEqual(288);

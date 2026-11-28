@@ -155,7 +155,6 @@ describe('toWorkspaceInput', () => {
     );
     expect(files.claudeMd).toContain('`Skill` 工具');
     expect(files.claudeMd).toContain('`release-notes`');
-    expect(files.claudeMd).not.toContain('读取 `.claude/skills/');
     expect(files.skills[0]?.content).toContain('步骤');
     const noMcp = renderWorkspace(
       toWorkspaceInput({
@@ -167,7 +166,6 @@ describe('toWorkspaceInput', () => {
         subAgents: [],
       }),
     );
-    expect(noMcp.claudeMd).not.toContain('没有可调用的工具');
     expect(noMcp.claudeMd).toContain('可用能力只有下方列出的技能');
   });
 
@@ -182,7 +180,6 @@ describe('toWorkspaceInput', () => {
     );
     const child = files.subAgents[0]?.content ?? '';
     expect(child).toContain('同步调用');
-    expect(child).not.toContain('最多等你');
   });
 
   it('unions root and child skills into workspace files, deduped by slug', () => {

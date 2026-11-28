@@ -7,16 +7,6 @@ import {
 } from '../src/memory.js';
 
 describe('memory policy', () => {
-  it('exposes the documented defaults', () => {
-    expect(DEFAULT_MEMORY_POLICY).toEqual({
-      enabled: true,
-      writeMode: 'native_auto',
-      injectPersonalMemory: true,
-      injectRules: true,
-      topicLimit: 20,
-    });
-  });
-
   it('merges partial values with the defaults', () => {
     expect(resolveMemoryPolicy({ topicLimit: 3 })).toEqual({
       ...DEFAULT_MEMORY_POLICY,

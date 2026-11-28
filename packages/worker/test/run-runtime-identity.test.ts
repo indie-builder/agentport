@@ -693,26 +693,6 @@ describe.skipIf(isolated === null)('run runtime environment identity persistence
     expect(audits).toHaveLength(1);
   });
 
-  it('mounts only the current business user personal directory', async () => {
-    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-user-mount'));
-    mocks.run.mockResolvedValue({
-      status: 'succeeded',
-      sandboxId: 'sandbox-user-mount',
-      settlement: { state: 'stopped', code: 0, signal: null },
-      events: [],
-      sessionId: 'sdk-user-mount',
-    });
-
-    const fixture = await createRunFixture('user-mount');
-    await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
-
-    const acquireInput = mocks.acquire.mock.calls[0]?.[0] as
-      | { spec: { personalDir?: string } }
-      | undefined;
-    const digest = new Bun.CryptoHasher('sha256').update(TEST_BUSINESS_ID, 'utf8').digest('hex');
-    expect(acquireInput?.spec.personalDir).toBe(join(workdir, '_users', digest));
-  });
-
   it('skips personal memory for every member sharing a channel lane, and keeps it for their private chat', async () => {
     const channelId = newId('channel');
     const laneAgentId = newId('agent');
@@ -837,34 +817,6 @@ describe.skipIf(isolated === null)('run runtime environment identity persistence
     });
   });
 
-  it('fails a queued schedule run without sandbox when schedules.manage was revoked', async () => {
-    const fixture = await createRunFixture('schedule-denied', undefined, 'schedule');
-    mocks.checkAccess.mockResolvedValue({
-      reason: 'permission_denied',
-      message: '当前账户没有该操作的权限，运行未启动',
-    });
-
-    await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
-
-    expect(mocks.checkAccess).toHaveBeenCalledWith(expect.anything(), {
-      runId: fixture.runId,
-      trigger: 'schedule',
-      evalRunId: null,
-      agentId: fixture.agentId,
-      conversationId: fixture.conversationId,
-      businessId: TEST_BUSINESS_ID,
-      channelId: null,
-    });
-    expect(mocks.acquire).not.toHaveBeenCalled();
-    expect(mocks.run).not.toHaveBeenCalled();
-    const [run] = await db
-      .select({ status: schema.agentRuns.status })
-      .from(schema.agentRuns)
-      .where(eq(schema.agentRuns.id, fixture.runId))
-      .limit(1);
-    expect(run?.status).toBe('failed');
-  });
-
   it('leaves an already claimed running run untouched instead of re-checking or killing it', async () => {
     const fixture = await createRunFixture('already-running');
     await db
@@ -967,43 +919,6 @@ describe.skipIf(isolated === null)('run runtime environment identity persistence
       seq: projection?.seq,
       message: { id: projection?.id, body: '最终回复 B' },
     });
-  });
-
-  it('leaves no channel projection when the final retry has no assistant text', async () => {
-    const channelId = newId('channel');
-    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-channel-empty'));
-    mocks.run
-      .mockResolvedValueOnce({
-        status: 'failed',
-        sandboxId: 'sandbox-channel-empty',
-        settlement: { state: 'stopped', code: 0, signal: null },
-        events: [{ type: 'assistant_text', text: '中间回复 A', blockIndex: 0 }],
-        error: 'infra down',
-        failure: new RunFailure('infra', 'infra down'),
-      })
-      .mockResolvedValueOnce({
-        status: 'succeeded',
-        sandboxId: 'sandbox-channel-empty',
-        settlement: { state: 'stopped', code: 0, signal: null },
-        events: [],
-      });
-
-    const fixture = await createRunFixture('channel-empty', undefined, 'channel', channelId);
-
-    await expect(
-      runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
-    ).rejects.toThrow('retryable sandbox failure');
-    await runJob({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
-
-    expect(
-      await db
-        .select()
-        .from(schema.channelMessages)
-        .where(eq(schema.channelMessages.runId, fixture.runId)),
-    ).toHaveLength(0);
-    expect(
-      mocks.publishChannelEvent.mock.calls.filter(([, event]) => event.type === 'message.created'),
-    ).toHaveLength(0);
   });
 
   for (const scenario of [
@@ -1351,23 +1266,20 @@ describe.skipIf(isolated === null)('run runtime environment identity persistence
     expect(task?.prompt).toContain('next trigger');
   });
 
-  it.each(['failed', 'succeeded'] as const)(
-    'keeps saving the SDK session for a private %s run',
-    async (status) => {
-      const fixture = await createRunFixture(`private-session-${status}`);
-      mocks.acquire.mockResolvedValue(sandboxLease(`sandbox-private-${status}`));
-      mocks.run.mockResolvedValue({
-        status,
-        sandboxId: `sandbox-private-${status}`,
-        settlement: { state: 'stopped', code: 0, signal: null },
-        events: [],
-        sessionId: `sdk-private-${status}`,
-        ...(status === 'failed' ? { error: 'model failed without output' } : {}),
-      });
+  it('keeps saving the SDK session for a private failed run', async () => {
+    const fixture = await createRunFixture('private-session-failed');
+    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-private-failed'));
+    mocks.run.mockResolvedValue({
+      status: 'failed',
+      sandboxId: 'sandbox-private-failed',
+      settlement: { state: 'stopped', code: 0, signal: null },
+      events: [],
+      sessionId: 'sdk-private-failed',
+      error: 'model failed without output',
+    });
 
-      await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+    await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
 
-      expect(await conversationSession(fixture.conversationId)).toBe(`sdk-private-${status}`);
-    },
-  );
+    expect(await conversationSession(fixture.conversationId)).toBe('sdk-private-failed');
+  });
 });

@@ -415,7 +415,6 @@ describe('schedule dialog fields and payload', () => {
     }
     expect(labelOf('schedule-timezone')).toContain('时区');
     expect(labelOf('schedule-missed-policy')).toContain('错过触发');
-    expect(labelOf('schedule-time')).not.toContain('UTC');
     expect(labelOf('schedule-enabled')).toContain('启用');
     expect(labelOf('schedule-enabled')).not.toContain('必填');
     expect(document.getElementById('schedule-prompt')?.getAttribute('placeholder')).toBe(

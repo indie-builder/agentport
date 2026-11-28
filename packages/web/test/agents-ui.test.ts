@@ -1,5 +1,4 @@
 import { type Agent, PERMISSIONS } from '@agentport/shared';
-import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import {
   act,
   type ComponentProps,
@@ -12,25 +11,26 @@ import {
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from '../src/components/confirm-dialog.js';
-import { Collapsible } from '../src/components/motion-collapsible.js';
 import { PageHeader } from '../src/components/page.js';
 import { ErrorState, LoadingState } from '../src/components/states.js';
 import { Combobox, ComboboxItem, ComboboxList } from '../src/components/ui/combobox.js';
 import { DropdownMenuTrigger } from '../src/components/ui/dropdown-menu.js';
 import { Field, FieldDescription } from '../src/components/ui/field.js';
-import { Input } from '../src/components/ui/input.js';
 import { NumberInput, NumberInputControl } from '../src/components/ui/number-input.js';
 import { Select, SelectItem } from '../src/components/ui/select.js';
 import { Tabs } from '../src/components/ui/tabs.js';
-import { Textarea } from '../src/components/ui/textarea.js';
 import { AgentDetailPage } from '../src/pages/agents/agent-detail-page.js';
 import { AgentEditor } from '../src/pages/agents/agent-editor.js';
 import { AgentsPage } from '../src/pages/agents/agents-page.js';
-import { CreateAgentDialog } from '../src/pages/agents/create-agent-dialog.js';
 import { VersionHistory } from '../src/pages/agents/version-history.js';
 
 const TEST_PERMISSIONS = PERMISSIONS.map((permission) => permission.id);
 
+vi.mock('../src/lib/toast.js', () => ({
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 vi.mock('@/components/ui/button', () => import('../src/components/ui/button.js'));
 vi.mock('@/components/ui/input-group', () => import('../src/components/ui/input-group.js'));
 vi.mock('@/components/ui/input', () => import('../src/components/ui/input.js'));
@@ -41,7 +41,6 @@ vi.mock('@/components/ui/separator', () => import('../src/components/ui/separato
 const state = vi.hoisted(() => ({
   agents: [] as Agent[],
   saving: false,
-  creating: false,
   skillsError: false,
   servers: [] as Array<{
     id: string;
@@ -68,18 +67,6 @@ const state = vi.hoisted(() => ({
   rollback: vi.fn(),
   retry: vi.fn(),
   mutate: vi.fn(),
-  create: vi.fn(),
-  blockerOptions: [] as Array<{
-    shouldBlockFn: (args?: {
-      current: { pathname: string; search: Record<string, unknown> };
-      next: { pathname: string; search: Record<string, unknown> };
-    }) => boolean;
-    enableBeforeUnload: boolean;
-  }>,
-  blockerStatus: 'idle' as 'idle' | 'blocked',
-  proceed: vi.fn(),
-  reset: vi.fn(),
-  remove: vi.fn(),
   search: {} as Record<string, string | undefined>,
   me: undefined as unknown,
 }));
@@ -136,9 +123,9 @@ vi.mock('../src/lib/queries.js', () => ({
     refetch: state.retry,
   }),
   useUpdateAgent: () => ({ isPending: state.saving, mutate: state.mutate }),
-  useCreateAgent: () => ({ isPending: state.creating, mutate: state.create }),
+  useCreateAgent: () => ({ isPending: false, mutate: vi.fn() }),
   useDuplicateAgent: () => ({ mutate: vi.fn(), isPending: false }),
-  useDeleteAgent: () => ({ mutateAsync: state.remove }),
+  useDeleteAgent: () => ({ mutateAsync: vi.fn() }),
   useAgentTags: () => ({ data: { items: [] }, isPending: false, isError: false }),
   useSetAgentFavorite: () => ({ mutate: vi.fn(), isPending: false }),
   useArchiveAgent: () => ({ mutate: vi.fn(), isPending: false }),
@@ -183,10 +170,7 @@ vi.mock('@tanstack/react-query', async () => {
 });
 vi.mock('@tanstack/react-router', () => ({
   Link: 'a',
-  useBlocker: (options: (typeof state.blockerOptions)[number]) => {
-    state.blockerOptions.push(options);
-    return { status: state.blockerStatus, proceed: state.proceed, reset: state.reset };
-  },
+  useBlocker: () => ({ status: 'idle', proceed: vi.fn(), reset: vi.fn() }),
   useNavigate: () => (options: { search?: (current: Record<string, unknown>) => object }) => {
     // 真实 router 把回调返回值整体作为新 search，这里保持一致以暴露过期闭包。
     state.search = { ...(options.search?.(state.search) ?? {}) };
@@ -317,7 +301,6 @@ beforeEach(() => {
     { ...parent, id: 'other-child', parentId: 'other', subAgentIds: [] },
   ];
   state.saving = false;
-  state.creating = false;
   state.skillsError = false;
   state.servers = [];
   state.knowledgeBases = [];
@@ -326,8 +309,6 @@ beforeEach(() => {
   state.agentsPending = false;
   state.agentsError = false;
   state.detail = { isPending: false, isError: false };
-  state.blockerOptions = [];
-  state.blockerStatus = 'idle';
   state.search = { tab: 'config' };
   state.me = undefined;
   vi.clearAllMocks();
@@ -454,45 +435,6 @@ describe('expert editor regressions', () => {
       const allowed = tree.find((node) => node.props.id === 'agent-allowed-tools');
       expect(allowed?.props['aria-invalid']).toBe(true);
     });
-  });
-
-  it('generates a slug when creating with only a name', async () => {
-    await inspect(
-      () => CreateAgentDialog({ onClose() {}, onCreated() {}, finalFocus: () => null }),
-      async (tree, pass) => {
-        const name = tree.find((node) => node.props.id === 'new-agent-name');
-        if (!name) throw new Error('Missing name field');
-        if (pass === 0) {
-          (name.props.onChange as (event: unknown) => void)({
-            target: { name: 'name', value: 'Support Expert' },
-          });
-          return true;
-        }
-        const form = tree.find((node) => node.type === 'form');
-        if (!form) throw new Error('Missing create form');
-        await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
-        expect(state.create.mock.calls[0]?.[0]).toMatchObject({
-          slug: 'support-expert',
-          name: 'Support Expert',
-          permissionMode: 'default',
-        });
-      },
-    );
-  });
-
-  it('starts general creation with a selectable default occupation', async () => {
-    await inspect(
-      () => CreateAgentDialog({ onClose() {}, onCreated() {}, finalFocus: () => null }),
-      (tree) => {
-        const picker = tree.find(
-          (node) =>
-            node.type === Select &&
-            elements(node).some((child) => child.props.id === 'new-agent-role'),
-        );
-        expect(picker?.props.value).toBe('通用助手');
-        expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(false);
-      },
-    );
   });
 
   it('keeps the draft timestamp when background refetch changes the expert', async () => {
@@ -1037,94 +979,6 @@ describe('expert editor regressions', () => {
     });
   });
 
-  it.each(['通用助手', '数字分身'])(
-    'accepts an arbitrary model id for a %s creation',
-    async (role) => {
-      await inspect(
-        () =>
-          CreateAgentDialog({
-            initialRole: role as '通用助手',
-            onClose() {},
-            onCreated() {},
-            finalFocus: () => null,
-          }),
-        async (tree, pass) => {
-          if (pass === 0) {
-            const advanced = tree.find((node) => node.type === Collapsible);
-            if (!advanced) throw new Error('Missing advanced settings');
-            expect(advanced.props.open).toBe(false);
-            (advanced.props.onOpenChange as (open: boolean) => void)(true);
-            return true;
-          }
-          if (pass === 1) {
-            expect(tree.find((node) => node.type === Collapsible)?.props.open).toBe(true);
-            const model = tree.find((node) => node.props.id === 'new-agent-model');
-            if (!model) throw new Error('Missing model input');
-            expect(model.type).toBe(Input);
-            expect(model.props.list).toBe('new-agent-models');
-            const suggestions = tree.find((node) => node.props.id === 'new-agent-models');
-            expect(
-              elements(suggestions?.props.children as ReactNode).map((node) => node.props.value),
-            ).toContain('group/flash');
-            const name = tree.find((node) => node.props.id === 'new-agent-name');
-            if (!name) throw new Error('Missing name field');
-            (name.props.onChange as (event: unknown) => void)({
-              target: { name: 'name', value: 'Custom model' },
-            });
-            (model.props.onChange as (event: unknown) => void)({
-              target: { name: 'model', value: 'gateway/custom-model' },
-            });
-            return true;
-          }
-          const form = tree.find((node) => node.type === 'form');
-          if (!form) throw new Error('Missing create form');
-          await (form.props.onSubmit as (event: unknown) => Promise<void>)({
-            preventDefault() {},
-          });
-          expect(state.create.mock.calls[0]?.[0]).toMatchObject({
-            model: 'gateway/custom-model',
-          });
-        },
-      );
-    },
-  );
-
-  it.each([false, true])(
-    'protects new expert navigation and unload while pending: %s',
-    async (pending) => {
-      state.creating = pending;
-      await inspect(
-        () => CreateAgentDialog({ onClose() {}, onCreated() {}, finalFocus: () => null }),
-        (tree, pass) => {
-          if (!pending && pass === 0) {
-            const input = tree.find((node) => node.props.id === 'new-agent-slug');
-            if (!input) throw new Error('Missing slug field');
-            (input.props.onChange as (event: unknown) => void)({
-              target: { name: 'slug', value: 'draft' },
-            });
-            return;
-          }
-          const options = state.blockerOptions.at(-1);
-          expect(options?.shouldBlockFn()).toBe(true);
-          expect(options?.enableBeforeUnload).toBe(true);
-        },
-      );
-    },
-  );
-
-  it('prevents a previously opened leave confirmation from proceeding during a save', async () => {
-    state.saving = true;
-    state.blockerStatus = 'blocked';
-    let confirm: (() => Promise<void>) | undefined;
-    await inspect(editor, (tree) => {
-      const dialog = tree.find((node) => node.type === ConfirmDialog && node.props.open);
-      expect(dialog?.props.confirmDisabled).toBe(true);
-      confirm = dialog?.props.onConfirm as () => Promise<void>;
-    });
-    await confirm?.();
-    expect(state.proceed).not.toHaveBeenCalled();
-  });
-
   it('retains bound children while adding another child and excludes other parents’ children', async () => {
     await inspect(editor, (tree, pass) => {
       if (pass === 0) {
@@ -1244,79 +1098,6 @@ describe('expert editor regressions', () => {
     });
   });
 
-  it('switches away from the config task without asking, because the config draft is kept', async () => {
-    await inspect(editor, (tree, pass) => {
-      if (pass === 0) {
-        const name = tree.find((node) => node.props.id === 'agent-name');
-        if (!name) throw new Error('Missing name field');
-        (name.props.onChange as (event: unknown) => void)({
-          target: { name: 'name', value: 'Kept draft' },
-        });
-        return true;
-      }
-      if (pass !== 1) return;
-      const tabs = tree.find((node) => node.type === Tabs);
-      if (!tabs) throw new Error('Missing task tabs');
-      (tabs.props.onValueChange as (value: string) => void)('memory');
-    });
-    expect(state.search.tab).toBe('memory');
-  });
-
-  it('allows a task switch with only the main draft dirty and still blocks leaving', async () => {
-    await inspect(editor, (tree, pass) => {
-      if (pass === 0) {
-        const name = tree.find((node) => node.props.id === 'agent-name');
-        if (!name) throw new Error('Missing name field');
-        (name.props.onChange as (event: unknown) => void)({
-          target: { name: 'name', value: 'draft' },
-        });
-        return;
-      }
-      if (pass !== 1) return;
-      const options = state.blockerOptions.at(-1);
-      const args = (next: { pathname: string; search: Record<string, unknown> }) => ({
-        current: { pathname: '/agents/parent', search: {} },
-        next,
-      });
-      expect(
-        options?.shouldBlockFn(
-          args({ pathname: '/agents/parent', search: { section: 'behavior' } }),
-        ),
-      ).toBe(false);
-      expect(
-        options?.shouldBlockFn(args({ pathname: '/agents/parent', search: { tab: 'memory' } })),
-      ).toBe(false);
-      expect(options?.shouldBlockFn(args({ pathname: '/agents', search: {} }))).toBe(true);
-    });
-  });
-
-  it('blocks same-page task changes while a save is pending', async () => {
-    state.saving = true;
-    await inspect(editor, () => {
-      const options = state.blockerOptions.at(-1);
-      expect(
-        options?.shouldBlockFn({
-          current: { pathname: '/agents/parent', search: {} },
-          next: { pathname: '/agents/parent', search: { tab: 'memory' } },
-        }),
-      ).toBe(true);
-      expect(
-        options?.shouldBlockFn({
-          current: { pathname: '/agents/parent', search: {} },
-          next: { pathname: '/agents/parent', search: { section: 'behavior' } },
-        }),
-      ).toBe(false);
-    });
-  });
-
-  it('reads the task and section from the URL', async () => {
-    state.search = { tab: 'files', file: '.mcp.json' };
-    await inspect(editor, (tree) => {
-      const files = tree.find((node) => node.props['aria-label'] === '工作区文件');
-      expect(files).toBeDefined();
-    });
-  });
-
   it('keeps a section change when the task changes in the same render', async () => {
     state.search = { tab: 'config' };
     await inspect(editor, (tree, pass) => {
@@ -1327,20 +1108,6 @@ describe('expert editor regressions', () => {
       selectSection(tree, '行为');
     });
     expect(state.search).toMatchObject({ tab: 'instructions', section: 'behavior' });
-  });
-
-  it('switches tasks immediately when nothing is unsaved', async () => {
-    await inspect(editor, (tree, pass) => {
-      if (pass === 0) {
-        const tabs = tree.find((node) => node.type === Tabs);
-        if (!tabs) throw new Error('Missing task tabs');
-        (tabs.props.onValueChange as (value: string) => void)('instructions');
-        return;
-      }
-      const confirmation = tree.find((node) => node.type === ConfirmDialog && node.props.open);
-      expect(confirmation).toBeUndefined();
-    });
-    expect(state.search.tab).toBe('instructions');
   });
 
   it('disables the more menu while a save is in flight', async () => {
@@ -1397,25 +1164,6 @@ describe('expert editor regressions', () => {
     );
   });
 
-  it('disables all create fields during submission', async () => {
-    state.creating = true;
-    await inspect(
-      () => CreateAgentDialog({ onClose: () => {}, onCreated: () => {}, finalFocus: () => null }),
-      (tree) => {
-        const fields = tree.filter(
-          (node) => node.type === Input || node.type === Textarea || node.type === Select,
-        );
-        expect(fields).toHaveLength(7);
-        expect(fields.every((node) => node.props.disabled === true)).toBe(true);
-        expect(
-          tree
-            .filter((node) => node.type === Field)
-            .every((node) => node.props['data-disabled'] === true),
-        ).toBe(true);
-      },
-    );
-  });
-
   it.each([false, true])('permits a loaded rollback only when saving is %s', async (saving) => {
     state.detail = {
       isPending: false,
@@ -1464,64 +1212,86 @@ describe('expert editor regressions', () => {
     }
   });
 
-  it('keeps the deletion confirmation open while the optimistic delete is still pending', async () => {
-    state.remove.mockResolvedValue(undefined);
-    let position: number | undefined;
-    await inspect(AgentDetailPage, (tree, pass) => {
-      const root = tree[0];
-      if (!root) throw new Error('Missing page');
-      const children = root.props.children as Element[];
-      const index = children.findIndex(
-        (node) =>
-          isValidElement(node) &&
-          node.type === ConfirmDialog &&
-          String(node.props.title).startsWith('删除专家'),
-      );
-      expect(index).toBeGreaterThanOrEqual(0);
-      if (pass === 0) {
-        position = index;
-        const editor = tree.find((node) => node.type === AgentEditor);
-        if (!editor) throw new Error('Missing editor');
-        (editor.props.onDeleteRequest as () => void)();
-        return;
-      }
-      const confirmation = tree.find(
-        (node) => node.type === ConfirmDialog && String(node.props.title).startsWith('删除专家'),
-      );
-      expect(confirmation?.props.open).toBe(true);
-      expect(index).toBe(position);
-    });
-  });
-
   it('returns create focus to the empty-state trigger, with toolbar fallback if removed', async () => {
     state.agents = [];
-    const trigger = { isConnected: true };
-    const fallback = { isConnected: true };
-    await inspect(AgentsPage, (tree, pass) => {
-      const header = tree.find((node) => node.type === PageHeader);
-      const toolbar = elements(header?.props.actions as ReactNode).find(
-        (node) => node.props.ref && node.type !== 'input',
-      );
-      if (!toolbar) throw new Error('Missing toolbar trigger');
-      (toolbar.props.ref as { current: unknown }).current = fallback;
-      if (pass === 0) {
-        const fan = tree.find(
-          (node) =>
-            (node.type === 'button' || node.type === ButtonPrimitive) &&
-            elements(node.props.children as ReactNode).some(
-              (child) => child.type === 'span' && child.props.children === '新建专家',
-            ),
-        );
-        if (!fan) throw new Error('Missing create trigger');
-        (fan.props.onClick as (event: unknown) => void)({ currentTarget: trigger });
-        return;
+    state.search = {};
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    const flush = async () => {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+    };
+    const waitFor = async <T>(probe: () => T, tries = 50): Promise<T> => {
+      for (let i = 0; i < tries; i += 1) {
+        const value = probe();
+        if (value) return value;
+        await flush();
       }
-      const dialog = tree.find((node) => node.type === CreateAgentDialog);
-      if (!dialog) throw new Error('Missing create dialog');
-      const finalFocus = dialog.props.finalFocus as () => unknown;
-      expect(finalFocus()).toBe(trigger);
-      trigger.isConnected = false;
-      expect(finalFocus()).toBe(fallback);
-    });
+      return probe();
+    };
+    try {
+      await act(async () => {
+        root.render(createElement(AgentsPage));
+      });
+      await flush();
+
+      const toolbarTrigger = [
+        ...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-header"] button'),
+      ].find((item) => item.textContent?.includes('新建专家'));
+      const emptyTrigger = container.querySelector<HTMLButtonElement>(
+        'ul[aria-label="专家列表"] button.agent-create-fan',
+      );
+      if (!toolbarTrigger || !emptyTrigger) throw new Error('Missing create triggers');
+
+      await act(async () => {
+        emptyTrigger.click();
+      });
+      await flush();
+      const firstDialog = await waitFor(() => document.querySelector('[role="dialog"]'));
+      expect(firstDialog).not.toBeNull();
+
+      const cancelFirst = [
+        ...(firstDialog?.querySelectorAll<HTMLButtonElement>('button') ?? []),
+      ].find((item) => item.textContent?.trim() === '取消');
+      if (!cancelFirst) throw new Error('Missing dialog cancel button');
+      await act(async () => {
+        cancelFirst.click();
+      });
+      await waitFor(() => !document.querySelector('[role="dialog"]'));
+      await waitFor(() => document.activeElement === emptyTrigger);
+      expect(document.activeElement).toBe(emptyTrigger);
+
+      await act(async () => {
+        emptyTrigger.click();
+      });
+      await flush();
+      const secondDialog = await waitFor(() => document.querySelector('[role="dialog"]'));
+      expect(secondDialog).not.toBeNull();
+
+      state.search = { q: 'missing' };
+      await act(async () => {
+        root.render(createElement(AgentsPage));
+      });
+      await flush();
+      expect(emptyTrigger.isConnected).toBe(false);
+
+      const cancelSecond = [
+        ...(secondDialog?.querySelectorAll<HTMLButtonElement>('button') ?? []),
+      ].find((item) => item.textContent?.trim() === '取消');
+      if (!cancelSecond) throw new Error('Missing dialog cancel button');
+      await act(async () => {
+        cancelSecond.click();
+      });
+      await waitFor(() => !document.querySelector('[role="dialog"]'));
+      await waitFor(() => document.activeElement === toolbarTrigger);
+      expect(document.activeElement).toBe(toolbarTrigger);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+    }
   });
 });

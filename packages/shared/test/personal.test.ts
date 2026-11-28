@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  personalOutputShareListSchema,
   personalOutputShareSchema,
   personalProfileSchema,
   personalRunListQuerySchema,
-  personalRunListSchema,
   personalRunSchema,
-  personalSessionListSchema,
   personalSessionSchema,
   personalShareListQuerySchema,
   personalUsageQuerySchema,
@@ -76,10 +73,6 @@ describe('personal sessions', () => {
       false,
     );
   });
-
-  it('wraps sessions in an items list', () => {
-    expect(personalSessionListSchema.parse({ items: [session] }).items).toHaveLength(1);
-  });
 });
 
 describe('personal output shares', () => {
@@ -98,12 +91,6 @@ describe('personal output shares', () => {
     });
     expect(share.conversationId).toBe('conv_1');
     expect(share.agentId).toBe('agent_1');
-  });
-
-  it('keeps the cursor nullable in the list envelope', () => {
-    expect(personalOutputShareListSchema.parse({ items: [], nextCursor: null }).nextCursor).toBe(
-      null,
-    );
   });
 });
 
@@ -163,12 +150,6 @@ describe('personal runs', () => {
     });
     expect(personalRunSchema.safeParse({ ...run, trigger: undefined }).success).toBe(false);
     expect(personalRunSchema.safeParse({ ...run, conversationId: null }).success).toBe(true);
-  });
-
-  it('wraps runs in a cursor list', () => {
-    expect(personalRunListSchema.parse({ items: [run], nextCursor: 'run_1' }).nextCursor).toBe(
-      'run_1',
-    );
   });
 });
 

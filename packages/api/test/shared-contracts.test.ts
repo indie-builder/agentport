@@ -5,7 +5,6 @@ import {
   agentInputSchema,
   agentSchema,
   commonEnvSchema,
-  idParams,
   parseEnv,
   previewMcpEntry,
   SECRET_MASK,
@@ -40,14 +39,12 @@ describe('shared environment parsing', () => {
   });
 
   it('preserves issue order and the environment error message', () => {
-    const schema = commonEnvSchema.extend({ REQUIRED: z.string() });
-    const env = { REDIS_URL: '', REQUIRED: '' };
-    const result = schema.safeParse(env);
-    if (result.success) throw new Error('expected invalid environment');
-    const detail = result.error.issues
-      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-      .join('\n');
-    expect(() => parseEnv(schema, env)).toThrow(`Invalid environment:\n${detail}`);
+    const schema = commonEnvSchema.extend({ DATABASE_URL: z.string().min(1) });
+    expect(() => parseEnv(schema, { REDIS_URL: '' })).toThrow(
+      new Error(
+        'Invalid environment:\nREDIS_URL: 数值过小：期望 string >=1 字符\nDATABASE_URL: 无效输入：期望 string，实际接收 undefined',
+      ),
+    );
   });
 });
 
@@ -107,15 +104,6 @@ describe('standard agent occupations', () => {
     );
   });
 
-  it('accepts standard occupations and digital twins, and rejects freeform titles', () => {
-    for (const role of ['前端工程师', '数据分析师', '数字分身']) {
-      expect(agentInputSchema.parse({ slug: 'helper', name: 'Helper', role }).role).toBe(role);
-    }
-    expect(
-      agentInputSchema.safeParse({ slug: 'helper', name: 'Helper', role: '随意输入的岗位' })
-        .success,
-    ).toBe(false);
-  });
   it('keeps historical roles intact while enforcing the write catalog', () => {
     for (const role of AGENT_ROLES) {
       expect(agentInputSchema.parse({ slug: 'helper', name: 'Helper', role }).role).toBe(role);
@@ -136,9 +124,4 @@ describe('standard agent occupations', () => {
       expect(agent.role).toBe(role);
     }
   });
-});
-
-it('requires a nonempty id while preserving the existing parameter schema behavior', () => {
-  expect(idParams.safeParse({ id: '' }).success).toBe(false);
-  expect(idParams.parse({ id: 'run-1', extra: true })).toEqual({ id: 'run-1' });
 });

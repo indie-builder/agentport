@@ -126,40 +126,6 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
     expect(names).toEqual([`mcp__oui-dis-${agentId.slice(4)}__live`]);
   });
 
-  it('maps generated tool metadata and keeps catalog order', async () => {
-    const agentId = await newAgent();
-    const serverName = `oui-meta-${agentId.slice(4)}`;
-    const serverId = await newServer('generated', serverName);
-    await addGeneratedTool(serverId, 'zeta', true, {
-      description: 'zeta tool',
-      inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
-      approvalMode: 'ask',
-    });
-    await addGeneratedTool(serverId, 'alpha', true, { description: 'alpha tool' });
-    await bind(agentId, serverId);
-
-    expect(await repo.openui.listOpenUiTools(db, agentId)).toEqual([
-      {
-        serverId,
-        serverName,
-        kind: 'generated',
-        name: `mcp__${serverName}__alpha`,
-        description: 'alpha tool',
-        inputSchema: { type: 'object', properties: {} },
-        approvalMode: 'allow',
-      },
-      {
-        serverId,
-        serverName,
-        kind: 'generated',
-        name: `mcp__${serverName}__zeta`,
-        description: 'zeta tool',
-        inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
-        approvalMode: 'ask',
-      },
-    ]);
-  });
-
   it('keeps per-server tool order and isolation across http and generated servers', async () => {
     const agentId = await newAgent();
     const suffix = agentId.slice(4);

@@ -1,4 +1,3 @@
-import { OPENUI_COMPONENT_NAMES } from '@agentport/shared';
 import type { ComponentType } from 'react';
 import {
   AreaChartRenderer,
@@ -178,7 +177,3 @@ export const OPENUI_RENDERERS: Record<
   string,
   ComponentType<RenderProps<unknown>>
 > = RENDERERS as Record<string, ComponentType<RenderProps<unknown>>>;
-
-export function missingOpenUiRenderers(): string[] {
-  return OPENUI_COMPONENT_NAMES.filter((name) => !(name in RENDERERS));
-}
