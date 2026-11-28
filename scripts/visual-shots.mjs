@@ -327,9 +327,9 @@ function buildBrowserProgram({
   outDir,
   env,
   seed,
+  reuseBaseUrl,
   spaceName,
 }) {
-  const firstPath = routes[0].split('?')[0];
   return `
 const base = ${JSON.stringify(baseUrl)};
 const routes = ${JSON.stringify(routes)};
@@ -340,9 +340,17 @@ const outDir = ${JSON.stringify(outDir)};
 const adminUser = ${JSON.stringify(env.ADMIN_USER)};
 const adminPassword = ${JSON.stringify(env.ADMIN_PASSWORD)};
 const seed = ${JSON.stringify(seed)};
-const firstPath = ${JSON.stringify(firstPath)};
+const reuseBaseUrl = ${JSON.stringify(Boolean(reuseBaseUrl))};
 const warnings = [];
 const shots = [];
+
+function routePath(route) {
+  return route.split(/[?#]/)[0];
+}
+
+function isLoginRoute(route) {
+  return route.split('?')[0] === '/login';
+}
 
 function slugify(route) {
   const slug = route
@@ -356,128 +364,316 @@ function slugify(route) {
 const task = await taskSpace(${JSON.stringify(spaceName)});
 try {
   const page = task.page('p1');
-  await page.goto(base + '/login?returnTo=' + encodeURIComponent(routes[0]), {
-    waitUntil: 'domcontentloaded',
-  });
-  await page.waitForTimeout(500);
-  const needsLogin = await page.evaluate(
-    () => Boolean(document.querySelector('input[name=username]')),
-  );
-  if (needsLogin) {
-    await page.fill('input[name=username]', adminUser);
-    await page.fill('input[name=password]', adminPassword);
-    await page.click('form button[type=submit]');
+
+  async function fetchAuthMe() {
+    const res = await page.fetch('/api/auth/me', { method: 'GET' });
+    if (!res.ok) {
+      throw new Error('读取登录状态失败 HTTP ' + res.status + '：' + res.body.slice(0, 200));
+    }
+    const payload = JSON.parse(res.body);
+    return Boolean(payload && payload.authenticated === true);
+  }
+
+  async function readDomState() {
+    return page.evaluate(() => ({
+      path: location.pathname,
+      href: location.pathname + location.search,
+      h1: document.querySelector('h1')?.textContent?.trim() || '',
+      hasLoginForm: Boolean(document.querySelector('input[name=username]')),
+      hasPasswordInput: Boolean(document.querySelector('input[name=password]')),
+      hasMain: Boolean(document.querySelector('main')),
+    }));
+  }
+
+  async function readLoginErrorState() {
+    return page.evaluate(() => ({
+      path: location.pathname,
+      error:
+        document.querySelector('#login-error')?.textContent?.trim() ||
+        document.querySelector('#username-error')?.textContent?.trim() ||
+        document.querySelector('#password-error')?.textContent?.trim() ||
+        '',
+    }));
+  }
+
+  async function waitForSpaSettled(contextLabel) {
     try {
-      await page.waitForFunction((expected) => location.pathname === expected, firstPath, {
-        timeout: 20_000,
-      });
-    } catch {
-      const state = await page.evaluate(() => ({
-        path: location.pathname,
-        error: document.querySelector('#login-error')?.textContent?.trim() || '',
-      }));
-      throw new Error('登录失败（' + state.path + '）：' + (state.error || '等待跳转超时'));
+      await page.waitForFunction(
+        () => {
+          const hasLoginForm =
+            location.pathname === '/login' &&
+            Boolean(
+              document.querySelector('input[name=username]') &&
+                document.querySelector('input[name=password]'),
+            );
+          const h1 = document.querySelector('h1')?.textContent?.trim() || '';
+          const hasRealContent =
+            location.pathname !== '/login' &&
+            Boolean(document.querySelector('main')) &&
+            Boolean(h1) &&
+            h1 !== '正在打开…';
+          return hasLoginForm || hasRealContent;
+        },
+        undefined,
+        { timeout: 20_000 },
+      );
+    } catch (cause) {
+      const state = await readDomState();
+      throw new Error(contextLabel + ' 等待页面就绪超时：' + JSON.stringify(state) + '：' + cause.message);
     }
   }
 
-  if (seed === 'minimal') {
-    try {
+  async function captureRouteShot(route, viewport, loginMode) {
+    const expectedPath = routePath(route);
+    const targetUrl = base + route;
+    const currentUrl = await page.url();
+    if (currentUrl === targetUrl && route.includes('#')) {
+      await page.reload({ waitUntil: 'domcontentloaded' });
+    } else {
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+    }
+
+    await waitForSpaSettled('route=' + route);
+    await page.waitForTimeout(waitMs);
+    const state = await readDomState();
+
+    if (loginMode) {
+      if (state.path !== '/login' || !state.hasLoginForm || !state.hasPasswordInput || !state.h1) {
+        throw new Error(
+          '登录页截图前校验失败（route=' + route + '）：' + JSON.stringify(state),
+        );
+      }
+    } else {
+      if (state.path === '/login' || state.hasLoginForm) {
+        throw new Error(
+          '路由被重定向回登录页，拒绝保存截图（route=' +
+            route +
+            ' -> url=' +
+            state.href +
+            '）：' +
+            JSON.stringify(state),
+        );
+      }
+      if (expectedPath !== '/' && state.path !== expectedPath) {
+        throw new Error(
+          '路由落地路径与预期不符，拒绝保存截图（route=' +
+            route +
+            ', expected=' +
+            expectedPath +
+            ', actual=' +
+            state.path +
+            '）：' +
+            JSON.stringify(state),
+        );
+      }
+      if (!state.h1 || state.h1 === '正在打开…') {
+        throw new Error(
+          '页面缺少有效 h1 或停留在跳转占位页，拒绝保存截图（route=' +
+            route +
+            '）：' +
+            JSON.stringify(state),
+        );
+      }
+    }
+
+    if (fullPage) {
+      const rawH = await page.evaluate(() => {
+        const main = document.getElementById('main-content');
+        return Math.max(
+          document.documentElement.scrollHeight,
+          document.body.scrollHeight,
+          main ? main.scrollHeight + Math.round(main.getBoundingClientRect().top) : 0,
+          window.innerHeight,
+        );
+      });
+      const h = Math.min(Math.max(rawH | 0, viewport.height), 16000);
+      await page.cdp('Emulation.setDeviceMetricsOverride', {
+        width: viewport.width,
+        height: h,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await page.waitForTimeout(150);
+      const path = outDir + '/' + slugify(route) + '-' + viewport.width + 'x' + h + '-full.png';
+      await page.screenshot({ path });
+      shots.push({ path, route, url: state.href, h1: state.h1 });
+      await page.cdp('Emulation.setDeviceMetricsOverride', {
+        width: viewport.width,
+        height: viewport.height,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+    } else {
+      const path =
+        outDir + '/' + slugify(route) + '-' + viewport.width + 'x' + viewport.height + '.png';
+      await page.screenshot({ path });
+      shots.push({ path, route, url: state.href, h1: state.h1 });
+    }
+  }
+
+  async function captureRoutesForViewports(group, loginMode) {
+    for (const viewport of viewports) {
+      await page.cdp('Emulation.setDeviceMetricsOverride', {
+        width: viewport.width,
+        height: viewport.height,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      for (const route of group) {
+        await captureRouteShot(route, viewport, loginMode);
+      }
+    }
+  }
+
+  const loginRoutes = routes.filter(isLoginRoute);
+  const authedRoutes = routes.filter((route) => !isLoginRoute(route));
+
+  if (loginRoutes.length > 0) {
+    await page.goto(base + '/login', { waitUntil: 'domcontentloaded' });
+    await waitForSpaSettled('/login 预检');
+    if (await fetchAuthMe()) {
+      if (reuseBaseUrl) {
+        throw new Error(
+          '--base-url 复用模式下检测到已有登录会话，为避免退出正在运行的服务会话，不会自动登出；请改用隔离模式（不传 --base-url）截取 /login。',
+        );
+      }
+      const logoutRes = await page.fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      });
+      if (!logoutRes.ok) {
+        throw new Error(
+          '登出已有会话失败 HTTP ' + logoutRes.status + '：' + logoutRes.body.slice(0, 200),
+        );
+      }
+      if (await fetchAuthMe()) {
+        throw new Error('调用 /api/auth/logout 后 /api/auth/me 仍返回 authenticated === true');
+      }
+      const currentUrl = await page.url();
+      if (currentUrl === base + '/login') {
+        await page.reload({ waitUntil: 'domcontentloaded' });
+      } else {
+        await page.goto(base + '/login', { waitUntil: 'domcontentloaded' });
+      }
+      await waitForSpaSettled('登出后回到 /login');
+    }
+
+    await captureRoutesForViewports(loginRoutes, true);
+  }
+
+  if (authedRoutes.length > 0) {
+    const loginTarget = authedRoutes.find((route) => routePath(route) !== '/') ?? '/agents';
+    await page.goto(base + '/login?returnTo=' + encodeURIComponent(loginTarget), {
+      waitUntil: 'domcontentloaded',
+    });
+    await waitForSpaSettled('业务登录入口');
+    if (!(await fetchAuthMe())) {
+      await page.waitForFunction(
+        () =>
+          Boolean(
+            document.querySelector('input[name=username]') &&
+              document.querySelector('input[name=password]') &&
+              document.querySelector('form button[type=submit]'),
+          ),
+        undefined,
+        { timeout: 20_000 },
+      );
+      await page.fill('input[name=username]', adminUser);
+      await page.fill('input[name=password]', adminPassword);
+      await page.click('form button[type=submit]');
+      try {
+        await page.waitForFunction(
+          () =>
+            location.pathname !== '/login' ||
+            Boolean(
+              document.querySelector('#login-error')?.textContent?.trim() ||
+                document.querySelector('#username-error')?.textContent?.trim() ||
+                document.querySelector('#password-error')?.textContent?.trim(),
+            ),
+          undefined,
+          { timeout: 20_000 },
+        );
+      } catch (cause) {
+        const state = await readLoginErrorState();
+        throw new Error(
+          '登录失败（' + state.path + '）：' + (state.error || '等待跳转超时：' + cause.message),
+        );
+      }
+      const loginState = await readLoginErrorState();
+      if (loginState.error || loginState.path === '/login') {
+        throw new Error('登录失败（' + loginState.path + '）：' + (loginState.error || '仍在登录页'));
+      }
+      if (!(await fetchAuthMe())) {
+        throw new Error('登录后校验 /api/auth/me 失败：authenticated !== true');
+      }
+    }
+
+    if (seed === 'minimal') {
       const headers = { 'content-type': 'application/json' };
       const list = await page.fetch('/api/agents', { method: 'GET' });
-      const existing = list.ok ? JSON.parse(list.body) : { items: [] };
-      const agents = Array.isArray(existing.items) ? [...existing.items] : [];
-      let cursor = existing.nextCursor ?? null;
-      while (cursor !== null) {
-        const next = await page.fetch('/api/agents?cursor=' + encodeURIComponent(cursor), {
-          method: 'GET',
-        });
-        if (!next.ok) break;
-        const nextPage = JSON.parse(next.body);
-        agents.push(...nextPage.items);
-        cursor = nextPage.nextCursor ?? null;
+      if (list.status === 401) {
+        throw new Error('最小种子失败：GET /api/agents 返回 HTTP 401');
       }
-      if (agents.filter((agent) => !agent.isDefault).length === 0) {
-        const createAgent = (body) =>
-          page.fetch('/api/agents', { method: 'POST', headers, body: JSON.stringify(body) });
-        const created = [];
-        for (const body of [
-          { slug: 'visual-frontend', name: '视觉样例·前端', role: '前端工程师' },
-          { slug: 'visual-analyst', name: '视觉样例·分析', role: '数据分析师' },
-        ]) {
-          const res = await createAgent(body);
-          if (res.ok) created.push(JSON.parse(res.body));
-          else warnings.push('创建 agent 失败 HTTP ' + res.status + '：' + res.body.slice(0, 200));
-        }
-        const channelRes = await page.fetch('/api/channels', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ name: '视觉抽查频道', description: 'visual-check 最小种子' }),
-        });
-        if (channelRes.ok) {
-          const channel = JSON.parse(channelRes.body);
-          for (const agent of created) {
-            const bindRes = await page.fetch('/api/channels/' + channel.id + '/agents', {
+      try {
+        if (!list.ok) {
+          warnings.push('读取专家列表失败 HTTP ' + list.status + '：' + list.body.slice(0, 200));
+        } else {
+          const existing = JSON.parse(list.body);
+          const agents = Array.isArray(existing.items) ? [...existing.items] : [];
+          let cursor = existing.nextCursor ?? null;
+          while (cursor !== null) {
+            const next = await page.fetch('/api/agents?cursor=' + encodeURIComponent(cursor), {
+              method: 'GET',
+            });
+            if (next.status === 401) {
+              throw new Error('最小种子失败：分页读取 /api/agents 返回 HTTP 401');
+            }
+            if (!next.ok) break;
+            const nextPage = JSON.parse(next.body);
+            agents.push(...nextPage.items);
+            cursor = nextPage.nextCursor ?? null;
+          }
+          if (agents.filter((agent) => !agent.isDefault).length === 0) {
+            const createAgent = (body) =>
+              page.fetch('/api/agents', { method: 'POST', headers, body: JSON.stringify(body) });
+            const created = [];
+            for (const body of [
+              { slug: 'visual-frontend', name: '视觉样例·前端', role: '前端工程师' },
+              { slug: 'visual-analyst', name: '视觉样例·分析', role: '数据分析师' },
+            ]) {
+              const res = await createAgent(body);
+              if (res.ok) created.push(JSON.parse(res.body));
+              else warnings.push('创建 agent 失败 HTTP ' + res.status + '：' + res.body.slice(0, 200));
+            }
+            const channelRes = await page.fetch('/api/channels', {
               method: 'POST',
               headers,
-              body: JSON.stringify({ agentId: agent.id }),
+              body: JSON.stringify({ name: '视觉抽查频道', description: 'visual-check 最小种子' }),
             });
-            if (!bindRes.ok) {
-              warnings.push('绑定频道成员失败 HTTP ' + bindRes.status);
+            if (channelRes.ok) {
+              const channel = JSON.parse(channelRes.body);
+              for (const agent of created) {
+                const bindRes = await page.fetch('/api/channels/' + channel.id + '/agents', {
+                  method: 'POST',
+                  headers,
+                  body: JSON.stringify({ agentId: agent.id }),
+                });
+                if (!bindRes.ok) {
+                  warnings.push('绑定频道成员失败 HTTP ' + bindRes.status);
+                }
+              }
+            } else {
+              warnings.push('创建频道失败 HTTP ' + channelRes.status + '：' + channelRes.body.slice(0, 200));
             }
           }
-        } else {
-          warnings.push('创建频道失败 HTTP ' + channelRes.status + '：' + channelRes.body.slice(0, 200));
         }
+      } catch (cause) {
+        if (cause instanceof Error && cause.message.includes('HTTP 401')) throw cause;
+        warnings.push('最小种子失败：' + cause.message);
       }
-    } catch (cause) {
-      warnings.push('最小种子失败：' + cause.message);
     }
-  }
 
-  for (const viewport of viewports) {
-    await page.cdp('Emulation.setDeviceMetricsOverride', {
-      width: viewport.width,
-      height: viewport.height,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-    for (const route of routes) {
-      await page.goto(base + route, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(waitMs);
-      if (fullPage) {
-        const rawH = await page.evaluate(() => {
-          const main = document.getElementById('main-content');
-          return Math.max(
-            document.documentElement.scrollHeight,
-            document.body.scrollHeight,
-            main ? main.scrollHeight + Math.round(main.getBoundingClientRect().top) : 0,
-            window.innerHeight,
-          );
-        });
-        const h = Math.min(Math.max(rawH | 0, viewport.height), 16000);
-        await page.cdp('Emulation.setDeviceMetricsOverride', {
-          width: viewport.width,
-          height: h,
-          deviceScaleFactor: 1,
-          mobile: false,
-        });
-        await page.waitForTimeout(150);
-        const path = outDir + '/' + slugify(route) + '-' + viewport.width + 'x' + h + '-full.png';
-        await page.screenshot({ path });
-        shots.push(path);
-        await page.cdp('Emulation.setDeviceMetricsOverride', {
-          width: viewport.width,
-          height: viewport.height,
-          deviceScaleFactor: 1,
-          mobile: false,
-        });
-      } else {
-        const path =
-          outDir + '/' + slugify(route) + '-' + viewport.width + 'x' + viewport.height + '.png';
-        await page.screenshot({ path });
-        shots.push(path);
-      }
-    }
+    await captureRoutesForViewports(authedRoutes, false);
   }
 
   console.log('SHOTS_JSON=' + JSON.stringify(shots));
@@ -492,7 +688,17 @@ try {
 `;
 }
 
-async function captureShots({ baseUrl, routes, viewports, waitMs, fullPage, outDir, env, seed }) {
+async function captureShots({
+  baseUrl,
+  routes,
+  viewports,
+  waitMs,
+  fullPage,
+  outDir,
+  env,
+  seed,
+  reuseBaseUrl,
+}) {
   mkdirSync(outDir, { recursive: true });
   const program = buildBrowserProgram({
     baseUrl,
@@ -503,6 +709,7 @@ async function captureShots({ baseUrl, routes, viewports, waitMs, fullPage, outD
     outDir,
     env,
     seed,
+    reuseBaseUrl,
     spaceName: `visual-${Date.now()}`,
   });
   let run;
@@ -529,8 +736,10 @@ async function captureShots({ baseUrl, routes, viewports, waitMs, fullPage, outD
     }
   }
   const shots = JSON.parse(shotsLine[1]);
-  const missing = shots.filter((path) => !existsSync(path));
-  if (missing.length > 0) fail(`截图文件未生成：${missing.join(', ')}`);
+  const missing = shots.filter((shot) => !shot?.path || !existsSync(shot.path));
+  if (missing.length > 0) {
+    fail(`截图文件未生成：${missing.map((shot) => shot?.path ?? '(missing path)').join(', ')}`);
+  }
   return shots;
 }
 
@@ -776,14 +985,23 @@ async function run(opts, env, state) {
     outDir: opts.outDir,
     env,
     seed: opts.seed,
+    reuseBaseUrl: Boolean(opts.baseUrl),
   });
 
   console.log(`[visual-shots] ${shots.length} 张截图：${opts.outDir}`);
-  for (const shot of shots) console.log(`  ${shot}`);
+  for (const shot of shots) {
+    console.log(
+      `  ${shot.path}  [route=${shot.route} -> url=${shot.url}, h1=${JSON.stringify(shot.h1)}]`,
+    );
+  }
 
   if (opts.open) {
     if (process.platform === 'darwin') {
-      const opened = spawnSync('open', shots, { encoding: 'utf8' });
+      const opened = spawnSync(
+        'open',
+        shots.map((shot) => shot.path),
+        { encoding: 'utf8' },
+      );
       if (opened.status !== 0) console.error(`[visual-shots] 打开截图失败：${opened.stderr?.trim()}`);
     } else {
       console.log('[visual-shots] 非 macOS，未自动打开；请手动查看上面的路径。');

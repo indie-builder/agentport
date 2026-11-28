@@ -57,7 +57,7 @@ bun scripts/visual-shots.mjs --route /agents --base-url http://localhost:5173
 2. 隔离模式下脚本：检查 3000 / 5173（或 `VISUAL_API_PORT` / `VISUAL_WEB_PORT` 指定的端口）→ 建临时库 `pace_visual_<ts>_<hex>` → 迁移 →
    创建本次独享 Redis 容器（随机名、已缓存镜像、loopback 随机端口、关闭持久化）→
    起 API（默认 3000，显式注入本次临时库与 Redis）与 Web（默认 5173）→ 健康检查 →
-   `ego-browser` 独立登录 → 可选种子 → 每个视口截图 → 打开。
+   `ego-browser` 会先在未登录态截取所有 `/login` 路由（隔离模式若已有会话会先登出；`--base-url` 已有会话则拒绝登出并报错），再登录业务路由并校验 `/api/auth/me`、按需写入种子、在每次截图前硬校验落地路径与 `h1`（拒绝把 `/login` 或跳转占位页存成业务截图）→ 打开。
 3. 用图片查看工具实际查看生成的 PNG，再给视觉结论；只报路径不算完成。
 4. 结束、中断或异常退出时，脚本只终止自己启动的进程组，只删除本次成功创建的 Redis 容器 ID
    与临时库；端口仍被其他进程占用时只告警，不杀未知进程。
@@ -66,7 +66,7 @@ bun scripts/visual-shots.mjs --route /agents --base-url http://localhost:5173
 
 ## 证据与交付
 
-- 汇报真实命令、PNG 绝对路径、端口是否释放
+- 汇报真实命令、PNG 绝对路径（脚本摘要会逐张打印 `[route=... -> url=..., h1="..."]` 落地核验信息）、端口是否释放
   （`lsof -tiTCP:3000 -sTCP:LISTEN`、`lsof -tiTCP:5173 -sTCP:LISTEN`）、
   本次 Redis 容器是否已删（脚本会打印容器 ID；也可按 `pace_visual_redis_` 名称核对）、
   临时库是否已删
