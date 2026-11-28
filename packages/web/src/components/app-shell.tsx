@@ -362,11 +362,12 @@ export function AppShell() {
       >
         <PageHeader title={pageTitle} className="sr-only" />
         <div
-          className="hidden shrink-0 bg-sidebar lg:block"
-          style={{
-            width: sidebarWidth,
-            padding: sidebarMode === 'rail' ? 'var(--sidebar-pad-collapsed)' : 'var(--sidebar-pad)',
-          }}
+          className={cn(
+            'hidden shrink-0 bg-sidebar lg:block',
+            sidebarMode === 'rail'
+              ? 'w-(--sidebar-collapsed) p-(--sidebar-pad-collapsed)'
+              : 'w-(--sidebar-width) p-(--sidebar-pad)',
+          )}
         >
           <Skeleton className="mb-3 h-8 w-full" />
           <div className="flex flex-col gap-2">

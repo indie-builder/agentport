@@ -358,13 +358,14 @@ function FixedTooltipContent({
   coordinate?: { x?: number; y?: number } | undefined;
 }) {
   const frame = useContext(ChartFrameContext);
+  const tooltipStyle = fixedTooltipStyle(frame?.anchor.current ?? null, coordinate);
   return (
     <ChartTooltipContent
       {...props}
       label={label}
       {...(typeof label === 'string' ? { labelFormatter: () => label } : {})}
       className={cn('min-w-0', className)}
-      style={fixedTooltipStyle(frame?.anchor.current ?? null, coordinate)}
+      style={tooltipStyle}
     />
   );
 }

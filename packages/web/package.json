@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "lint:design": "oxlint --quiet src",
+    "lint:design": "oxlint --quiet --max-warnings 610 src",
     "lint:design:restyle": "oxlint src"
   },
   "dependencies": {

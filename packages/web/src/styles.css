@@ -63,6 +63,7 @@
   --color-code-syntax-muted: #b8b8b2;
   --color-code-block-dim: rgb(255 255 255 / 0.55);
   --color-code-block-faint: rgb(255 255 255 / 0.45);
+  --color-code-block-border: rgb(255 255 255 / 0.1);
   --color-code-line: var(--color-line);
 
   --color-scrim: rgb(0 0 0 / 0.4);
@@ -692,4 +693,9 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+@utility text-subheading {
+  font-size: max(1em, var(--text-base));
+  line-height: var(--text-base--line-height);
 }

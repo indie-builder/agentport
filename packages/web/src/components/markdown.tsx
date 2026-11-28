@@ -1,6 +1,6 @@
 import { code, type ThemeInput } from '@streamdown/code';
 import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
-import { type ComponentProps, type CSSProperties, memo, useDeferredValue, useMemo } from 'react';
+import { type ComponentProps, memo, useDeferredValue, useMemo } from 'react';
 import {
   type Components,
   defaultRehypePlugins,
@@ -106,16 +106,10 @@ const SHIKI_THEMES: [ThemeInput, ThemeInput] = [
 ];
 const PLUGINS = { code };
 
-const SUBHEADING_STYLE: CSSProperties = { fontSize: 'max(1em, var(--text-base))' };
-
-const heading = (
-  tag: 'h2' | 'h3' | 'h4' | 'h5' | 'h6',
-  className: string,
-  style?: CSSProperties,
-) => {
+const heading = (tag: 'h2' | 'h3' | 'h4' | 'h5' | 'h6', className: string) => {
   const Heading = tag;
   return ({ children, node: _node, ...props }: ComponentProps<'h2'> & { node?: unknown }) => (
-    <Heading {...props} className={className} style={style}>
+    <Heading {...props} className={className}>
       {children}
     </Heading>
   );
@@ -125,10 +119,10 @@ const heading = (
 const components: Components = {
   h1: heading('h2', 'mt-5 mb-2 text-xl font-semibold'),
   h2: heading('h3', 'mt-4 mb-2 text-lg font-semibold'),
-  h3: heading('h4', 'mt-3.5 mb-1.5 text-base font-semibold', SUBHEADING_STYLE),
-  h4: heading('h5', 'mt-3 mb-1 text-base font-semibold', SUBHEADING_STYLE),
-  h5: heading('h6', 'mt-3 mb-1 text-base font-semibold', SUBHEADING_STYLE),
-  h6: heading('h6', 'mt-3 mb-1 text-base font-semibold', SUBHEADING_STYLE),
+  h3: heading('h4', 'mt-3.5 mb-1.5 text-subheading font-semibold'),
+  h4: heading('h5', 'mt-3 mb-1 text-subheading font-semibold'),
+  h5: heading('h6', 'mt-3 mb-1 text-subheading font-semibold'),
+  h6: heading('h6', 'mt-3 mb-1 text-subheading font-semibold'),
   a: ({ href, children, node: _node, ...props }: ComponentProps<'a'> & { node?: unknown }) => {
     // 流式中的未闭合链接由 remend 标成哨兵值，不能变成可点击的相对地址。
     if (href === 'streamdown:incomplete-link') {
@@ -153,7 +147,7 @@ const components: Components = {
 };
 
 const CODE_BLOCK_CLASS =
-  '[&_[data-streamdown=inline-code]]:bg-code [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-white/10 [&_[data-streamdown=code-block]]:bg-code-block [&_[data-streamdown=code-block]]:text-code-block-fg [&_[data-streamdown=code-block-body]]:border-white/10 [&_[data-streamdown=code-block-body]]:bg-transparent';
+  '[&_[data-streamdown=inline-code]]:bg-code [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-code-block-border [&_[data-streamdown=code-block]]:bg-code-block [&_[data-streamdown=code-block]]:text-code-block-fg [&_[data-streamdown=code-block-body]]:border-code-block-border [&_[data-streamdown=code-block-body]]:bg-transparent';
 const PARAGRAPH_CLASS = '[&_p]:whitespace-pre-wrap';
 const BODY_CLASS = `min-w-0 text-base text-fg ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;
 const INHERIT_CLASS = `min-w-0 ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;

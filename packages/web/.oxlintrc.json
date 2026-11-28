@@ -11,12 +11,35 @@
     }
   },
   "rules": {
-    "shadcn/no-raw-colors": "error",
+    "shadcn/no-raw-colors": ["error", { "deny": ["*-white", "*-black"] }],
     "shadcn/no-unknown-classes": "error",
     "shadcn/no-arbitrary-values": [
       "error",
       {
-        "allow": ["layout", "motion", "tracking", "forced-colors:*"]
+        "allow": [
+          "layout",
+          "motion",
+          "forced-colors:*",
+          "tracking-[-0.01em]",
+          "tracking-[-0.02em]",
+          "tracking-[0.06em]"
+        ]
+      }
+    ],
+    "shadcn/no-inline-styles": [
+      "error",
+      {
+        "allow": [
+          "width",
+          "height",
+          "minWidth",
+          "maxHeight",
+          "paddingLeft",
+          "gap",
+          "gridTemplateColumns",
+          "maskImage",
+          "WebkitMaskImage"
+        ]
       }
     ],
     "shadcn/no-restyle": [
@@ -57,6 +80,40 @@
       }
     },
     {
+      "files": ["src/components/ui/chart.tsx"],
+      "rules": {
+        "shadcn/no-inline-styles": "off"
+      }
+    },
+    {
+      "files": ["src/components/ui/toggle-group.tsx"],
+      "rules": {
+        "shadcn/no-inline-styles": "off"
+      }
+    },
+    {
+      "files": ["src/openui/components/charts.tsx"],
+      "rules": {
+        "shadcn/no-inline-styles": [
+          "error",
+          {
+            "allow": [
+              "width",
+              "height",
+              "minWidth",
+              "maxHeight",
+              "paddingLeft",
+              "gap",
+              "gridTemplateColumns",
+              "maskImage",
+              "WebkitMaskImage"
+            ],
+            "allowDynamicIdentifiers": ["tooltipStyle"]
+          }
+        ]
+      }
+    },
+    {
       "files": ["src/pages/agents/agents-page.tsx"],
       "rules": {
         "shadcn/no-arbitrary-values": [
@@ -65,8 +122,12 @@
             "allow": [
               "layout",
               "motion",
-              "tracking",
               "forced-colors:*",
+              "tracking-[-0.01em]",
+              "tracking-[-0.02em]",
+              "tracking-[0.06em]",
+              "tracking-[0.16em]",
+              "tracking-[0.22em]",
               "rounded-[18px]",
               "rounded-[24px]"
             ]
@@ -80,18 +141,15 @@
         "shadcn/no-arbitrary-values": [
           "error",
           {
-            "allow": ["layout", "motion", "tracking", "forced-colors:*", "text-[10px]"]
-          }
-        ]
-      }
-    },
-    {
-      "files": ["src/openui/components/layout.tsx"],
-      "rules": {
-        "shadcn/no-arbitrary-values": [
-          "error",
-          {
-            "allow": ["layout", "motion", "tracking", "forced-colors:*", "px-[3px]"]
+            "allow": [
+              "layout",
+              "motion",
+              "forced-colors:*",
+              "tracking-[-0.01em]",
+              "tracking-[-0.02em]",
+              "tracking-[0.06em]",
+              "text-[10px]"
+            ]
           }
         ]
       }

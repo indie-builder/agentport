@@ -1062,7 +1062,7 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
     <div className="badge-swing pointer-events-none flex h-full w-full flex-col items-center">
       <div aria-hidden="true" className="flex shrink-0 flex-col items-center">
         <div className="flex h-[22vh] min-h-24 w-24 flex-col items-center rounded-b-xl bg-badge-accent pt-4">
-          <span className="text-xs font-semibold tracking-[0.22em] text-white/95 [writing-mode:vertical-rl]">
+          <span className="text-xs font-semibold tracking-[0.22em] text-primary-foreground/95 [writing-mode:vertical-rl]">
             PACE
           </span>
         </div>
