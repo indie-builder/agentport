@@ -195,7 +195,7 @@ export function MentionList({
     {
       'aria-label': '提及智能体',
       className:
-        'mb-2 max-h-56 overflow-y-auto rounded-[var(--radius-popover)] border border-line bg-surface py-1 shadow-md',
+        'mb-2 max-h-56 overflow-y-auto rounded-popover border border-line bg-surface py-1 shadow-md',
       children: options.map((option) => (
         <MentionListItem
           key={option.agentId}

@@ -1615,6 +1615,32 @@ for (const file of webFiles) {
   }
 }
 
+const webDarkVariantRe =
+  /(?:^|[\s'"`])(?:(?:[a-z0-9_*\-@]+(?:\/[a-z0-9_-]+)?(?:\[[^\]]*\])?(?:\/[a-z0-9_-]+)?|\[[^\]]+\]):)*dark:[a-z0-9![(\-@*]/i;
+for (const file of webFiles) {
+  traverse(readModule(file).ast, {
+    StringLiteral(path) {
+      if (isInTypePosition(path)) return;
+      if (webDarkVariantRe.test(path.node.value)) {
+        report(
+          'web-no-dark-variant',
+          `${rel(file)}:${path.node.loc.start.line}: 禁止使用 dark: 变体类（本项目仅亮色，删除无用 dark: 类）`,
+        );
+      }
+    },
+    TemplateElement(path) {
+      if (isInTypePosition(path)) return;
+      const text = path.node.value.cooked ?? path.node.value.raw;
+      if (webDarkVariantRe.test(text)) {
+        report(
+          'web-no-dark-variant',
+          `${rel(file)}:${path.node.loc.start.line}: 禁止使用 dark: 变体类（本项目仅亮色，删除无用 dark: 类）`,
+        );
+      }
+    },
+  });
+}
+
 const coreBrowserEntrypoints = [
   'packages/core/src/workspace.ts',
   'packages/core/src/plugin-display.ts',

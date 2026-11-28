@@ -21,16 +21,16 @@ const defaultNumberFormat: Intl.NumberFormatOptions = {
 const numberInputClassName = 'flex w-full min-w-0 flex-col gap-1.5';
 
 const numberInputGroupClassName =
-  'group/number-input-group relative flex h-8 w-full min-w-0 items-center gap-1 rounded-[var(--radius-item)] border border-input bg-transparent ps-1 pe-1 transition-colors outline-none has-[>[data-slot=number-input-control]:first-child]:ps-2.5 has-[>[data-slot=number-input-control]:last-child]:pe-2.5 data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-[0.35] has-[[data-slot=number-input-control]:focus-visible]:border-input-focus has-[[data-slot=number-input-control][aria-invalid=true]]:border-destructive has-[[data-slot=number-input-control][aria-invalid=true]:focus-visible]:border-destructive dark:bg-input/30 dark:data-disabled:bg-input/80 dark:has-[[data-slot=number-input-control][aria-invalid=true]]:border-destructive/50';
+  'group/number-input-group relative flex h-8 w-full min-w-0 items-center gap-1 rounded-item border border-input bg-transparent ps-1 pe-1 transition-colors outline-none has-[>[data-slot=number-input-control]:first-child]:ps-2.5 has-[>[data-slot=number-input-control]:last-child]:pe-2.5 data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-35 has-[[data-slot=number-input-control]:focus-visible]:border-input-focus has-[[data-slot=number-input-control][aria-invalid=true]]:border-destructive has-[[data-slot=number-input-control][aria-invalid=true]:focus-visible]:border-destructive';
 
 const numberInputControlClassName =
-  'h-full w-full min-w-0 flex-1 rounded-[var(--radius-item)] border-0 bg-transparent py-1 text-sm text-fg tabular-nums outline-none not-first:ps-1 not-last:pe-1 placeholder:text-muted-foreground disabled:cursor-not-allowed';
+  'h-full w-full min-w-0 flex-1 rounded-item border-0 bg-transparent py-1 text-sm text-fg tabular-nums outline-none not-first:ps-1 not-last:pe-1 placeholder:text-muted-foreground disabled:cursor-not-allowed';
 
 const numberInputStepButtonClassName = buttonVariants({
   variant: 'ghost',
   size: 'icon-xs',
   className:
-    "rounded-[var(--radius-icon)] text-muted-foreground hover:text-fg [&_svg:not([class*='size-'])]:size-4",
+    "rounded-icon text-muted-foreground hover:text-fg [&_svg:not([class*='size-'])]:size-4",
 });
 
 type WithOptionalClassName<T extends { className?: unknown }> = Omit<T, 'className'> & {

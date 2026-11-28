@@ -1062,7 +1062,7 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
     <div className="badge-swing pointer-events-none flex h-full w-full flex-col items-center">
       <div aria-hidden="true" className="flex shrink-0 flex-col items-center">
         <div className="flex h-[22vh] min-h-24 w-24 flex-col items-center rounded-b-xl bg-badge-accent pt-4">
-          <span className="text-xs font-semibold tracking-[0.22em] text-primary-foreground/95 [writing-mode:vertical-rl]">
+          <span className="text-xs font-semibold tracking-badge-lanyard text-primary-foreground/95 [writing-mode:vertical-rl]">
             PACE
           </span>
         </div>
@@ -1092,7 +1092,7 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
         aria-label="工牌内容"
         className="pointer-events-auto flex min-h-0 w-full flex-1 items-start justify-center overflow-y-auto overscroll-contain px-6 pt-1.5 pb-8"
       >
-        <div className="relative z-0 flex min-h-[480px] w-full max-w-[360px] flex-col gap-5 rounded-[24px] border border-line bg-surface p-6 shadow-sm">
+        <div className="relative z-0 flex min-h-[480px] w-full max-w-[360px] flex-col gap-5 rounded-3xl border border-line bg-surface p-6 shadow-sm">
           <div
             aria-hidden="true"
             className="absolute -top-1.5 left-1/2 h-3 w-24 -translate-x-1/2 rounded-full border border-line bg-sunken"
@@ -1100,7 +1100,7 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-fg">
               <img src="/brand/pace-mark.svg" alt="" aria-hidden="true" className="size-6" />
-              <span className="text-sm font-semibold tracking-[0.16em]">PACE</span>
+              <span className="text-sm font-semibold tracking-badge-brand">PACE</span>
             </div>
             <div className="flex items-center gap-3">
               <div aria-hidden="true" className="grid grid-cols-3 gap-1.5">
@@ -1155,7 +1155,7 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
             </div>
             <AgentAvatar
               agent={agent}
-              className="size-24 rounded-[18px] bg-badge-accent-soft object-cover"
+              className="size-24 rounded-badge-avatar bg-badge-accent-soft object-cover"
             />
           </div>
           <div className="rounded-dialog bg-badge-accent-soft p-4">

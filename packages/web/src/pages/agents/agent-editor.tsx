@@ -2790,7 +2790,7 @@ function Section({ id, title, children }: { id: SectionId; title: string; childr
   const headingId = `agent-${id}-heading`;
   return (
     <section id={`agent-${id}`} aria-labelledby={headingId} className="scroll-mt-24">
-      <h2 id={headingId} className="text-md font-semibold tracking-[-0.01em] text-fg">
+      <h2 id={headingId} className="text-md font-semibold tracking-heading text-fg">
         {title}
       </h2>
       <div className="mt-4 flex flex-col gap-4">{children}</div>

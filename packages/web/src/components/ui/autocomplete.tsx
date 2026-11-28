@@ -42,10 +42,10 @@ const autocompleteLabelClassName =
   'block text-sm font-medium select-none data-disabled:pointer-events-none data-disabled:opacity-50';
 
 const autocompleteInputClassName =
-  'h-8 w-full min-w-0 rounded-[var(--radius-item)] border border-input bg-transparent px-2.5 py-1 text-sm text-fg transition-colors outline-none cds-focus-glow focus-visible:border-[var(--color-subtle)] placeholder:text-muted-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-[0.35] aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive data-invalid:border-destructive data-invalid:focus-visible:border-destructive dark:bg-input/30 dark:data-disabled:bg-input/80 dark:aria-invalid:border-destructive/50';
+  'h-8 w-full min-w-0 rounded-item border border-input bg-transparent px-2.5 py-1 text-sm text-fg transition-colors outline-none cds-focus-glow focus-visible:border-subtle placeholder:text-muted-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-35 aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive data-invalid:border-destructive data-invalid:focus-visible:border-destructive';
 
 const autocompleteContentClassName =
-  'z-50 max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-(--anchor-width) overflow-hidden rounded-[var(--radius-popover)] bg-popover text-popover-foreground shadow-md ring-1 ring-line outline-hidden cds-overlay-enter [--autocomplete-list-height:var(--available-height)]';
+  'z-50 max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-(--anchor-width) overflow-hidden rounded-popover bg-popover text-popover-foreground shadow-md ring-1 ring-line outline-hidden cds-overlay-enter [--autocomplete-list-height:var(--available-height)]';
 
 const autocompleteListClassName =
   'scrollbar-none max-h-[min(calc(var(--spacing)*72-var(--spacing)*9),calc(var(--autocomplete-list-height)-var(--spacing)*9))] scroll-py-1 overflow-y-auto overscroll-contain p-1';

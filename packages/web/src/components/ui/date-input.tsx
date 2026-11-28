@@ -27,7 +27,7 @@ type DateInputSegmentProps = WithOptionalClassName<
 >;
 
 const dateInputClassName =
-  'flex h-8 w-full min-w-0 items-center rounded-[var(--radius-item)] border border-input bg-transparent px-2.5 py-1 text-sm text-fg tabular-nums transition-colors outline-none has-[:focus-visible]:border-[var(--color-subtle)] data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-[0.35] aria-invalid:border-destructive aria-invalid:has-[:focus-visible]:border-destructive data-invalid:border-destructive data-invalid:has-[:focus-visible]:border-destructive dark:bg-input/30 dark:data-disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:data-invalid:border-destructive/50';
+  'flex h-8 w-full min-w-0 items-center rounded-item border border-input bg-transparent px-2.5 py-1 text-sm text-fg tabular-nums transition-colors outline-none has-[:focus-visible]:border-subtle data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-35 aria-invalid:border-destructive aria-invalid:has-[:focus-visible]:border-destructive data-invalid:border-destructive data-invalid:has-[:focus-visible]:border-destructive';
 
 const dateInputLiteralSegmentClassName = 'px-px text-muted-foreground whitespace-pre select-none';
 

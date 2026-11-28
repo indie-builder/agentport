@@ -16,14 +16,7 @@
     "shadcn/no-arbitrary-values": [
       "error",
       {
-        "allow": [
-          "layout",
-          "motion",
-          "forced-colors:*",
-          "tracking-[-0.01em]",
-          "tracking-[-0.02em]",
-          "tracking-[0.06em]"
-        ]
+        "allow": ["layout", "motion", "forced-colors:*"]
       }
     ],
     "shadcn/no-inline-styles": [
@@ -52,7 +45,7 @@
             "allow": ["*"]
           },
           {
-            "pattern": "^(?:Field|FieldGroup|FieldSet|CardContent|CardHeader|CardFooter|SheetContent|DialogContent|Tabs|TabsContent|ChartLegendContent)$",
+            "pattern": "^(?:Field|FieldGroup|FieldSet|FieldContent|CardContent|CardHeader|CardFooter|CardAction|SheetContent|DialogContent|DialogHeader|Tabs|TabsList|TabsContent|ChartLegendContent)$",
             "allow": ["layout", "spacing"]
           },
           {
@@ -66,6 +59,32 @@
           {
             "pattern": "^(?:Input|Textarea)$",
             "allow": ["layout", "typography"]
+          },
+          {
+            "pattern": "^SelectValue$",
+            "allow": ["layout", "truncate"]
+          },
+          {
+            "pattern": "^Skeleton$",
+            "allow": ["layout", "shape"]
+          },
+          {
+            "pattern": "^Card$",
+            "allow": ["layout"],
+            "message": "Card owns its surface depth and spacing. Use size (default, sm) and hover (static, shadow, lift) instead of restyling; see packages/web/DESIGN.md."
+          },
+          {
+            "pattern": "^Button$",
+            "allow": ["layout"],
+            "message": {
+              "spacing": "Use a Button size ({{sizes}}) instead of padding; use margin here or gap on the parent for outer spacing.",
+              "default": "Use a Button variant ({{variants}}) defined in {{file}} instead of overriding appearance."
+            }
+          },
+          {
+            "pattern": "^Badge$",
+            "allow": ["layout"],
+            "message": "Use a Badge variant ({{variants}}) defined in {{file}} or StatusBadge instead of overriding appearance."
           }
         ]
       }
@@ -109,47 +128,6 @@
               "WebkitMaskImage"
             ],
             "allowDynamicIdentifiers": ["tooltipStyle"]
-          }
-        ]
-      }
-    },
-    {
-      "files": ["src/pages/agents/agents-page.tsx"],
-      "rules": {
-        "shadcn/no-arbitrary-values": [
-          "error",
-          {
-            "allow": [
-              "layout",
-              "motion",
-              "forced-colors:*",
-              "tracking-[-0.01em]",
-              "tracking-[-0.02em]",
-              "tracking-[0.06em]",
-              "tracking-[0.16em]",
-              "tracking-[0.22em]",
-              "rounded-[18px]",
-              "rounded-[24px]"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "files": ["src/components/knowledge/knowledge-wiki-graph.tsx"],
-      "rules": {
-        "shadcn/no-arbitrary-values": [
-          "error",
-          {
-            "allow": [
-              "layout",
-              "motion",
-              "forced-colors:*",
-              "tracking-[-0.01em]",
-              "tracking-[-0.02em]",
-              "tracking-[0.06em]",
-              "text-[10px]"
-            ]
           }
         ]
       }

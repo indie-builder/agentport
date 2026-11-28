@@ -9,13 +9,13 @@ import type { ComponentProps } from 'react';
 import { cn } from '@/lib/cn';
 
 const passwordInputClassName =
-  'group/password-input relative flex h-8 w-full min-w-0 items-center gap-1 rounded-[var(--radius-item)] border border-input bg-transparent pe-1.5 transition-colors outline-none data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-[0.35] has-[[data-slot=password-input-control]:focus-visible]:border-input-focus has-[[data-slot=password-input-control][aria-invalid=true]]:border-destructive has-[[data-slot=password-input-control][aria-invalid=true]:focus-visible]:border-destructive dark:bg-input/30 dark:data-disabled:bg-input/80 dark:has-[[data-slot=password-input-control][aria-invalid=true]]:border-destructive/50';
+  'group/password-input relative flex h-8 w-full min-w-0 items-center gap-1 rounded-item border border-input bg-transparent pe-1.5 transition-colors outline-none data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-35 has-[[data-slot=password-input-control]:focus-visible]:border-input-focus has-[[data-slot=password-input-control][aria-invalid=true]]:border-destructive has-[[data-slot=password-input-control][aria-invalid=true]:focus-visible]:border-destructive';
 
 const passwordInputControlClassName =
-  'h-full w-full min-w-0 flex-1 rounded-[var(--radius-item)] border-0 bg-transparent px-2.5 py-1 text-sm text-fg outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed';
+  'h-full w-full min-w-0 flex-1 rounded-item border-0 bg-transparent px-2.5 py-1 text-sm text-fg outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed';
 
 const passwordInputToggleClassName =
-  "inline-flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-icon)] text-muted-foreground transition-colors outline-none hover:bg-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-[0.35] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
+  "inline-flex size-6 shrink-0 items-center justify-center rounded-icon text-muted-foreground transition-colors outline-none hover:bg-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-35 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
 
 type PasswordInputProps = Omit<ComponentProps<typeof PasswordInputPrimitive>, 'className'> & {
   className?: ComponentProps<typeof PasswordInputPrimitive>['className'] | undefined;

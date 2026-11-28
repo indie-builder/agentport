@@ -37,7 +37,7 @@ function AlertDialogContent<Payload = unknown>({
     <AlertDialogContentPrimitive
       className={(state) =>
         cn(
-          'fixed inset-auto top-1/2 left-1/2 z-50 m-0 grid max-h-(--visual-viewport-height) w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-visible rounded-[var(--radius-dialog)] border-0 bg-surface p-4 text-sm text-fg shadow-overlay ring-1 ring-line cds-overlay-enter outline-none sm:max-w-sm',
+          'fixed inset-auto top-1/2 left-1/2 z-50 m-0 grid max-h-(--visual-viewport-height) w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-visible rounded-dialog border-0 bg-surface p-4 text-sm text-fg shadow-overlay ring-1 ring-line cds-overlay-enter outline-none sm:max-w-sm',
           typeof className === 'function' ? className(state) : className,
         )
       }

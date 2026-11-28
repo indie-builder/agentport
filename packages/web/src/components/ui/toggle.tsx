@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react';
 import { cn } from '@/lib/cn';
 
 const toggleVariants = cva(
-  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft outline-none hover:bg-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-[0.35] aria-invalid:border aria-invalid:border-destructive data-pressed:bg-selected data-pressed:text-selected-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft outline-none hover:bg-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-35 aria-invalid:border aria-invalid:border-destructive data-pressed:bg-selected data-pressed:text-selected-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

@@ -593,7 +593,7 @@ function ChannelWorkspace({
           </Link>
           <h1
             title={channel.name}
-            className="min-w-0 max-w-[14em] truncate text-lg font-medium tracking-[-0.01em] text-fg"
+            className="min-w-0 max-w-[14em] truncate text-lg font-medium tracking-heading text-fg"
           >
             {channel.name}
           </h1>

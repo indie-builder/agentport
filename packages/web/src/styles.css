@@ -79,6 +79,7 @@
   --radius-composer: 14px;
   --radius-dialog: 16px;
   --radius-popover: 10px;
+  --radius-badge-avatar: 18px;
 
   /*
    * --radius 是 shadcn 的基础变量，保留供底座组件与 Tailwind 圆角工具映射使用。
@@ -124,6 +125,12 @@
   --text-2xl--line-height: 1.75rem;
   --text-3xl: 1.5rem;
   --text-3xl--line-height: 2rem;
+
+  --tracking-heading: -0.01em;
+  --tracking-display: -0.02em;
+  --tracking-label: 0.06em;
+  --tracking-badge-brand: 0.16em;
+  --tracking-badge-lanyard: 0.22em;
 
   --color-background: var(--color-surface);
   --color-foreground: var(--color-fg);

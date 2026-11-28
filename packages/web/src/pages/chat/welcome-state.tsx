@@ -359,7 +359,7 @@ export function WelcomeState({ agent }: { agent: AgentSummary | null }) {
             height={637}
             className="h-auto w-24 shrink-0 object-contain"
           />
-          <h2 className="min-w-0 flex-1 text-2xl font-medium tracking-[-0.02em] text-fg">
+          <h2 className="min-w-0 flex-1 text-2xl font-medium tracking-display text-fg">
             今天想完成什么？
           </h2>
         </div>
@@ -375,7 +375,7 @@ export function WelcomeState({ agent }: { agent: AgentSummary | null }) {
         <AgentAvatar agent={agent} className="size-12 ring-1 ring-line" />
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 className="min-w-0 break-words text-2xl font-medium tracking-[-0.02em] text-fg">
+            <h2 className="min-w-0 break-words text-2xl font-medium tracking-display text-fg">
               {agent.name}
             </h2>
             {role && role !== agent.name.trim() ? <Badge variant="secondary">{role}</Badge> : null}

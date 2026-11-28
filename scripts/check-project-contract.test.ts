@@ -761,6 +761,29 @@ const fixtures = [
     ],
   },
   {
+    name: 'web 使用 dark: 变体类',
+    rule: 'web-no-dark-variant',
+    files: {
+      'packages/web/src/components/panel.tsx':
+        'export const Panel = ({ active }: { active: boolean }) => (\n' +
+        '  <div className="bg-surface dark:bg-input/30">\n' +
+        '    <span className={`px-2 $' +
+        '{active ? "hover:dark:text-fg" : ""}`} />\n' +
+        '    <span className="dark:data-[state=open]:bg-hover" />\n' +
+        '    <span className="dark:*:data-[slot=bubble-content]:bg-red" />\n' +
+        '    <span className="group-data-[variant=line]/tabs-list:dark:bg-transparent" />\n' +
+        '  </div>\n' +
+        ');\n',
+    },
+    expected: [
+      'packages/web/src/components/panel.tsx:2: 禁止使用 dark: 变体类（本项目仅亮色，删除无用 dark: 类）',
+      'packages/web/src/components/panel.tsx:3: 禁止使用 dark: 变体类（本项目仅亮色，删除无用 dark: 类）',
+      'packages/web/src/components/panel.tsx:4: 禁止使用 dark: 变体类（本项目仅亮色，删除无用 dark: 类）',
+      'packages/web/src/components/panel.tsx:5: 禁止使用 dark: 变体类（本项目仅亮色，删除无用 dark: 类）',
+      'packages/web/src/components/panel.tsx:6: 禁止使用 dark: 变体类（本项目仅亮色，删除无用 dark: 类）',
+    ],
+  },
+  {
     name: 'core 浏览器子路径引 node:',
     rule: 'core-browser-node',
     files: { 'packages/core/src/workspace.ts': "import { readFileSync } from 'node:fs';\n" },
@@ -1540,6 +1563,13 @@ test.each([
       'packages/worker/package.json': JSON.stringify({
         dependencies: { '@agentport/shared': 'workspace:*', zod: 'catalog:' },
       }),
+    },
+  },
+  {
+    name: 'web 对象 dark 键与普通文案中的 dark: 不误报',
+    files: {
+      'packages/web/src/components/theme.tsx':
+        "export type T = 'dark:bg-input/30';\nconst THEMES = { light: '', dark: '.dark' } as const;\nconst label = 'dark: mode';\nconst url = 'https://example.com/dark:test';\nexport const out = [THEMES, label, url];\n",
     },
   },
 ])('$name 不触发违规', ({ files }) => {

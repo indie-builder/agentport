@@ -25,10 +25,10 @@ function mergeClassName<State>(
 }
 
 const listboxClassName =
-  'flex w-full min-w-0 flex-col gap-0.5 rounded-[var(--radius-item)] border border-line bg-surface p-1 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-ring data-[orientation=horizontal]:flex-row data-[orientation=horizontal]:flex-wrap data-disabled:pointer-events-none data-disabled:opacity-[0.35]';
+  'flex w-full min-w-0 flex-col gap-0.5 rounded-item border border-line bg-surface p-1 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-ring data-[orientation=horizontal]:flex-row data-[orientation=horizontal]:flex-wrap data-disabled:pointer-events-none data-disabled:opacity-35';
 
 const listboxItemClassName =
-  "relative flex w-full cursor-pointer items-center gap-2 rounded-[var(--radius-icon)] px-2 py-1.5 text-start text-sm text-fg transition-colors duration-150 ease-out-soft outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring select-none not-data-selected:not-data-disabled:hover:bg-hover not-data-selected:not-data-disabled:data-highlighted:bg-hover data-selected:bg-selected data-selected:font-medium data-selected:text-selected-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-[0.35] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
+  "relative flex w-full cursor-pointer items-center gap-2 rounded-icon px-2 py-1.5 text-start text-sm text-fg transition-colors duration-150 ease-out-soft outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring select-none not-data-selected:not-data-disabled:hover:bg-hover not-data-selected:not-data-disabled:data-highlighted:bg-hover data-selected:bg-selected data-selected:font-medium data-selected:text-selected-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-35 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
 
 const listboxItemIconClassName =
   "inline-flex shrink-0 items-center justify-center text-muted-foreground data-mirror:rtl:-scale-x-100 [&_svg:not([class*='size-'])]:size-4";
