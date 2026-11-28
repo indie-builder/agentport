@@ -2,6 +2,7 @@ import { afterAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { runContractCheck } from './contract/index.js';
 
 const SCRIPT = join(import.meta.dir, 'check-project-contract.mjs');
 const REPO_ROOT = join(import.meta.dir, '..');
@@ -56,16 +57,11 @@ function makeRepo(overrides: Record<string, string>): string {
   return dir;
 }
 
-function runContract(cwd: string): { code: number | null; output: string } {
-  const result = Bun.spawnSync({
-    cmd: [process.execPath, SCRIPT],
-    cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
+function runContract(cwd: string): { code: number; output: string } {
+  const problems = runContractCheck({ root: cwd });
   return {
-    code: result.exitCode,
-    output: `${result.stdout.toString()}\n${result.stderr.toString()}`,
+    code: problems.length > 0 ? 1 : 0,
+    output: problems.length > 0 ? problems.join('\n') : 'project contract OK',
   };
 }
 

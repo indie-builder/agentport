@@ -92,9 +92,8 @@ test('dockerfile-workspace-sync: Dockerfile 与子包和根文件完全一致时
     ].join('\n'),
   });
 
-  const res = runCli(['--rule', 'dockerfile-workspace-sync'], dir);
-  expect(res.code).toBe(0);
-  expect(res.stdout).toContain('project contract OK');
+  const problems = runContractCheck({ root: dir, rules: ['dockerfile-workspace-sync'] });
+  expect(problems).toEqual([]);
 });
 
 test('dockerfile-workspace-sync: 新增子包缺少 COPY 声明时报错', () => {
@@ -109,10 +108,9 @@ test('dockerfile-workspace-sync: 新增子包缺少 COPY 声明时报错', () =>
     ].join('\n'),
   });
 
-  const res = runCli(['--rule=dockerfile-workspace-sync'], dir);
-  expect(res.code).toBe(1);
-  expect(res.stderr).toContain('[dockerfile-workspace-sync]');
-  expect(res.stderr).toContain('缺少子包 packages/foo/package.json 的 COPY 声明');
+  const output = runContractCheck({ root: dir, rules: ['dockerfile-workspace-sync'] }).join('\n');
+  expect(output).toContain('[dockerfile-workspace-sync]');
+  expect(output).toContain('缺少子包 packages/foo/package.json 的 COPY 声明');
 });
 
 test('dockerfile-workspace-sync: 引用不存在的子包或根文件时报错', () => {
@@ -128,11 +126,10 @@ test('dockerfile-workspace-sync: 引用不存在的子包或根文件时报错',
     ].join('\n'),
   });
 
-  const res = runCli(['--rule', 'dockerfile-workspace-sync'], dir);
-  expect(res.code).toBe(1);
-  expect(res.stderr).toContain('Dockerfile:2: COPY 的根文件 missing.json 不存在');
-  expect(res.stderr).toContain('Dockerfile:4: 引用了不存在的子包 packages/ghost');
-  expect(res.stderr).toContain('Dockerfile:5: 引用了不存在的子包 packages/phantom');
+  const output = runContractCheck({ root: dir, rules: ['dockerfile-workspace-sync'] }).join('\n');
+  expect(output).toContain('Dockerfile:2: COPY 的根文件 missing.json 不存在');
+  expect(output).toContain('Dockerfile:4: 引用了不存在的子包 packages/ghost');
+  expect(output).toContain('Dockerfile:5: 引用了不存在的子包 packages/phantom');
 });
 
 test('dockerfile-workspace-sync: 无 manifest COPY 时仍捕获 --from 幽灵子包，且支持 --chown 多源与 . 目的路径', () => {
@@ -145,9 +142,11 @@ test('dockerfile-workspace-sync: 无 manifest COPY 时仍捕获 --from 幽灵子
       'COPY --from=build /repo/packages/ghost/scripts packages/ghost/scripts',
     ].join('\n'),
   });
-  const ghostRes = runCli(['--rule', 'dockerfile-workspace-sync'], ghostDir);
-  expect(ghostRes.code).toBe(1);
-  expect(ghostRes.stderr).toContain('Dockerfile:3: 引用了不存在的子包 packages/ghost');
+  const ghostOutput = runContractCheck({
+    root: ghostDir,
+    rules: ['dockerfile-workspace-sync'],
+  }).join('\n');
+  expect(ghostOutput).toContain('Dockerfile:3: 引用了不存在的子包 packages/ghost');
 
   const multiValidDir = makeTempRepo({
     'package.json': JSON.stringify({ name: 'root', engines: { node: '>=24.22.2 <25' } }),
@@ -158,17 +157,20 @@ test('dockerfile-workspace-sync: 无 manifest COPY 时仍捕获 --from 幽灵子
       'COPY --chown=1000:1000 packages/a/package.json packages/b/package.json ./',
     ].join('\n'),
   });
-  const multiRes = runCli(['--rule', 'dockerfile-workspace-sync'], multiValidDir);
-  expect(multiRes.code).toBe(0);
+  expect(runContractCheck({ root: multiValidDir, rules: ['dockerfile-workspace-sync'] })).toEqual(
+    [],
+  );
 
   const missingRootDir = makeTempRepo({
     'package.json': JSON.stringify({ name: 'root', engines: { node: '>=24.22.2 <25' } }),
     'packages/api/package.json': JSON.stringify({ name: '@agentport/api' }),
     Dockerfile: ['FROM node:24-alpine AS base', 'COPY --chown=1000:1000 missing.json .'].join('\n'),
   });
-  const missingRootRes = runCli(['--rule', 'dockerfile-workspace-sync'], missingRootDir);
-  expect(missingRootRes.code).toBe(1);
-  expect(missingRootRes.stderr).toContain('Dockerfile:2: COPY 的根文件 missing.json 不存在');
+  const missingRootOutput = runContractCheck({
+    root: missingRootDir,
+    rules: ['dockerfile-workspace-sync'],
+  }).join('\n');
+  expect(missingRootOutput).toContain('Dockerfile:2: COPY 的根文件 missing.json 不存在');
 });
 
 test('--rule node-version-lock 过滤掉其他规则的违规，且支持逗号与重复参数', () => {
@@ -188,7 +190,7 @@ test('--rule node-version-lock 过滤掉其他规则的违规，且支持逗号�
   expect(onlyNode.stdout).toContain('project contract OK');
 
   const multi = runCli(
-    ['--rule', 'node-version-lock,web-hardcoded-hex', '--rule', 'dockerfile-workspace-sync'],
+    ['--rule', 'node-version-lock,web-hardcoded-hex', '--rule=dockerfile-workspace-sync'],
     dir,
   );
   expect(multi.code).toBe(1);
