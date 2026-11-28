@@ -459,8 +459,9 @@ function WikiPageEditor({
           action={
             <Progress
               value={generateJob.progress}
+              gap="md"
               aria-label="生成任务进度"
-              className="w-44 grid-cols-[minmax(0,1fr)_auto] items-center gap-2"
+              className="w-44 grid-cols-[minmax(0,1fr)_auto] items-center"
             >
               <ProgressTrack className="col-span-1">
                 <ProgressIndicator />

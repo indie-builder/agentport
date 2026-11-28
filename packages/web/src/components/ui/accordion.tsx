@@ -10,7 +10,7 @@ import type { ComponentProps } from 'react';
 import { cn } from '@/lib/cn';
 
 const accordionTriggerClassName =
-  'group/accordion-trigger relative flex flex-1 items-start justify-between rounded-lg border border-transparent py-2.5 text-start text-sm font-medium transition-colors duration-150 ease-out-soft outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ms-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground';
+  'group/accordion-trigger relative flex flex-1 items-start justify-between rounded-lg border border-transparent text-start text-sm font-medium transition-colors duration-150 ease-out-soft outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ms-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground';
 
 const accordionContentInnerClassName =
   'pt-0 pb-2.5 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4';
@@ -54,10 +54,22 @@ function AccordionItem({
 function AccordionTrigger({
   className,
   children,
+  gap = 'default',
+  padding = 'default',
+  underline = true,
   ...props
 }: Omit<ComponentProps<typeof AccordionTriggerPrimitive>, 'className'> & {
   className?: ComponentProps<typeof AccordionTriggerPrimitive>['className'] | undefined;
+  gap?: 'default' | 'sm' | undefined;
+  padding?: 'default' | 'md' | undefined;
+  underline?: boolean | undefined;
 }) {
+  const baseClassName = cn(
+    accordionTriggerClassName,
+    gap === 'sm' && 'gap-2',
+    padding === 'default' ? 'py-2.5' : 'py-3',
+    underline ? 'hover:underline' : 'hover:no-underline',
+  );
   const icon = (
     <ChevronDownIcon
       data-slot="accordion-trigger-icon"
@@ -69,8 +81,8 @@ function AccordionTrigger({
       <AccordionTriggerPrimitive
         className={
           typeof className === 'function'
-            ? (state) => cn(accordionTriggerClassName, className(state))
-            : cn(accordionTriggerClassName, className)
+            ? (state) => cn(baseClassName, className(state))
+            : cn(baseClassName, className)
         }
         {...props}
       >

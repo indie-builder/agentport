@@ -23,10 +23,15 @@ const toggleVariants = cva(
         card: 'h-auto min-w-0 p-3',
         tile: 'h-auto min-w-0 flex-col items-start gap-1 whitespace-normal px-3 py-2.5 text-left',
       },
+      mono: {
+        false: '',
+        true: 'font-mono',
+      },
     },
     defaultVariants: {
       variant: 'default',
       size: 'default',
+      mono: false,
     },
   },
 );
@@ -35,6 +40,7 @@ function Toggle({
   className,
   variant = 'default',
   size = 'default',
+  mono = false,
   ...props
 }: Omit<ComponentProps<typeof TogglePrimitive>, 'className'> &
   VariantProps<typeof toggleVariants> & {
@@ -44,8 +50,8 @@ function Toggle({
     <TogglePrimitive
       className={
         typeof className === 'function'
-          ? (state) => cn(toggleVariants({ variant, size }), className(state))
-          : cn(toggleVariants({ variant, size, className }))
+          ? (state) => cn(toggleVariants({ variant, size, mono }), className(state))
+          : cn(toggleVariants({ variant, size, mono }), className)
       }
       {...props}
     />

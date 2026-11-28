@@ -126,14 +126,11 @@ function PolicyForm({
                 aria-labelledby="memory-policy-write-mode"
                 {...(field.value === undefined ? {} : { value: field.value })}
                 disabled={disabled}
-                className="grid gap-2 sm:grid-cols-2"
+                className="sm:grid-cols-2"
                 onValueChange={(next) => field.onChange(next)}
               >
                 {WRITE_MODES.map((option) => (
-                  <FieldLabel
-                    key={option.value}
-                    className="w-full cursor-pointer items-start gap-2 rounded-item border border-line px-3 py-2.5 font-normal"
-                  >
+                  <FieldLabel key={option.value} variant="option">
                     <RadioGroupItem
                       value={option.value}
                       aria-label={option.title}

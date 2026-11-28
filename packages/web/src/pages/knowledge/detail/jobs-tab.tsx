@@ -224,14 +224,10 @@ function JobRow({
       <TableCell className="text-sm">{jobTypeLabel[job.type]}</TableCell>
       <TableCell className="whitespace-normal">
         {targetTitle ? (
-          <Button
-            variant="link"
-            size="xs"
-            className="h-auto whitespace-normal px-0 text-sm text-left break-words"
-            title={targetTitle}
-            onClick={openTarget}
-          >
-            {jobTargetLabel(job)}
+          <Button variant="link" size="none" title={targetTitle} onClick={openTarget}>
+            <span className="min-w-0 whitespace-normal text-left break-words">
+              {jobTargetLabel(job)}
+            </span>
           </Button>
         ) : (
           <span className="block break-words text-sm text-fg" title={targetTitle}>
@@ -253,8 +249,9 @@ function JobRow({
       <TableCell className="text-end">
         <Progress
           value={job.progress}
+          gap="md"
           aria-label={`${jobTypeLabel[job.type]} ${jobTargetLabel(job)} 进度`}
-          className="grid-cols-[minmax(0,1fr)_auto] items-center gap-2"
+          className="grid-cols-[minmax(0,1fr)_auto]"
         >
           <ProgressTrack className="col-span-1">
             <ProgressIndicator />

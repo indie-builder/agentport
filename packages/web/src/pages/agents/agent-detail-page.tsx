@@ -505,9 +505,14 @@ function RestrictedAgentTabs({
       return Boolean(confirmed && confirmed.instruction === ni && confirmed.view === nv);
     },
   });
-  useEffect(() => {
+  const prevChildView = useRef({ instruction, view: search.view });
+  if (
+    prevChildView.current.instruction !== instruction ||
+    prevChildView.current.view !== search.view
+  ) {
+    prevChildView.current = { instruction, view: search.view };
     confirmedChildSwitch.current = null;
-  }, [instruction, search.view]);
+  }
   useEffect(() => {
     settleNavigationRef.current = () => blocker.reset?.();
   }, [blocker, settleNavigationRef]);

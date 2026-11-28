@@ -10,6 +10,8 @@ import {
   type ReorderReason,
 } from '@ui-sdk/core';
 import { createParts } from '@ui-sdk/react/primitive';
+import type { ComponentProps } from 'react';
+import { cn } from '@/lib/cn';
 
 type SortableListOptions = {
   value: string[];
@@ -146,9 +148,53 @@ const sortableList = definePrimitive({
 });
 
 const {
-  Root: SortableList,
-  Item: SortableListItem,
+  Root: SortableListPrimitive,
+  Item: SortableListItemPrimitive,
   Handle: SortableListHandle,
 } = createParts(sortableList, { root: 'fieldset', item: 'div', handle: 'button' });
+
+function SortableList({
+  className,
+  variant = 'default',
+  ...props
+}: ComponentProps<typeof SortableListPrimitive> & {
+  variant?: 'default' | 'bare' | undefined;
+}) {
+  return (
+    <SortableListPrimitive
+      data-variant={variant}
+      className={(state) =>
+        cn(
+          variant === 'bare' && 'border-0 p-0',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
+      {...props}
+    />
+  );
+}
+
+function SortableListItem({
+  className,
+  density = 'default',
+  moving = 'default',
+  ...props
+}: ComponentProps<typeof SortableListItemPrimitive> & {
+  density?: 'default' | 'compact' | undefined;
+  moving?: 'default' | 'dim' | undefined;
+}) {
+  return (
+    <SortableListItemPrimitive
+      className={(state) =>
+        cn(
+          density === 'compact' && 'gap-1',
+          moving === 'dim' && 'data-moving:opacity-40',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
+      {...props}
+    />
+  );
+}
 
 export { SortableList, SortableListHandle, SortableListItem, sortableList };

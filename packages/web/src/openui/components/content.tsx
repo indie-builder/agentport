@@ -406,9 +406,10 @@ export function ImageGallery({
             <Button
               type="button"
               variant="plain"
+              size="none"
               aria-label={image.alt ? `预览 ${image.alt}` : `预览第 ${index + 1} 张图片`}
               onClick={() => setPreviewIndex(index)}
-              className="block h-auto w-full overflow-hidden rounded-card p-0"
+              className="block w-full"
             >
               <GalleryThumbnail key={image.src} src={image.src} alt={image.alt ?? ''} />
             </Button>

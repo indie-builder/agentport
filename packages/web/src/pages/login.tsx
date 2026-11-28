@@ -94,8 +94,9 @@ export function LoginPage() {
           <Button
             type="button"
             variant="plain"
+            size="none"
             aria-label="切换 PACE Logo"
-            className="h-auto self-start p-0"
+            className="self-start"
             onClick={animateBrand}
           >
             <Brand className="h-9" />
@@ -117,8 +118,8 @@ export function LoginPage() {
               <Button
                 type="button"
                 variant="plain"
+                size="none"
                 aria-label="切换 PACE Logo"
-                className="h-auto p-0"
                 onClick={animateBrand}
               >
                 <Brand className="h-8" />
@@ -197,7 +198,7 @@ export function LoginPage() {
                 <Button
                   type="submit"
                   variant="solid"
-                  className="h-11 w-full border-line-strong"
+                  className="h-11 w-full"
                   disabled={login.isPending}
                   aria-busy={login.isPending}
                 >

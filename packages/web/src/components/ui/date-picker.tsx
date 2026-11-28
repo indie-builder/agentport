@@ -20,6 +20,7 @@ import {
   DatePicker as DatePickerPrimitive,
   DatePickerTrigger as DatePickerTriggerPrimitive,
 } from '@ui-sdk/react/date-picker';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { type ComponentProps, createContext, useContext } from 'react';
 import { buttonVariants } from '@/components/ui/button';
@@ -46,8 +47,20 @@ const DatePickerMonthsContext = createContext(1);
 
 const datePickerClassName = 'group/date-picker flex w-full min-w-0 flex-col gap-1.5';
 
-const datePickerGroupClassName =
-  'group/date-picker-group relative flex h-8 w-full min-w-0 items-center gap-1 rounded-item border border-input bg-transparent ps-1 pe-1 transition-colors outline-none has-[>[data-slot=date-picker-input]:first-child]:ps-2.5 has-[>[data-slot=date-picker-input]:last-child]:pe-2.5 group-data-disabled/date-picker:pointer-events-none group-data-disabled/date-picker:cursor-not-allowed group-data-disabled/date-picker:bg-sunken group-data-disabled/date-picker:opacity-35 has-[[data-slot=date-picker-input]:focus-visible]:border-input-focus has-[[data-slot=date-picker-input][aria-invalid=true]]:border-destructive has-[[data-slot=date-picker-input][aria-invalid=true]:focus-visible]:border-destructive has-[[data-slot=date-picker-input][data-invalid]]:border-destructive has-[[data-slot=date-picker-input][data-invalid]:focus-visible]:border-destructive';
+const datePickerGroupVariants = cva(
+  'group/date-picker-group relative flex h-8 w-full min-w-0 items-center gap-1 rounded-item border ps-1 pe-1 transition-colors outline-none has-[>[data-slot=date-picker-input]:first-child]:ps-2.5 has-[>[data-slot=date-picker-input]:last-child]:pe-2.5 group-data-disabled/date-picker:pointer-events-none group-data-disabled/date-picker:cursor-not-allowed group-data-disabled/date-picker:bg-sunken group-data-disabled/date-picker:opacity-35 has-[[data-slot=date-picker-input]:focus-visible]:border-input-focus has-[[data-slot=date-picker-input][aria-invalid=true]]:border-destructive has-[[data-slot=date-picker-input][aria-invalid=true]:focus-visible]:border-destructive has-[[data-slot=date-picker-input][data-invalid]]:border-destructive has-[[data-slot=date-picker-input][data-invalid]:focus-visible]:border-destructive',
+  {
+    variants: {
+      variant: {
+        default: 'border-input bg-transparent',
+        bare: 'border-transparent bg-transparent',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+    },
+  },
+);
 
 const datePickerInputClassName =
   'h-8 w-full min-w-0 flex-1 rounded-item border border-input bg-transparent px-2.5 py-1 text-sm text-fg tabular-nums transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-input-focus disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-35 aria-invalid:border-destructive data-invalid:border-destructive in-data-[slot=date-picker-group]:h-full in-data-[slot=date-picker-group]:border-0 in-data-[slot=date-picker-group]:bg-transparent in-data-[slot=date-picker-group]:px-0 in-data-[slot=date-picker-group]:not-first:ps-1 in-data-[slot=date-picker-group]:not-last:pe-1 in-data-[slot=date-picker-group]:data-disabled:bg-transparent in-data-[slot=date-picker-group]:data-disabled:opacity-100';
@@ -136,11 +149,15 @@ function DatePicker({
   );
 }
 
-function DatePickerGroup({ className, ...props }: ComponentProps<'div'>) {
+function DatePickerGroup({
+  className,
+  variant = 'default',
+  ...props
+}: ComponentProps<'div'> & VariantProps<typeof datePickerGroupVariants>) {
   return (
     <div
       data-slot="date-picker-group"
-      className={cn(datePickerGroupClassName, className)}
+      className={cn(datePickerGroupVariants({ variant }), className)}
       {...props}
     />
   );

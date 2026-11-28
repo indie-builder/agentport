@@ -361,7 +361,7 @@ export function ServerFormDialog({
         >
           {creating ? (
             <FieldSet className="gap-2.5" disabled={pending} data-disabled={pending}>
-              <FieldLegend variant="label" className="mb-2.5 text-muted-foreground">
+              <FieldLegend variant="label" tone="muted" className="mb-2.5">
                 来源类型
               </FieldLegend>
               <ToggleGroup

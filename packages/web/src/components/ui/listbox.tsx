@@ -25,10 +25,21 @@ function mergeClassName<State>(
 }
 
 const listboxClassName =
-  'flex w-full min-w-0 flex-col gap-0.5 rounded-item border border-line bg-surface p-1 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-ring data-[orientation=horizontal]:flex-row data-[orientation=horizontal]:flex-wrap data-disabled:pointer-events-none data-disabled:opacity-35';
+  'flex w-full min-w-0 flex-col gap-0.5 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-ring data-[orientation=horizontal]:flex-row data-[orientation=horizontal]:flex-wrap data-disabled:pointer-events-none data-disabled:opacity-35';
+
+const listboxVariant = {
+  default: 'rounded-item border border-line bg-surface p-1',
+  bare: 'rounded-none border-0 bg-transparent p-0',
+} as const;
 
 const listboxItemClassName =
-  "relative flex w-full cursor-pointer items-center gap-2 rounded-icon px-2 py-1.5 text-start text-sm text-fg transition-colors duration-150 ease-out-soft outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring select-none not-data-selected:not-data-disabled:hover:bg-hover not-data-selected:not-data-disabled:data-highlighted:bg-hover data-selected:bg-selected data-selected:font-medium data-selected:text-selected-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-35 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
+  "relative flex w-full cursor-pointer items-center rounded-icon text-start text-sm text-fg transition-colors duration-150 ease-out-soft outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring select-none not-data-selected:not-data-disabled:hover:bg-hover not-data-selected:not-data-disabled:data-highlighted:bg-hover data-selected:bg-selected data-selected:font-medium data-selected:text-selected-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-35 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
+
+const listboxItemSize = {
+  default: 'gap-2 px-2 py-1.5',
+  md: 'gap-2 px-2 py-2',
+  lg: 'gap-2.5 px-2.5 py-2',
+} as const;
 
 const listboxItemIconClassName =
   "inline-flex shrink-0 items-center justify-center text-muted-foreground data-mirror:rtl:-scale-x-100 [&_svg:not([class*='size-'])]:size-4";
@@ -48,6 +59,7 @@ type ListboxProps<T = string, Multiple extends boolean | undefined = false> = Om
   keyof ListboxOptions | 'className'
 > & {
   className?: ListboxPrimitiveProps['className'] | undefined;
+  variant?: keyof typeof listboxVariant | undefined;
 } & ListboxOptions<T, Multiple>;
 
 type ListboxItemProps<T = string> = Omit<
@@ -55,6 +67,7 @@ type ListboxItemProps<T = string> = Omit<
   'className'
 > & {
   className?: ComponentProps<typeof ListboxItemPrimitive<T>>['className'] | undefined;
+  size?: keyof typeof listboxItemSize | undefined;
 };
 
 type ListboxItemIconProps = Omit<ComponentProps<typeof ListboxItemIconPrimitive>, 'className'> & {
@@ -85,21 +98,24 @@ type ListboxSeparatorProps = Omit<ComponentProps<typeof ListboxSeparatorPrimitiv
 
 function Listbox<T = string, Multiple extends boolean | undefined = false>({
   className,
+  variant = 'default',
   ...props
 }: ListboxProps<T, Multiple>) {
   return (
     <ListboxPrimitive<T, Multiple>
       {...(props as ListboxPrimitiveProps<T, Multiple>)}
-      className={mergeClassName(listboxClassName, className)}
+      data-variant={variant}
+      className={mergeClassName(cn(listboxClassName, listboxVariant[variant]), className)}
     />
   );
 }
 
-function ListboxItem<T = string>({ className, ...props }: ListboxItemProps<T>) {
+function ListboxItem<T = string>({ className, size = 'default', ...props }: ListboxItemProps<T>) {
   return (
     <ListboxItemPrimitive<T>
       {...(props as ComponentProps<typeof ListboxItemPrimitive<T>>)}
-      className={mergeClassName(listboxItemClassName, className)}
+      data-size={size}
+      className={mergeClassName(cn(listboxItemClassName, listboxItemSize[size]), className)}
     />
   );
 }

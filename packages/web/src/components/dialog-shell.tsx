@@ -53,7 +53,10 @@ export function DialogShell({
       showCloseButton={false}
       {...(finalFocus === undefined ? {} : { finalFocus })}
     >
-      <DialogHeader className="shrink-0 flex-row items-start justify-between gap-4 border-b px-5 py-3.5">
+      <DialogHeader
+        bordered
+        className="shrink-0 flex-row items-start justify-between gap-4 px-5 py-3.5"
+      >
         <div className="min-w-0">
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}

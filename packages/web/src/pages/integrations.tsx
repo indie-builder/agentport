@@ -79,7 +79,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
-import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { formatDateTime } from '../lib/format.js';
 import {
@@ -941,10 +940,9 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
                 <FieldSet className="gap-2" disabled={pending}>
                   <FieldLegend
                     variant="label"
-                    className={cn(
-                      'mb-2 flex items-center gap-2 select-none data-disabled:opacity-50',
-                      Boolean(errors.scopes) && 'text-destructive',
-                    )}
+                    inline
+                    tone={errors.scopes ? 'danger' : 'default'}
+                    className="mb-2"
                   >
                     权限范围 <RequiredMark />
                   </FieldLegend>
@@ -2034,10 +2032,9 @@ function WebhookDialog({ onClose: onClosed }: { onClose: () => void }) {
                     <FieldSet className="gap-2" disabled={pending}>
                       <FieldLegend
                         variant="label"
-                        className={cn(
-                          'mb-2 flex items-center gap-2 select-none data-disabled:opacity-50',
-                          Boolean(errors.events) && 'text-destructive',
-                        )}
+                        inline
+                        tone={errors.events ? 'danger' : 'default'}
+                        className="mb-2"
                       >
                         订阅事件 <RequiredMark />
                       </FieldLegend>

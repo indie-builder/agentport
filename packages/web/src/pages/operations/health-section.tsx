@@ -389,42 +389,44 @@ export function HealthSection({
   return (
     <>
       <Card size="sm" hover="static" className="min-w-0">
-        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-0 sm:divide-x sm:divide-line">
-          <div className="flex min-w-0 items-start justify-between gap-3 sm:pr-5">
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="text-sm font-medium text-fg">存活检查</span>
-                <code className="break-all font-mono text-xs text-muted-foreground">
-                  /health/live
-                </code>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-0 sm:divide-x sm:divide-line">
+            <div className="flex min-w-0 items-start justify-between gap-3 sm:pr-5">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-sm font-medium text-fg">存活检查</span>
+                  <code className="break-all font-mono text-xs text-muted-foreground">
+                    /health/live
+                  </code>
+                </div>
+                {liveState === 'error' ? (
+                  <p className="break-words text-xs text-danger [overflow-wrap:anywhere]">
+                    {live.isError
+                      ? '存活检查请求失败。'
+                      : (live.data?.error ??
+                        `HTTP ${live.data?.httpStatus ?? '未知'}，进程未返回 200。`)}
+                  </p>
+                ) : null}
               </div>
-              {liveState === 'error' ? (
-                <p className="break-words text-xs text-danger [overflow-wrap:anywhere]">
-                  {live.isError
-                    ? '存活检查请求失败。'
-                    : (live.data?.error ??
-                      `HTTP ${live.data?.httpStatus ?? '未知'}，进程未返回 200。`)}
-                </p>
-              ) : null}
+              <StatusPill state={liveState} />
             </div>
-            <StatusPill state={liveState} />
-          </div>
 
-          <div className="flex min-w-0 items-start justify-between gap-3 sm:pl-5">
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="text-sm font-medium text-fg">就绪检查</span>
-                <code className="break-all font-mono text-xs text-muted-foreground">
-                  /health/ready
-                </code>
+            <div className="flex min-w-0 items-start justify-between gap-3 sm:pl-5">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-sm font-medium text-fg">就绪检查</span>
+                  <code className="break-all font-mono text-xs text-muted-foreground">
+                    /health/ready
+                  </code>
+                </div>
+                {readyProblem ? (
+                  <p className="break-words text-xs text-danger [overflow-wrap:anywhere]">
+                    {readyProblem}
+                  </p>
+                ) : null}
               </div>
-              {readyProblem ? (
-                <p className="break-words text-xs text-danger [overflow-wrap:anywhere]">
-                  {readyProblem}
-                </p>
-              ) : null}
+              <StatusPill state={readyState} />
             </div>
-            <StatusPill state={readyState} />
           </div>
         </CardContent>
       </Card>

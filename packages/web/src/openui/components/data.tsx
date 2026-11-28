@@ -100,7 +100,7 @@ export function TableRenderer({ props, renderNode }: RenderProps<{ columns: unkn
       aria-busy={isQueryLoading || undefined}
       className={cn('min-w-0', isQueryLoading && 'opacity-70 transition-opacity')}
     >
-      <Table className="text-sm">
+      <Table>
         <TableHeader>
           <TableRow>
             {columns.map((column, columnIndex) => (
@@ -228,7 +228,7 @@ function EditableCell({
         disabled={disabled}
         onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}
       >
-        <SelectTrigger aria-label={label} className="h-8 w-full border-transparent bg-transparent">
+        <SelectTrigger aria-label={label} variant="bare" className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -252,7 +252,7 @@ function EditableCell({
         disabled={disabled}
         onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}
       >
-        <DatePickerGroup className="border-transparent bg-transparent">
+        <DatePickerGroup variant="bare">
           <DatePickerInput aria-label={label} placeholder="选择日期" />
           <DatePickerClear aria-label={`清除${label}`} />
           <DatePickerTrigger aria-label={`选择${label}`} />
@@ -278,8 +278,8 @@ function EditableCell({
           onChange(next === null ? '' : String(next));
         }}
       >
-        <NumberInputGroup className="border-transparent bg-transparent">
-          <NumberInputControl aria-label={label} className="text-right font-mono tabular-nums" />
+        <NumberInputGroup variant="bare">
+          <NumberInputControl aria-label={label} mono className="text-right" />
         </NumberInputGroup>
       </NumberInput>
     );
@@ -299,7 +299,7 @@ function EditableCell({
             value={value}
             disabled={disabled}
             onChange={(event) => onChange(event.target.value)}
-            className="h-8 border-transparent bg-transparent"
+            variant="ghost"
           />
           {validUrl ? (
             <a
@@ -329,7 +329,7 @@ function EditableCell({
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className="h-8 border-transparent bg-transparent"
+      variant="ghost"
     />
   );
 }
@@ -424,7 +424,7 @@ function EditableTableBody({ props }: { props: EditableTableProps }) {
 
   return (
     <section aria-label={tableName || '可编辑表格'} className="flex min-w-0 flex-col gap-2">
-      <Table className="text-sm">
+      <Table>
         <TableHeader>
           <TableRow>
             {columns.map((column, columnIndex) => (

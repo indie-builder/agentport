@@ -640,7 +640,7 @@ export function AgentsPage() {
                     : '专家已停用，启用后才能开始对话';
               return (
                 <li key={agent.id} className="min-w-0">
-                  <Card className="h-full min-h-44 gap-3">
+                  <Card gap="sm" className="h-full min-h-44">
                     <CardHeader className="flex flex-row items-start gap-3">
                       <AgentAvatar agent={agent} />
                       <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -825,13 +825,14 @@ export function AgentsPage() {
         }}
       >
         <DialogContent
+          variant="bare"
           showCloseButton={false}
           finalFocus={() =>
             badgeTriggerRef.current?.isConnected
               ? badgeTriggerRef.current
               : document.getElementById('agents-search')
           }
-          className="pointer-events-none top-0 left-1/2 flex h-[100dvh] max-h-none w-[calc(100vw-32px)] max-w-[520px] origin-top -translate-x-1/2 translate-y-0 flex-col gap-0 overflow-hidden rounded-none bg-transparent p-0 text-fg shadow-none! ring-0 sm:max-w-[520px]"
+          className="pointer-events-none top-0 left-1/2 flex h-[100dvh] max-h-none w-[calc(100vw-32px)] max-w-[520px] origin-top -translate-x-1/2 translate-y-0 flex-col overflow-hidden sm:max-w-[520px]"
         >
           <DialogTitle className="sr-only">
             {badgeAgent ? `${badgeAgent.name} 的工牌` : '数字员工工牌'}
@@ -1153,10 +1154,7 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
                 {role}
               </p>
             </div>
-            <AgentAvatar
-              agent={agent}
-              className="size-24 rounded-badge-avatar bg-badge-accent-soft object-cover"
-            />
+            <AgentAvatar agent={agent} variant="badge" className="size-24" />
           </div>
           <div className="rounded-dialog bg-badge-accent-soft p-4">
             <div className="text-sm font-medium text-badge-accent">职责简介</div>

@@ -20,6 +20,7 @@ import {
   AutocompleteTrigger as AutocompleteTriggerPrimitive,
   createAutocompleteController,
 } from '@ui-sdk/react/autocomplete';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { ChevronDownIcon, XIcon } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { buttonVariants } from '@/components/ui/button';
@@ -41,8 +42,20 @@ function mergeClassName<S>(
 const autocompleteLabelClassName =
   'block text-sm font-medium select-none data-disabled:pointer-events-none data-disabled:opacity-50';
 
-const autocompleteInputClassName =
-  'h-8 w-full min-w-0 rounded-item border border-input bg-transparent px-2.5 py-1 text-sm text-fg transition-colors outline-none cds-focus-glow focus-visible:border-subtle placeholder:text-muted-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-35 aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive data-invalid:border-destructive data-invalid:focus-visible:border-destructive';
+const autocompleteInputVariants = cva(
+  'h-8 w-full min-w-0 rounded-item border border-input bg-transparent px-2.5 py-1 text-sm text-fg transition-colors outline-none cds-focus-glow focus-visible:border-subtle placeholder:text-muted-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-35 aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive data-invalid:border-destructive data-invalid:focus-visible:border-destructive',
+  {
+    variants: {
+      mono: {
+        false: '',
+        true: 'font-mono',
+      },
+    },
+    defaultVariants: {
+      mono: false,
+    },
+  },
+);
 
 const autocompleteContentClassName =
   'z-50 max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-(--anchor-width) overflow-hidden rounded-popover bg-popover text-popover-foreground shadow-md ring-1 ring-line outline-hidden cds-overlay-enter [--autocomplete-list-height:var(--available-height)]';
@@ -53,8 +66,20 @@ const autocompleteListClassName =
 const autocompleteItemClassName =
   "relative flex w-full cursor-default items-center gap-2 rounded-md py-1 ps-2 pe-2 text-start text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
 
-const autocompleteItemTextClassName =
-  'min-w-0 [&_mark]:bg-transparent [&_mark]:font-medium [&_mark]:text-current';
+const autocompleteItemTextVariants = cva(
+  'min-w-0 [&_mark]:bg-transparent [&_mark]:font-medium [&_mark]:text-current',
+  {
+    variants: {
+      mono: {
+        false: '',
+        true: 'font-mono',
+      },
+    },
+    defaultVariants: {
+      mono: false,
+    },
+  },
+);
 
 const autocompleteItemIconClassName =
   'inline-flex shrink-0 items-center justify-center text-muted-foreground data-mirror:rtl:-scale-x-100';
@@ -85,11 +110,13 @@ function AutocompleteLabel({
 
 function AutocompleteInput({
   className,
+  mono = false,
   ...props
-}: WithOptionalClassName<ComponentProps<typeof AutocompleteInputPrimitive>>) {
+}: WithOptionalClassName<ComponentProps<typeof AutocompleteInputPrimitive>> &
+  VariantProps<typeof autocompleteInputVariants>) {
   return (
     <AutocompleteInputPrimitive
-      className={mergeClassName(autocompleteInputClassName, className)}
+      className={mergeClassName(autocompleteInputVariants({ mono }), className)}
       {...props}
     />
   );
@@ -195,11 +222,13 @@ function AutocompleteItem({
 
 function AutocompleteItemText({
   className,
+  mono = false,
   ...props
-}: WithOptionalClassName<ComponentProps<typeof AutocompleteItemTextPrimitive>>) {
+}: WithOptionalClassName<ComponentProps<typeof AutocompleteItemTextPrimitive>> &
+  VariantProps<typeof autocompleteItemTextVariants>) {
   return (
     <AutocompleteItemTextPrimitive
-      className={mergeClassName(autocompleteItemTextClassName, className)}
+      className={mergeClassName(autocompleteItemTextVariants({ mono }), className)}
       {...props}
     />
   );

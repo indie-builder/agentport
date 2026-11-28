@@ -64,10 +64,12 @@ export function HistoryPanel({
         <Button
           variant="outline"
           onClick={(event) => onOpenSearch(event.currentTarget)}
-          className="w-full justify-start gap-2 font-normal text-muted-foreground"
+          className="w-full justify-start"
         >
-          <Search aria-hidden="true" className="size-4" />
-          <span className="min-w-0 flex-1 truncate text-left text-sm">搜索全部会话</span>
+          <span className="flex min-w-0 flex-1 items-center gap-2 font-normal text-muted-foreground group-hover/button:text-foreground">
+            <Search aria-hidden="true" className="size-4" />
+            <span className="min-w-0 flex-1 truncate text-left text-sm">搜索全部会话</span>
+          </span>
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">

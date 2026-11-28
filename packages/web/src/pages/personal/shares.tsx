@@ -65,16 +65,18 @@ function ShareSourceCell({
         </span>
       )}
       <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 justify-start px-0 text-sm text-muted-foreground"
+        variant="plain"
+        size="none"
+        className="justify-start"
         aria-expanded={open}
         aria-label={
           open ? `收起 ${fileName(share.path)} 的来源` : `展开 ${fileName(share.path)} 的来源`
         }
         onClick={() => setOpen((value) => !value)}
       >
-        {open ? '收起来源' : '展开来源'}
+        <span className="inline-flex h-7 w-full items-center rounded-lg text-sm text-muted-foreground group-hover/button:bg-hover group-hover/button:text-fg">
+          {open ? '收起来源' : '展开来源'}
+        </span>
       </Button>
     </div>
   );

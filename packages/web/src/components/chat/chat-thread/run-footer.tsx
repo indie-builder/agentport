@@ -81,7 +81,7 @@ export function RunFooter({
         <RefreshCw className={cn('size-3', spinning && 'animate-spin')} aria-hidden="true" />
       ) : null}
       {phase.kind === 'detached' ? (
-        <Button variant="link" size="xs" className="h-auto p-0" onClick={onRetry}>
+        <Button variant="link" size="none" onClick={onRetry}>
           重连
         </Button>
       ) : null}

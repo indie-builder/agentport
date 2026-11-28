@@ -125,7 +125,7 @@ export function Composer({
       }}
     >
       <div className="w-full">
-        <InputGroup className="h-auto rounded-composer bg-surface shadow-composer hover:shadow-composer-hover has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:border-input has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:shadow-composer-focus">
+        <InputGroup variant="composer">
           {outputRef ? (
             <div className="flex min-w-0 items-center gap-2 px-4 pt-3">
               <Badge variant="outline" className="min-w-0 max-w-full">
@@ -144,43 +144,48 @@ export function Composer({
             </div>
           ) : null}
           {attachments.length > 0 ? (
-            <AttachmentGroup role="list" aria-label="待发送资料" className="w-full px-4 pt-3">
-              {attachments.map((file, index) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 同名文件可重复选择，位置即身份
-                <Attachment key={`${file.name}-${index}`} role="listitem" size="sm" state="idle">
-                  <AttachmentMedia variant={file.type.startsWith('image/') ? 'image' : 'icon'}>
-                    {file.type.startsWith('image/') ? (
-                      <Image aria-hidden="true" />
-                    ) : (
-                      <FileText aria-hidden="true" />
-                    )}
-                  </AttachmentMedia>
-                  <AttachmentContent>
-                    <AttachmentTitle title={file.name}>{middleTruncate(file.name)}</AttachmentTitle>
-                    <AttachmentDescription>{formatBytes(file.size)}</AttachmentDescription>
-                  </AttachmentContent>
-                  <AttachmentActions>
-                    <AttachmentAction
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label={`移除 ${file.name}`}
-                      title="移除资料"
-                      disabled={locked}
-                      onClick={() =>
-                        setPendingAttachments(
-                          pendingAttachments.filter((_, position) => position !== index),
-                        )
-                      }
-                    >
-                      <X />
-                    </AttachmentAction>
-                  </AttachmentActions>
-                </Attachment>
-              ))}
-            </AttachmentGroup>
+            <div className="w-full px-4 pt-3">
+              <AttachmentGroup role="list" aria-label="待发送资料">
+                {attachments.map((file, index) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 同名文件可重复选择，位置即身份
+                  <Attachment key={`${file.name}-${index}`} role="listitem" size="sm" state="idle">
+                    <AttachmentMedia variant={file.type.startsWith('image/') ? 'image' : 'icon'}>
+                      {file.type.startsWith('image/') ? (
+                        <Image aria-hidden="true" />
+                      ) : (
+                        <FileText aria-hidden="true" />
+                      )}
+                    </AttachmentMedia>
+                    <AttachmentContent>
+                      <AttachmentTitle title={file.name}>
+                        {middleTruncate(file.name)}
+                      </AttachmentTitle>
+                      <AttachmentDescription>{formatBytes(file.size)}</AttachmentDescription>
+                    </AttachmentContent>
+                    <AttachmentActions>
+                      <AttachmentAction
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`移除 ${file.name}`}
+                        title="移除资料"
+                        disabled={locked}
+                        onClick={() =>
+                          setPendingAttachments(
+                            pendingAttachments.filter((_, position) => position !== index),
+                          )
+                        }
+                      >
+                        <X />
+                      </AttachmentAction>
+                    </AttachmentActions>
+                  </Attachment>
+                ))}
+              </AttachmentGroup>
+            </div>
           ) : null}
           <InputGroupTextarea
             ref={textareaRef}
+            variant="composer"
             aria-label="消息"
             aria-describedby={canSend ? undefined : 'composer-send-denied'}
             rows={2}
@@ -188,10 +193,7 @@ export function Composer({
             title={locked ? '本轮结束后才能发送；现在可以先把下一条写好' : undefined}
             disabled={!enabledValue || !historyReady}
             value={input}
-            className={cn(
-              'max-h-40 min-w-0 px-4 pb-2 pt-4 text-base md:text-base',
-              welcome ? 'min-h-20' : 'min-h-14',
-            )}
+            className={welcome ? 'min-h-20' : 'min-h-14'}
             onChange={(event) => change(event.target.value, event.target.selectionStart)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
@@ -205,7 +207,7 @@ export function Composer({
               }
             }}
           />
-          <InputGroupAddon align="block-end" className="justify-between gap-3 px-4 pb-3 pt-0">
+          <InputGroupAddon align="block-end" variant="composer">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs font-normal text-muted-foreground">
               {canAttach ? <AttachmentPicker disabled={attachmentsLocked} /> : null}
               <span>Enter 发送 · Shift+Enter 换行</span>
@@ -303,10 +305,10 @@ function AttachmentPicker({ disabled }: { disabled: boolean }) {
       >
         <FileInputTrigger
           variant="ghost"
-          size="icon-sm"
+          size="icon"
           aria-label="添加资料"
           title="添加资料（文本、图片、PDF）"
-          className="size-8 shrink-0 p-0 shadow-none has-[>svg]:p-0"
+          className="shrink-0"
         >
           <Paperclip />
         </FileInputTrigger>

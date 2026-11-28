@@ -202,7 +202,9 @@ export function MessagePane({
             </div>
           ) : null}
           <MessageScrollerContent
-            className={cn('mx-auto w-full max-w-220 gap-4 px-6', !welcome && 'py-4')}
+            gap="sm"
+            padding={welcome ? 'x' : 'xy'}
+            className="mx-auto w-full max-w-220"
           >
             {loading ? (
               <MessageScrollerItem messageId="loading">
@@ -290,13 +292,16 @@ export function MessagePane({
                       <div className={cn('group/turn message-fade-up', turnIndex > 0 && 'pt-2')}>
                         <Message
                           align={turn.user ? (turnSelf ? 'end' : 'start') : 'start'}
-                          className="text-base"
+                          size="base"
                         >
-                          <MessageContent className="min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]">
+                          <MessageContent
+                            gap="lg"
+                            className="min-w-0 max-w-full [overflow-wrap:anywhere]"
+                          >
                             <span className="sr-only">
                               {turn.user ? (turnSelf ? '我' : '成员') : '助手'}
                             </span>
-                            <MessageGroup className="min-w-0 gap-4">
+                            <MessageGroup gap="lg" className="min-w-0">
                               {turn.items.map((item, index) => {
                                 if (item.kind === 'tool') {
                                   if (structure.root.has(item.toolUseId)) return null;
@@ -479,12 +484,13 @@ export function MessagePane({
                             {latest && runOutputs?.hasNextPage ? (
                               <Button
                                 variant="muted"
-                                size="sm"
+                                size="none"
                                 disabled={runOutputs.loadingMore}
                                 onClick={runOutputs.onLoadMore}
-                                className="px-1.5"
                               >
-                                {runOutputs.loadingMore ? '正在加载…' : '加载更多成果'}
+                                <span className="inline-flex h-7 items-center px-1.5">
+                                  {runOutputs.loadingMore ? '正在加载…' : '加载更多成果'}
+                                </span>
                               </Button>
                             ) : null}
                           </div>
@@ -526,7 +532,6 @@ export function MessagePane({
             variant="outline"
             size="sm"
             behavior={reduce ? 'instant' : 'smooth'}
-            className="hover:bg-hover motion-reduce:transition-none"
           >
             <ArrowDown className="size-3.5" /> 回到底部
           </MessageScrollerButton>

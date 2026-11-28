@@ -627,6 +627,7 @@ export function RunDetailPage() {
                   <EmptyState variant="filter" scale="inline" title="该分类下没有步骤" />
                 ) : (
                   <Listbox
+                    variant="bare"
                     aria-label="执行步骤"
                     value={
                       activeIndex >= 0 &&
@@ -638,16 +639,16 @@ export function RunDetailPage() {
                     onValueChange={(next) => {
                       if (next !== null) selectStep(Number(next));
                     }}
-                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-0 bg-transparent p-0 max-xl:max-h-80"
+                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain max-xl:max-h-80"
                   >
                     {filteredSteps.map(({ step, index, key }) => {
                       const Icon = stepIcons[step.kind];
                       return (
                         <ListboxItem
                           key={key}
+                          size="lg"
                           value={String(index)}
                           label={`${index + 1} ${stepName(step)}`}
-                          className="gap-2.5 px-2.5 py-2"
                         >
                           <span className="w-5 shrink-0 text-end font-mono text-2xs tabular-nums text-muted-foreground">
                             {index + 1}

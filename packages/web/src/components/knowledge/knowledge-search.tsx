@@ -79,9 +79,7 @@ export function FaqRetrievalControls({
         FAQ 优先
       </span>
       <Field className="w-32 gap-1">
-        <FieldLabel htmlFor={`${idPrefix}-direct-threshold`} className="text-sm">
-          直接答案门槛
-        </FieldLabel>
+        <FieldLabel htmlFor={`${idPrefix}-direct-threshold`}>直接答案门槛</FieldLabel>
         <NumberInput
           min={-1}
           max={1}
@@ -367,7 +365,7 @@ function Diagnostics({ result }: { result: KnowledgeSearchResponse }) {
           </dl>
           {diagnostics.candidates.length === 0 ? null : (
             <div className="max-h-64 overflow-y-auto">
-              <Table aria-label="检索诊断候选" className="text-2xs">
+              <Table aria-label="检索诊断候选" size="xs">
                 <TableHeader>
                   <TableRow>
                     <TableHead scope="col" className="h-auto px-0 py-1 pr-2 text-2xs font-normal">
@@ -593,9 +591,7 @@ export function SearchTab({
           重排
         </span>
         <Field className="w-32 gap-1">
-          <FieldLabel htmlFor="knowledge-min-vector" className="text-sm">
-            向量门槛
-          </FieldLabel>
+          <FieldLabel htmlFor="knowledge-min-vector">向量门槛</FieldLabel>
           <NumberInput
             min={-1}
             max={1}

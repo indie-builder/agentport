@@ -156,20 +156,22 @@ export function SourceRuns({
               <TimelineItem
                 key={run.id}
                 value={run.id}
-                className="gap-y-1 pb-2.5 text-2xs"
+                density="compact"
+                size="xs"
                 {...(status === undefined ? {} : { status })}
               >
-                <TimelineMarker
-                  className={run.status === 'failed' ? 'empty:before:bg-danger' : undefined}
-                />
+                <TimelineMarker tone={run.status === 'failed' ? 'danger' : 'default'} />
                 <TimelineConnector />
                 <div className="flex min-h-6 flex-wrap items-center gap-2">
-                  <TimelineTitle className="flex flex-wrap items-center gap-2 text-2xs font-normal">
-                    <StatusBadge tone={jobStatusTone[run.status]}>
-                      {jobStatusLabel[run.status]}
-                    </StatusBadge>
-                    <span className="text-muted-foreground">
-                      新增 {run.stats.created} · 更新 {run.stats.updated} · 失败 {run.stats.failed}
+                  <TimelineTitle size="xs" weight="normal">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <StatusBadge tone={jobStatusTone[run.status]}>
+                        {jobStatusLabel[run.status]}
+                      </StatusBadge>
+                      <span className="text-muted-foreground">
+                        新增 {run.stats.created} · 更新 {run.stats.updated} · 失败{' '}
+                        {run.stats.failed}
+                      </span>
                     </span>
                   </TimelineTitle>
                   <TimelineTime dateTime={run.startedAt ?? run.createdAt}>
@@ -177,7 +179,7 @@ export function SourceRuns({
                   </TimelineTime>
                 </div>
                 {run.error ? (
-                  <TimelineDescription className="text-2xs text-danger">
+                  <TimelineDescription size="xs" tone="danger">
                     {run.error}
                   </TimelineDescription>
                 ) : null}

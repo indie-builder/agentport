@@ -256,7 +256,7 @@ export function DataDomainApprovals({
               <li key={approval.id} className="min-w-0">
                 <Card size="sm" className="h-full">
                   <CardHeader>
-                    <CardTitle className="min-w-0 font-mono text-sm text-fg [overflow-wrap:anywhere]">
+                    <CardTitle className="min-w-0 font-mono text-sm [overflow-wrap:anywhere]">
                       {approval.actorBusinessId ?? '—'}
                     </CardTitle>
                     <CardAction>

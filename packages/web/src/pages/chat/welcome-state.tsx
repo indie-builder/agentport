@@ -372,7 +372,9 @@ export function WelcomeState({ agent }: { agent: AgentSummary | null }) {
   return (
     <div className="flex w-full flex-col gap-6 py-10 sm:py-12">
       <div className="flex flex-wrap items-center gap-4 sm:gap-5">
-        <AgentAvatar agent={agent} className="size-12 ring-1 ring-line" />
+        <div className="flex shrink-0 rounded-full ring-1 ring-line">
+          <AgentAvatar agent={agent} className="size-12" />
+        </div>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <h2 className="min-w-0 break-words text-2xl font-medium tracking-display text-fg">

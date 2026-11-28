@@ -599,7 +599,7 @@ function PluginContent({
         <ReaderToolbar
           identity={
             <Breadcrumb aria-label="文件路径">
-              <BreadcrumbList className="gap-1 text-xs">
+              <BreadcrumbList size="sm">
                 {selected.path.split('/').map((segment, index, segments) => (
                   <Fragment key={segments.slice(0, index + 1).join('/')}>
                     {index > 0 ? <BreadcrumbSeparator /> : null}
@@ -621,7 +621,7 @@ function PluginContent({
           actions={
             <Button
               ref={filesButton}
-              variant="ghost"
+              variant="muted"
               size="icon"
               aria-label={toggleLabel}
               title={toggleLabel}
@@ -633,7 +633,6 @@ function PluginContent({
                 if (wide) setFilesOpenWide(!open);
                 else setFilesOpen(!open);
               }}
-              className="text-muted-foreground hover:text-fg"
             >
               <PanelLeftDashed aria-hidden="true" />
             </Button>

@@ -39,6 +39,7 @@ export function SourceEditor({
         fallback={
           <Textarea
             id={id}
+            variant="bare"
             value={value}
             onValueChange={onChange}
             onBlur={onBlur}
@@ -47,7 +48,6 @@ export function SourceEditor({
             aria-invalid={ariaInvalid || undefined}
             disabled={disabled}
             readOnly={readOnly}
-            className="block resize-none rounded-none border-0 bg-transparent text-inherit focus-visible:border-transparent disabled:bg-transparent disabled:opacity-100 aria-invalid:border-transparent"
           />
         }
       >

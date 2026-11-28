@@ -41,7 +41,7 @@ function RatingStars({ rating }: { rating: number }) {
     <Rating
       value={rating}
       readOnly
-      className="gap-0.5"
+      gap="xs"
       getValueLabel={(value, max) => `评分 ${value} 分，满分 ${max} 分`}
     >
       <RatingItem className="size-3 [&_svg:not([class*='size-'])]:size-3" />
@@ -177,9 +177,8 @@ function FeedbackDialog({
                 {rating == null ? null : (
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="muted"
                     size="sm"
-                    className="text-muted-foreground"
                     disabled={pending}
                     onClick={() => form.setValue('rating', null, { shouldDirty: true })}
                   >

@@ -81,9 +81,7 @@ export function AgentInstructions({
                 aria-disabled={pending}
                 title={pending ? '正在保存，稍后可切换' : undefined}
                 className={
-                  pending
-                    ? 'cursor-not-allowed hover:text-muted-foreground aria-disabled:pointer-events-auto'
-                    : undefined
+                  pending ? 'cursor-not-allowed aria-disabled:pointer-events-auto' : undefined
                 }
               >
                 {item.label}

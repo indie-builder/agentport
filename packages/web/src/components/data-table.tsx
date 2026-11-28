@@ -186,7 +186,12 @@ function ColumnRow({
   onMoveDown: (() => void) | undefined;
 }) {
   return (
-    <SortableListItem value={column.id} className="flex items-center gap-1 data-moving:opacity-40">
+    <SortableListItem
+      value={column.id}
+      density="compact"
+      moving="dim"
+      className="flex items-center"
+    >
       <SortableListHandle
         value={column.id}
         aria-label={`拖动调整「${column.header}」顺序`}
@@ -249,7 +254,8 @@ function ColumnPicker({
       labels={Object.fromEntries(columns.map((column) => [column.id, column.header]))}
       onValueChange={onValueChange}
       aria-label="列顺序"
-      className="m-0 min-w-0 border-0 p-0"
+      variant="bare"
+      className="m-0 min-w-0"
     >
       {({ order }) =>
         order.map((id) => {
@@ -409,7 +415,8 @@ export function DataTable<T extends RowData>({
         <TableHeader role="rowgroup" className="block">
           <TableRow
             role="row"
-            className="grid grid-cols-(--table-cols) items-center gap-3 px-3 pb-2"
+            variant="gridHeader"
+            className="grid grid-cols-(--table-cols) items-center"
             style={{ '--table-cols': template } as CSSProperties}
           >
             {visible.map((column, index) => {
@@ -433,23 +440,27 @@ export function DataTable<T extends RowData>({
                   {column.getCanSort() ? (
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="xs"
+                      variant="plain"
+                      size="none"
                       onClick={() => column.toggleSorting(dir !== 'desc')}
                       aria-label={`${source?.header ?? column.id}，按此列排序`}
-                      className={cn(
-                        'h-auto w-full justify-start gap-1 rounded-none border-0 p-0 text-xs font-normal whitespace-normal',
-                        source?.numeric && 'justify-end',
-                      )}
+                      className="w-full justify-start"
                     >
-                      {source?.header ?? column.id}
-                      {dir === 'asc' ? (
-                        <ArrowUp aria-hidden="true" />
-                      ) : dir === 'desc' ? (
-                        <ArrowDown aria-hidden="true" />
-                      ) : (
-                        <ChevronsUpDown className="opacity-40" aria-hidden="true" />
-                      )}
+                      <span
+                        className={cn(
+                          'inline-flex w-full items-center justify-start gap-1 text-xs font-normal whitespace-normal text-muted-foreground transition-colors group-hover/button:bg-hover group-hover/button:text-foreground',
+                          source?.numeric && 'justify-end',
+                        )}
+                      >
+                        {source?.header ?? column.id}
+                        {dir === 'asc' ? (
+                          <ArrowUp className="size-3" aria-hidden="true" />
+                        ) : dir === 'desc' ? (
+                          <ArrowDown className="size-3" aria-hidden="true" />
+                        ) : (
+                          <ChevronsUpDown className="size-3 opacity-40" aria-hidden="true" />
+                        )}
+                      </span>
                     </Button>
                   ) : (
                     (source?.header ?? column.id)
@@ -487,7 +498,8 @@ export function DataTable<T extends RowData>({
                   ref={pickerRef}
                   align="end"
                   aria-label="列设置"
-                  className="w-64 p-2"
+                  padding="sm"
+                  className="w-64"
                 >
                   <ColumnPicker
                     columns={draggable}
@@ -550,6 +562,8 @@ export function DataTable<T extends RowData>({
                   <Fragment key={key}>
                     <TableRow
                       role="row"
+                      variant="grid"
+                      active={isOpen}
                       onClick={
                         interactive
                           ? (event) => {
@@ -566,9 +580,8 @@ export function DataTable<T extends RowData>({
                           : undefined
                       }
                       className={cn(
-                        'grid min-h-14 w-full grid-cols-(--table-cols) items-start gap-3 rounded-item px-3 text-left transition-colors duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-transparent',
+                        'grid min-h-14 w-full grid-cols-(--table-cols) items-start text-left',
                         interactive ? 'cursor-pointer' : 'cursor-default',
-                        isOpen && 'bg-hover has-aria-expanded:bg-hover',
                       )}
                       style={{ '--table-cols': template } as CSSProperties}
                     >
@@ -632,8 +645,9 @@ export function DataTable<T extends RowData>({
                       <TableRow
                         role="row"
                         hover="none"
+                        bordered={isOpen}
                         aria-hidden={isOpen ? undefined : true}
-                        className={cn('block border-0', isOpen && 'border-b')}
+                        className="block"
                       >
                         <TableCell
                           id={panelId}

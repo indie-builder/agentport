@@ -116,12 +116,7 @@ export function CodeBlock({
       <CollapsibleContent animated>
         {copyable && copyAllowed ? (
           <span className="absolute right-2 top-2 z-10 inline-flex [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 has-focus-visible:opacity-100 group-hover:opacity-100">
-            <CopyButton
-              value={code}
-              label={copyLabel}
-              showLabel
-              className="bg-surface/90 text-fg focus-visible:ring-code-block-fg"
-            />
+            <CopyButton value={code} label={copyLabel} showLabel />
           </span>
         ) : null}
         <section

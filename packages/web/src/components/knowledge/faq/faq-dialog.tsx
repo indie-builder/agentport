@@ -2,7 +2,6 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { KnowledgeFaq, KnowledgeFaqDetail, KnowledgeFolder } from '../../../lib/api.js';
 import { errorMessage } from '../../../lib/api.js';
-import { cn } from '../../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../../lib/dialog-guard.js';
 import {
   useCreateKnowledgeFaq,
@@ -307,10 +306,8 @@ function FaqEditorForm({
           <FieldSet className="gap-1.5">
             <FieldLegend
               variant="label"
-              className={cn(
-                'mb-1.5 flex items-center gap-2 select-none',
-                Boolean(form.formState.errors.answers) && 'text-destructive',
-              )}
+              inline
+              tone={form.formState.errors.answers ? 'danger' : 'default'}
             >
               答案 <RequiredMark />
             </FieldLegend>

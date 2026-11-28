@@ -122,7 +122,6 @@ export function AgentMembersDialog({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-danger"
                       disabled={removeMember.isPending}
                       aria-label={`移除成员 ${member.name || member.businessId}`}
                       data-agent-confirm={`从「${agentName}」移除成员 ${member.name || member.businessId}`}
@@ -156,7 +155,7 @@ export function AgentMembersDialog({
                         )
                       }
                     >
-                      移除
+                      <span className="text-danger">移除</span>
                     </Button>
                   </li>
                 ))}
@@ -279,7 +278,7 @@ export function TransferAgentDialog({
               aria-label="选择新负责人"
               value={target}
               onValueChange={(next) => setTarget(next)}
-              className="gap-0"
+              gap="none"
             >
               {(identities.data?.items ?? []).map((candidate) => (
                 <label

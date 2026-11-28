@@ -10,9 +10,25 @@ import {
   SelectTrigger as SelectTriggerPrimitive,
   SelectValue as SelectValuePrimitive,
 } from '@ui-sdk/react/select';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { Check, ChevronDown } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { cn } from '@/lib/cn';
+
+const selectTriggerVariants = cva(
+  "flex w-fit items-center justify-between gap-1.5 rounded-lg border py-2 pe-2 ps-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none cds-focus-glow focus-visible:border-subtle disabled:cursor-not-allowed disabled:opacity-35 aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: 'border-input bg-transparent',
+        bare: 'border-transparent bg-transparent',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+    },
+  },
+);
 
 function SelectGroup({ className, ...props }: ComponentProps<typeof SelectGroupPrimitive>) {
   return (
@@ -39,17 +55,19 @@ function SelectValue({ className, ...props }: ComponentProps<typeof SelectValueP
 function SelectTrigger({
   className,
   size = 'default',
+  variant = 'default',
   children,
   ...props
-}: ComponentProps<typeof SelectTriggerPrimitive> & {
-  size?: 'sm' | 'default';
-}) {
+}: ComponentProps<typeof SelectTriggerPrimitive> &
+  VariantProps<typeof selectTriggerVariants> & {
+    size?: 'sm' | 'default';
+  }) {
   return (
     <SelectTriggerPrimitive
       data-size={size}
       className={(state) =>
         cn(
-          "flex w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pe-2 ps-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none cds-focus-glow focus-visible:border-subtle disabled:cursor-not-allowed disabled:opacity-35 aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+          selectTriggerVariants({ variant }),
           typeof className === 'function' ? className(state) : className,
         )
       }

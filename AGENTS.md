@@ -138,7 +138,7 @@
 | 禁硬编码 hex、禁 `dark:` 变体类、禁逐个传 `strokeWidth`/`size`、禁直接拼接 `buttonVariants` | 架构 + Lint + CI | `packages/web/src/styles.css`、`packages/web/src/App.tsx`、`packages/web/src/components/ui/button.tsx` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 前端本地存储走统一封装，禁直接访问 `localStorage` | 架构 + Lint + CI | `packages/web/src/lib/storage.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 焦点与边框单层契约（禁叠环、`outline-none`、slider 焦点态） | Lint + CI | `scripts/check-focus-contract.mjs`（`bun run lint:focus`） |
-| Tailwind 设计令牌、类名有效性、内联样式与组件样式契约（禁原始调色板与黑白字面色、未知类、非布局任意值、非 CSS 变量内联样式与 `<style>`、`no-restyle` 警告棘轮） | Lint + CI | `packages/web/.oxlintrc.json`（`bun run lint:design`，已接入 `scripts/ci.ts`） |
+| Tailwind 设计令牌、类名有效性、内联样式与组件样式契约（禁原始调色板与黑白字面色、未知类、非布局任意值、非 CSS 变量内联样式与 `<style>`、`no-restyle` 严格错误门禁） | Lint + CI | `packages/web/.oxlintrc.json`（`bun run lint:design`，已接入 `scripts/ci.ts`） |
 | 8 包跨包分层边界（`shared` / `contract` / `core` / `db` / `api` / `worker` / `web` / `sandbox` 单向依赖与纯子路径白名单） | 架构 + Lint + CI | `package.json`、`packages/*/package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 文件级、API 模块级与 Worker 子域级循环依赖禁止 | 架构 + Lint + CI | `packages/api/src/modules/`、`packages/worker/src/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | API 内部单向分层（`http`/`lib`/`queue` 不反向依赖 `modules/*`、禁跨模块 `router` 导入、禁散落 `process.env` 与裸 `bodyLimit`） | 架构 + Lint + CI | `packages/api/src/config.ts`、`packages/api/src/http/body-limit.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
@@ -155,6 +155,6 @@
 | 单文件物理行数上限 3000 行 | Lint + CI | `scripts/check-file-lines.mjs`（`bun run lint:lines`，已接入 `scripts/ci.ts`） |
 | OpenUI 生成物 `openui.spec.json` 与组件库保持同步 | CI | `scripts/check-openui.mjs`（`bun run openui:check`） |
 | 文档链接/锚点/行内路径有效、禁 `pnpm`/`npm` 命令、`PITFALLS` 索引一致 | Lint + CI | `scripts/check-docs.mjs`（`bun run lint:docs`） |
-| 禁止显式 `any`、格式与 import 排序、全仓类型检查 | 类型 + Lint + CI | `biome.json`（`bun run lint`）+ `tsconfig.base.json`（`bun run typecheck`）+ `scripts/ci.ts`（`bun run ci`） |
+| 禁止显式 `any`、生产代码零警告契约（禁非空断言与缺失 hook 依赖等）、格式与 import 排序、全仓类型检查 | 类型 + Lint + CI | `biome.json`（`bun run lint`）+ `tsconfig.base.json`（`bun run typecheck`）+ `scripts/ci.ts`（`bun run ci`） |
 | 并发/重放状态机不变量（Agent Run 生命周期、调度器 sync 单飞） | 形式化模型 + CI | `formal/agent-run-lifecycle/AgentRunLifecycle.tla`、`formal/scheduler-sync/SchedulerSync.tla`（`bun run verify:formal`，已接入 `scripts/ci.ts`） |
 | Node.js 与 `@types/node` 永久锁定 24.x（`node-version-lock`） | 架构 + Lint + CI | `package.json`、`Dockerfile` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |

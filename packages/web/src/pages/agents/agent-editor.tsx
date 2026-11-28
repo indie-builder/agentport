@@ -476,9 +476,14 @@ export function AgentEditor({
       return !(childDirty || locked);
     },
   });
-  useEffect(() => {
+  const prevChildView = useRef({ instruction, view: search.view });
+  if (
+    prevChildView.current.instruction !== instruction ||
+    prevChildView.current.view !== search.view
+  ) {
+    prevChildView.current = { instruction, view: search.view };
     confirmedChildSwitch.current = null;
-  }, [instruction, search.view]);
+  }
   const proceedLeave = (): void => {
     blocker.proceed();
   };
@@ -1296,14 +1301,15 @@ export function AgentEditor({
                               id="agent-model"
                               onBlur={modelField.onBlur}
                               aria-invalid={Boolean(errors.model)}
-                              className="w-64 font-mono"
+                              mono
+                              className="w-64"
                             />
                             <AutocompleteContent>
                               <AutocompleteEmpty>无匹配预设，可直接保留输入</AutocompleteEmpty>
                               <AutocompleteList>
                                 {models.map((model) => (
                                   <AutocompleteItem key={model} value={model}>
-                                    <AutocompleteItemText className="font-mono" />
+                                    <AutocompleteItemText mono />
                                   </AutocompleteItem>
                                 ))}
                               </AutocompleteList>
@@ -2086,7 +2092,7 @@ export function AgentEditor({
                                         ? '已放行：点击禁用'
                                         : '已禁用：点击放行'
                                 }
-                                className="font-mono"
+                                mono
                               >
                                 {tool}
                                 <span className="sr-only">
@@ -2736,12 +2742,14 @@ export function AgentEditor({
         <SheetContent
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-full max-w-120! gap-0 p-0 shadow-overlay sm:max-w-120!"
+          className="w-full max-w-120! gap-0 p-0 sm:max-w-120!"
         >
           <div className="flex items-start justify-between gap-4 border-b px-5 py-3.5">
             <div className="min-w-0">
-              <SheetTitle className="text-md font-semibold">版本历史</SheetTitle>
-              <SheetDescription className="mt-1 text-sm">
+              <SheetTitle>
+                <span className="text-md font-semibold">版本历史</span>
+              </SheetTitle>
+              <SheetDescription className="mt-1">
                 每次保存生成一份快照。回滚会恢复完整定义、生成新版本并设为线上。
               </SheetDescription>
             </div>

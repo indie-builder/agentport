@@ -82,6 +82,8 @@ export function AgentPicker({
       {triggerVariant === 'field' ? (
         <ComboboxTrigger
           ref={setButton}
+          variant="field"
+          {...(triggerClassName === undefined ? {} : { className: triggerClassName })}
           render={
             <button
               type="button"
@@ -92,10 +94,6 @@ export function AgentPicker({
               aria-label={triggerAriaLabel ?? placeholder}
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedby}
-              className={cn(
-                'flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm font-medium whitespace-nowrap transition-colors outline-none select-none cds-focus-glow disabled:cursor-not-allowed disabled:opacity-35 aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0',
-                triggerClassName,
-              )}
             />
           }
         >
@@ -123,7 +121,7 @@ export function AgentPicker({
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedby}
               title="切换专家"
-              className={cn('w-full min-w-0 justify-start font-normal', triggerClassName)}
+              className={cn('w-full min-w-0 justify-start', triggerClassName)}
             />
           }
         >
@@ -132,7 +130,7 @@ export function AgentPicker({
           ) : (
             <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
           )}
-          <span className="min-w-0 flex-1 truncate text-left text-sm text-fg">
+          <span className="min-w-0 flex-1 truncate text-left text-sm font-normal text-fg">
             {agent?.name ?? selectedLabel ?? placeholder}
           </span>
         </ComboboxTrigger>
@@ -140,9 +138,10 @@ export function AgentPicker({
       <ComboboxContent anchor={button} className="min-w-64">
         <ComboboxInput
           autoFocus
+          variant="surface"
           aria-label="搜索专家"
           placeholder="搜索名称、角色或 Slug…"
-          className="m-1 mb-0 w-[calc(100%---spacing(2))] bg-surface"
+          className="m-1 mb-0 w-[calc(100%---spacing(2))]"
         />
         {truncated ? (
           <p className="px-2 pb-1 text-xs text-muted-foreground">
@@ -153,7 +152,7 @@ export function AgentPicker({
         <ComboboxList>
           {(state) =>
             (state.items as typeof items).map(({ value: option, label }) => (
-              <ComboboxItem key={option.value} value={option} label={label} className="py-1.5">
+              <ComboboxItem key={option.value} value={option} label={label} size="lg">
                 {option.agent ? (
                   <AgentAvatar agent={option.agent} className="size-6" />
                 ) : (

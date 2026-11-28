@@ -60,23 +60,43 @@ function Bubble({
   );
 }
 
+const bubbleContentVariants = cva(
+  'w-fit max-w-full min-w-0 overflow-hidden rounded-xl border border-transparent leading-relaxed wrap-break-word group-data-[align=end]/bubble:self-end [button]:text-start [button,a]:transition-colors [button,a]:outline-none [button,a]:focus-visible:border-ring [button,a]:focus-visible:ring-3 [button,a]:focus-visible:ring-ring/50',
+  {
+    variants: {
+      size: {
+        default: 'px-3 py-2 text-sm',
+        lg: 'px-4 py-3 text-base',
+      },
+    },
+    defaultVariants: {
+      size: 'default',
+    },
+  },
+);
+
+type BubbleContentState = {
+  slot: 'bubble-content';
+  size: NonNullable<VariantProps<typeof bubbleContentVariants>['size']>;
+};
+
 function BubbleContent({
   className,
+  size = 'default',
   render,
   ...props
-}: ElementPartProps<'div', { slot: 'bubble-content' }>) {
+}: ElementPartProps<'div', BubbleContentState> & VariantProps<typeof bubbleContentVariants>) {
+  const resolvedSize = size ?? 'default';
   return renderElement(
     'div',
     {
       'data-slot': 'bubble-content',
+      'data-size': resolvedSize,
       ...props,
-      className: mergeClassName(
-        'w-fit max-w-full min-w-0 overflow-hidden rounded-xl border border-transparent px-3 py-2 text-sm leading-relaxed wrap-break-word group-data-[align=end]/bubble:self-end [button]:text-start [button,a]:transition-colors [button,a]:outline-none [button,a]:focus-visible:border-ring [button,a]:focus-visible:ring-3 [button,a]:focus-visible:ring-ring/50',
-        className,
-      ),
+      className: mergeClassName(bubbleContentVariants({ size: resolvedSize }), className),
     },
     render,
-    { slot: 'bubble-content' },
+    { slot: 'bubble-content', size: resolvedSize },
   );
 }
 

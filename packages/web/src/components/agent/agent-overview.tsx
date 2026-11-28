@@ -401,7 +401,7 @@ export function AgentOverview({
                 >
                   <MeterTrack>
                     <MeterIndicator
-                      className={budget.data.state === 'exceeded' ? 'bg-danger' : 'bg-fg'}
+                      tone={budget.data.state === 'exceeded' ? 'danger' : 'default'}
                     />
                   </MeterTrack>
                 </Meter>

@@ -82,10 +82,12 @@ export function ConfirmDialog({
     >
       <AlertDialogBackdrop />
       <AlertDialogContent
-        className="flex max-h-[80dvh] w-[calc(100%-2rem)] max-w-md flex-col gap-0 overflow-hidden p-0 sm:max-w-md"
+        padding="none"
+        gap="none"
+        className="flex max-h-[80dvh] w-[calc(100%-2rem)] max-w-md flex-col overflow-hidden sm:max-w-md"
         {...(finalFocus === undefined ? {} : { finalFocus })}
       >
-        <AlertDialogHeader className="shrink-0 border-b px-5 py-3.5">
+        <AlertDialogHeader bordered padding="md" className="shrink-0">
           <AlertDialogTitle>{title}</AlertDialogTitle>
         </AlertDialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
@@ -101,9 +103,7 @@ export function ConfirmDialog({
               <AlertTriangle className="size-5" aria-hidden="true" />
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
-              <AlertDialogDescription className="leading-relaxed">
-                {description}
-              </AlertDialogDescription>
+              <AlertDialogDescription leading="relaxed">{description}</AlertDialogDescription>
               {children}
             </div>
           </div>

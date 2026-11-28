@@ -61,7 +61,7 @@ function FoldingMessageBody({ text }: { text: string }) {
           aria-expanded={expanded}
           aria-label={expanded ? '收起消息' : '展开完整消息'}
           onClick={() => setExpanded((value) => !value)}
-          className="self-start text-sm"
+          className="self-start"
         >
           {expanded ? '收起' : '展开'}
         </Button>
@@ -99,7 +99,7 @@ export const MessagePart = memo(function MessagePart({
               variant="secondary"
               className="max-w-[85%]"
             >
-              <BubbleContent className="px-4 py-3 text-base">
+              <BubbleContent size="lg">
                 <FoldingMessageBody text={item.text} />
               </BubbleContent>
             </Bubble>
@@ -168,14 +168,14 @@ export const MessagePart = memo(function MessagePart({
       return (
         <Marker
           variant="default"
-          className={
+          tone={
             item.tone === 'ok'
-              ? 'text-success'
+              ? 'success'
               : item.tone === 'error'
-                ? 'text-danger'
+                ? 'danger'
                 : item.tone === 'warning'
-                  ? 'text-warning'
-                  : 'text-muted-foreground'
+                  ? 'warning'
+                  : 'muted'
           }
         >
           <MarkerIcon className="flex items-center justify-center">

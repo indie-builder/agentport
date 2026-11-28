@@ -194,7 +194,12 @@ export function HandoverSection({ canManage }: { canManage: boolean }) {
                   const groupItems = data.items[group.key];
                   return (
                     <AccordionItem key={group.key} value={group.key}>
-                      <AccordionTrigger className="items-center gap-2 py-3 hover:no-underline">
+                      <AccordionTrigger
+                        gap="sm"
+                        padding="md"
+                        underline={false}
+                        className="items-center"
+                      >
                         <span className="text-sm font-medium text-fg">{group.label}</span>
                         <StatusBadge tone="mono">{groupItems.length}</StatusBadge>
                       </AccordionTrigger>
