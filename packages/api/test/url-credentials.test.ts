@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { maskUrlCredentials, type Server } from '@agentport/shared';
+import type { Server } from '@agentport/shared';
 import { zipSync } from 'fflate';
 import {
   cleanup,
@@ -78,7 +78,9 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     const body = detail.json<Server>();
     expect(body.kind).toBe('http');
     if (body.kind !== 'http') throw new Error('unexpected kind');
-    expect(body.url).toBe(maskUrlCredentials(RAW_URL));
+    expect(body.url).toBe(
+      'https://%E2%80%A2%E2%80%A2%E2%80%A2%E2%80%A2:%E2%80%A2%E2%80%A2%E2%80%A2%E2%80%A2@legacy.example.com/mcp',
+    );
     expect(body.url).toContain('legacy.example.com');
 
     const list = await request(app, { method: 'GET', url: '/api/servers', headers: auth() });
@@ -97,7 +99,9 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
 
     const body = await serverUrl(id);
     if (body.kind !== 'generated') throw new Error('unexpected kind');
-    expect(body.baseUrl).toBe(maskUrlCredentials(rawBase));
+    expect(body.baseUrl).toBe(
+      'https://%E2%80%A2%E2%80%A2%E2%80%A2%E2%80%A2:%E2%80%A2%E2%80%A2%E2%80%A2%E2%80%A2@legacy.example.com/api',
+    );
     const list = await request(app, { method: 'GET', url: '/api/servers', headers: auth() });
     expect(list.body).not.toContain(RAW_USER);
     expect(list.body).not.toContain(RAW_PASS);

@@ -104,22 +104,6 @@ describe('DataTable accessibility', () => {
     },
   );
 
-  it('keeps an explicitly configured initial sort visible before any click', () => {
-    const html = renderToStaticMarkup(
-      createElement(DataTable<(typeof runRows)[number]>, {
-        rows: runRows,
-        columns: runColumns,
-        rowKey: (row) => row.id,
-        label: '运行列表',
-        initialSorting: [{ id: 'startedAt', desc: true }],
-      }),
-    );
-    expect(html.match(/aria-sort="descending"/g)).toHaveLength(1);
-    expect(html).not.toContain('aria-sort="ascending"');
-    expect(html).toContain('lucide-arrow-down');
-    expect(html).not.toContain('lucide-chevrons-up-down');
-  });
-
   it('stays unsorted by default', () => {
     const html = renderToStaticMarkup(
       createElement(DataTable<(typeof runRows)[number]>, {
@@ -130,7 +114,6 @@ describe('DataTable accessibility', () => {
       }),
     );
     expect(html).not.toContain('aria-sort');
-    expect(html).toContain('lucide-chevrons-up-down');
     expect(html.indexOf('2026-10-01')).toBeLessThan(html.indexOf('2026-10-03'));
   });
 
@@ -159,6 +142,8 @@ describe('DataTable accessibility', () => {
           }),
         );
       });
+      expect(container.querySelectorAll('th[aria-sort="descending"]')).toHaveLength(1);
+      expect(container.querySelector('th[aria-sort="ascending"]')).toBeNull();
       expect(direction()).toBe('descending');
       expect(order()).toEqual(['run_new', 'run_mid', 'run_old', 'run_queued']);
       const row = container.querySelector<HTMLTableRowElement>('tbody tr');

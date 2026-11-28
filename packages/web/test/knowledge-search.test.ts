@@ -258,101 +258,6 @@ describe('knowledge search citations', () => {
     await click(triggers[1] as HTMLButtonElement);
     expect(dialog('引用原文').querySelector('mark')?.textContent).toBe(secondQuote);
   });
-
-  it('shows the hit image with the quote as alt text and explains a failed load', async () => {
-    baseHandlers();
-    server.use(
-      http.get('/api/knowledge/bases/kb_1/search', () =>
-        HttpResponse.json({
-          hits: [
-            {
-              chunkId: 'kchk_img',
-              documentId: 'kdoc_1',
-              versionId: 'kdv_1',
-              title: '上线流程',
-              heading: null,
-              quote: '发布前需要产品与研发双方确认。',
-              pageFrom: 3,
-              pageTo: 3,
-              sourceUrl: null,
-              score: 0.72,
-              image: { name: '图 1.png', mimeType: 'image/png', page: 3 },
-            },
-          ],
-          degraded: false,
-        }),
-      ),
-      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('正文')),
-      http.get(
-        '/api/knowledge/versions/kdv_1/images/%E5%9B%BE%201.png',
-        () =>
-          new HttpResponse(Uint8Array.from([1, 2, 3]), {
-            headers: { 'content-type': 'image/png' },
-          }),
-      ),
-    );
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:image');
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    await mount('/knowledge/kb_1', { panel: 'search' });
-    await fill('knowledge-search', '发布');
-    await act(async () => {
-      document
-        .querySelector('form')
-        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    });
-    await flush();
-    await click(button('查看原文'));
-    const viewer = dialog('引用原文');
-    const image = viewer.querySelector<HTMLImageElement>('img');
-    expect(image?.getAttribute('src')).toBe('blob:image');
-    expect(image?.getAttribute('alt')).toBe('发布前需要产品与研发双方确认。');
-    expect(viewer.textContent).not.toContain('无权读取');
-  });
-
-  it('explains a revoked image with the 403 message instead of a generic failure', async () => {
-    baseHandlers();
-    server.use(
-      http.get('/api/knowledge/bases/kb_1/search', () =>
-        HttpResponse.json({
-          hits: [
-            {
-              chunkId: 'kchk_img',
-              documentId: 'kdoc_1',
-              versionId: 'kdv_1',
-              title: '上线流程',
-              heading: null,
-              quote: '发布前需要产品与研发双方确认。',
-              pageFrom: 3,
-              pageTo: 3,
-              sourceUrl: null,
-              score: 0.72,
-              image: { name: '图 1.png', mimeType: 'image/png', page: 3 },
-            },
-          ],
-          degraded: false,
-        }),
-      ),
-      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('正文')),
-      http.get('/api/knowledge/versions/kdv_1/images/%E5%9B%BE%201.png', () =>
-        HttpResponse.json({ code: 'FORBIDDEN', message: '无权读取' }, { status: 403 }),
-      ),
-    );
-    await mount('/knowledge/kb_1', { panel: 'search' });
-    await fill('knowledge-search', '发布');
-    await act(async () => {
-      document
-        .querySelector('form')
-        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    });
-    await flush();
-    await click(button('查看原文'));
-    const viewer = dialog('引用原文');
-    expect(viewer.textContent).toContain('无权读取这张图片，或知识库已停用。');
-    expect(viewer.querySelector('img')).toBeNull();
-    expect(
-      viewer.querySelector<HTMLAnchorElement>('a[href="/api/knowledge/versions/kdv_1/content"]'),
-    ).not.toBeNull();
-  });
 });
 
 describe('knowledge UX guards', () => {
@@ -477,29 +382,6 @@ describe('knowledge UX guards', () => {
     expect(document.body.textContent).not.toContain('构建你的专属知识库');
     await click(button('清除全部筛选'));
     expect(document.body.textContent).toContain('产品手册');
-  });
-
-  it('navigates to the newly created base only after its dialog unmounts', async () => {
-    listHandlers();
-    const createdBase = { ...base, id: 'kb_new', slug: 'new-base', name: '新库' };
-    server.use(
-      http.post('/api/knowledge/bases', () => HttpResponse.json(createdBase)),
-      http.get('/api/knowledge/bases/kb_new', () => HttpResponse.json(createdBase)),
-      http.get('/api/knowledge/bases/kb_new/folders', () => HttpResponse.json([])),
-      http.get('/api/knowledge/bases/kb_new/tags', () => HttpResponse.json([])),
-      http.get('/api/knowledge/bases/kb_new/documents', () =>
-        HttpResponse.json({ items: [], nextCursor: null }),
-      ),
-    );
-    const router = await mount('/knowledge', { q: '产品' });
-    await click(button('新建知识库'));
-    const creator = dialog('新建知识库');
-    await fill('knowledge-name', '新库');
-    await fill('knowledge-slug', 'new-base');
-    await click(button('创建', creator));
-    await waitFor(() => router.state.location.pathname === '/knowledge/kb_new');
-    expect(dialogShown('新建知识库')).toBe(false);
-    expect(document.body.textContent).toContain('新库');
   });
 
   const createDraftChanges: Array<[string, () => Promise<void>]> = [

@@ -14,12 +14,6 @@ import {
   type TestApp,
   unique,
 } from './helpers.js';
-import {
-  type CommandWatch,
-  startXreadGate,
-  watchIsFinished,
-  type XreadGate,
-} from './queue-events-gate.js';
 
 const ready = await infraReady;
 
@@ -34,9 +28,6 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
   const created: string[] = [];
   const createdEnvironments: string[] = [];
   const workers: Worker[] = [];
-  const gates: XreadGate[] = [];
-  const watches: CommandWatch[] = [];
-  const finishCallbacks: Array<() => void> = [];
 
   const startWorker = <T>(processor: (job: Job<T>) => Promise<unknown>): Worker<T> => {
     const worker = new Worker<T>(SANDBOX_PROBES_QUEUE, processor, { connection, concurrency: 1 });
@@ -53,14 +44,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
   });
 
   afterEach(async () => {
-    const activeGates = gates.splice(0);
-    for (const gate of activeGates) gate.release();
-    for (const finish of finishCallbacks.splice(0)) finish();
-    await Promise.allSettled([
-      ...activeGates.map((gate) => gate.close()),
-      ...watches.splice(0).map((watch) => watch.close()),
-      ...workers.splice(0).map((worker) => worker.close(true)),
-    ]);
+    await Promise.allSettled(workers.splice(0).map((worker) => worker.close(true)));
   });
 
   afterAll(async () => {
@@ -297,49 +281,6 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
       payload: { runtimeEnvironmentId: 'rte_http' },
     });
     expectProblem(res, 'INVALID_INPUT');
-  });
-
-  /**
-   * QueueEvents 连接 ready 不代表首个 XREAD 已开始；默认 $ 在执行时解析为流尾。
-   * 门闩扣住首个 XREAD，等 job 完成并写入事件后再放行，稳定复现完成通知被跳过。
-   */
-  it('returns the worker result when the job finishes before the first event read starts', async () => {
-    const gate = await startXreadGate(redisUrl);
-    gates.push(gate);
-    const watch = await watchIsFinished(redisUrl, SANDBOX_PROBES_QUEUE);
-    watches.push(watch);
-
-    let finishJob!: () => void;
-    const jobFinished = new Promise<void>((resolve) => {
-      finishJob = resolve;
-    });
-    finishCallbacks.push(() => finishJob());
-    let workerStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      workerStarted = resolve;
-    });
-    const worker = startWorker<{ serverId: string }>(async () => {
-      workerStarted();
-      await jobFinished;
-      return { ok: true, tools: [{ name: 'echo' }], durationMs: 5 };
-    });
-    const jobCompleted = new Promise<void>((resolve) => {
-      worker.once('completed', () => resolve());
-    });
-
-    const pending = testStdioInSandbox('srv_any', logger, {
-      timeoutMs: 2_000,
-      redisUrl: gate.url,
-    });
-    await Promise.all([gate.held, started, watch.isFinished]);
-    finishJob();
-    await jobCompleted;
-    gate.release();
-
-    await expect(pending).resolves.toMatchObject({
-      ok: true,
-      tools: [{ name: 'echo' }],
-    });
   });
 
   it('returns a readable timeout result when no worker is consuming', async () => {

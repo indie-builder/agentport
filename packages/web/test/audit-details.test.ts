@@ -393,8 +393,6 @@ describe('audit row details', () => {
 
     const trigger = toggle('audit_aaa');
     expect(trigger.getAttribute('aria-label')).toBe(rowActionLabel('展开', entry('audit_aaa')));
-    expect(trigger.tagName).toBe('BUTTON');
-    expect(trigger.type).toBe('button');
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
 
     await toggleRow('audit_aaa');

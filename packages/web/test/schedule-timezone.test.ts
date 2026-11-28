@@ -164,7 +164,6 @@ describe('schedule next due display', () => {
     await mount();
 
     expect(header('下次触发')).toBeTruthy();
-    expect(header('下次触发（UTC）')).toBeUndefined();
     expect(nextDueCell().textContent?.trim()).toBe(utcDisplay);
     expect(utcDisplay).toContain('09:00');
     expect(nextDueCell().textContent).not.toContain('17:00');

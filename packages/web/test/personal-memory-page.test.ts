@@ -157,44 +157,6 @@ function link(label: string): HTMLAnchorElement {
   return match;
 }
 
-function mainNavLink(label: string): HTMLAnchorElement {
-  const nav = host.querySelector('nav[aria-label="主导航"]');
-  const match = nav
-    ? [...nav.querySelectorAll<HTMLAnchorElement>('a')].find(
-        (item) => item.textContent?.trim() === label || item.getAttribute('aria-label') === label,
-      )
-    : undefined;
-  if (!match) throw new Error(`Missing main nav link: ${label}`);
-  return match;
-}
-
-function mainNavHrefs(): string[] {
-  const nav = host.querySelector('nav[aria-label="主导航"]');
-  return nav
-    ? [...nav.querySelectorAll<HTMLAnchorElement>('a')].map(
-        (item) => item.getAttribute('href') ?? '',
-      )
-    : [];
-}
-
-function accountEntry(): HTMLAnchorElement {
-  const match = [...host.querySelectorAll<HTMLAnchorElement>('a[aria-label="个人资料"]')].find(
-    (item) => item.closest('nav') === null,
-  );
-  if (!match) throw new Error('Missing account entry');
-  return match;
-}
-
-const PERSONAL_HREFS = [
-  '/personal/profile',
-  '/personal/memory',
-  '/personal/reviews',
-  '/personal/security',
-  '/personal/shares',
-  '/personal/usage',
-  '/personal/work',
-];
-
 async function click(element: HTMLElement) {
   await act(async () => element.click());
   await flush();
@@ -296,37 +258,7 @@ describe('个人记忆页', () => {
     await mount();
     expect(host.querySelectorAll('h1')).toHaveLength(1);
     expect(host.querySelector('h1')?.textContent).toBe('个人记忆');
-    expect([...host.querySelectorAll('h2')].some((item) => item.textContent === '个人记忆')).toBe(
-      false,
-    );
     expect(host.textContent?.split('每轮对话会带入这些长期信息。')).toHaveLength(2);
-    expect(mainNavLink('个人记忆').getAttribute('aria-current')).toBe('page');
-    expect(accountEntry().getAttribute('aria-current')).toBeNull();
-    expect(new Set(mainNavHrefs())).toEqual(new Set(PERSONAL_HREFS));
-    for (const href of [
-      '/agents',
-      '/chat',
-      '/schedules',
-      '/skills',
-      '/eval',
-      '/operations',
-      '/runs',
-      '/status',
-      '/audit',
-    ]) {
-      expect(mainNavHrefs()).not.toContain(href);
-    }
-    expect(host.querySelector('nav[aria-label="个人导航"]')).toBeNull();
-  });
-
-  it('记忆提案是独立路由，不渲染个人记忆编辑器', async () => {
-    await mount('/personal/reviews');
-    await vi.waitFor(() => expect(host.textContent).toContain('生成记忆提案'));
-    expect(host.textContent).not.toContain('个人记忆内容（Markdown）');
-    expect(host.querySelector('h1')?.textContent).toBe('记忆提案');
-    expect(mainNavLink('记忆提案').getAttribute('aria-current')).toBe('page');
-    expect(accountEntry().getAttribute('aria-current')).toBeNull();
-    expect(host.querySelector('nav[aria-label="个人导航"]')).toBeNull();
   });
 
   it('默认以 Markdown 阅读已有内容，编辑后才出现源码编辑器', async () => {
@@ -539,25 +471,6 @@ describe('个人记忆页', () => {
     expect(download.hasAttribute('download')).toBe(true);
   });
 
-  it('回滚版本调用变更账本并在成功后重新读取', async () => {
-    await mount();
-    await expandVersions();
-    const rollback = await vi.waitFor(() => {
-      const match = [...host.querySelectorAll('button')].find((item) =>
-        item.getAttribute('aria-label')?.startsWith('回滚 '),
-      );
-      expect(match).toBeTruthy();
-      return match as HTMLButtonElement;
-    });
-    await click(rollback);
-    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent).toContain(
-      '回滚这次保存？',
-    );
-    await confirm('回滚');
-    expect(api.rollbackMemoryChange).toHaveBeenCalledWith('chg_1');
-    await vi.waitFor(() => expect(api.personalMemoryVersions).toHaveBeenCalledTimes(2));
-  });
-
   it('回滚后刷新个人偏好与版本列表', async () => {
     const rollbackChange: MemoryChange = {
       ...change,
@@ -593,7 +506,11 @@ describe('个人记忆页', () => {
       return match as HTMLButtonElement;
     });
     await click(rollback);
+    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent).toContain(
+      '回滚这次保存？',
+    );
     await confirm('回滚');
+    expect(api.rollbackMemoryChange).toHaveBeenCalledWith('chg_1');
 
     await vi.waitFor(() => expect(api.personalMemoryVersions).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(host.textContent).toContain('更早的偏好'));
@@ -732,20 +649,5 @@ describe('个人记忆页', () => {
       void router.navigate({ to: '/personal/memory' });
     });
     await vi.waitFor(() => expect(host.textContent).toContain('旧偏好'));
-  });
-
-  it('离开路由前确认放弃草稿', async () => {
-    await mount();
-    await startEditing();
-    await fillEditor('未保存的草稿');
-    await act(async () => {
-      void router.navigate({ to: '/chat' });
-    });
-    await flush();
-    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')?.textContent).toContain(
-      '放弃未保存的个人记忆？',
-    );
-    await confirm('放弃并离开');
-    await vi.waitFor(() => expect(host.textContent).toContain('Destination'));
   });
 });

@@ -1,11 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { utcWindowStart } from '@agentport/shared';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 
 const DAY_MS = 86_400_000;
 
 function recentUtcDays(days: number): string[] {
-  const start = utcWindowStart(days).getTime();
+  const start = utcMidnight(1 - days).getTime();
   return Array.from({ length: days }, (_, index) =>
     new Date(start + index * DAY_MS).toISOString().slice(0, 10),
   );
@@ -277,7 +276,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
 
   it('uses UTC natural days for the window boundary', async () => {
     const agentId = await seedAgent();
-    const since = utcWindowStart(2);
+    const since = utcMidnight(-1);
     const before = await counts(2);
     await seedRun(agentId, 'succeeded', since, { input: 1, output: 0 });
     await seedRun(agentId, 'failed', new Date(since.getTime() - 1), { input: 1, output: 0 });

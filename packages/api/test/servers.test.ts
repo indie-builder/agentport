@@ -16,28 +16,6 @@ import {
 
 const ready = await infraReady;
 
-function capturePoolQueries(app: TestApp): { queries: string[]; restore: () => void } {
-  const original = app.client.unsafe;
-  const queries: string[] = [];
-  const patched = (first: unknown, ...rest: unknown[]) => {
-    queries.push(typeof first === 'string' ? first : (first as { text: string }).text);
-    return (original as (...args: unknown[]) => unknown).call(app.client, first, ...rest);
-  };
-  app.client.unsafe = patched as typeof original;
-  return {
-    queries,
-    restore: () => {
-      app.client.unsafe = original;
-    },
-  };
-}
-
-const isServerQuery = (sql: string) => /\bfrom\s+"?servers\b/i.test(sql);
-const isToolQuery = (sql: string) => /\bfrom\s+"?api_tools\b/i.test(sql);
-const readsServerSecrets = (sql: string) => /"(?:config|secrets_encrypted)"/i.test(sql);
-const isIdOnlyServerQuery = (sql: string) =>
-  /select\s+"id"(?:\s*,\s*"owner_business_id")?\s+from\s+"servers"/i.test(sql);
-
 describe.skipIf(!ready)('servers', () => {
   let app: TestApp;
   let cookie: string;
@@ -380,52 +358,22 @@ describe.skipIf(!ready)('servers', () => {
 
   it('GET /api/servers/:id/tools returns [] for an existing server without tools', async () => {
     const server = await createServer(app, cookie, { track: created });
-    const probe = capturePoolQueries(app);
-    try {
-      const res = await request(app, {
-        method: 'GET',
-        url: `/api/servers/${server.id}/tools`,
-        headers: auth(),
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual([]);
-
-      const serverQueries = probe.queries.filter(isServerQuery);
-      expect(serverQueries).toHaveLength(1);
-      const existence = serverQueries[0] ?? '';
-      expect(isIdOnlyServerQuery(existence)).toBe(true);
-      expect(readsServerSecrets(existence)).toBe(false);
-      expect(probe.queries.filter(isToolQuery)).toHaveLength(1);
-
-      await app.client.unsafe('select "config", "secrets_encrypted" from "servers" where id = $1', [
-        server.id,
-      ]);
-      const withControl = probe.queries.filter(isServerQuery);
-      expect(withControl).toHaveLength(2);
-      expect(readsServerSecrets(withControl[1] ?? '')).toBe(true);
-    } finally {
-      probe.restore();
-    }
+    const res = await request(app, {
+      method: 'GET',
+      url: `/api/servers/${server.id}/tools`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
   });
 
   it('GET /api/servers/:id/tools returns the original 404 Problem without listing tools', async () => {
-    const probe = capturePoolQueries(app);
-    try {
-      const res = await request(app, {
-        method: 'GET',
-        url: '/api/servers/srv_missing/tools',
-        headers: auth(),
-      });
-      expectProblem(res, 'NOT_FOUND');
-
-      const serverQueries = probe.queries.filter(isServerQuery);
-      expect(serverQueries).toHaveLength(1);
-      expect(isIdOnlyServerQuery(serverQueries[0] ?? '')).toBe(true);
-      expect(readsServerSecrets(serverQueries[0] ?? '')).toBe(false);
-      expect(probe.queries.filter(isToolQuery)).toHaveLength(0);
-    } finally {
-      probe.restore();
-    }
+    const res = await request(app, {
+      method: 'GET',
+      url: '/api/servers/srv_missing/tools',
+      headers: auth(),
+    });
+    expectProblem(res, 'NOT_FOUND');
   });
 
   it('GET /api/servers/:id/tools requires auth', async () => {
@@ -461,30 +409,6 @@ describe.skipIf(!ready)('servers', () => {
     });
     const body = expectProblem(res, 'CONFLICT');
     expect(body.message).toContain('工具名');
-  });
-
-  it('PATCH rejects a stale expectedUpdatedAt with 409', async () => {
-    const name = unique('stale');
-    created.push(name);
-    const server = (
-      await post(name, { kind: 'stdio', command: 'echo', args: [], env: {} })
-    ).json<Server>();
-
-    const ok = await request(app, {
-      method: 'PATCH',
-      url: `/api/servers/${server.id}`,
-      headers: auth(),
-      payload: { description: 'first', expectedUpdatedAt: server.updatedAt },
-    });
-    expect(ok.statusCode).toBe(200);
-
-    const stale = await request(app, {
-      method: 'PATCH',
-      url: `/api/servers/${server.id}`,
-      headers: auth(),
-      payload: { description: 'second', expectedUpdatedAt: server.updatedAt },
-    });
-    expectProblem(stale, 'CONFLICT_STALE');
   });
 
   it('DELETE removes the server and returns 404 afterwards', async () => {

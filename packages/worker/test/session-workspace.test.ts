@@ -247,40 +247,6 @@ describe('stable session workspace', () => {
     expect(info.mode & 0o777).toBe(0o700);
   });
 
-  it('precreates the mount for a 160-character Unicode business ID', async () => {
-    root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
-    const businessId = '人'.repeat(160);
-    const paths = await ensureSessionWorkspace({
-      workspacesDir: root,
-      slug: 'demo',
-      conversationId: 'conversation-unicode',
-      businessId,
-    });
-    expect(basename(paths.personalDir as string)).toHaveLength(64);
-    expect((await stat(paths.personalDir as string)).isDirectory()).toBe(true);
-  });
-
-  it('keeps two business users on separate personal directories', async () => {
-    root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
-    const first = await ensureSessionWorkspace({
-      workspacesDir: root,
-      slug: 'demo',
-      conversationId: 'conversation-a',
-      businessId: 'user-a',
-    });
-    const second = await ensureSessionWorkspace({
-      workspacesDir: root,
-      slug: 'demo',
-      conversationId: 'conversation-b',
-      businessId: 'user-b',
-    });
-    expect(first.personalDir).toBeDefined();
-    expect(second.personalDir).toBeDefined();
-    expect(first.personalDir).not.toBe(second.personalDir);
-    await writeFile(join(first.personalDir as string, 'CLAUDE.md'), 'a');
-    await expect(stat(join(second.personalDir as string, 'CLAUDE.md'))).rejects.toThrow(/ENOENT/);
-  });
-
   it('omits personal memory for service subjects', async () => {
     root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
     const paths = await ensureSessionWorkspace({

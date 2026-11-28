@@ -446,7 +446,7 @@ describe('rule editor', () => {
       '规则内容（Markdown）',
     );
     expect(button('保存规则').disabled).toBe(true);
-    expect(host.textContent).not.toContain('选择或新建规则');
+    expect(host.textContent).not.toContain('选择左侧规则查看或编辑');
   });
 
   it('edits rule markdown with the source editor and marks the draft dirty', async () => {
@@ -499,7 +499,7 @@ describe('output style editor', () => {
     expect(view.state.doc.toString()).toBe('# 风格');
     expect(document.querySelector('label[for="output-style-body"]')?.textContent).toBe('风格内容');
     expect(button('风格保存').disabled).toBe(true);
-    expect(host.textContent).not.toContain('选择或新建输出风格');
+    expect(host.textContent).not.toContain('选择左侧风格查看或编辑');
   });
 
   it('edits style markdown with the source editor and marks the draft dirty', async () => {

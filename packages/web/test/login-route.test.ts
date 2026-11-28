@@ -232,6 +232,49 @@ describe('login route session check', () => {
     await flush();
     expect(router.state.location.pathname).toBe(TARGET);
   });
+
+  it('explains an expired session once and strips the reason from the address', async () => {
+    vi.mocked(api.me).mockResolvedValue({ authenticated: false });
+    const router = await mount('/login?returnTo=%2Fknowledge%2Fkb_1%3Fpanel%3Dwiki&reason=expired');
+
+    expect(host.textContent).toContain('登录已过期，请重新登录');
+    expect(router.state.location.pathname).toBe('/login');
+    expect(router.state.location.search).toEqual({ returnTo: '/knowledge/kb_1?panel=wiki' });
+  });
+
+  it('does not show the expired notice on a first login', async () => {
+    vi.mocked(api.me).mockResolvedValue({ authenticated: false });
+    await mount('/login?returnTo=%2Fknowledge%2Fkb_1%3Fpanel%3Dwiki');
+
+    expect(host.textContent).not.toContain('登录已过期');
+    expect(host.textContent).not.toContain('失效');
+  });
+
+  it('keeps the form and reports when login does not establish a session', async () => {
+    vi.mocked(api.me).mockResolvedValue({ authenticated: false });
+    const router = await mount();
+
+    vi.mocked(api.login).mockResolvedValue({ ok: true });
+    await submit('secret');
+
+    expect(router.state.location.pathname).toBe('/login');
+    expect(form()).not.toBeNull();
+    expect(host.textContent).toContain('登录状态确认失败');
+  });
+
+  it('shows the identity fetch failure instead of swallowing it', async () => {
+    vi.mocked(api.me)
+      .mockResolvedValueOnce({ authenticated: false })
+      .mockRejectedValueOnce(new Error('offline'));
+    const router = await mount();
+
+    vi.mocked(api.login).mockResolvedValue({ ok: true });
+    await submit('secret');
+
+    expect(router.state.location.pathname).toBe('/login');
+    expect(form()).not.toBeNull();
+    expect(host.textContent).toContain('offline');
+  });
 });
 
 function submitButton(): HTMLButtonElement {
@@ -257,8 +300,20 @@ describe('login primary action', () => {
 
     await submit('secret');
 
+    const username = host.querySelector<HTMLInputElement>('input#username');
+    const password = host.querySelector<HTMLInputElement>('input#password');
     expect(submitButton().textContent).toBe('正在登录…');
     expect(submitButton().disabled).toBe(true);
+    expect(username?.disabled).toBe(true);
+    expect(password?.disabled).toBe(true);
+    expect(api.login).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      form().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+
+    expect(api.login).toHaveBeenCalledTimes(1);
   });
 
   it('offers retry after a failed login attempt', async () => {

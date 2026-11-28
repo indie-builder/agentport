@@ -25,68 +25,64 @@ function fakeDeps(
   } = {},
 ): {
   deps: DefaultEnvironmentDeps;
-  calls: string[];
+  ensured: string[];
+  resolved: string[];
   registered: Array<{ imageTag: string; imageId: string }>;
 } {
-  const calls: string[] = [];
+  const ensured: string[] = [];
+  const resolved: string[] = [];
   const registered: Array<{ imageTag: string; imageId: string }> = [];
   const deps: DefaultEnvironmentDeps = {
     store: {
-      getDefault: async () => {
-        calls.push('getDefault');
-        return options.exists === true ? { id: 'rte_test' } : null;
-      },
+      getDefault: async () => (options.exists === true ? { id: 'rte_test' } : null),
       register: async (image) => {
-        calls.push('register');
         registered.push(image);
       },
     },
     ensureDefaultAgentPublished: async () => undefined,
-    ensureImage: async (image, signal) => {
-      calls.push(`ensureImage:${image}:${signal.aborted}`);
+    ensureImage: async (image) => {
+      ensured.push(image);
       const error = options.ensureError?.();
       if (error !== undefined) throw error;
     },
     resolveImageId: async (image) => {
-      calls.push(`resolveImageId:${image}`);
+      resolved.push(image);
       return options.imageId === undefined ? IMAGE_ID : options.imageId;
     },
     sandboxImage: IMAGE,
     signal: new AbortController().signal,
     logger: quiet,
   };
-  return { deps, calls, registered };
+  return { deps, ensured, resolved, registered };
 }
 
 describe('ensureDefaultEnvironment', () => {
   it('默认环境已存在时不 inspect、不 pull、不登记', async () => {
-    const { deps, calls, registered } = fakeDeps({ exists: true });
+    const { deps, ensured, resolved, registered } = fakeDeps({ exists: true });
 
     await expect(ensureDefaultEnvironment(deps)).resolves.toBe('exists');
-    expect(calls).toEqual(['getDefault']);
+    expect(ensured).toEqual([]);
+    expect(resolved).toEqual([]);
     expect(registered).toEqual([]);
   });
 
   it('默认环境不存在时先确保基座存在（缺失则 pull），再用真实 ID 登记', async () => {
-    const { deps, calls, registered } = fakeDeps();
+    const { deps, ensured, resolved, registered } = fakeDeps();
 
     await expect(ensureDefaultEnvironment(deps)).resolves.toBe('registered');
-    expect(calls).toEqual([
-      'getDefault',
-      `ensureImage:${IMAGE}:false`,
-      `resolveImageId:${IMAGE}`,
-      'register',
-    ]);
+    expect(ensured).toEqual([IMAGE]);
+    expect(resolved).toEqual([IMAGE]);
     expect(registered).toEqual([{ imageTag: IMAGE, imageId: IMAGE_ID }]);
   });
 
   it('基座拉取失败时明确抛错且不登记，不假装环境可用', async () => {
-    const { deps, calls, registered } = fakeDeps({
+    const { deps, ensured, resolved, registered } = fakeDeps({
       ensureError: () => new Error('registry unavailable'),
     });
 
     await expect(ensureDefaultEnvironment(deps)).rejects.toThrow(/registry unavailable/);
-    expect(calls).toEqual(['getDefault', `ensureImage:${IMAGE}:false`]);
+    expect(ensured).toEqual([IMAGE]);
+    expect(resolved).toEqual([]);
     expect(registered).toEqual([]);
   });
 

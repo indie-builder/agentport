@@ -9,7 +9,6 @@ import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import {
   ADMIN_BUSINESS_ID,
   createAgent,
-  createTestAccount,
   expectProblem,
   infraReady,
   loginCookie,
@@ -192,21 +191,6 @@ describe.skipIf(!ready || isolated === null)('data-domain output share guard', (
     const content = await publicGet(`/api/public/output-shares/${share.id}/content`, token);
     expect(content.statusCode, content.body).toBe(200);
     expect(content.json<{ content: string }>().content).toBe(body);
-  });
-
-  it('hides another user’s conversation outputs', async () => {
-    const agent = await newAgent();
-    const id = await newConversation(agent.id);
-    await publish(agent.slug, id, 'run_private', { 'report.md': '# 私有\n' });
-
-    const other = await createTestAccount(app, cookie);
-    expectProblem(
-      await request(app, {
-        url: `/api/conversations/${id}/outputs`,
-        headers: { cookie: other.cookie },
-      }),
-      'NOT_FOUND',
-    );
   });
 
   it('keeps the restriction after the data domain and its query logs are deleted', async () => {

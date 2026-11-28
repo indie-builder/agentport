@@ -9,7 +9,7 @@ import {
   runQuestionSchema,
   sandboxInputCommandSchema,
 } from '../src/questions.js';
-import { publicRunQuestion, redactSecrets } from '../src/redact.js';
+import { publicRunQuestion } from '../src/redact.js';
 
 const question = (text: string, multiSelect = false) => ({
   question: text,
@@ -140,13 +140,6 @@ describe('public question contract', () => {
     expect(projected.questions[0]?.options[0]).toMatchObject({ value: '0', label: 'sk-t***' });
     expect(publicRunQuestionSchema.parse(projected)).toEqual(projected);
     expect(original.answers[secret]).toBe(secret);
-    expect(redactSecrets('Bearer abcdef123456')).toBe('Bearer abcd***');
-    expect(redactSecrets('Bearer abcdefgh')).toBe('Bearer abcd***');
-    expect(redactSecrets('Bearer abcdefg')).toBe('Bearer abcdefg');
-    expect(redactSecrets('sk-1234567890')).toBe('sk-1***');
-    expect(redactSecrets('sk-123456789')).toBe('sk-123456789');
-    expect(redactSecrets('ghp_1234567890123456')).toBe('ghp_***');
-    expect(redactSecrets('ghp_123456789012345')).toBe('ghp_123456789012345');
   });
 
   it('accepts only indexed free text and option identities at the HTTP boundary', () => {

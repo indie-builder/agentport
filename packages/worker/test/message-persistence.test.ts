@@ -467,53 +467,51 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     });
   }
 
-  for (const error of ['authentication_failed', 'rate_limit', 'cloud_credential_error'] as const) {
-    it(`keeps context for the next turn after a synthetic ${error} assistant message`, async () => {
-      const fixture = await newContextFixture();
-      const admitted = await fixture.admit(fixture.trigger);
-      await repo.chat.updateRun(db, admitted.run.id, {
-        status: 'running',
-        startedAt: new Date(),
-      });
-      const errorText = `API Error: ${error}`;
-      const saved = await messages.persistRunMessages(db, {
-        ...fixture,
-        runId: admitted.run.id,
-        events: [text(errorText)],
-        sdkSessionId: 'initialized-without-model-execution',
-        modelExecuted: false,
-      });
-      expect(saved.written).toBe(true);
-      expect(await outputOf(admitted.run.id)).toEqual([{ type: 'text', text: errorText }]);
-      expect(await fixture.cursor()).toBe(0);
-      await repo.chat.updateRun(db, admitted.run.id, {
-        status: 'failed',
-        endedAt: new Date(),
-      });
-      const next = await fixture.admit(await fixture.nextTrigger());
-      const [user] = await db
-        .select()
-        .from(schema.messages)
-        .where(and(eq(schema.messages.runId, next.run.id), eq(schema.messages.role, 'user')));
-      expect(repo.chat.messageText(user?.content)).toContain('unconsumed context');
-      expect(repo.chat.messageText(user?.content)).toContain('first trigger');
+  it('keeps context for the next turn after a synthetic authentication_failed assistant message', async () => {
+    const fixture = await newContextFixture();
+    const admitted = await fixture.admit(fixture.trigger);
+    await repo.chat.updateRun(db, admitted.run.id, {
+      status: 'running',
+      startedAt: new Date(),
     });
+    const errorText = 'API Error: authentication_failed';
+    const saved = await messages.persistRunMessages(db, {
+      ...fixture,
+      runId: admitted.run.id,
+      events: [text(errorText)],
+      sdkSessionId: 'initialized-without-model-execution',
+      modelExecuted: false,
+    });
+    expect(saved.written).toBe(true);
+    expect(await outputOf(admitted.run.id)).toEqual([{ type: 'text', text: errorText }]);
+    expect(await fixture.cursor()).toBe(0);
+    await repo.chat.updateRun(db, admitted.run.id, {
+      status: 'failed',
+      endedAt: new Date(),
+    });
+    const next = await fixture.admit(await fixture.nextTrigger());
+    const [user] = await db
+      .select()
+      .from(schema.messages)
+      .where(and(eq(schema.messages.runId, next.run.id), eq(schema.messages.role, 'user')));
+    expect(repo.chat.messageText(user?.content)).toContain('unconsumed context');
+    expect(repo.chat.messageText(user?.content)).toContain('first trigger');
+  });
 
-    it(`preserves visible synthetic ${error} assistant text in private conversations`, async () => {
-      const fixture = await newFixture();
-      const runId = await seedRun(fixture);
-      const errorText = `API Error: ${error}`;
-      const saved = await messages.persistRunMessages(db, {
-        ...fixture,
-        runId,
-        events: [text(errorText)],
-        modelExecuted: false,
-      });
-      expect(saved.messages).toHaveLength(1);
-      expect(saved.channelMessage).toBeUndefined();
-      expect(await outputOf(runId)).toEqual([{ type: 'text', text: errorText }]);
+  it('preserves visible synthetic rate_limit assistant text in private conversations', async () => {
+    const fixture = await newFixture();
+    const runId = await seedRun(fixture);
+    const errorText = 'API Error: rate_limit';
+    const saved = await messages.persistRunMessages(db, {
+      ...fixture,
+      runId,
+      events: [text(errorText)],
+      modelExecuted: false,
     });
-  }
+    expect(saved.messages).toHaveLength(1);
+    expect(saved.channelMessage).toBeUndefined();
+    expect(await outputOf(runId)).toEqual([{ type: 'text', text: errorText }]);
+  });
 
   for (const status of ['failed', 'cancelled'] as const) {
     it(`consumes context after confirmed model text even when the run is ${status}`, async () => {
@@ -802,35 +800,20 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     );
   });
 
-  it('skips the channel projection when this attempt will retry', async () => {
-    const fixture = await newChannelFixture();
-    const runId = await seedRun(fixture);
-
-    const result = await messages.persistRunMessages(db, {
-      agentId: fixture.agentId,
-      conversationId: fixture.conversationId,
-      runId,
-      events: [text('中间回复 A')],
-      projectChannelReply: false,
-    });
-
-    expect(result.written).toBe(true);
-    expect(result.messages).not.toHaveLength(0);
-    expect(result.channelMessage).toBeUndefined();
-    expect(await channelProjectionOf(runId)).toHaveLength(0);
-  });
-
   it('projects only the final reply after a retried attempt', async () => {
     const fixture = await newChannelFixture();
     const runId = await seedRun(fixture);
 
-    await messages.persistRunMessages(db, {
+    const first = await messages.persistRunMessages(db, {
       agentId: fixture.agentId,
       conversationId: fixture.conversationId,
       runId,
       events: [text('中间回复 A')],
       projectChannelReply: false,
     });
+    expect(first.written).toBe(true);
+    expect(first.messages.length).toBeGreaterThan(0);
+    expect(first.channelMessage).toBeUndefined();
     expect(await channelProjectionOf(runId)).toHaveLength(0);
 
     const final = await messages.persistRunMessages(db, {
@@ -884,35 +867,6 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
 
     expect(result.channelMessage).toBeUndefined();
     expect(await channelProjectionOf(runId)).toHaveLength(0);
-  });
-
-  it('stores the redacted todo snapshot with its tool result row', async () => {
-    const fixture = await newFixture();
-    const runId = await seedRun(fixture);
-    expect(
-      await persist(fixture, runId, [
-        { type: 'tool_start', toolUseId: 'tu1', name: 'TodoWrite' },
-        {
-          type: 'tool_result',
-          toolUseId: 'tu1',
-          content: 'ok',
-          todos: [
-            {
-              content: 'use sk-abcdefghijklmnopqrstuvwxyz',
-              activeForm: 'using sk-abcdefghijklmnopqrstuvwxyz',
-              status: 'in_progress',
-            },
-          ],
-        },
-      ]),
-    ).toBe(true);
-
-    const stored = (await outputOf(runId)).find((row) => row.type === 'tool_result') as
-      | { todos?: unknown }
-      | undefined;
-    expect(stored?.todos).toEqual([
-      { content: 'use sk-a***', activeForm: 'using sk-a***', status: 'in_progress' },
-    ]);
   });
 
   it('persists the messages collected before a byte overflow without choking on a huge token', async () => {

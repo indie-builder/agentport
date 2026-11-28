@@ -11,8 +11,6 @@ export type OpenUiBlockKey = string;
 export interface OpenUiSegment {
   kind: 'markdown' | 'openui';
   text: string;
-  start: number;
-  end: number;
   blockKey?: OpenUiBlockKey;
 }
 
@@ -53,7 +51,7 @@ export function segmentOpenUi(text: string, streaming = false): OpenUiSegment[] 
   const flushMarkdown = (end: number) => {
     if (end <= markdownStart) return;
     const value = text.slice(markdownStart, end);
-    if (value !== '') segments.push({ kind: 'markdown', text: value, start: markdownStart, end });
+    if (value !== '') segments.push({ kind: 'markdown', text: value });
   };
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -83,8 +81,6 @@ export function segmentOpenUi(text: string, streaming = false): OpenUiSegment[] 
     segments.push({
       kind: 'openui',
       text: text.slice(bodyStart, bodyEnd),
-      start: bodyStart,
-      end: bodyEnd,
       blockKey: `s${uiCount}`,
     });
     uiCount += 1;

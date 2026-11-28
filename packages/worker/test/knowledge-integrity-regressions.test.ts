@@ -1497,7 +1497,7 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
       },
     };
     const { sourceId } = await makeSource(fixtureBase, connector);
-    await repo.knowledge.replaceRanges(db, sourceId, []);
+    await repo.knowledge.replaceSourceScope(db, sourceId, { ranges: [] });
     const job = await repo.knowledge.createJob(db, {
       type: 'source_probe',
       baseId: fixtureBase.baseId,

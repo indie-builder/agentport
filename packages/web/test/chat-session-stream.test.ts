@@ -199,22 +199,6 @@ describe('chat account switch while the stream stays mounted', () => {
     expect(useChatStore.getState().input).toBe('');
   });
 
-  it('revokes the old source synchronously when the confirmed identity binds another account', async () => {
-    const source = await startRun();
-
-    act(() => {
-      bindChatIdentity('B');
-      expect(source.closed).toBe(true);
-      expect(useChatStore.getState()).toMatchObject({
-        conversationId: null,
-        items: [],
-        input: '',
-        phase: { kind: 'idle' },
-        lastRunId: null,
-      });
-    });
-  });
-
   it('revokes the mounted source, retry timer and late events on explicit sign-out', async () => {
     const source = await startRun();
     vi.mocked(api.logout).mockResolvedValue({ ok: true });

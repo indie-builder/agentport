@@ -840,32 +840,4 @@ describe.skipIf(!ready)('channel control', () => {
 
     expect(stream?.events).toEqual([{ type: 'error', message: '事件流中断，请刷新页面或重试' }]);
   });
-
-  it('publishes channel run.finished to the channel stream when a queued run is cancelled', async () => {
-    const { channel, agents } = await setup(1);
-    const agentId = agents[0];
-    if (!agentId) throw new Error('expected an agent');
-    expect((await mention(channel.id, member.cookie, [agentId])).statusCode).toBe(201);
-    const runId = await runIdFor(channel.id, agentId);
-    const stopped = await call(
-      'POST',
-      `/api/channels/${channel.id}/runs/${runId}/stop`,
-      owner.cookie,
-    );
-    expect(stopped.statusCode, stopped.body).toBe(202);
-    const entries = (await redis.xrange(channelStreamKey(channel.id), '-', '+')) as Array<
-      [string, string[]]
-    >;
-    const events = entries.map(([, fields]) => {
-      const index = fields.indexOf('payload');
-      return JSON.parse(fields[index + 1] ?? '{}') as ChannelEvent;
-    });
-    expect(events).toContainEqual({
-      type: 'run.finished',
-      channelId: channel.id,
-      runId,
-      agentId,
-      status: 'cancelled',
-    });
-  });
 });

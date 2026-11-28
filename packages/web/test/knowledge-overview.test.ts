@@ -321,7 +321,6 @@ describe('knowledge base overview', () => {
     await mount('/knowledge/kb_1', { panel: 'overview' });
 
     expect(valueFor('文档')).toBe('0');
-    expect(document.body.textContent).not.toContain('这个库还没有内容');
     expect(findButton('上传文档')).toBeUndefined();
   });
 

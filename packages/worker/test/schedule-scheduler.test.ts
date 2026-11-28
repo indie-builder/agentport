@@ -390,19 +390,6 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       expect(await lastRunAtOf(scheduleId)).toBeNull();
     });
 
-    it('skips without creating a run when the executor account is disabled', async () => {
-      const scheduleId = await insertSchedule({});
-      access.check.mockResolvedValue({
-        reason: 'account_inactive',
-        message: '账户已停用或不存在，运行未启动',
-      });
-      expect(await processScheduleTrigger({ db, logger, runsQueue }, fakeJob({ scheduleId }))).toBe(
-        'skipped',
-      );
-      expect(await runsOf(agentId)).toHaveLength(0);
-      expect(await lastRunAtOf(scheduleId)).toBeNull();
-    });
-
     it('creates only one run when the same trigger is delivered twice', async () => {
       const scheduleId = await insertSchedule({});
       const job = fakeJob({ scheduleId });

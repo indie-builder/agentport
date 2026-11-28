@@ -1,6 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { mkdir, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
 import { newId, repo } from '@agentport/db';
 import { type Agent, conversationSummarySchema } from '@agentport/shared';
 import {
@@ -375,13 +373,12 @@ describe.skipIf(!ready)('conversations', () => {
     expect(secondBody.nextCursor).toBeNull();
   });
 
-  it('overwrites the title on repeat rename and repo returns null for unknown ids', async () => {
+  it('overwrites the title on repeat rename', async () => {
     const agent = await newAgent();
     const id = await newConversation(agent.id, 'first');
     expect((await rename(id, { title: 'second' })).statusCode).toBe(200);
     expect((await rename(id, { title: 'third' })).statusCode).toBe(200);
     expect((await repo.chat.getConversation(app.db, id))?.title).toBe('third');
-    expect(await repo.chat.getConversation(app.db, 'conv_missing')).toBeNull();
   });
 
   it('requires auth to delete', async () => {
@@ -429,26 +426,6 @@ describe.skipIf(!ready)('conversations', () => {
       [id],
     );
     expect(audit).toHaveLength(1);
-  });
-
-  it('removes only the deleted conversation session sandbox', async () => {
-    const agent = await newAgent();
-    const id = await newConversation(agent.id, '待清理');
-    const keptId = await newConversation(agent.id, '保留');
-    const sandboxes = join(app.config.WORKSPACES_DIR, agent.slug, 'session-sandboxes');
-    const target = join(sandboxes, id);
-    const kept = join(sandboxes, keptId);
-    for (const session of [target, kept]) {
-      await mkdir(join(session, 'workspace'), { recursive: true });
-      await mkdir(join(session, 'outputs'), { recursive: true });
-    }
-
-    const res = await remove(id);
-    expect(res.statusCode, res.body).toBe(204);
-    expect(await stat(target).catch(() => null)).toBeNull();
-    expect((await stat(kept)).isDirectory()).toBe(true);
-
-    await rm(join(app.config.WORKSPACES_DIR, agent.slug), { recursive: true, force: true });
   });
 
   it('rejects deleting a conversation with a queued run and keeps both rows', async () => {

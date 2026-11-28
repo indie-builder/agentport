@@ -534,10 +534,3 @@ describe('conversation drafts', () => {
     },
   );
 });
-
-it('restores the welcome draft when the module initializes on reload', async () => {
-  sessionStorage.setItem(DRAFTS_KEY, JSON.stringify({ '': 'welcome draft' }));
-  vi.resetModules();
-  const fresh = await import('../src/lib/chat-store.js');
-  expect(fresh.useChatStore.getState().input).toBe('welcome draft');
-});

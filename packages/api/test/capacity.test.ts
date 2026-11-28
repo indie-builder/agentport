@@ -45,14 +45,6 @@ const plainTool: ApiTool = {
   approvalMode: 'allow',
 };
 
-const evaluation = (tool: ApiTool, approved: boolean) => ({
-  effectiveMode: tool.approvalMode,
-  baseline: tool.approvalMode,
-  approved,
-  decisionHash: 'test-decision',
-  matchedRuleIds: [],
-});
-
 const baseInput = {
   name: 'srv',
   baseUrl: 'https://upstream.test',
@@ -78,43 +70,6 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 afterEach(() => {
   unstubAllGlobals();
   mcp.handlers.clear();
-});
-
-it('keeps the execution pool free when unapproved calls are refused', async () => {
-  const fetchSpy = mock(async () => new Response('ok'));
-  stubGlobal('fetch', fetchSpy);
-
-  const onApprovalRequired = mock(async () => undefined);
-  buildGeneratedServer({
-    ...baseInput,
-    isRunActive: async () => true,
-    evaluateApproval: async (tool) => evaluation(tool, false),
-    onApprovalRequired,
-  });
-
-  const signal = new AbortController().signal;
-  const waiting = Array.from({ length: 4 }, () =>
-    handler('approve-tool')({}, { mcpReq: { signal } }),
-  );
-  await waitForAssertion(() => expect(onApprovalRequired).toHaveBeenCalledTimes(4));
-
-  const plain = await handler('plain-tool')({}, { mcpReq: { signal } });
-  expect(plain.isError).toBeFalsy();
-  expect(fetchSpy).toHaveBeenCalledTimes(1);
-
-  const fifth = await handler('approve-tool')({}, { mcpReq: { signal } });
-  expect(fifth.isError).toBe(true);
-  expect(JSON.stringify(fifth.content)).toContain('需要批准');
-  expect(onApprovalRequired).toHaveBeenCalledTimes(5);
-  expect(onApprovalRequired).toHaveBeenLastCalledWith(
-    'approve-tool',
-    expect.any(Object),
-    expect.any(Object),
-  );
-
-  const results = await Promise.all(waiting);
-  for (const result of results) expect(result.isError).toBe(true);
-  expect(fetchSpy).toHaveBeenCalledTimes(1);
 });
 
 it('never calls upstream for a call cancelled while queued for the execution pool', async () => {

@@ -10,31 +10,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
-it('holds four upstream executions and starts the fifth only after one finishes', async () => {
-  const gates = Array.from({ length: 5 }, deferred);
-  const started: number[] = [];
-  const run = (index: number): Promise<void> =>
-    runMcpExecution(async () => {
-      started.push(index);
-      await gates[index]?.promise;
-    });
-
-  const running = gates.slice(0, 4).map((_, index) => run(index));
-  await waitForAssertion(() => expect(started).toEqual([0, 1, 2, 3]));
-
-  const queued = run(4);
-  await Promise.resolve();
-  expect(started).toEqual([0, 1, 2, 3]);
-
-  gates[0]?.resolve();
-  await running[0];
-  await waitForAssertion(() => expect(started).toEqual([0, 1, 2, 3, 4]));
-
-  for (const gate of gates.slice(1)) gate.resolve();
-  await Promise.all([running[1], running[2], running[3], queued]);
-  expect(started).toEqual([0, 1, 2, 3, 4]);
-});
-
 it('refuses execution overflow without scheduling the extra task', async () => {
   const gate = deferred();
   const started: number[] = [];

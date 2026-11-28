@@ -138,11 +138,6 @@ export async function listServerPage(
   };
 }
 
-export async function getServer(db: Db, id: string, key: string): Promise<Server | null> {
-  const row = await repo.servers.getServer(db, id);
-  return row ? maskServer(await toApiServer(row, key)) : null;
-}
-
 export async function getServerWithSecrets(
   db: Db,
   id: string,

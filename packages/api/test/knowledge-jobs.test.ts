@@ -278,6 +278,11 @@ describe.skipIf(!ready)('knowledge job projections', () => {
     const failed = await list(`baseId=${first}&documentId=${documentA}&status=failed`);
     expect(failed.items.map((item) => item.id)).toEqual([failedId]);
 
+    const baseQueued = await list(`baseId=${first}&status=queued`);
+    expect(baseQueued.items.map((item) => item.id).sort()).toEqual(
+      [...pageIds, `kjob_page_b_${suffix}`].sort(),
+    );
+
     const crossBase = await list(`baseId=${first}&documentId=${documentOther}`);
     expect(crossBase.items).toEqual([]);
 
@@ -329,6 +334,13 @@ describe.skipIf(!ready)('knowledge job projections', () => {
       documentTitle: null,
       sourceName: null,
     });
+
+    const repeat = await request(app, {
+      method: 'POST',
+      url: `/api/knowledge/jobs/${jobId}/cancel`,
+      headers: { cookie },
+    });
+    expect(repeat.statusCode, repeat.body).toBe(409);
   });
 });
 

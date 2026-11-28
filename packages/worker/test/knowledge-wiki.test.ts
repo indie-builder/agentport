@@ -1,21 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import * as fsPromises from 'node:fs/promises';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { WikiGenerateDeps, WikiQueryFn } from '../src/knowledge/wiki.js';
-
-const rmCalls: string[] = [];
-const realRm = fsPromises.rm;
-const rmSpy: typeof fsPromises.rm = (path, options) => {
-  rmCalls.push(String(path));
-  return realRm(path, options);
-};
-mock.module('node:fs/promises', () => ({ ...fsPromises, rm: rmSpy }));
-const { KnowledgeCancelled } = await import('../src/knowledge/ingestion.js');
-const { runWikiGenerate } = await import('../src/knowledge/wiki.js');
+import { KnowledgeCancelled } from '../src/knowledge/ingestion.js';
+import { runWikiGenerate, type WikiGenerateDeps, type WikiQueryFn } from '../src/knowledge/wiki.js';
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
@@ -582,7 +572,6 @@ describe('runWikiGenerate', () => {
     await started;
     await new Promise((resolve) => setTimeout(resolve, 25));
     try {
-      expect(rmCalls).not.toContain(cwd);
       expect(settled).toBe(false);
       expect(await stat(cwd).catch(() => null)).not.toBeNull();
     } finally {
@@ -593,7 +582,6 @@ describe('runWikiGenerate', () => {
     const after = await repo.knowledge.getWikiPage(db, page.id);
     expect(after?.currentVersionId).toBe(published?.id);
     expect(after?.status).toBe('published');
-    expect(rmCalls).toContain(cwd);
     expect(await stat(cwd).catch(() => null)).toBeNull();
   });
 

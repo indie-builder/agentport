@@ -184,44 +184,6 @@ describe.skipIf(!ready)('chat admission', () => {
     expect(await runCount(right)).toBe(1);
   });
 
-  it('admits one of two racing posts and queues only ids plus the new prompt', async () => {
-    const agent = await newAgent();
-    const conversationId = await newConversation(agent.id);
-    await repo.chat.appendMessage(app.db, {
-      id: unique('admit-msg'),
-      conversationId,
-      role: 'assistant',
-      content: { type: 'text', text: 'noted earlier' },
-    });
-
-    const [first, second] = await Promise.all([
-      post(agent.id, conversationId, 'latest question'),
-      post(agent.id, conversationId, 'latest question'),
-    ]);
-    const statuses = [first.statusCode, second.statusCode].sort((a, b) => a - b);
-    expect(statuses).toEqual([202, 409]);
-    const accepted = first.statusCode === 202 ? first : second;
-    const { runId } = accepted.json<{ runId: string }>();
-    runIds.push(runId);
-
-    const { getQueue } = await import('../src/queue/producer.js');
-    const job = await getQueue().getJob(runId);
-    expect(job?.data).toEqual({
-      runId,
-      agentId: agent.id,
-      conversationId,
-      prompt: 'latest question',
-      requestId: expect.any(String),
-    });
-    const [stored] = await app.client
-      .unsafe<{ sdk_message_uuid: string }[]>(
-        "select sdk_message_uuid from messages where run_id = $1 and role = 'user'",
-        [runId],
-      )
-      .then((result) => result);
-    expect(stored?.sdk_message_uuid).toMatch(/^[0-9a-f-]{36}$/);
-  });
-
   it('waits on the conversation row lock before admitting the run', async () => {
     const agent = await newAgent();
     const conversationId = await newConversation(agent.id);

@@ -541,23 +541,15 @@ describe('error and focus states stay distinguishable', () => {
       );
       expect(winning(rules, classNames, checked, true, 'outline-offset'), name).toBe('2px');
       expect(
+        winning(rules, classNames, { ...checked, ...invalid }, false, 'border-color'),
+        name,
+      ).toBe('var(--color-destructive)');
+      expect(
         winning(rules, classNames, { ...checked, ...invalid }, true, 'border-color'),
         name,
       ).toBe('var(--color-destructive)');
       expect(outlineVisible(rules, classNames, { ...checked, ...invalid }, true), name).toBe(true);
       expect(ringVisible(rules, classNames, { ...checked, ...invalid }, true), name).toBe(false);
-    }
-  });
-
-  it('keeps destructive border on checked + invalid radio and checkbox', () => {
-    for (const name of ['radio', 'checkbox']) {
-      const classNames = probeClasses(name);
-      expect(winning(rules, classNames, { ...checked, ...invalid }, false, 'border-color')).toBe(
-        'var(--color-destructive)',
-      );
-      expect(winning(rules, classNames, { ...checked, ...invalid }, true, 'border-color')).toBe(
-        'var(--color-destructive)',
-      );
     }
   });
 

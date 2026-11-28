@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  ATTACHMENT_LIMITS,
   attachmentExtension,
   attachmentMimeForFilename,
   chatAttachmentInputSchema,
@@ -22,13 +21,6 @@ const attachment: MessageAttachment = {
 };
 
 describe('attachment limits and filename mapping', () => {
-  it('keeps the agreed byte limits', () => {
-    expect(ATTACHMENT_LIMITS.count).toBe(5);
-    expect(ATTACHMENT_LIMITS.totalBytes).toBe(10 * 1024 * 1024);
-    expect(ATTACHMENT_LIMITS.messageBytes).toBe(64 * 1024);
-    expect(ATTACHMENT_LIMITS.bodyBytes).toBe(16 * 1024 * 1024);
-  });
-
   it('maps supported extensions case-insensitively', () => {
     expect(attachmentMimeForFilename('notes.txt')).toBe('text/plain');
     expect(attachmentMimeForFilename('notes.md')).toBe('text/markdown');

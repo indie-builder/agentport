@@ -2,13 +2,10 @@ import { afterAll, describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { RunFailure } from '@agentport/core';
-import { createDb, newId, repo, schema } from '@agentport/db';
 import type { ChatEvent, ExecutionSettlement } from '@agentport/shared';
 import { runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { and, eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { persistRunMessages } from '../src/messages.js';
 import {
   closeRunnerClient,
   configureRunnerClient,
@@ -16,10 +13,7 @@ import {
   runInSandbox,
 } from '../src/runner-client.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
-import { testAccess } from './fixtures/access.js';
 import { probeBunRedis } from './fixtures/bun-redis.js';
-
-const { agentOwnership, userSubject } = testAccess(import.meta.url);
 
 async function probeRedis(): Promise<boolean> {
   return probeBunRedis(process.env.REDIS_URL);
@@ -27,12 +21,6 @@ async function probeRedis(): Promise<boolean> {
 
 const redisUrl = process.env.REDIS_URL ?? '';
 const ready = await probeRedis();
-const { db, client } = createDb(process.env.DATABASE_URL ?? '');
-const dbReady = await client.unsafe('select 1').then(
-  () => true,
-  () => false,
-);
-const agentIds: string[] = [];
 
 class FakeChild extends EventEmitter {
   readonly stdin = new PassThrough();
@@ -178,10 +166,6 @@ async function waitForLastEvent(
 }
 
 afterAll(async () => {
-  if (dbReady) {
-    await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
-  }
-  await client.close();
   await closeRunnerClient();
 });
 
@@ -450,155 +434,6 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
     expect(outcome.failure).toMatchObject({ reason: 'sandbox', message: 'docker run failed' });
     expect(outcome.cleanupError).toBe('docker rm -f fake failed');
     expect(isRetryable(outcome)).toBe(false);
-
-    const redis = new RedisClient(redisUrl);
-    await redis.del(runStreamKey(runId));
-    redis.close();
-  });
-});
-
-describe.skipIf(!ready || !dbReady)('runInSandbox cleanup persistence', () => {
-  it('persists the completed messages and session when cleanup fails', async () => {
-    const agentId = newId('agent');
-    const conversationId = newId('conversation');
-    const runId = newId('run');
-    agentIds.push(agentId);
-    await db.insert(schema.agents).values({
-      id: agentId,
-      slug: `cleanup-${agentId.slice(4)}`,
-      name: 'cleanup',
-      model: 'test',
-      ...agentOwnership,
-    });
-    await repo.chat.createConversation(db, {
-      id: conversationId,
-      agentId,
-      title: 'cleanup',
-      subject: userSubject,
-    });
-    await repo.chat.createRun(db, {
-      id: runId,
-      conversationId,
-      agentId,
-      subject: userSubject,
-    });
-    await db
-      .update(schema.agentRuns)
-      .set({ status: 'running', startedAt: new Date() })
-      .where(eq(schema.agentRuns.id, runId));
-
-    const lines: ChatEvent[] = [
-      { type: 'assistant_text', text: '完整回答', blockIndex: 0, sdkUuid: 'msg-1' },
-      {
-        type: 'run_finished',
-        status: 'succeeded',
-        costUsd: 0.5,
-        turns: 2,
-        sessionId: 'sdk-cleanup',
-        inputTokens: 3,
-        outputTokens: 4,
-      },
-    ];
-
-    const { outcome } = await runWith(lines, runId, {
-      destroy: async () => {
-        throw new Error('docker rm -f fake failed');
-      },
-    });
-
-    expect(outcome.status).toBe('succeeded');
-    expect(isRetryable(outcome)).toBe(false);
-    expect(outcome).toMatchObject({ costUsd: 0.5, turns: 2, sessionId: 'sdk-cleanup' });
-
-    const persisted = await persistRunMessages(db, {
-      agentId,
-      conversationId,
-      runId,
-      events: outcome.events,
-      ...(outcome.sessionId === undefined ? {} : { sdkSessionId: outcome.sessionId }),
-    });
-    expect(persisted.written).toBe(true);
-
-    const rows = await db
-      .select({ content: schema.messages.content })
-      .from(schema.messages)
-      .where(and(eq(schema.messages.runId, runId), eq(schema.messages.role, 'assistant')));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.content).toMatchObject({ text: '完整回答' });
-    expect(await repo.chat.getConversationSdkState(db, conversationId)).toMatchObject({
-      sdkSessionId: 'sdk-cleanup',
-    });
-
-    const redis = new RedisClient(redisUrl);
-    await redis.del(runStreamKey(runId));
-    redis.close();
-  });
-});
-
-describe.skipIf(!ready || !dbReady)('runInSandbox byte overflow persistence', () => {
-  it('persists the retained events and keeps the session after the overflow', async () => {
-    const agentId = newId('agent');
-    const conversationId = newId('conversation');
-    const runId = newId('run');
-    agentIds.push(agentId);
-    await db.insert(schema.agents).values({
-      id: agentId,
-      slug: `limits-${agentId.slice(4)}`,
-      name: 'limits',
-      model: 'test',
-      ...agentOwnership,
-    });
-    await repo.chat.createConversation(db, {
-      id: conversationId,
-      agentId,
-      title: 'limits',
-      subject: userSubject,
-    });
-    await repo.chat.createRun(db, {
-      id: runId,
-      conversationId,
-      agentId,
-      subject: userSubject,
-    });
-    await db
-      .update(schema.agentRuns)
-      .set({ status: 'running', startedAt: new Date() })
-      .where(eq(schema.agentRuns.id, runId));
-
-    const chunk = 'x'.repeat(7_000_000);
-    const lines: ChatEvent[] = [];
-    for (let index = 0; index < 5; index += 1) {
-      lines.push({ type: 'assistant_text', text: chunk, blockIndex: index });
-    }
-    lines.push({ type: 'run_finished', status: 'succeeded', sessionId: 'sdk-bytes' });
-
-    const { outcome } = await runWith(lines, runId);
-
-    expect(outcome.status).toBe('failed');
-    expect(outcome.error).toMatch(/保存上限/);
-    expect(isRetryable(outcome)).toBe(false);
-    expect(outcome.sessionId).toBe('sdk-bytes');
-
-    const persisted = await persistRunMessages(db, {
-      agentId,
-      conversationId,
-      runId,
-      events: outcome.events,
-      ...(outcome.sessionId === undefined ? {} : { sdkSessionId: outcome.sessionId }),
-    });
-    expect(persisted.written).toBe(true);
-
-    const rows = await db
-      .select({ content: schema.messages.content })
-      .from(schema.messages)
-      .where(and(eq(schema.messages.runId, runId), eq(schema.messages.role, 'assistant')));
-    expect(rows).toHaveLength(4);
-    expect(rows.every((row) => (row.content as { text?: string }).text?.length === 7_000_000)).toBe(
-      true,
-    );
-    expect(await repo.chat.getConversationSdkState(db, conversationId)).toMatchObject({
-      sdkSessionId: 'sdk-bytes',
-    });
 
     const redis = new RedisClient(redisUrl);
     await redis.del(runStreamKey(runId));

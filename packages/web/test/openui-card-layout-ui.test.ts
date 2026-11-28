@@ -1,7 +1,6 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { withCardChartHeight } from '../src/openui/components/data.js';
 import { OpenUiBlock } from '../src/openui/renderer.js';
 
 /**
@@ -80,22 +79,6 @@ function byText<T extends Element>(selector: string, text: string): T {
   return found;
 }
 
-function overviewBlock(items: string[], responsive = true): string[] {
-  const entries = items.map((name, index) => {
-    const top = `t${index}`;
-    return {
-      item: `i${index} = OverviewCardItem("${name}", ${top})`,
-      top: `${top} = Text("text", "${name}", "", "text", "sm")`,
-    };
-  });
-  return [
-    `root = Card([block])`,
-    `block = OverviewCardBlock([${items.map((_, index) => `i${index}`).join(', ')}], "grid", ${responsive})`,
-    ...entries.map((entry) => entry.item),
-    ...entries.map((entry) => entry.top),
-  ];
-}
-
 describe('OverviewCard metric slot', () => {
   it('renders the bottom MetricIndicatorInline node with value, subtext and trend', async () => {
     await render(
@@ -123,188 +106,7 @@ describe('OverviewCard metric slot', () => {
   });
 });
 
-describe('Text / BoldText weight', () => {
-  it('keeps plain Text at 400 and BoldText at 600', async () => {
-    await render(
-      [
-        'root = Card([block])',
-        'block = CompositeCardBlock([a, b], "grid", true)',
-        'a = CompositeCardItem("a", aHeader, [plain])',
-        'aHeader = IconText(aIcon, "neutral", "m", "卡片一", "说明", false, "horizontal")',
-        'aIcon = Icon("circle", "shapes")',
-        'plain = Text("text", "普通文字", "", "text", "sm")',
-        'b = CompositeCardItem("b", bHeader, [strong])',
-        'bHeader = IconText(bIcon, "neutral", "m", "卡片二", "说明", false, "horizontal")',
-        'bIcon = Icon("circle", "shapes")',
-        'strong = BoldText("text", "强调文字", "", "text", "sm")',
-      ].join('\n'),
-    );
-
-    expect(byText('span', '普通文字').className).toContain('font-normal');
-    expect(byText('span', '普通文字').className).not.toContain('font-medium');
-    expect(byText('span', '强调文字').className).toContain('font-semibold');
-  });
-});
-
-describe('CardBlock grid layout', () => {
-  it('switches columns on the message container, not the viewport', async () => {
-    await render(overviewBlock(['甲', '乙']).join('\n'));
-    const wrapper = host.querySelector('[class~="@container"]');
-    expect(wrapper).not.toBeNull();
-    const grid = wrapper?.firstElementChild as HTMLElement;
-    expect(grid.className).toContain('grid-cols-1');
-    expect(grid.className).toContain('@min-[481px]:grid-cols-2');
-    expect(grid.className).not.toContain('sm:grid-cols-2');
-  });
-
-  it('lets the last card span the full row for 3 and 5 items, but not for 4', async () => {
-    await render(overviewBlock(['甲', '乙', '丙']).join('\n'));
-    const three = host.querySelector('[class~="@container"]')?.firstElementChild as HTMLElement;
-    expect(three.className).toContain('@min-[481px]:[&>*:last-child]:col-span-2');
-
-    await act(async () => root.unmount());
-    root = createRoot(host);
-
-    await render(overviewBlock(['甲', '乙', '丙', '丁', '戊']).join('\n'));
-    const five = host.querySelector('[class~="@container"]')?.firstElementChild as HTMLElement;
-    expect(five.className).toContain('@min-[481px]:[&>*:last-child]:col-span-2');
-
-    await act(async () => root.unmount());
-    root = createRoot(host);
-
-    await render(overviewBlock(['甲', '乙', '丙', '丁']).join('\n'));
-    const four = host.querySelector('[class~="@container"]')?.firstElementChild as HTMLElement;
-    expect(four.className).not.toContain('col-span-2');
-  });
-
-  it('keeps the original fixed grid when responsive is false', async () => {
-    await render(overviewBlock(['甲', '乙'], false).join('\n'));
-    const grid = host.querySelector('[class~="@container"]')?.firstElementChild as HTMLElement;
-    expect(grid.className).toContain('grid-cols-2');
-    expect(grid.className).not.toContain('@min-[481px]');
-  });
-});
-
 describe('CardBlock carousel', () => {
-  /** 轨道本身：间距来自 gap，不用 item 内距，否则 basis 会把 12px 内距算进卡宽。 */
-  function track(): HTMLElement | null {
-    return host.querySelector<HTMLElement>('[data-slot="carousel-content"]');
-  }
-
-  it('keeps container-relative card widths only when responsive is true', async () => {
-    await render(
-      [
-        'root = Card([block])',
-        'block = ContextCardBlock([a, b], "carousel", true)',
-        'a = ContextCardItem("a", "第一张", "说明一")',
-        'b = ContextCardItem("b", "第二张", "说明二")',
-      ].join('\n'),
-    );
-    const items = [...host.querySelectorAll<HTMLElement>('[data-slot="carousel-item"]')];
-    expect(items.length).toBe(2);
-    expect(items[0]?.className).toContain('basis-4/5');
-    expect(items[0]?.className).toContain(
-      '@min-[481px]:basis-[calc((100%_-_var(--openui-card-gap))/2)]',
-    );
-    expect(track()?.style.getPropertyValue('--openui-card-gap')).toBe('calc(var(--spacing) * 3)');
-    expect(track()?.style.gap).toBe('calc(var(--spacing) * 3)');
-    expect(track()?.className).toContain('ml-0');
-    expect(track()?.className).not.toContain('-ml-4');
-    expect(track()?.className).not.toContain('-ml-3');
-    for (const item of items) {
-      expect(item.className).not.toContain('pl-3');
-      expect(item.className).toContain('pl-0');
-    }
-  });
-
-  it('drops breakpoints and keeps the official fixed card width when responsive is false', async () => {
-    await render(
-      [
-        'root = Card([block])',
-        'block = ContextCardBlock([a, b], "carousel", false)',
-        'a = ContextCardItem("a", "第一张", "说明一")',
-        'b = ContextCardItem("b", "第二张", "说明二")',
-      ].join('\n'),
-    );
-    const small = [...host.querySelectorAll<HTMLElement>('[data-slot="carousel-item"]')];
-    expect(small.length).toBe(2);
-    // 官方 small 卡片固定 17.5rem，不随容器换列；无内距时 basis-70 就是真实卡宽。
-    expect(small[0]?.className).toContain('basis-70');
-    expect(small[0]?.className).not.toContain('basis-4/5');
-    expect(small[0]?.className).not.toContain('@min-[481px]');
-    expect(small[0]?.className).not.toContain('pl-3');
-
-    await act(async () => root.unmount());
-    root = createRoot(host);
-
-    await render(
-      [
-        'root = Card([block])',
-        'block = CompositeCardBlock([a, b], "carousel", false)',
-        'a = CompositeCardItem("a", aHeader, [aText])',
-        'aHeader = IconText(aIcon, "neutral", "m", "标题一", "副标题一", false, "horizontal")',
-        'aIcon = Icon("circle", "shapes")',
-        'aText = Text("text", "正文一", "", "text", "sm")',
-        'b = CompositeCardItem("b", bHeader, [bText])',
-        'bHeader = IconText(bIcon, "neutral", "m", "标题二", "副标题二", false, "horizontal")',
-        'bIcon = Icon("circle", "shapes")',
-        'bText = Text("text", "正文二", "", "text", "sm")',
-      ].join('\n'),
-    );
-    const medium = [...host.querySelectorAll<HTMLElement>('[data-slot="carousel-item"]')];
-    expect(medium.length).toBe(2);
-    // 官方 medium 卡片固定 20rem。
-    expect(medium[0]?.className).toContain('basis-80');
-    expect(medium[0]?.className).not.toContain('@min-[481px]');
-    expect(medium[0]?.className).not.toContain('pl-3');
-  });
-
-  it('keeps the official Overview carousel widths regardless of responsive', async () => {
-    const program = (responsive: boolean) =>
-      [
-        'root = Card([block])',
-        `block = OverviewCardBlock([a, b], "carousel", ${responsive})`,
-        'a = OverviewCardItem("visitors", aTop)',
-        'aTop = Text("text", "访客", "", "text", "sm")',
-        'b = OverviewCardItem("museums", bTop)',
-        'bTop = Text("text", "博物馆", "", "text", "sm")',
-      ].join('\n');
-
-    for (const responsive of [true, false]) {
-      await act(async () => root.unmount());
-      root = createRoot(host);
-      await render(program(responsive));
-      const items = [...host.querySelectorAll<HTMLElement>('[data-slot="carousel-item"]')];
-      expect(items.length).toBe(2);
-      // 官方 smallCardBlock.css 特例：Overview carousel 固定 15rem（basis-60），
-      // 容器 ≤30rem 时 12.5rem（basis-50），与 responsive 无关。
-      expect(items[0]?.className).toContain('basis-60');
-      expect(items[0]?.className).toContain('@max-[30rem]:basis-50');
-      expect(items[0]?.className).not.toContain('basis-4/5');
-      expect(items[0]?.className).not.toContain('basis-70');
-      expect(items[0]?.className).not.toContain('pl-3');
-    }
-  });
-
-  it('feeds a custom gap into the shared card-gap variable', async () => {
-    await render(
-      [
-        'root = Card([block])',
-        'block = ContextCardBlock([a, b], "carousel", true, null, 20)',
-        'a = ContextCardItem("a", "第一张", "说明一")',
-        'b = ContextCardItem("b", "第二张", "说明二")',
-      ].join('\n'),
-    );
-    const items = [...host.querySelectorAll<HTMLElement>('[data-slot="carousel-item"]')];
-    expect(items.length).toBe(2);
-    expect(track()?.style.gap).toBe('20px');
-    expect(track()?.style.getPropertyValue('--openui-card-gap')).toBe('20px');
-    expect(items[0]?.className).toContain(
-      '@min-[481px]:basis-[calc((100%_-_var(--openui-card-gap))/2)]',
-    );
-    expect(items[0]?.className).not.toContain('pl-3');
-  });
-
   it('uses the shadcn carousel with focusable, labelled controls and keyboard nav', async () => {
     const measureCallbacks: Array<() => void> = [];
     vi.stubGlobal(
@@ -410,28 +212,33 @@ describe('Table columns', () => {
 });
 
 describe('CompositeCard chart height', () => {
-  const element = (typeName: string, props: Record<string, unknown> = {}) => ({
-    type: 'element',
-    typeName,
-    props,
-  });
-
-  it('defaults card charts to 192 only when no explicit height is given', () => {
-    // 官方做法：复制节点再补默认 props，不改 schema，也不动其它组件。
-    expect(withCardChartHeight(element('BarChart', { labels: ['一月'] }))).toMatchObject({
-      typeName: 'BarChart',
-      props: { labels: ['一月'], height: 192 },
-    });
-    expect(withCardChartHeight(element('AreaChart', { height: 120 })).props).toMatchObject({
-      height: 120,
-    });
-    expect(withCardChartHeight(element('LineChart', {})).props).toMatchObject({ height: 192 });
-
-    const text = element('Text', { value: '说明' });
-    expect(withCardChartHeight(text)).toBe(text);
-    const radial = element('RadialChart', {});
-    expect(withCardChartHeight(radial)).toBe(radial);
-    expect(withCardChartHeight('plain')).toBe('plain');
+  it('defaults card charts to 192 only when no explicit height is given', async () => {
+    await render(
+      [
+        'root = Card([block])',
+        'block = CompositeCardBlock([a, b, c, d], "grid", true)',
+        'a = CompositeCardItem("a", aHeader, [bar])',
+        'aHeader = IconText(aIcon, "neutral", "m", "柱状图", "", false, "horizontal")',
+        'aIcon = Icon("circle", "shapes")',
+        'bar = BarChart(["一月"], [Series("收入", [1])], "grouped")',
+        'b = CompositeCardItem("b", bHeader, [area])',
+        'bHeader = IconText(bIcon, "neutral", "m", "面积图", "", false, "horizontal")',
+        'bIcon = Icon("circle", "shapes")',
+        'area = AreaChart(["一月"], [Series("收入", [1])], "linear", "", "", 120)',
+        'c = CompositeCardItem("c", cHeader, [line])',
+        'cHeader = IconText(cIcon, "neutral", "m", "折线图", "", false, "horizontal")',
+        'cIcon = Icon("circle", "shapes")',
+        'line = LineChart(["一月"], [Series("收入", [1])], "linear")',
+        'd = CompositeCardItem("d", dHeader, [radial])',
+        'dHeader = IconText(dIcon, "neutral", "m", "径向图", "", false, "horizontal")',
+        'dIcon = Icon("circle", "shapes")',
+        'radial = RadialChart(["甲", "乙"], [30, 70])',
+      ].join('\n'),
+    );
+    const heights = [...host.querySelectorAll<HTMLElement>('[data-openui-chart-frame]')].map(
+      (frame) => frame.style.height,
+    );
+    expect(heights).toEqual(['192px', '120px', '192px', '256px']);
   });
 });
 

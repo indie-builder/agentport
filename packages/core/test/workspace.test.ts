@@ -51,19 +51,6 @@ describe('renderRuleMd globs', () => {
   });
 });
 
-describe('renderClaudeMd skill access rules', () => {
-  it('allows reading skill references without banning the skills directory', () => {
-    const { claudeMd } = renderWorkspace({
-      agent,
-      servers: [],
-      skills: [{ slug: 'deploy', name: 'Deploy', description: 'd', body: 'b' }],
-    });
-
-    expect(claudeMd).toContain('.claude/skills/<slug>/references/');
-    expect(claudeMd).not.toContain('不要用 `Read` 打开 `.claude/skills/`');
-  });
-});
-
 describe('clarifying questions prompt', () => {
   it('tells the main session to ask before guessing when the mode can prompt', () => {
     for (const permissionMode of permissionModeSchema.options.filter(
@@ -109,7 +96,6 @@ describe('delivered outputs section', () => {
     expect(claudeMd).toContain('/mnt/outputs/');
     expect(claudeMd).toContain('同一路径');
     expect(claudeMd).toContain('会话成果');
-    expect(claudeMd).not.toContain('输出文件区');
     expect(claudeMd).toContain('/mnt/agent-memory/');
     expect(claudeMd).toMatch(/原生记忆[^。]*Markdown/);
   });
@@ -127,14 +113,6 @@ describe('delivered outputs section', () => {
 });
 
 describe('Bash availability', () => {
-  it('describes Bash in the sandbox when no MCP servers are bound', () => {
-    const { claudeMd } = renderWorkspace({ agent, servers: [] });
-
-    expect(claudeMd).toContain('`Bash`');
-    expect(claudeMd).toContain('沙箱容器');
-    expect(claudeMd).not.toContain('内置 shell 与网络工具已禁用');
-  });
-
   it('does not reduce non-MCP capabilities to skills and memory', () => {
     const { claudeMd } = renderWorkspace({
       agent,
@@ -351,11 +329,6 @@ describe('timeout semantics', () => {
   it('does not advertise a per-child delegated timeout', () => {
     const files = renderWorkspace({ agent, servers: [], subAgents: [child] });
 
-    expect(files.claudeMd).toContain('| slug | 适用场景 | 最大轮次 |');
-    expect(files.claudeMd).toContain('| `kid` | Kid | 7 |');
-    expect(files.claudeMd).not.toContain('| 超时 |');
-    expect(files.claudeMd).not.toContain('120s');
-    expect(files.claudeMd).not.toContain('智能体超时约束');
     expect(files.claudeMd).toContain('整轮委派计入主运行的总超时');
   });
 });

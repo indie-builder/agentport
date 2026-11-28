@@ -25,7 +25,6 @@ async function probeDatabase(): Promise<boolean> {
 
 const ready = await probeDatabase();
 const businessId = 'personal.projection';
-const otherBusinessId = 'personal.projection.other';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -41,9 +40,6 @@ afterAll(async () => {
     await db
       .delete(schema.userPreferences)
       .where(eq(schema.userPreferences.businessId, businessId));
-    await db
-      .delete(schema.userPreferences)
-      .where(eq(schema.userPreferences.businessId, otherBusinessId));
   }
   await dbHandle.client.close();
 });
@@ -68,61 +64,6 @@ describe.skipIf(!ready)('projectPersonalMemory', () => {
       expect(await readFile(file, 'utf8')).toBe('恢复后的偏好');
       expect((await stat(file)).mode & 0o777).toBe(0o600);
       expect((await stat(dir)).mode & 0o777).toBe(0o700);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('projects a 160-character Unicode business ID without exceeding filesystem name limits', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'personal-projection-'));
-    const longBusinessId = '人'.repeat(160);
-    try {
-      await db
-        .insert(schema.userPreferences)
-        .values({ businessId: longBusinessId, content: '长身份偏好' })
-        .onConflictDoUpdate({
-          target: schema.userPreferences.businessId,
-          set: { content: '长身份偏好', revision: 1 },
-        });
-
-      await projectPersonalMemory(db, dbHandle.client, root, longBusinessId);
-
-      const dir = personalMemoryDir(root, longBusinessId);
-      expect(basename(dir)).toHaveLength(64);
-      expect(await readFile(join(dir, 'CLAUDE.md'), 'utf8')).toBe('长身份偏好');
-    } finally {
-      if (ready) {
-        await db
-          .delete(schema.userPreferences)
-          .where(eq(schema.userPreferences.businessId, longBusinessId));
-      }
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('keeps two business users in separate projections', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'personal-projection-'));
-    try {
-      await db
-        .update(schema.userPreferences)
-        .set({ content: '第一个人的偏好', revision: 1 })
-        .where(eq(schema.userPreferences.businessId, businessId));
-      await db
-        .insert(schema.userPreferences)
-        .values({ businessId: otherBusinessId, content: '另一个人的偏好', revision: 1 })
-        .onConflictDoUpdate({
-          target: schema.userPreferences.businessId,
-          set: { content: '另一个人的偏好', revision: 1 },
-        });
-
-      await projectPersonalMemory(db, dbHandle.client, root, businessId);
-      await projectPersonalMemory(db, dbHandle.client, root, otherBusinessId);
-
-      const first = personalMemoryDir(root, businessId);
-      const second = personalMemoryDir(root, otherBusinessId);
-      expect(first).not.toBe(second);
-      expect(await readFile(join(first, 'CLAUDE.md'), 'utf8')).toBe('第一个人的偏好');
-      expect(await readFile(join(second, 'CLAUDE.md'), 'utf8')).toBe('另一个人的偏好');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

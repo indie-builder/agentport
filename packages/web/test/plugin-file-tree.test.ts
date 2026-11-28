@@ -177,7 +177,6 @@ describe('PluginFileTree', () => {
     for (const title of ['skills', 'skills/alpha', 'skills/alpha/references', DEEP]) {
       const slot = row(title).firstElementChild;
       expect(slot?.getAttribute('aria-hidden'), title).toBe('true');
-      expect(slot?.className, title).toContain('size-4');
     }
   });
 

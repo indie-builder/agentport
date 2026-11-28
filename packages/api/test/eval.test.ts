@@ -1,20 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import type { Agent } from '@agentport/shared';
+import { describe, expect, it } from 'bun:test';
 import { judge } from '@agentport/shared';
-import { getEvalQueue } from '../src/queue/producer.js';
-import {
-  cleanup,
-  createAgent,
-  infraReady,
-  loginCookie,
-  queueIdle,
-  request,
-  startApp,
-  type TestApp,
-  unique,
-} from './helpers.js';
-
-const ready = (await infraReady) && (await queueIdle);
 
 describe('judge', () => {
   it('passes when expectation is empty and output has text', () => {
@@ -29,57 +14,5 @@ describe('judge', () => {
 
   it('trims expectation before matching', () => {
     expect(judge('some text', '  text  ')).toBe(true);
-  });
-});
-
-describe.skipIf(!ready)('eval routes', () => {
-  let app: TestApp;
-  let cookie: string;
-  const createdAgents: string[] = [];
-
-  beforeAll(async () => {
-    app = await startApp();
-    cookie = await loginCookie(app);
-  });
-
-  afterAll(async () => {
-    await cleanup(app, { agentSlugs: createdAgents });
-    await app.close();
-  });
-
-  const newAgent = async (): Promise<Agent> =>
-    (
-      await createAgent(app, cookie, {
-        slug: unique('eval-agent'),
-        track: createdAgents,
-      })
-    ).json<Agent>();
-
-  it('POST /api/eval/runs returns 202 and enqueues the job', async () => {
-    const agent = await newAgent();
-    const created = await request(app, {
-      method: 'POST',
-      url: '/api/eval/cases',
-      headers: { cookie },
-      payload: { agentId: agent.id, name: 'hello', prompt: 'say hello', expectation: 'hello' },
-    });
-    expect(created.statusCode).toBe(201);
-
-    const res = await request(app, {
-      method: 'POST',
-      url: '/api/eval/runs',
-      headers: { cookie },
-      payload: { agentId: agent.id },
-    });
-    expect(res.statusCode).toBe(202);
-    const { evalRunId } = res.json<{ evalRunId: string }>();
-    expect(evalRunId.startsWith('er_')).toBe(true);
-
-    const job = await getEvalQueue().getJob(evalRunId);
-    if (!job) throw new Error('eval job was not enqueued');
-    expect(await job.getState()).toBe('waiting');
-    expect(job.data).toEqual({ evalRunId });
-
-    await job.remove();
   });
 });

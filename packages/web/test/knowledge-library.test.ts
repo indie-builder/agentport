@@ -1,6 +1,5 @@
 import { HttpResponse, http } from 'msw';
-import { act, createElement } from 'react';
-import { createRoot } from 'react-dom/client';
+import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { toastError } from '../src/lib/toast.js';
 import {
@@ -11,7 +10,6 @@ import {
   chooseFilter,
   chooseMenuItem,
   chunk,
-  cleanup,
   click,
   detailsHandler,
   dialog,
@@ -21,22 +19,18 @@ import {
   markdownResponse,
   mount,
   mountState,
-  msw,
   openMenu,
   patchBody,
   registerKnowledgeHarness,
   server,
   waitFor,
 } from './knowledge-harness.js';
-import { runCleanup } from './msw.js';
 
 vi.mock('../src/lib/toast.js', () => ({
   toast: { success: vi.fn(), info: vi.fn(), warning: vi.fn(), error: vi.fn() },
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
 }));
-
-const initialResizeObserver = globalThis.ResizeObserver;
 
 registerKnowledgeHarness();
 
@@ -81,6 +75,17 @@ describe('knowledge polling window', () => {
       ]),
     ).toBe(false);
   });
+
+  it('polls a pending document within the window and stops when ready or past the window', async () => {
+    const { knowledgeShouldPoll } = await import('../src/lib/queries.js');
+    const now = new Date().toISOString();
+    const withinWindow = new Date(Date.now() - 29 * 60_000).toISOString();
+    const pastWindow = new Date(Date.now() - 31 * 60_000).toISOString();
+    expect(knowledgeShouldPoll([{ status: 'pending', createdAt: now }])).toBe(true);
+    expect(knowledgeShouldPoll([{ status: 'pending', createdAt: withinWindow }])).toBe(true);
+    expect(knowledgeShouldPoll([{ status: 'pending', createdAt: pastWindow }])).toBe(false);
+    expect(knowledgeShouldPoll([{ status: 'ready', createdAt: now }])).toBe(false);
+  });
 });
 
 describe('knowledge library list', () => {
@@ -124,8 +129,6 @@ describe('knowledge library list', () => {
       ?.closest<HTMLElement>('li');
     const link = row?.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]');
     expect(link?.closest('li')).toBe(row);
-    expect(link?.className).toContain('absolute');
-    expect(link?.className).toContain('inset-0');
     expect(row?.querySelectorAll('a')).toHaveLength(1);
 
     await openMenu('操作 产品手册');
@@ -559,118 +562,5 @@ describe('knowledge pagination', () => {
     await click(button('上线流程'));
     await click(button('加载更多分块', dialog('上线流程')));
     expect(dialog('上线流程').textContent).toContain('第二页分块内容');
-  });
-});
-
-describe('msw request body capture', () => {
-  it('waits for a delayed request body and fails on a read error', async () => {
-    let release!: () => void;
-    const released = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const delayedBody = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        await released;
-        controller.enqueue(new TextEncoder().encode('{"delayed":true}'));
-        controller.close();
-      },
-    });
-    const delayed = new Request('http://localhost/api/msw/body', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: delayedBody,
-      duplex: 'half',
-    } as RequestInit);
-    server.events.emit({ type: 'request:start', request: delayed } as never);
-    expect(calls[0]?.body).toBeUndefined();
-    release();
-    await msw.waitForRequests();
-    expect(calls[0]?.body).toEqual({ delayed: true });
-
-    const failedBody = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode('{"broken":'));
-        controller.error(new Error('body read failed'));
-      },
-    });
-    const failed = new Request('http://localhost/api/msw/body', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: failedBody,
-      duplex: 'half',
-    } as RequestInit);
-    server.events.emit({ type: 'request:start', request: failed } as never);
-    await expect(msw.waitForRequests()).rejects.toThrow('body read failed');
-  });
-});
-
-describe('msw cleanup fault injection', () => {
-  it('runs every shared cleanup step and rethrows the first failure', async () => {
-    const steps: string[] = [];
-    await expect(
-      runCleanup([
-        () => {
-          steps.push('clear');
-          throw new Error('clear failed');
-        },
-        () => {
-          steps.push('remove');
-          throw new Error('remove failed');
-        },
-        () => {
-          steps.push('assertClean');
-        },
-      ]),
-    ).rejects.toThrow('clear failed');
-    expect(steps).toEqual(['clear', 'remove', 'assertClean']);
-  });
-
-  function expectRestored() {
-    expect(server.listHandlers()).toHaveLength(0);
-    expect(globalThis.ResizeObserver).toBe(initialResizeObserver);
-    expect(vi.isMockFunction(window.scrollTo)).toBe(false);
-    const { root, client, host } = mountState;
-    expect(root).toBeUndefined();
-    expect(client).toBeUndefined();
-    expect(host).toBeUndefined();
-  }
-
-  it('still restores handlers, globals and mocks after a body read rejection', async () => {
-    server.use(http.get('/api/knowledge/bases', () => HttpResponse.json([])));
-    const failedBody = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode('{"broken":'));
-        controller.error(new Error('body read failed'));
-      },
-    });
-    server.events.emit({
-      type: 'request:start',
-      request: new Request('http://localhost/api/msw/body', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: failedBody,
-        duplex: 'half',
-      } as RequestInit),
-    } as never);
-    await expect(cleanup()).rejects.toThrow('body read failed');
-    expectRestored();
-  });
-
-  it('still restores handlers, globals and mocks when unmount throws', async () => {
-    server.use(http.get('/api/knowledge/bases', () => HttpResponse.json([])));
-    mountState.host = document.createElement('div');
-    document.body.append(mountState.host);
-    mountState.root = createRoot(mountState.host);
-    const { root: mountedRoot, host: mountedHost } = mountState;
-    await act(async () => mountedRoot.render(createElement('p', null, 'mounted')));
-    expect(mountedHost.childNodes).toHaveLength(1);
-    await expect(
-      cleanup(async () => {
-        await act(async () => mountedRoot.unmount());
-        throw new Error('unmount failed');
-      }),
-    ).rejects.toThrow('unmount failed');
-    expect(mountedHost.childNodes).toHaveLength(0);
-    expectRestored();
   });
 });

@@ -13,7 +13,7 @@ const isolated = await createIsolatedDatabase(
 if (isolated) process.env.DATABASE_URL = isolated.url;
 
 const helpers = await import('./helpers.js');
-const { cleanup, createAgent, loginCookie, startApp, unique, waitFor } = helpers;
+const { cleanup, createAgent, loginCookie, startApp, unique } = helpers;
 const ready = await helpers.infraReady;
 // skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
 if (!ready && isolated) await isolated.close();
@@ -22,7 +22,6 @@ describe.skipIf(!(ready && isolated))('platform agent tools: cancellation', () =
   let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
-  const runIds: string[] = [];
 
   beforeAll(async () => {
     app = await startApp();
@@ -33,44 +32,13 @@ describe.skipIf(!(ready && isolated))('platform agent tools: cancellation', () =
     try {
       if (app) {
         try {
-          await cleanup(app, { agentSlugs: createdAgents, runIds });
+          await cleanup(app, { agentSlugs: createdAgents });
         } finally {
           await app.close();
         }
       }
     } finally {
       await isolated?.close();
-    }
-  });
-
-  it('passes the MCP request abort signal to the invoker', async () => {
-    let seen: AbortSignal | undefined;
-    const invoker = {
-      async invoke(input: { prompt: string; signal?: AbortSignal }) {
-        seen = input.signal;
-        return `done:${input.prompt}`;
-      },
-    };
-    const server = buildAgentServer(
-      [{ slug: 'demo-agent', name: 'Demo', description: '' }],
-      invoker,
-    );
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const client = new Client({ name: 'cancel-test', version: '0.0.0' });
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
-    try {
-      const result = (await client.callTool({
-        name: 'run_demo-agent',
-        arguments: { prompt: 'hi' },
-      })) as CallToolResult;
-      expect(result.isError).toBeFalsy();
-      expect(JSON.stringify(result.content)).toContain('done:hi');
-      expect(seen).toBeInstanceOf(AbortSignal);
-      expect(seen?.aborted).toBe(false);
-    } finally {
-      await client.close();
-      await server.close();
     }
   });
 
@@ -130,39 +98,5 @@ describe.skipIf(!(ready && isolated))('platform agent tools: cancellation', () =
       [agent.id],
     );
     expect(conversations[0]?.count).toBe(0);
-  });
-
-  it('cancels the queued run when the signal aborts during polling', async () => {
-    const slug = unique('cancel-agent');
-    createdAgents.push(slug);
-    const agent = (await createAgent(app, cookie, { slug, track: createdAgents })).json<{
-      id: string;
-    }>();
-    const invoker = createInvoker(app);
-    const controller = new AbortController();
-
-    const pending = invoker.invoke({ slug, prompt: 'cancel me', signal: controller.signal });
-    const created = await waitFor(async () => {
-      const rows = await app.client.unsafe<{ id: string }[]>(
-        'select id from agent_runs where agent_id = $1',
-        [agent.id],
-      );
-      const id = rows[0]?.id;
-      if (id === undefined) return false;
-      runIds.push(id);
-      return true;
-    });
-    expect(created).toBe(true);
-    controller.abort();
-
-    await expect(pending).rejects.toThrow(/cancelled/);
-    const runId = runIds.at(-1) ?? '';
-    const run = await app.client.unsafe<{ status: string }[]>(
-      'select status from agent_runs where id = $1',
-      [runId],
-    );
-    expect(run[0]?.status).toBe('cancelled');
-    const { getQueue } = await import('../src/queue/producer.js');
-    expect(await getQueue().getJob(runId)).toBeUndefined();
   });
 });

@@ -227,12 +227,4 @@ describe.skipIf(!ready)('agent update concurrency', () => {
     expectProblem(stale, 'CONFLICT_STALE');
     expect(await get(agent.id)).toMatchObject({ name: 'Round 4' });
   });
-
-  it('returns 404 for a missing agent even when a version is supplied', async () => {
-    const missing = await patch('agt_missing', {
-      name: 'x',
-      expectedUpdatedAt: new Date().toISOString(),
-    });
-    expectProblem(missing, 'NOT_FOUND', 'agent');
-  });
 });

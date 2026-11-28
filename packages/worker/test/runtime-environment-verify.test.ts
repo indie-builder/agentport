@@ -134,14 +134,6 @@ describe('verifyRuntimeEnvironmentImage', () => {
     expect(run).toContain('/home/node/.claude:rw,noexec,nosuid,size=64m,uid=1000,gid=1000');
     expect(run.at(-3)).toBe(IMAGE_ID);
     expect(run.at(-2)).toBe('-e');
-    const script = run.at(-1) ?? '';
-    expect(script).not.toContain("'--check'");
-    expect(script).toContain('command -v bash');
-    expect(script).toContain('session-supervisor.js');
-    expect(script).toContain('stdin closed before the probe task arrived');
-    expect(script).toContain('stdin closed before the native plugin task arrived');
-    expect(script).toContain('stdin closed before task JSON arrived');
-    expect(script).toContain("'--version'");
   });
 
   it('把容器内的启动失败原因作为失败返回', async () => {

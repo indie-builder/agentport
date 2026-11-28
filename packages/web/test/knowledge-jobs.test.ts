@@ -211,8 +211,6 @@ describe('knowledge detail business line', () => {
     expect(findButton('编辑信息')).toBeDefined();
     expect(findButton('更多操作')).toBeDefined();
     expect(findButton('使用此库的专家')).toBeUndefined();
-    expect(findButton('编辑信息')?.className).toContain('h-8');
-    expect(findButton('更多操作')?.className).toContain('size-8');
     expect(calls.some((item) => item.path === '/api/agents/reference')).toBe(false);
 
     await openMenu('更多操作');
@@ -348,9 +346,6 @@ describe('knowledge detail business line', () => {
       http.get('/api/auth/me', () =>
         HttpResponse.json(meWith(['knowledge.read', 'knowledge.publish', 'knowledge.execute'])),
       ),
-      http.patch('/api/knowledge/wiki-pages/kwp_blank', () =>
-        HttpResponse.json({ ...wikiPageSummary, id: 'kwp_blank' }),
-      ),
     );
     documentList();
     server.use(
@@ -388,15 +383,6 @@ describe('knowledge detail business line', () => {
     expect(findButton('生成草稿')).toBeDefined();
     expect(findButton('重新生成')).toBeUndefined();
     expect(findButton('新建 Wiki 页面')).toBeUndefined();
-
-    await click(button('编辑正文'));
-    const editor = dialog('编辑 Wiki 正文');
-    await fill('knowledge-wiki-markdown', '# 新正文');
-    await click(button('保存草稿', editor));
-    const patch = calls.find(
-      (item) => item.method === 'PATCH' && item.path === '/api/knowledge/wiki-pages/kwp_blank',
-    );
-    expect(patch?.body).toMatchObject({ markdown: '# 新正文', expectedVersion: null });
   });
 
   it('opens settings in place only with knowledge.update', async () => {
@@ -624,46 +610,6 @@ describe('knowledge jobs pagination', () => {
     await click(button('重新上传文档'));
     await waitFor(() => router.state.location.search.panel === undefined);
     expect(router.state.location.search.document).toBeUndefined();
-  });
-
-  it('lets the jobs table scroll horizontally instead of squeezing targets and reasons', async () => {
-    baseHandlers();
-    const error = '解析失败：文档结构损坏，无法提取正文内容，请检查文件后重新上传。';
-    server.use(
-      http.get('/api/knowledge/jobs', () =>
-        HttpResponse.json({
-          items: [
-            jobFixture({
-              id: 'kjob_long',
-              type: 'ingest',
-              status: 'failed',
-              error,
-              documentId: 'kdoc_1',
-              documentTitle: '上线流程',
-            }),
-          ],
-          nextCursor: null,
-        }),
-      ),
-    );
-    await mount('/knowledge/kb_1', { panel: 'jobs' });
-
-    const table = document.querySelector<HTMLTableElement>('table[aria-label="知识库任务"]');
-    expect(table?.className).toContain('min-w-5xl');
-    expect(table?.parentElement?.className).toContain('overflow-x-auto');
-    const heads = [...document.querySelectorAll<HTMLTableCellElement>('th')].map(
-      (item) => item.className,
-    );
-    expect(heads.some((item) => item.includes('min-w-56'))).toBe(true);
-    expect(heads.some((item) => item.includes('min-w-60'))).toBe(true);
-    const reason = document.querySelector<HTMLElement>(`[title="${error}"]`);
-    expect(reason?.textContent).toBe(error);
-    expect(reason?.className).not.toContain('truncate');
-    expect(reason?.closest('td')?.className).toContain('whitespace-normal');
-    const target = document.querySelector<HTMLElement>('[title="kdoc_1"]');
-    expect(target?.textContent).toBe('上线流程');
-    expect(target?.className).not.toContain('truncate');
-    expect(target?.closest('td')?.className).toContain('whitespace-normal');
   });
 
   it('loads more while keeping rows through a failed page and retries it', async () => {

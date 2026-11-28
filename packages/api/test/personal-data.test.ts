@@ -10,7 +10,6 @@ import {
   personalRunExportSchema,
   personalRunListSchema,
   personalUsageSummarySchema,
-  utcWindowStart,
 } from '@agentport/shared';
 import { buildApp } from '../src/app.js';
 import {
@@ -603,7 +602,7 @@ describe.skipIf(!ready)('personal data', () => {
     const agent = await createAgent(app, admin, { track: agentSlugs });
     const agentId = agent.json<{ id: string }>().id;
     const now = new Date();
-    const since = utcWindowStart(2, now);
+    const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
     await seedRun({
       agentId,
       businessId: user.businessId,

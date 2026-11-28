@@ -4,61 +4,36 @@ import {
   agentInputSchema,
   PERMISSIONS,
   type PermissionId,
-  type RuntimeEnvironment,
   type Server,
 } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DataTable } from '../src/components/data-table.js';
-import { ErrorState } from '../src/components/states.js';
-import { Combobox } from '../src/components/ui/combobox.js';
-import { Field } from '../src/components/ui/field.js';
-import { FileInput } from '../src/components/ui/file-input.js';
-import { Input } from '../src/components/ui/input.js';
-import { Select } from '../src/components/ui/select.js';
-import { Switch } from '../src/components/ui/switch.js';
-import { Textarea } from '../src/components/ui/textarea.js';
-import { Toggle } from '../src/components/ui/toggle.js';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
+import { act, createElement, type ReactNode } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
 import { AgentEditor } from '../src/pages/agents/agent-editor.js';
 import { AgentsPage } from '../src/pages/agents/agents-page.js';
 import { ServersPage } from '../src/pages/servers/index.js';
+import {
+  agentDetailSearchSchema,
+  agentsSearchSchema,
+  serversSearchSchema,
+} from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
 
-vi.mock('@/components/ui/toggle', () => import('../src/components/ui/toggle.js'));
-vi.mock('@/components/ui/button', () => import('../src/components/ui/button.js'));
-vi.mock('@/components/ui/input-group', () => import('../src/components/ui/input-group.js'));
-vi.mock('@/components/ui/input', () => import('../src/components/ui/input.js'));
-vi.mock('@/components/ui/textarea', () => import('../src/components/ui/textarea.js'));
-vi.mock('@/components/ui/label', () => import('../src/components/ui/label.js'));
-vi.mock('@/components/ui/separator', () => import('../src/components/ui/separator.js'));
-vi.mock('@tanstack/react-router', () => ({
-  useBlocker: () => ({ status: 'idle' }),
-  useLocation: () => ({ href: '/agents' }),
-  useNavigate: () => (options: { search?: (current: Record<string, unknown>) => object }) => {
-    Object.assign(state.search, options.search?.(state.search) ?? {});
-  },
-  useSearch: () => state.search,
-  Link: 'a',
+vi.mock('../src/lib/toast.js', () => ({
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
-
-const state = vi.hoisted(() => ({
-  saving: false,
-  search: { tab: 'config' } as Record<string, string | undefined>,
-}));
-vi.mock('../src/lib/queries.js', async (original) => {
-  const queries = await original<typeof import('../src/lib/queries.js')>();
-  return {
-    ...queries,
-    meQuery: {
-      queryKey: ['me'],
-      queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
-    },
-    useUpdateAgent: () => ({ ...queries.useUpdateAgent(), isPending: state.saving }),
-  };
-});
 
 const agent: Agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
@@ -78,35 +53,6 @@ const server: Server = {
   kind: 'generated',
   baseUrl: 'https://example.com',
   headers: {},
-  createdAt: '2026-01-01',
-  updatedAt: '2026-01-01',
-};
-const stdioServer: Server = {
-  id: 'server-stdio',
-  name: 'stdio-connector',
-  description: '',
-  kind: 'stdio',
-  command: 'node',
-  args: [],
-  env: {},
-  createdAt: '2026-01-01',
-  updatedAt: '2026-01-01',
-};
-const defaultEnvironment: RuntimeEnvironment = {
-  id: 'rte_default',
-  name: '默认环境',
-  dockerfile: 'FROM base',
-  isDefault: true,
-  onlineVersionId: 'rtev_default',
-  createdAt: '2026-01-01',
-  updatedAt: '2026-01-01',
-};
-const namedEnvironment: RuntimeEnvironment = {
-  id: 'rte_named',
-  name: '数据分析',
-  dockerfile: 'FROM base',
-  isDefault: false,
-  onlineVersionId: null,
   createdAt: '2026-01-01',
   updatedAt: '2026-01-01',
 };
@@ -137,227 +83,332 @@ const tool: ApiTool = {
   createdAt: '2026-01-01',
   updatedAt: '2026-01-01',
 };
+const allPermissions: readonly PermissionId[] = PERMISSIONS.map((permission) => permission.id);
 
-type Element = ReactElement<Record<string, unknown>>;
-function elements(node: ReactNode): Element[] {
-  if (Array.isArray(node)) return node.flatMap(elements);
-  if (!isValidElement<Record<string, unknown>>(node)) return [];
-  return [
-    node,
-    ...elements(node.props.children as ReactNode),
-    ...elements(node.props.actions as ReactNode),
-    ...elements(node.props.action as ReactNode),
-  ];
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve, reject };
 }
 
+let host: HTMLDivElement | undefined;
+let root: Root | undefined;
+let history: ReturnType<typeof createMemoryHistory> | undefined;
 const clients: QueryClient[] = [];
-function client() {
-  const result = new QueryClient({
-    defaultOptions: { queries: { retry: false, retryOnMount: false, staleTime: Infinity } },
+
+function createClient() {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, retryOnMount: false, staleTime: Infinity },
+      mutations: { retry: false },
+    },
   });
-  result.setQueryData(['me'], allAccessMe);
-  result.setQueryData(['agents'], {
+  client.setQueryData(['me'], allAccessMe);
+  client.setQueryData(['agents'], {
     items: [agent, { ...agent, id: 'child', parentId: agent.id }],
     truncated: false,
   });
-  result.setQueryData(['agents', 'list', { status: 'active' }], {
+  client.setQueryData(['agents', 'list', { status: 'active' }], {
     pages: [{ items: [agent, { ...agent, id: 'child', parentId: agent.id }], nextCursor: null }],
     pageParams: [undefined],
   });
-  result.setQueryData(['servers'], {
+  client.setQueryData(['agent-tags'], { items: [] });
+  client.setQueryData(['agent-options'], {
+    servers: [],
+    skills: [],
+    plugins: [],
+    runtimeEnvironments: [],
+  });
+  client.setQueryData(['runtime-environments'], {
+    pages: [{ items: [], nextCursor: null }],
+    pageParams: [undefined],
+  });
+  client.setQueryData(['connector-catalog'], []);
+  client.setQueryData(['servers'], {
     pages: [{ items: [server], nextCursor: null }],
     pageParams: [undefined],
   });
-  result.setQueryData(['knowledge', 'bases'], {
+  client.setQueryData(['knowledge', 'bases'], {
     pages: [{ items: [knowledgeBase], nextCursor: null }],
     pageParams: [null],
   });
-  result.setQueryData(['skills', 'all'], {
+  client.setQueryData(['skills', 'all'], {
     pages: [
       {
-        items: [{ id: 'skill', slug: 'skill', name: 'Skill', description: '', body: '' }],
+        items: [
+          {
+            id: 'skill',
+            slug: 'skill',
+            name: 'Skill',
+            description: '',
+            body: '',
+            status: 'published',
+          },
+        ],
         nextCursor: null,
       },
     ],
     pageParams: [undefined],
   });
-  result.setQueryData(['tools', server.id], [tool]);
-  clients.push(result);
-  return result;
+  client.setQueryData(['plugins', { enabled: true }], {
+    pages: [{ items: [], nextCursor: null }],
+    pageParams: [undefined],
+  });
+  client.setQueryData(['tools', server.id], [tool]);
+  clients.push(client);
+  return client;
 }
 
-function inspect(
-  queryClient: QueryClient,
-  render: () => ReactNode,
-  visit: (tree: Element[], pass: number) => void,
-) {
-  let pass = 0;
-  function Probe() {
-    visit(elements(render()), pass++);
-    return null;
-  }
-  renderToStaticMarkup(
-    createElement(QueryClientProvider, { client: queryClient }, createElement(Probe)),
-  );
-}
-const allPermissions: readonly PermissionId[] = PERMISSIONS.map((permission) => permission.id);
-function editor() {
-  return AgentEditor({
-    agent,
-    permissions: allPermissions,
-    onDirtyChange: () => {},
-    onPendingChange: () => {},
-    onDeleteRequest: () => {},
+function flush(ms = 10) {
+  return act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   });
 }
-function selectSection(tree: Element[], label: string) {
-  const item = tree.find(
-    (node) => typeof node.props.onClick === 'function' && flatText(node).includes(label),
-  );
-  if (!item) throw new Error(`Missing section nav: ${label}`);
-  (item.props.onClick as () => void)();
-}
-function flatText(node: ReactNode): string {
-  if (Array.isArray(node)) return node.map(flatText).join(' ');
-  if (typeof node === 'string') return node;
-  if (isValidElement<Record<string, unknown>>(node))
-    return flatText(node.props.children as ReactNode);
-  return '';
-}
-function required(tree: Element[], predicate: (node: Element) => boolean): Element {
-  const found = tree.find(predicate);
-  if (!found) throw new Error('Missing expected control');
-  return found;
-}
-function serverCell(tree: Element[], id: string): (row: Server) => ReactNode {
-  const table = required(tree, (node) => node.type === DataTable);
-  const columns = table.props.columns as Array<{ id: string; cell?: (row: Server) => ReactNode }>;
-  const column = columns.find((entry) => entry.id === id);
-  if (!column?.cell) throw new Error(`Missing server column: ${id}`);
-  return column.cell;
-}
-function text(tree: Element[]) {
-  return tree
-    .flatMap((node) =>
-      Array.isArray(node.props.children) ? node.props.children : [node.props.children],
-    )
-    .filter((child) => typeof child === 'string')
-    .join(' ');
+
+async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
+  for (let index = 0; index < tries; index += 1) {
+    try {
+      const value = probe();
+      if (value) return value;
+    } catch {}
+    await flush();
+  }
+  return probe();
 }
 
-afterEach(() => {
-  for (const queryClient of clients.splice(0)) queryClient.clear();
-  state.saving = false;
-  state.search = { tab: 'config' };
+async function mountRoute(
+  client: QueryClient,
+  initialEntry: string,
+  renderEditor?: () => ReactNode,
+) {
+  const rootRoute = createRootRoute({ component: Outlet });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
+  const agentsRoute = createRoute({
+    getParentRoute: () => shell,
+    path: '/agents/',
+    validateSearch: agentsSearchSchema,
+    component: AgentsPage,
+  });
+  const agentDetailRoute = createRoute({
+    getParentRoute: () => shell,
+    path: '/agents/$agentId',
+    validateSearch: agentDetailSearchSchema,
+    component:
+      renderEditor ??
+      (() =>
+        createElement(AgentEditor, {
+          agent,
+          permissions: allPermissions,
+          onDirtyChange: () => {},
+          onPendingChange: () => {},
+          onDeleteRequest: () => {},
+        })),
+  });
+  const serversRoute = createRoute({
+    getParentRoute: () => shell,
+    path: '/servers',
+    validateSearch: serversSearchSchema,
+    component: ServersPage,
+  });
+  const stubs = ['/chat', '/knowledge', '/skills', '/plugins'].map((path) =>
+    createRoute({
+      getParentRoute: () => shell,
+      path,
+      component: () => createElement('h1', null, path),
+    }),
+  );
+  history = createMemoryHistory({ initialEntries: [initialEntry] });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([
+      shell.addChildren([agentsRoute, agentDetailRoute, serversRoute, ...stubs]),
+    ]),
+    history,
+  });
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => {
+    await router.load();
+    root?.render(
+      createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
+    );
+  });
+  await flush();
+  return router;
+}
+
+function button(label: string, scope: ParentNode = document): HTMLButtonElement {
+  const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(
+    (item) => item.textContent?.trim() === label || item.getAttribute('aria-label') === label,
+  );
+  if (!found) throw new Error(`Missing button: ${label}`);
+  return found;
+}
+
+async function click(element: HTMLElement) {
+  await act(async () => element.click());
+  await flush();
+}
+
+async function typeInput(element: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  await act(async () => {
+    setter?.call(element, value);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await flush();
+}
+
+function isDisabled(element: HTMLElement): boolean {
+  return (
+    element.hasAttribute('disabled') ||
+    (element as HTMLButtonElement | HTMLInputElement).disabled === true ||
+    element.getAttribute('aria-disabled') === 'true' ||
+    element.hasAttribute('data-disabled')
+  );
+}
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+  }));
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  Object.defineProperty(Element.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: () => {},
+  });
+  vi.spyOn(api, 'agent').mockResolvedValue(agent);
+});
+
+afterEach(async () => {
+  await act(async () => root?.unmount());
+  history?.destroy();
+  for (const client of clients.splice(0)) client.clear();
+  host?.remove();
+  root = undefined;
+  host = undefined;
+  history = undefined;
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('resource async state regressions', () => {
   it.each([false, true])(
     'blocks every competing editor entry during import (empty list: %s)',
-    (empty) => {
-      const queryClient = client();
-      if (empty)
-        queryClient.setQueryData(['agents', 'list', { status: 'active' }], {
+    async (empty) => {
+      const client = createClient();
+      if (empty) {
+        client.setQueryData(['agents', 'list', { status: 'active' }], {
           pages: [{ items: [], nextCursor: null }],
           pageParams: [undefined],
         });
-      vi.spyOn(api, 'importAgent').mockReturnValue(new Promise(() => {}));
-      inspect(queryClient, AgentsPage, (tree, pass) => {
-        if (pass === 0) {
-          const upload = required(tree, (node) => node.type === FileInput);
-          (
-            upload.props.onValueChange as (
-              files: unknown[],
-              details: { cancel: () => void },
-            ) => void
-          )([{ name: 'expert.zip', size: 10, text: () => new Promise(() => {}) }], {
-            cancel: () => {},
-          });
-          return true;
-        }
-        if (pass === 1) {
-          const confirm = required(
-            tree,
-            (node) =>
-              (node.type as { name?: string }).name === 'ImportAgentDialog' &&
-              typeof node.props.onImport === 'function',
-          );
-          (confirm.props.onImport as (id?: string) => void)(undefined);
-          return true;
-        }
-        const entries = tree.filter(
-          (node) =>
-            node.props.children === '配置' ||
-            node.props.children === '创建第一位专家' ||
-            node.props.to === '/agents/$agentId' ||
-            node.props.to === '/chat' ||
-            node.props['aria-label'] === '新建专家' ||
-            (Array.isArray(node.props.children) && node.props.children.includes(' 新建专家')) ||
-            node.props['aria-label'] === '创建数字分身',
-        );
-        expect(entries.length).toBeGreaterThan(0);
-        expect(entries.every((node) => node.props.disabled === true)).toBe(true);
-        if (!empty) {
-          const nameLink = tree.find(
-            (node) =>
-              node.props.to === '/agents/$agentId' &&
-              (node.props.params as { agentId?: string } | undefined)?.agentId === 'expert',
-          );
-          const chatLink = tree.find(
-            (node) =>
-              node.props.to === '/chat' &&
-              (node.props.search as { agent?: string } | undefined)?.agent === 'expert',
-          );
-          expect(nameLink?.props.disabled).toBe(true);
-          expect(chatLink?.props.disabled).toBe(true);
-        }
+      }
+      const pendingImport = deferred<never>();
+      vi.spyOn(api, 'importAgent').mockReturnValue(pendingImport.promise);
+
+      await mountRoute(client, '/agents');
+      await waitFor(() => document.querySelector('input[type="file"]'));
+
+      const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+      if (!fileInput) throw new Error('Missing import file input');
+      const zip = new File(['zip'], 'expert.zip', { type: 'application/zip' });
+      Object.defineProperty(fileInput, 'files', { value: [zip], configurable: true });
+      await act(async () => {
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
       });
+      await flush();
+
+      const importDialog = await waitFor(() =>
+        [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((dialog) =>
+          dialog.textContent?.includes('导入专家包'),
+        ),
+      );
+      await click(button('导入', importDialog));
+      await waitFor(() => vi.mocked(api.importAgent).mock.calls.length === 1);
+
+      const headerCreate = [...document.querySelectorAll<HTMLButtonElement>('button')].filter(
+        (item) =>
+          item.textContent?.includes('新建专家') || item.textContent?.includes('创建数字分身'),
+      );
+      expect(headerCreate.length).toBeGreaterThan(0);
+      expect(headerCreate.every((item) => isDisabled(item))).toBe(true);
+      expect(isDisabled(button('更多操作'))).toBe(true);
+
+      if (!empty) {
+        const nameLink = document.querySelector<HTMLElement>('a[title="Expert"]');
+        const chatLink = document.querySelector<HTMLElement>('a[aria-label="与 Expert 开始对话"]');
+        if (!nameLink || !chatLink) throw new Error('Missing agent card links');
+        expect(isDisabled(nameLink)).toBe(true);
+        expect(nameLink.getAttribute('href')).toBeNull();
+        expect(isDisabled(chatLink)).toBe(true);
+        expect(chatLink.getAttribute('href')).toBeNull();
+
+        await click(button('操作 Expert'));
+        const configItem = await waitFor(() =>
+          [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+            item.textContent?.includes('配置'),
+          ),
+        );
+        expect(isDisabled(configItem)).toBe(true);
+      }
     },
   );
 
-  it('disables expert fields, bindings, permissions, and enabled state while saving', () => {
-    const queryClient = client();
-    state.saving = true;
-    const seen = { capability: 0, permissions: 0 };
-    inspect(queryClient, editor, (tree, pass) => {
-      if (pass === 0) {
-        const enabled = required(tree, (node) => node.type === Switch);
-        expect(enabled.props.disabled).toBe(true);
-        selectSection(tree, '能力');
-        return;
-      }
-      if (pass === 1) {
-        const controls = tree.filter((node) =>
-          [Input, Textarea, Select, Combobox].includes(node.type as typeof Input),
-        );
-        expect(controls.length).toBeGreaterThanOrEqual(3);
-        expect(controls.every((node) => node.props.disabled === true)).toBe(true);
-        seen.capability = controls.length;
-        selectSection(tree, '权限');
-        return;
-      }
-      const controls = tree.filter((node) =>
-        [Input, Textarea, Select].includes(node.type as typeof Input),
-      );
-      expect(controls.length).toBeGreaterThan(0);
-      expect(controls.every((node) => node.props.disabled === true)).toBe(true);
-      seen.permissions = controls.length;
-      expect(
-        tree
-          .filter((node) => node.type === Field)
-          .every(
-            (node) =>
-              node.props['data-disabled'] === true || node.props['data-disabled'] === 'true',
-          ),
-      ).toBe(true);
-      const permissions = tree.filter(
-        (node) => node.type === Toggle && node.props.pressed !== undefined,
-      );
-      expect(permissions.length).toBeGreaterThan(0);
-      expect(permissions.every((node) => node.props.disabled === true)).toBe(true);
-    });
-    expect(seen.capability + seen.permissions).toBeGreaterThanOrEqual(5);
+  it('disables expert fields, bindings, permissions, and enabled state while saving', async () => {
+    const client = createClient();
+    const saving = deferred<never>();
+    vi.spyOn(api, 'updateAgent').mockReturnValue(saving.promise);
+
+    await mountRoute(client, '/agents/expert?tab=config');
+    const nameInput = await waitFor(() => document.querySelector<HTMLInputElement>('#agent-name'));
+    if (!nameInput) throw new Error('Missing agent name input');
+    await typeInput(nameInput, 'Expert Draft');
+    await click(button('保存草稿'));
+    await waitFor(() => vi.mocked(api.updateAgent).mock.calls.length === 1);
+
+    const enabledSwitch = document.querySelector<HTMLElement>('#agent-enabled');
+    if (!enabledSwitch) throw new Error('Missing enabled switch');
+    expect(isDisabled(enabledSwitch)).toBe(true);
+    expect(isDisabled(nameInput)).toBe(true);
+
+    await click(button('能力'));
+    const serverInput = await waitFor(() =>
+      document.querySelector<HTMLInputElement>('input[aria-label="MCP Server"]'),
+    );
+    const kbInput = document.querySelector<HTMLInputElement>('input[aria-label="知识库"]');
+    const skillInput = document.querySelector<HTMLInputElement>('input[aria-label="技能"]');
+    const subAgentInput = document.querySelector<HTMLInputElement>('input[aria-label="子智能体"]');
+    const capabilityControls = [serverInput, kbInput, skillInput, subAgentInput];
+    expect(capabilityControls.every((item) => item !== null && isDisabled(item))).toBe(true);
+
+    await click(button('权限'));
+    const permTrigger = await waitFor(() => document.querySelector<HTMLElement>('#agent-perm'));
+    const allowedTools = document.querySelector<HTMLTextAreaElement>('#agent-allowed-tools');
+    if (!permTrigger || !allowedTools) throw new Error('Missing permission controls');
+    expect(isDisabled(permTrigger)).toBe(true);
+    expect(isDisabled(allowedTools)).toBe(true);
+
+    const builtinToggles = [
+      ...document.querySelectorAll<HTMLButtonElement>('button[aria-pressed]'),
+    ];
+    expect(builtinToggles.length).toBeGreaterThan(0);
+    expect(builtinToggles.every((item) => isDisabled(item))).toBe(true);
   });
 
   it.each([
@@ -369,40 +420,51 @@ describe('resource async state regressions', () => {
   ] as const)(
     'does not count unavailable %s as zero (%s, cached: %s)',
     async (source, status, cached) => {
-      const queryClient = client();
+      const client = createClient();
       const queryKey = source === 'tools' ? ['tools', server.id] : ['servers'];
-      queryClient
-        .getQueryCache()
-        .find({ queryKey })
-        ?.setState({
-          status,
-          ...(cached ? {} : { data: undefined }),
-          error: status === 'error' ? new Error('Resources unavailable') : null,
-        });
-      let retry: (() => void) | undefined;
-      inspect(queryClient, editor, (tree, pass) => {
-        if (pass === 0) {
-          selectSection(tree, '能力');
-          return;
-        }
-        expect(text(tree)).not.toContain('将获得 0 个工具');
-        expect(text(tree)).toContain(status === 'error' ? '工具数量未知' : '工具数量加载中');
-        if (status === 'error')
-          retry = required(tree, (node) => node.type === ErrorState).props.onRetry as () => void;
-      });
-      if (retry) {
-        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-          Response.json(source === 'tools' ? [tool] : [server]),
-        );
-        retry();
-        await vi.waitFor(() => expect(queryClient.getQueryState(queryKey)?.status).toBe('success'));
-        inspect(queryClient, editor, (tree, pass) => {
-          if (pass === 0) {
-            selectSection(tree, '能力');
-            return;
+
+      if (source === 'tools') {
+        if (!cached) {
+          client.removeQueries({ queryKey });
+          if (status === 'pending') {
+            vi.spyOn(api, 'tools').mockReturnValue(deferred<ApiTool[]>().promise);
+          } else {
+            vi.spyOn(api, 'tools')
+              .mockRejectedValueOnce(new Error('Resources unavailable'))
+              .mockResolvedValue([tool]);
           }
-          expect(text(tree)).toContain('将获得 1 个工具');
-        });
+        } else {
+          client
+            .getQueryCache()
+            .find({ queryKey })
+            ?.setState({
+              status: 'error',
+              error: new Error('Resources unavailable'),
+            });
+          vi.spyOn(api, 'tools').mockResolvedValue([tool]);
+        }
+      } else {
+        client.removeQueries({ queryKey });
+        if (status === 'pending') {
+          vi.spyOn(api, 'servers').mockReturnValue(deferred<never>().promise);
+        } else {
+          vi.spyOn(api, 'servers')
+            .mockRejectedValueOnce(new Error('Resources unavailable'))
+            .mockResolvedValue({ items: [server], nextCursor: null });
+        }
+      }
+
+      await mountRoute(client, '/agents/expert?tab=config&section=capability');
+      const expected = status === 'error' ? '工具数量未知' : '工具数量加载中';
+      await waitFor(() => document.body.textContent?.includes(expected));
+
+      expect(document.body.textContent).not.toContain('将获得 0 个工具');
+      expect(document.body.textContent).toContain(expected);
+
+      if (status === 'error') {
+        await click(button('重试'));
+        await waitFor(() => document.body.textContent?.includes('将获得 1 个工具'));
+        expect(document.body.textContent).toContain('将获得 1 个工具');
       }
     },
   );
@@ -410,145 +472,57 @@ describe('resource async state regressions', () => {
   it.each(['pending', 'error'] as const)(
     'does not count unavailable server bindings as zero (%s)',
     async (status) => {
-      state.search = { view: 'table' };
-      const queryClient = client();
-      queryClient
-        .getQueryCache()
-        .find({ queryKey: ['agents'] })
-        ?.setState({
-          status,
-          data: undefined,
-          error: status === 'error' ? new Error('Experts unavailable') : null,
-        });
-      let retry: (() => void) | undefined;
-      inspect(queryClient, ServersPage, (tree) => {
-        expect(serverCell(tree, 'agents')(server)).toBe(status === 'error' ? '未知' : '加载中…');
-        if (status === 'error')
-          retry = required(tree, (node) => node.type === ErrorState).props.onRetry as () => void;
-      });
-      if (retry) {
-        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-          Response.json({ items: [agent], truncated: false }),
-        );
-        retry();
-        await vi.waitFor(() =>
-          expect(queryClient.getQueryState(['agents'])?.status).toBe('success'),
-        );
-        inspect(queryClient, ServersPage, (tree) => {
-          const markup = renderToStaticMarkup(
-            createElement('div', null, serverCell(tree, 'agents')(server)),
-          );
-          expect(markup).toContain('查看使用该连接器的 1 个专家');
-        });
+      const client = createClient();
+      client.removeQueries({ queryKey: ['agents'] });
+      if (status === 'pending') {
+        vi.spyOn(api, 'agentReference').mockReturnValue(deferred<never>().promise);
+      } else {
+        vi.spyOn(api, 'agentReference')
+          .mockRejectedValueOnce(new Error('Experts unavailable'))
+          .mockResolvedValue({ items: [agent], truncated: false });
+      }
+
+      await mountRoute(client, '/servers?view=table');
+      const expected = status === 'error' ? '未知' : '加载中…';
+      await waitFor(() => document.querySelector('table')?.textContent?.includes(expected));
+      expect(document.querySelector('table')?.textContent).toContain(expected);
+
+      if (status === 'error') {
+        await click(button('重试'));
+        await waitFor(() => button('查看使用该连接器的 1 个专家'));
+        expect(button('查看使用该连接器的 1 个专家')).toBeDefined();
       }
     },
   );
 
-  it('tests stdio connectors in the chosen runtime environment', async () => {
-    state.search = { view: 'table' };
-    const queryClient = client();
-    queryClient.setQueryData(['servers'], {
-      pages: [{ items: [stdioServer], nextCursor: null }],
-      pageParams: [undefined],
-    });
-    queryClient.setQueryData(['runtime-environments'], {
-      pages: [{ items: [defaultEnvironment, namedEnvironment], nextCursor: null }],
-      pageParams: [undefined],
-    });
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      Response.json({
-        ok: true,
-        tools: [],
-        durationMs: 1,
-        runtimeEnvironment: {
-          environmentId: namedEnvironment.id,
-          environmentName: namedEnvironment.name,
-          versionId: 'rtev_named',
-          imageId: 'sha256:named',
-        },
-      }),
-    );
-    let confirmed = false;
-    inspect(queryClient, ServersPage, (tree, pass) => {
-      if (pass === 0) {
-        (
-          required(
-            elements(serverCell(tree, 'actions')(stdioServer)),
-            (node) => typeof node.props.onTest === 'function',
-          ).props.onTest as (trigger: HTMLElement) => void
-        )(document.createElement('button'));
-        return;
-      }
-      if (confirmed) return;
-      const dialog = required(
-        tree,
-        (node) =>
-          (node.props.server as Server | undefined)?.id === stdioServer.id &&
-          typeof node.props.onConfirm === 'function',
-      );
-      expect(
-        (dialog.props.environments as RuntimeEnvironment[]).map((environment) => environment.name),
-      ).toEqual(['默认环境', '数据分析']);
-      confirmed = true;
-      (dialog.props.onConfirm as (environmentId: string) => void)(namedEnvironment.id);
-    });
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-    const request = fetchSpy.mock.calls[0]?.[0] as Request;
-    expect(request.url).toMatch(/\/api\/servers\/server-stdio\/test$/);
-    expect(request.method).toBe('POST');
-    expect(await request.clone().json()).toEqual({ runtimeEnvironmentId: namedEnvironment.id });
-  });
+  it('locks only the approval select whose tool is being edited', async () => {
+    const client = createClient();
+    vi.spyOn(api, 'tools').mockResolvedValue([tool, { ...tool, id: 'other', name: 'other' }]);
+    client.setQueryData(['tools', server.id], [tool, { ...tool, id: 'other', name: 'other' }]);
 
-  it('locks only the approval select whose tool is being edited', () => {
-    state.search = { view: 'table' };
-    const queryClient = client();
-    queryClient.setQueryData(['tools', server.id], [tool, { ...tool, id: 'other', name: 'other' }]);
-    let dialog: Element | undefined;
-    inspect(queryClient, ServersPage, (tree, pass) => {
-      if (pass === 0) {
-        (
-          required(
-            elements(serverCell(tree, 'actions')(server)),
-            (node) => typeof node.props.onTools === 'function',
-          ).props.onTools as (trigger: unknown) => void
-        )({});
-      } else
-        dialog = required(
-          tree,
-          (node) => node.props.server === server && node.props.getReturnFocus !== undefined,
-        );
-    });
-    if (!dialog || typeof dialog.type !== 'function') throw new Error('Missing tool dialog');
-    const renderDialog = dialog.type as (props: Record<string, unknown>) => ReactNode;
-    const props = dialog.props;
-    inspect(
-      queryClient,
-      () => renderDialog(props),
-      (tree, pass) => {
-        if (pass === 0) {
-          (
-            required(tree, (node) => node.props['aria-label'] === '编辑工具 list-users').props
-              .onClick as () => void
-          )();
-          return;
-        }
-        const approvalSelects = tree.filter(
-          (node) =>
-            node.type === Select &&
-            Array.isArray(node.props.items) &&
-            (node.props.items as Array<{ value: string }>).some((item) => item.value === 'ask'),
-        );
-        expect(approvalSelects[0]?.props.disabled).toBe(true);
-        expect(approvalSelects[1]?.props.disabled).toBe(false);
-        expect(
-          required(tree, (node) => node.props['aria-label'] === '启用工具 list-users').props
-            .disabled,
-        ).toBe(false);
-      },
-    );
-  });
+    await mountRoute(client, '/servers?view=table');
+    await waitFor(() => button('操作 connector'));
+    await click(button('操作 connector'));
 
-  it('accepts an empty model through the actual shared schema', () => {
-    expect(agentInputSchema.safeParse({ ...agent, model: '' }).success).toBe(true);
+    const toolsItem = await waitFor(() =>
+      [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+        item.textContent?.includes('工具定义'),
+      ),
+    );
+    await click(toolsItem);
+
+    const editButton = await waitFor(() => button('编辑工具 list-users'));
+    await click(editButton);
+
+    const listUsersApproval = await waitFor(() => button('审批策略 list-users'));
+    const otherApproval = button('审批策略 other');
+    const enableCheckbox = document.querySelector<HTMLElement>(
+      '[role="checkbox"][aria-label="启用工具 list-users"]',
+    );
+    if (!enableCheckbox) throw new Error('Missing enable checkbox');
+
+    expect(isDisabled(listUsersApproval)).toBe(true);
+    expect(isDisabled(otherApproval)).toBe(false);
+    expect(isDisabled(enableCheckbox)).toBe(false);
   });
 });

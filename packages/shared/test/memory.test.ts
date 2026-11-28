@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import {
   AGENT_MEMORY_MAX_BYTES,
   AGENT_MEMORY_MAX_LINES,
-  escapeRegExp,
   MEMORY_FILE_MAX_BYTES,
   memoryContentSnapshotSchema,
   memoryFileNamePattern,
@@ -242,14 +241,5 @@ describe('memory content limits', () => {
     expect(validateMemoryContent('MEMORY.md', '')).toBeNull();
     expect(validateMemoryContent('MEMORY.md', '\n')).toBeNull();
     expect(validateMemoryContent('topic.md', '')).toBeNull();
-  });
-});
-
-describe('escapeRegExp', () => {
-  it('escapes regex metacharacters for literal matching', () => {
-    const literal = 'a.b[c](d)+?^{}$|\\';
-    const re = new RegExp(escapeRegExp(literal));
-    expect(re.test(literal)).toBe(true);
-    expect(re.test('axb[c](d)+?^{}$|\\')).toBe(false);
   });
 });

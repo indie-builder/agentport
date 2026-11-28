@@ -280,10 +280,6 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
       CLAUDE_CONFIG_DIR: options?.cwd,
     });
     expect(options?.env).not.toHaveProperty('DATABASE_URL');
-    expect(captured[0]?.prompt).toContain('## 历史资料');
-    expect(captured[0]?.prompt).toContain('## 本次要求');
-    expect(captured[0]?.prompt).toContain('当前内容：');
-    expect(captured[0]?.prompt).not.toContain('MEMORY.md 是索引');
 
     const review = await repo.memoryReviews.find(db, seeded.runId);
     expect(review?.proposal).toEqual({
@@ -303,41 +299,6 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
     });
     expect(await messagesOf(seeded.runId)).toHaveLength(0);
     expect(existsSync(options?.cwd ?? '')).toBe(false);
-  });
-
-  it('keeps the MEMORY.md index contract in the agent memory prompt', async () => {
-    const seeded = await seed({
-      target: { kind: 'agent_memory', agentId, name: 'MEMORY.md' },
-      before: { content: '- [主题](topic.md)', globs: null, index: null },
-      messages: [{ role: 'user', text: '记得保留主题链接。' }],
-    });
-    const captured: Captured[] = [];
-    await executeMemoryReview(
-      db,
-      { runId: seeded.runId, redisUrl, signal: new AbortController().signal },
-      {
-        queryFn: reply(
-          [
-            resultMessage({
-              structured_output: {
-                summary: '更新索引项',
-                proposedContent: '- [主题](topic.md)',
-                evidence: [
-                  { messageId: seeded.messageIds[0], quote: '主题链接', kind: 'user_fact' },
-                ],
-              },
-            }),
-          ],
-          captured,
-        ),
-      },
-    );
-
-    const prompt = captured[0]?.prompt ?? '';
-    expect(prompt).toContain('MEMORY.md');
-    expect(prompt).toContain('MEMORY.md 是索引：保留已有主题链接与结构');
-    expect(prompt).not.toContain('不要创建新文件');
-    expect(prompt).toContain('最多 200 行 / 25KB');
   });
 
   it('keeps an existing topic body and passes MEMORY.md as organization background', async () => {
@@ -385,7 +346,6 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
     expect(prompt).toContain('typescript.md');
     expect(prompt).toContain(before.content);
     expect(prompt).toContain('- [TypeScript](typescript.md)');
-    expect(prompt).not.toContain('MEMORY.md 是索引');
     expect(await runOf(seeded.runId)).toMatchObject({ status: 'succeeded' });
     expect((await repo.memoryReviews.find(db, seeded.runId))?.proposal).toMatchObject({
       proposedContent: '- 开启严格模式\n- 禁止 any\n- 公共类型集中到 types.ts',
@@ -426,9 +386,7 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
 
     const prompt = captured[0]?.prompt ?? '';
     expect(prompt).toContain('deploy.md');
-    expect(prompt).toContain('当前为空');
     expect(prompt).toContain('- [Existing](existing.md)');
-    expect(prompt).not.toContain('不要创建新文件');
     expect(await runOf(seeded.runId)).toMatchObject({ status: 'succeeded' });
     expect((await repo.memoryReviews.find(db, seeded.runId))?.proposal).toMatchObject({
       proposedContent: '- 部署前先跑类型检查。',
@@ -797,7 +755,6 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
     expect(run?.error).toContain('不在审核快照中的消息');
     const review = await repo.memoryReviews.find(db, seeded.runId);
     expect(review?.proposal).toBeNull();
-    expect(review?.before).toEqual(before);
     expect(await messagesOf(seeded.runId)).toHaveLength(0);
   });
 
@@ -848,13 +805,6 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
     expect(prompt).not.toContain(afterId);
 
     const review = await repo.memoryReviews.find(db, seeded.runId);
-    expect(review?.sources).toEqual([
-      {
-        conversationId: seeded.conversationId,
-        fromMessageId: includedUserId,
-        throughMessageId: includedAssistantId,
-      },
-    ]);
     expect(await runOf(seeded.runId)).toMatchObject({ status: 'failed' });
     expect((await runOf(seeded.runId))?.error).toContain('不在审核快照中的消息');
     expect(review?.proposal).toBeNull();

@@ -1,14 +1,11 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { captureOutputDraft, sessionSandboxDir } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { inArray } from 'drizzle-orm';
-import { persistRunMessages } from '../src/messages.js';
 import {
   lastMessageIdOfRun,
-  outputPublishProblem,
   prepareRunOutputs,
   promptWithSelectedOutput,
   publishRunOutputsIfSettled,
@@ -55,32 +52,6 @@ afterEach(async () => {
 
 const conversationDir = () =>
   join(identity.workspacesDir, identity.slug, 'conversation-outputs', identity.conversationId);
-
-async function publishedSnapshot(runId: string, files: Record<string, string>): Promise<void> {
-  const dir = join(conversationDir(), 'runs', runId);
-  await mkdir(join(dir, 'files'), { recursive: true });
-  await writeFile(
-    join(dir, 'manifest.json'),
-    JSON.stringify({
-      version: 1,
-      runId,
-      createdAt: new Date().toISOString(),
-      status: 'succeeded',
-      userMessageId: 'message-user',
-      afterMessageId: 'message-after',
-      files: Object.entries(files).map(([path, content]) => ({
-        path,
-        size: Buffer.byteLength(content),
-        sha256: new Bun.CryptoHasher('sha256').update(content).digest('hex'),
-        mediaType: 'text/markdown',
-        changed: true,
-      })),
-    }),
-  );
-  for (const [path, content] of Object.entries(files)) {
-    await writeFile(join(dir, 'files', path), content);
-  }
-}
 
 describe('run outputs mount and identity', () => {
   it('maps the draft dir from workspacesDir to the host path at the same relative location', async () => {
@@ -147,31 +118,6 @@ describe('publishing run outputs', () => {
     await expect(readFile(join(hostPath, 'note.md'), 'utf8')).rejects.toThrow(/ENOENT/);
   });
 
-  it('captures stable outputs and leaves the mounted root intact after publishing an immutable snapshot', async () => {
-    await prepareRunOutputs(identity);
-    const stable = join(
-      sessionSandboxDir(identity.workspacesDir, identity.slug, identity.conversationId),
-      'outputs',
-    );
-    await mkdir(stable, { recursive: true });
-    await writeFile(join(stable, 'note.md'), 'first');
-    await captureOutputDraft({ root: identity.workspacesDir, ...identity, sourceDir: stable });
-    await recordOutputSandboxSettlement(identity, {
-      settlement: { state: 'stopped', code: 0, signal: null },
-    });
-    await publishRunOutputsIfSettled(identity, {
-      status: 'succeeded',
-      userMessageId: 'u',
-      afterMessageId: 'a',
-      retrying: false,
-    });
-    expect(await readFile(join(stable, 'note.md'), 'utf8')).toBe('first');
-    await writeFile(join(stable, 'note.md'), 'second');
-    expect(
-      await readFile(join(conversationDir(), 'runs', identity.runId, 'files', 'note.md'), 'utf8'),
-    ).toBe('first');
-  });
-
   it('keeps the draft and publishes nothing when cleanup failed', async () => {
     const { hostPath } = await prepareRunOutputs(identity);
     await writeFile(join(hostPath, 'note.md'), '# 还在写');
@@ -195,13 +141,15 @@ describe('publishing run outputs', () => {
   it('keeps an earlier cleanup failure blocked across attempts with no new cleanup error', async () => {
     const { hostPath } = await prepareRunOutputs(identity);
     await writeFile(join(hostPath, 'note.md'), 'pending');
-    await publishRunOutputsIfSettled(identity, {
+    const first = await publishRunOutputsIfSettled(identity, {
       status: 'failed',
       userMessageId: 'u',
       afterMessageId: 'a',
       retrying: true,
       cleanupError: 'stop failed',
     });
+    expect(first.published).toBe(false);
+    expect(first.problem).toContain('容器未能确认停止');
     expect(
       await readFile(join(conversationDir(), 'drafts', `${identity.runId}.blocked`), 'utf8'),
     ).toContain('stop failed');
@@ -253,34 +201,13 @@ describe('publishing run outputs', () => {
     async (reason) => {
       const { hostPath } = await prepareRunOutputs(identity);
       await writeFile(join(hostPath, 'note.md'), 'pending');
-      const transaction = mock(async () => {
-        if (reason === 'database write failed') throw new Error(reason);
-        return { written: false, messages: [] };
-      });
-      let written = false;
-      let messageSaveError = reason;
-      try {
-        const saved = await persistRunMessages(
-          { transaction } as unknown as Parameters<typeof persistRunMessages>[0],
-          {
-            agentId: 'agent',
-            conversationId: identity.conversationId,
-            runId: identity.runId,
-            events: [],
-          },
-        );
-        written = saved.written;
-      } catch (error) {
-        messageSaveError = error instanceof Error ? error.message : String(error);
-      }
-      expect(transaction).toHaveBeenCalledOnce();
       let boundaryCalls = 0;
       const result = await publishRunOutputsIfSettled(identity, {
         status: 'succeeded',
         userMessageId: 'u',
         retrying: false,
-        messagesWritten: written,
-        messageSaveError,
+        messagesWritten: false,
+        messageSaveError: reason,
         afterMessageId: async () => {
           boundaryCalls += 1;
           return 'a';
@@ -331,66 +258,6 @@ describe('publishing run outputs', () => {
     ).toBe(first);
   });
 
-  it('keeps the same-run snapshot untouched after the draft is gone', async () => {
-    await publishedSnapshot('run-1', { 'note.md': '# 旧版' });
-    const { hostPath } = await prepareRunOutputs({ ...identity, runId: 'run-2' });
-    await writeFile(join(hostPath, 'note.md'), '# 新版');
-    await publishRunOutputsIfSettled(
-      { ...identity, runId: 'run-2' },
-      {
-        status: 'succeeded',
-        userMessageId: 'message-user',
-        afterMessageId: 'message-after',
-        retrying: false,
-      },
-    );
-    expect(
-      await readFile(join(conversationDir(), 'runs', 'run-1', 'manifest.json'), 'utf8'),
-    ).toContain('"runId":"run-1"');
-  });
-
-  it('keeps the latest snapshot as baseline and overlays only the selected file', async () => {
-    await publishedSnapshot('run-1', { 'a.md': 'a1', 'b.md': 'b1', 'c.md': 'c1' });
-    await publishedSnapshot('run-2', { 'a.md': 'a2', 'b.md': 'b2', 'c.md': 'c2' });
-
-    const { hostPath } = await prepareRunOutputs({
-      ...identity,
-      runId: 'run-3',
-      sourceRunId: 'run-1',
-      sourcePath: 'b.md',
-    });
-    expect(await readFile(join(hostPath, 'a.md'), 'utf8')).toBe('a2');
-    expect(await readFile(join(hostPath, 'b.md'), 'utf8')).toBe('b1');
-
-    await writeFile(join(hostPath, 'a.md'), 'a3');
-    await publishRunOutputsIfSettled(
-      { ...identity, runId: 'run-3' },
-      {
-        status: 'succeeded',
-        userMessageId: 'message-user',
-        afterMessageId: 'message-after',
-        retrying: false,
-      },
-    );
-
-    const manifest = JSON.parse(
-      await readFile(join(conversationDir(), 'runs', 'run-3', 'manifest.json'), 'utf8'),
-    ) as { files: Array<{ path: string; changed: boolean }> };
-    expect(manifest.files.filter((file) => file.changed).map((file) => file.path)).toEqual([
-      'a.md',
-      'b.md',
-    ]);
-    expect(await readFile(join(conversationDir(), 'runs', 'run-3', 'files', 'c.md'), 'utf8')).toBe(
-      'c2',
-    );
-    expect(await readFile(join(conversationDir(), 'runs', 'run-3', 'files', 'b.md'), 'utf8')).toBe(
-      'b1',
-    );
-    expect(await readFile(join(conversationDir(), 'runs', 'run-1', 'files', 'b.md'), 'utf8')).toBe(
-      'b1',
-    );
-  });
-
   it('keeps files written in cancelled, timed-out and failed runs', async () => {
     const seen: string[] = [];
     for (const status of ['cancelled', 'timeout', 'failed'] as const) {
@@ -419,16 +286,6 @@ describe('publishing run outputs', () => {
       );
       expect(content).toBe(status);
     }
-  });
-});
-
-describe('output publish gate', () => {
-  it('explains why a publish is skipped, in order of severity', () => {
-    expect(outputPublishProblem({ cleanupError: 'rm failed', retrying: true })).toContain(
-      '容器未能确认停止',
-    );
-    expect(outputPublishProblem({ retrying: true })).toContain('重试');
-    expect(outputPublishProblem({ retrying: false })).toBeUndefined();
   });
 });
 

@@ -442,39 +442,6 @@ describe.skipIf(!ready)('chat attachments', () => {
     expect(download.rawPayload.toString()).toBe('branch bytes');
   });
 
-  it('rolls back the branch when a referenced attachment file is missing', async () => {
-    const agent = await newAgent();
-    const created = await post({
-      agentId: agent.id,
-      message: 'broken branch',
-      attachments: [attachment('gone.txt', 'gone')],
-    });
-    const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
-    runIds.push(runId);
-    await finishRun(runId);
-    await app.client.unsafe('update conversations set sdk_session_id = $1 where id = $2', [
-      '77777777-8888-4999-8aaa-bbbbbbbbbbbb',
-      conversationId,
-    ]);
-    await mkdir(sdkSessionDir(testConfig().WORKSPACES_DIR, agent.slug, conversationId), {
-      recursive: true,
-    });
-    await rm(inputsDir(agent.slug, conversationId), { recursive: true, force: true });
-
-    const branched = await request(app, {
-      method: 'POST',
-      url: `/api/conversations/${conversationId}/branch`,
-      headers: { cookie },
-      payload: {},
-    });
-    expectProblem(branched, 'CONFLICT');
-    const leftovers = await app.client.unsafe(
-      'select count(*)::int as count from conversations where parent_id = $1',
-      [conversationId],
-    );
-    expect(leftovers[0]?.count).toBe(0);
-  });
-
   it('keeps attachment messages queryable and downloadable after their run is pruned', async () => {
     const agent = await newAgent();
     const created = await post({

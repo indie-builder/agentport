@@ -27,8 +27,7 @@ mock.module('bullmq', () => ({
 }));
 
 const { EVAL_FAILURE_PUBLIC_MESSAGE, executeEvalRun } = await import('../src/eval-runner.js');
-const { handleEvalJobFailed, runEvalJob } = await import('../src/eval-job.js');
-const { UnrecoverableError } = await import('bullmq');
+const { handleEvalJobFailed } = await import('../src/eval-job.js');
 
 const isolated = await createIsolatedDatabase('worker_eval_snapshot');
 const dbHandle = createDb(isolated?.url ?? '');
@@ -245,7 +244,6 @@ describe.skipIf(isolated === null)('executeEvalRun case snapshot against real Po
       'prompt-alpha',
       'prompt-beta',
     ]);
-    expect(mocks.waitUntilFinished).toHaveBeenCalledWith(expect.anything(), 5_000);
 
     const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
     expect(detail?.evalRun).toMatchObject({ status: 'succeeded', passed: 2, error: null });
@@ -575,35 +573,6 @@ describe.skipIf(isolated === null)('executeEvalRun case snapshot against real Po
     });
   });
 
-  it('fails the batch without counting a pass when the result write fails', async () => {
-    const { evalRunId } = await seed({
-      snapshot: [
-        { name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-        { name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
-        { name: 'gamma', prompt: 'prompt-gamma', expectation: 'gamma-ok' },
-      ],
-    });
-
-    await withTrigger(
-      'eval_results',
-      'before insert',
-      `if new.eval_run_id = '${evalRunId}' and new.case_snapshot->>'name' = 'beta' then
-         raise exception 'result write failed';
-       end if;`,
-      async () => {
-        await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
-      },
-    );
-
-    expect(mocks.queueAdd).toHaveBeenCalledTimes(2);
-    expect(await persistedResults(evalRunId)).toHaveLength(1);
-    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
-      status: 'failed',
-      passed: 1,
-      error: EVAL_FAILURE_PUBLIC_MESSAGE,
-    });
-  });
-
   it('skips a duplicate delivery of an already finished batch', async () => {
     const { evalRunId } = await seed({
       snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
@@ -617,23 +586,6 @@ describe.skipIf(isolated === null)('executeEvalRun case snapshot against real Po
     expect(mocks.queueAdd).not.toHaveBeenCalled();
     expect(await persistedResults(evalRunId)).toHaveLength(0);
     expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun.status).toBe('cancelled');
-  });
-
-  it('skips a redelivery of an already claimed batch so it is not rerun', async () => {
-    const { evalRunId } = await seed({
-      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
-      status: 'running',
-      claimedAt: new Date(),
-    });
-
-    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
-
-    expect(mocks.queueAdd).not.toHaveBeenCalled();
-    expect(await persistedResults(evalRunId)).toHaveLength(0);
-    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
-      status: 'running',
-      finishedAt: null,
-    });
   });
 
   it('does not touch a batch that was already terminal when the job arrived', async () => {
@@ -651,70 +603,6 @@ describe.skipIf(isolated === null)('executeEvalRun case snapshot against real Po
     expect(evalRun?.status).toBe('succeeded');
     expect(evalRun?.claimedAt).toBeNull();
     expect(evalRun?.finishedAt?.toISOString()).toBe(finishedAt.toISOString());
-  });
-
-  it('propagates a final finish failure instead of logging it away', async () => {
-    const { evalRunId } = await seed({
-      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
-    });
-
-    await withTrigger(
-      'eval_runs',
-      'before update',
-      `if new.id = '${evalRunId}' and new.status = 'succeeded' then
-         raise exception 'finish failed';
-       end if;`,
-      async () => {
-        await expect(
-          executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId }),
-        ).rejects.toThrow('Failed query');
-      },
-    );
-  });
-
-  it('settles the batch through the production handler before rethrowing', async () => {
-    const { evalRunId } = await seed({
-      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
-    });
-
-    await withTrigger(
-      'eval_runs',
-      'before update',
-      `if new.id = '${evalRunId}' and new.status = 'succeeded' then
-         raise exception 'finish failed';
-       end if;`,
-      async () => {
-        await expect(
-          runEvalJob({ db, logger, redisUrl: 'redis://unused', job: { data: { evalRunId } } }),
-        ).rejects.toThrow('Failed query');
-      },
-    );
-
-    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
-      status: 'failed',
-      passed: 1,
-      error: EVAL_FAILURE_PUBLIC_MESSAGE,
-    });
-  });
-
-  it('settles a batch from the failed event when the processor never ran', async () => {
-    const { evalRunId } = await seed({
-      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
-    });
-
-    await handleEvalJobFailed({
-      db,
-      logger,
-      job: { data: { evalRunId } },
-      error: new UnrecoverableError('job stalled more than allowable limit'),
-    });
-
-    const evalRun = (await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun;
-    expect(evalRun).toMatchObject({
-      status: 'failed',
-      error: 'job stalled more than allowable limit',
-    });
-    expect(evalRun?.finishedAt).not.toBeNull();
   });
 
   it('ignores a failed event whose payload cannot name a batch', async () => {

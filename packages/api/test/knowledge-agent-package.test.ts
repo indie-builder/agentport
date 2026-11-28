@@ -7,7 +7,6 @@ import {
   parseAgentPackage,
 } from '../src/modules/agents/package.js';
 import { BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/modules/auth/types.js';
-import { getServer, listServerPage, toApiServer } from '../src/modules/servers/repo.js';
 
 const realLookup = Bun.dns.lookup;
 Bun.dns.lookup = async (host, options) =>
@@ -74,29 +73,6 @@ async function exportedPackage() {
   if (!row) throw new Error('missing agent row');
   return buildAgentPackage(handle.db, KEY, 'https://pace.example.com', row);
 }
-
-describe('knowledge server read shape', () => {
-  it('reads knowledge rows as the knowledge kind instead of falling through', async () => {
-    const row = await repo.servers.getServer(handle.db, serverId);
-    if (!row) throw new Error('missing knowledge server row');
-    const server = await getServer(handle.db, serverId, KEY);
-    expect(server).toMatchObject({
-      id: serverId,
-      kind: 'knowledge',
-      config: { knowledgeBaseId: baseId },
-    });
-    expect(await toApiServer(row, KEY)).toMatchObject({
-      kind: 'knowledge',
-      config: { knowledgeBaseId: baseId },
-    });
-    expect(JSON.stringify(server)).not.toContain('mcpToken');
-  });
-
-  it('drops knowledge servers from the generic list', async () => {
-    const list = await listServerPage(handle.db, KEY, { limit: 100 });
-    expect(list?.items.some((server) => server.id === serverId)).toBe(false);
-  });
-});
 
 describe('knowledge binding in the agent package', () => {
   it('exports an official http entry with a dedicated credential variable', async () => {

@@ -1,38 +1,13 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { HttpResponse, http } from 'msw';
 import { act, createElement, useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const mocks = vi.hoisted(() => ({
-  useQuery: vi.fn(),
-  useInfiniteQuery: vi.fn(),
-  useMutation: vi.fn(),
-  useQueryClient: vi.fn(() => ({ invalidateQueries: vi.fn() })),
-}));
-
-vi.mock('@tanstack/react-query', () => ({
-  QueryClient: class {},
-  queryOptions: (options: unknown) => options,
-  useQuery: mocks.useQuery,
-  useInfiniteQuery: mocks.useInfiniteQuery,
-  useMutation: mocks.useMutation,
-  useQueryClient: mocks.useQueryClient,
-}));
-
-vi.mock('../src/lib/api.js', () => ({
-  api: { marketSkills: vi.fn() },
-  ApiError: class ApiError extends Error {},
-}));
-
+import { createRoot, type Root } from 'react-dom/client';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMarketSkills } from '../src/lib/queries.js';
+import { createMsw, runCleanup } from './msw.js';
 
-interface MarketOptions {
-  queryKey: unknown[];
-  enabled: boolean;
-}
-
-function options(): MarketOptions {
-  return mocks.useQuery.mock.calls.at(-1)?.[0] as MarketOptions;
-}
+const msw = createMsw();
+const { server, calls } = msw;
 
 let setQuery: (value: string) => void;
 let debouncing: boolean | undefined;
@@ -44,72 +19,132 @@ function Probe() {
   return null;
 }
 
+let client: QueryClient | undefined;
+let host: HTMLDivElement | undefined;
+let root: Root | undefined;
+
+beforeAll(() => msw.listen());
+afterAll(() => msw.close());
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  msw.reset();
+  server.use(http.get('/api/market/skills', () => HttpResponse.json([])));
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+});
+
+afterEach(async () => {
+  const mountedRoot = root;
+  const mountedClient = client;
+  const mountedHost = host;
+  root = undefined;
+  client = undefined;
+  host = undefined;
+  await runCleanup([
+    () => mountedRoot && act(async () => mountedRoot.unmount()),
+    () => mountedClient?.clear(),
+    () => mountedHost?.remove(),
+    () => msw.waitForRequests(),
+    () => vi.useRealTimers(),
+    () => msw.assertClean(),
+  ]);
+});
+
+async function flush(): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  await msw.waitForRequests();
+}
+
+async function mountProbe(): Promise<void> {
+  await act(async () => {
+    root?.render(
+      createElement(QueryClientProvider, { client: client as QueryClient }, createElement(Probe)),
+    );
+  });
+  await flush();
+}
+
 async function type(value: string): Promise<void> {
   await act(async () => setQuery(value));
 }
 
-function keys(): unknown[][] {
-  const calls = mocks.useQuery.mock.calls.map((call) => (call[0] as MarketOptions).queryKey);
-  return calls.filter(
-    (key, index) => index === 0 || JSON.stringify(key) !== JSON.stringify(calls[index - 1]),
-  );
+function marketRequests(): string[] {
+  return calls
+    .filter((item) => item.method === 'GET' && item.path.startsWith('/api/market/skills'))
+    .map((item) => item.path);
 }
-
-beforeEach(() => {
-  vi.useFakeTimers();
-  mocks.useQuery.mockReset();
-  mocks.useQuery.mockReturnValue({ data: undefined });
-});
-
-afterEach(() => vi.useRealTimers());
 
 describe('market search debounce', () => {
   it('sends one request with the final term after rapid typing', async () => {
-    const root = createRoot(document.createElement('div'));
-    await act(async () => root.render(createElement(Probe)));
-    expect(keys()).toEqual([['market-skills', 'all-time', '']]);
+    await mountProbe();
+    expect(marketRequests()).toEqual(['/api/market/skills?view=all-time']);
 
     await type('p');
     await type('pd');
     await type('pdf');
-    expect(keys()).toEqual([['market-skills', 'all-time', '']]);
+    expect(marketRequests()).toEqual(['/api/market/skills?view=all-time']);
 
-    await act(async () => vi.advanceTimersByTime(300));
-    expect(keys()).toEqual([
-      ['market-skills', 'all-time', ''],
-      ['market-skills', 'all-time', 'pdf'],
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await flush();
+    expect(marketRequests()).toEqual([
+      '/api/market/skills?view=all-time',
+      '/api/market/skills?view=all-time&q=pdf',
     ]);
-    await act(async () => root.unmount());
   });
 
-  it('keeps the existing minimum length rule on the settled term', async () => {
-    const root = createRoot(document.createElement('div'));
-    await act(async () => root.render(createElement(Probe)));
+  it('gates 1-character settled queries without sending an HTTP request', async () => {
+    await mountProbe();
+    expect(marketRequests()).toEqual(['/api/market/skills?view=all-time']);
+
     await type('p');
-    await act(async () => vi.advanceTimersByTime(300));
-    expect(options().enabled).toBe(false);
-    await act(async () => root.unmount());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await flush();
+    expect(marketRequests()).toEqual(['/api/market/skills?view=all-time']);
+
+    await type('pd');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await flush();
+    expect(marketRequests()).toEqual([
+      '/api/market/skills?view=all-time',
+      '/api/market/skills?view=all-time&q=pd',
+    ]);
   });
 
   it('reports isDebouncing while the typed term differs from the settled one', async () => {
-    const root = createRoot(document.createElement('div'));
-    await act(async () => root.render(createElement(Probe)));
+    await mountProbe();
     expect(debouncing).toBe(false);
 
     await type('pdf');
     expect(debouncing).toBe(true);
-    expect(keys()).toEqual([['market-skills', 'all-time', '']]);
+    expect(marketRequests()).toEqual(['/api/market/skills?view=all-time']);
 
-    await act(async () => vi.advanceTimersByTime(299));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(299);
+    });
     expect(debouncing).toBe(true);
-    expect(keys()).toEqual([['market-skills', 'all-time', '']]);
+    expect(marketRequests()).toEqual(['/api/market/skills?view=all-time']);
 
-    await act(async () => vi.advanceTimersByTime(1));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    await flush();
     expect(debouncing).toBe(false);
-    expect(keys()).toEqual([
-      ['market-skills', 'all-time', ''],
-      ['market-skills', 'all-time', 'pdf'],
+    expect(marketRequests()).toEqual([
+      '/api/market/skills?view=all-time',
+      '/api/market/skills?view=all-time&q=pdf',
     ]);
-    await act(async () => root.unmount());
   });
 });

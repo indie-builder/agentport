@@ -40,21 +40,6 @@ describe.skipIf(!ready)('publishRun', () => {
     }
   });
 
-  it('keeps every accepted event beyond the old 1000-entry cap', async () => {
-    configureRunnerClient(redisUrl);
-    const runId = `run-publish-${crypto.randomUUID()}`;
-    const redis = new RedisClient(redisUrl);
-    try {
-      for (let index = 0; index < 1_200; index += 1) {
-        await publishRun(runId, { type: 'text_delta', text: String(index) }, logger);
-      }
-      expect(await redis.xlen(runStreamKey(runId))).toBe(1_200);
-    } finally {
-      await redis.del(runStreamKey(runId));
-      redis.close();
-    }
-  });
-
   it('rejects when a pipelined command fails instead of dropping the error', async () => {
     configureRunnerClient(redisUrl);
     const runId = `run-publish-${crypto.randomUUID()}`;

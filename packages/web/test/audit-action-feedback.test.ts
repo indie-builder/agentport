@@ -10,7 +10,6 @@ import { api } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
 import { AgentDetailPage } from '../src/pages/agents/agent-detail-page.js';
 import { AgentsPage } from '../src/pages/agents/agents-page.js';
-import { PluginsPage } from '../src/pages/plugins/index.js';
 import { RuntimeEnvironmentDetailPage } from '../src/pages/runtime-environments/runtime-environment-detail.js';
 
 const state = vi.hoisted(() => ({
@@ -22,7 +21,6 @@ const state = vi.hoisted(() => ({
   },
   agents: [] as unknown[],
   agentAccess: [] as string[],
-  plugins: [] as unknown[],
   environment: null as unknown,
   versions: [] as unknown[],
   search: {} as Record<string, string | undefined>,
@@ -55,13 +53,7 @@ vi.mock('../src/lib/queries.js', async (original) => {
     useArchiveAgent: idle,
     useRestoreAgent: idle,
     useRuntimeEnvironments: () => query([]),
-    usePlugins: () => query(state.plugins),
-    useUpdatePlugin: idle,
-    useDeletePlugin: idle,
-    useImportPlugin: () => ({ ...idle(), isPending: false }),
-    useNativePlugins: () => query({ installed: [] }),
-    useInstallNativePlugin: () => ({ ...idle(), isPending: false }),
-    useImportNativePlugin: () => ({ ...idle(), isPending: false }),
+    usePlugins: () => query([]),
     useRuntimeEnvironment: () => query(state.environment),
     useRuntimeEnvironmentVersions: () => query(state.versions),
     useRuntimeEnvironmentVersion: () => query(undefined),
@@ -116,21 +108,6 @@ const agent = {
   timeoutMs: 600000,
   parentId: null,
   runtimeEnvironmentId: null,
-};
-
-const plugin = {
-  id: 'plugin-1',
-  slug: 'demo',
-  runtimeName: 'demo',
-  name: '演示插件',
-  description: '插件描述',
-  version: '1.0.0',
-  capabilities: { skills: [], agents: [], hasHooks: false, mcpServers: [] },
-  files: [],
-  agentCount: 0,
-  sourceId: null,
-  createdAt: '2026-01-01',
-  updatedAt: '2026-01-01',
 };
 
 const memoryFile: MemoryFileContent = {
@@ -211,14 +188,6 @@ function buttonByName(name: string, scope: ParentNode = document): HTMLButtonEle
   return found;
 }
 
-function linkByName(name: string, scope: ParentNode = document): HTMLAnchorElement {
-  const found = [...scope.querySelectorAll<HTMLAnchorElement>('a')].find(
-    (item) => accessibleName(item) === name,
-  );
-  if (!found) throw new Error(`Missing link named: ${name}`);
-  return found;
-}
-
 function editorView(id: string): EditorView {
   const element = document.getElementById(id);
   if (!element?.classList.contains('cm-content')) throw new Error(`Editor not mounted: ${id}`);
@@ -244,7 +213,6 @@ beforeEach(() => {
   };
   state.agents = [agent];
   state.agentAccess = [];
-  state.plugins = [plugin];
   state.environment = null;
   state.versions = [];
   state.search = {};
@@ -352,15 +320,6 @@ describe('permission feedback stays visible and the action stays disabled', () =
 });
 
 describe('repeated action names identify their resource', () => {
-  it('names each plugin detail link with the plugin', async () => {
-    await mount(createElement(PluginsPage));
-
-    const link = linkByName('演示插件');
-    expect(link.textContent?.trim()).toBe('演示插件');
-    expect(accessibleName(link)).toContain('演示插件');
-    expect(link.getAttribute('href')).toBe('/plugins/plugin-1');
-  });
-
   it('names each runtime build-log action with the version short id', async () => {
     state.environment = {
       id: 'rtenv_1',

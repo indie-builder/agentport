@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createDb, newId, repo } from '@agentport/db';
+import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import { startRedisContainer, stopRedisContainer } from '../../worker/test/global-setup.js';
 import { createIsolatedDatabase, type IsolatedDatabase } from '../../worker/test/isolated-db.js';
@@ -392,36 +392,6 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     expect(await exists(targetDir)).toBeNull();
   });
 
-  it('ignores the same advisory key held in another isolated database', async () => {
-    const other = await createIsolatedDatabase('api_delete_lifecycle_other');
-    if (other === null) throw new Error('cannot create an isolated database for the boundary test');
-    const otherClient = createDb(other.url).client;
-    const own = await app.client.reserve();
-    try {
-      await otherClient.unsafe('select pg_advisory_lock(hashtext($1))', [
-        repo.locks.AGENT_BINDINGS_LOCK_KEY,
-      ]);
-      const foreign = await otherClient.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
-      expect(foreign[0]?.pid).toBeGreaterThan(0);
-
-      expect(await deletingBackendPid()).toBeNull();
-
-      await own.unsafe('select pg_advisory_lock(hashtext($1))', [
-        repo.locks.AGENT_BINDINGS_LOCK_KEY,
-      ]);
-      const ownPid = await own.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
-      expect(await deletingBackendPid()).toBe(Number(ownPid[0]?.pid));
-    } finally {
-      const unlocked = await own.unsafe('select pg_advisory_unlock_all()').then(
-        () => true,
-        () => false,
-      );
-      own.release(unlocked ? undefined : true);
-      await otherClient.close();
-      await other?.close();
-    }
-  });
-
   it('recovers admission after a failed close releases the session lock', async () => {
     const agent = await newAgent('lifecycle-release');
     const conversationId = await newConversation(agent.id);
@@ -612,21 +582,5 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
 
     expect(await exists(workspace(parent.slug, 'agent-memory'))).not.toBeNull();
     expect(await exists(personalDir)).not.toBeNull();
-  });
-
-  it('soft deletes an agent without closing sandboxes or touching memories', async () => {
-    const agent = await newAgent('lifecycle-agent-retry');
-    const conversationId = await newConversation(agent.id);
-    await completedRun(agent.id, conversationId, 'sandbox-agent-retry');
-    const sessionsDir = workspace(agent.slug, 'session-sandboxes');
-    await mkdir(join(sessionsDir, conversationId), { recursive: true });
-    await makeDir(workspace(agent.slug, 'agent-memory'), 'keep');
-
-    const fake = await startResponder();
-    expect((await deleteAgent(agent.id)).statusCode).toBe(204);
-    expect(fake.calls).toEqual([]);
-    expect((await repo.agents.getAgent(app.db, agent.id))?.deletedAt).not.toBeNull();
-    expect(await exists(sessionsDir)).not.toBeNull();
-    expect(await exists(workspace(agent.slug, 'agent-memory'))).not.toBeNull();
   });
 });

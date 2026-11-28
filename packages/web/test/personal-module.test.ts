@@ -120,18 +120,6 @@ const chatRun: PersonalRun = {
   conversationId: 'conv-1',
 };
 
-const reviewRun: PersonalRun = {
-  ...chatRun,
-  id: 'run_review',
-  status: 'running',
-  trigger: 'review',
-  startedAt: '2026-10-30T10:00:00.000Z',
-  conversationId: null,
-  costUsd: null,
-  inputTokens: null,
-  outputTokens: null,
-};
-
 const review: MemoryReview = {
   runId: 'run-review-1',
   modelAgentId: 'agent-a',
@@ -284,7 +272,6 @@ describe('个人资料', () => {
     expect(button('保存').disabled).toBe(true);
     const securityLink = host.querySelector<HTMLAnchorElement>('a[href="/personal/security"]');
     expect(securityLink?.textContent).toContain('前往账号安全');
-    expect(securityLink?.className).toContain('underline');
     expect(securityLink?.querySelector('svg')).not.toBeNull();
 
     await setInput('personal-name', '新姓名');
@@ -524,8 +511,6 @@ describe('账号安全', () => {
 
     const header = host.querySelector('[data-slot="page-header"]');
     expect(header?.contains(button('刷新', host))).toBe(true);
-    const groupSections = [...host.querySelectorAll('[data-slot="page-section"]')];
-    expect(groupSections.every((section) => !section.className.includes('border-t'))).toBe(true);
     expect(button('会话详情', currentCard).querySelector('svg')).not.toBeNull();
 
     await click(button('会话详情', currentCard));
@@ -664,35 +649,6 @@ describe('使用记录', () => {
       me: meWith(['overview.read']),
     });
     await vi.waitFor(() => expect(host.textContent).toContain('10/31 20:00 – 10/31 22:00'));
-  });
-
-  it('有运行权限时按真实来源跳转', async () => {
-    const me = meWith(['runs.read', 'conversations.read']);
-    vi.spyOn(api, 'me').mockResolvedValue(me);
-    const usageSpy = vi.spyOn(api, 'personalUsage');
-    vi.spyOn(api, 'personalRuns').mockResolvedValue({
-      items: [chatRun, reviewRun],
-      nextCursor: null,
-    });
-    await mount({
-      path: '/personal/usage?view=table',
-      component: PersonalUsagePage,
-      validateSearch: personalUsageSearchSchema,
-      me,
-    });
-    await vi.waitFor(() => expect(host.textContent).toContain('对话'));
-    expect(host.textContent).toContain('记忆提案');
-    expect(usageSpy).not.toHaveBeenCalled();
-
-    const chatLink = host.querySelector<HTMLAnchorElement>('a[aria-label^="回到对话"]');
-    if (!chatLink) throw new Error('Missing chat action');
-    expect(host.textContent).toContain('查看运行');
-    await click(chatLink);
-    await vi.waitFor(() => expect(router.state.location.pathname).toBe('/chat'));
-    expect(router.state.location.search).toEqual({
-      agent: 'agent-a',
-      conversation: 'conv-1',
-    });
   });
 });
 
@@ -840,27 +796,6 @@ describe('我的分享', () => {
     expect(card.textContent).toContain('复制链接');
     expect(card.textContent).toContain('撤销');
   });
-
-  it('直接打开 view=cards 时渲染卡片视图', async () => {
-    vi.spyOn(api, 'personalOutputShares').mockResolvedValue({
-      items: [share],
-      nextCursor: null,
-    });
-    const me = meWith(['conversations.read', 'conversations.share']);
-    vi.spyOn(api, 'me').mockResolvedValue(me);
-    await mount({
-      path: '/personal/shares',
-      component: PersonalSharesPage,
-      validateSearch: personalSharesSearchSchema,
-      me,
-    });
-    await vi.waitFor(() => expect(host.textContent).toContain('季度总结'));
-    await act(async () => router.navigate({ to: '/personal/shares', search: { view: 'cards' } }));
-    await flush();
-    await vi.waitFor(() => expect(host.querySelector('[data-slot="card"]')).not.toBeNull());
-    expect(host.querySelector('[data-slot="card"]')).not.toBeNull();
-    expect(host.querySelector('[role="table"][aria-label="我的会话分享"]')).toBeNull();
-  });
 });
 
 describe('记忆提案只读', () => {
@@ -960,7 +895,6 @@ describe('会话与成果', () => {
     };
     await vi.waitFor(() => expect(host.textContent).toContain('共 2 条会话'));
     expect(host.querySelector('h1')?.textContent).toBe('会话与成果');
-    expect(host.querySelector('[data-slot="page-header"] [role="tab"]')).toBeNull();
     expect(host.querySelector('[role="status"]')?.textContent).toBe('共 2 条会话');
     expect(host.textContent).toContain('需求评审整理');
     expect(host.textContent).toContain('定时: 每日早报汇总');

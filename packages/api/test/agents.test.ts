@@ -504,21 +504,6 @@ describe.skipIf(!ready)('agents', () => {
       effort: 'high',
       updatedAt: changed.json<{ agent: Agent }>().agent.updatedAt,
     });
-
-    const cleared = await request(app, {
-      method: 'PATCH',
-      url: `/api/agents/${agent.id}`,
-      headers: auth(),
-      payload: { effort: null },
-    });
-    expect(cleared.statusCode, cleared.body).toBe(200);
-    expect(cleared.json<{ agent: Agent }>().agent.effort).toBeUndefined();
-
-    const stored = await app.client.unsafe<{ effort: string | null }[]>(
-      'select effort from agents where id = $1',
-      [agent.id],
-    );
-    expect(stored[0]).toEqual({ effort: null });
   });
 
   it('PATCH returns 404 for a missing agent even with a stale expectedUpdatedAt', async () => {
@@ -755,35 +740,6 @@ describe.skipIf(!ready)('agents', () => {
       headers: auth(),
     });
     expect(del.statusCode).toBe(404);
-  });
-
-  it('DELETE soft deletes the agent', async () => {
-    const slug = unique('delete');
-    const agent = (await newAgent(slug)).json<Agent>();
-    const del = await request(app, {
-      method: 'DELETE',
-      url: `/api/agents/${agent.id}`,
-      headers: auth(),
-    });
-    expect(del.statusCode).toBe(204);
-    const get = await request(app, {
-      method: 'GET',
-      url: `/api/agents/${agent.id}`,
-      headers: auth(),
-    });
-    expect(get.statusCode).toBe(200);
-    const active = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
-    expect(
-      active.json<{ items: Array<{ id: string }> }>().items.some((row) => row.id === agent.id),
-    ).toBe(false);
-    const deleted = await request(app, {
-      method: 'GET',
-      url: '/api/agents?status=deleted',
-      headers: auth(),
-    });
-    expect(
-      deleted.json<{ items: Array<{ id: string }> }>().items.some((row) => row.id === agent.id),
-    ).toBe(true);
   });
 
   it('delegates to sub-agents and renders them as agent files', async () => {

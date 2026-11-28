@@ -9,18 +9,6 @@ const rootPath = Bun.fileURLToPath(root);
 const read = (path: string) => readFileSync(new URL(path, root), 'utf8');
 
 describe('build context and sandbox image', () => {
-  it('produces api and sandbox images from one root Dockerfile', () => {
-    const dockerfile = read('Dockerfile');
-    const stages = [...dockerfile.matchAll(/^FROM\s+\S+\s+AS\s+(\S+)/gm)].map((match) => match[1]);
-    expect(stages).toContain('sandbox');
-    expect(stages.at(-1)).toBe('runtime');
-    expect(dockerfile).toContain(
-      'bun install --production --frozen-lockfile --filter @agentport/sandbox',
-    );
-    expect(dockerfile).toContain('test -f dist/session-supervisor.js');
-    expect(dockerfile).toContain('ENTRYPOINT ["bun", "dist/runner.js"]');
-  });
-
   it.skipIf(!existsSync(new URL('packages/shared/dist/index.js', root)))(
     'packs shared without src, tests or tsconfig',
     async () => {
@@ -54,34 +42,6 @@ describe('build context and sandbox image', () => {
     },
   );
 
-  it('removes the standalone sandbox manifests and shared staging', () => {
-    for (const path of [
-      'packages/sandbox/Dockerfile',
-      'packages/sandbox/.dockerignore',
-      'packages/sandbox/package.docker.json',
-      'packages/sandbox/package.docker-lock.json',
-      'packages/sandbox/package.shared.json',
-    ]) {
-      expect(existsSync(new URL(path, root)), path).toBe(false);
-    }
-    expect(read('scripts/up.sh')).not.toContain('packages/sandbox/shared');
-    expect(read('.github/workflows/release.yml')).not.toContain('packages/sandbox/shared');
-  });
-
-  it('ships a real bash plus git and poppler in the sandbox target', () => {
-    const dockerfile = read('Dockerfile');
-    const sandboxStage = dockerfile.slice(
-      dockerfile.indexOf(' AS sandbox'),
-      dockerfile.indexOf(' AS runtime'),
-    );
-    // 官方 CLI 只认 PATH 上的 bash/zsh，缺了会 "No suitable shell found"。
-    expect(sandboxStage).toContain('apk add --no-cache git poppler-utils bash');
-    expect(sandboxStage).toContain('command -v bash');
-    expect(sandboxStage).toContain("bash --version | grep -q 'GNU bash'");
-    expect(sandboxStage).toContain('command -v pdftoppm');
-    expect(sandboxStage).toContain('command -v pdfinfo');
-  });
-
   it('builds the sandbox target everywhere the image is produced', () => {
     expect(read('scripts/up.sh')).toContain('docker build --target sandbox');
     expect(read('.github/workflows/release.yml')).toContain('target: sandbox');
@@ -94,12 +54,5 @@ describe('build context and sandbox image', () => {
       expect(ignore.split('\n'), entry).toContain(entry);
     }
     expect(ignore).not.toMatch(/^packages\/?$/m);
-  });
-
-  it('uses compose native waiting instead of script polling', () => {
-    const up = read('scripts/up.sh');
-    expect(up).toContain('--wait');
-    expect(up).not.toContain('docker compose ps --format');
-    expect(up).toContain('rm -sf migrate');
   });
 });

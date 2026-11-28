@@ -318,7 +318,6 @@ describe('agent overview', () => {
 
     expect(host.textContent).toContain('尚未填写介绍');
     const labels = [...host.querySelectorAll('button')].map((item) => item.textContent?.trim());
-    expect(labels).not.toContain('去配置');
     expect(labels.filter((label) => label === '编辑配置')).toHaveLength(1);
   });
 

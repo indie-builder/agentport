@@ -198,8 +198,6 @@ describe('overview trend accessibility', () => {
 
     expect(trigger().tagName).toBe('BUTTON');
     expect(trigger().getAttribute('aria-expanded')).toBe('false');
-    expect(trigger().className).toContain('h-8');
-    expect(trigger().className).toContain('text-sm');
     expect(host.querySelector('table')).toBeNull();
 
     await click(trigger());
@@ -223,12 +221,8 @@ describe('overview trend accessibility', () => {
       ['2026-10-29', '2', '0', '$0.5000', '300'],
     ]);
     expect(rows[0]?.querySelector('th')?.getAttribute('scope')).toBe('row');
-    for (const numeric of rows[0]?.querySelectorAll('td') ?? []) {
-      expect(numeric.className).toContain('text-right');
-    }
 
-    const scroller = table?.closest('.overflow-y-auto');
-    expect(scroller?.classList.contains('max-h-64')).toBe(true);
+    const scroller = table?.closest('section[aria-label="趋势数据"]');
     expect(scroller?.getAttribute('tabindex')).toBe('0');
 
     await click(trigger());

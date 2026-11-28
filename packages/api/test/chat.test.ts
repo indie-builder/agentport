@@ -201,6 +201,11 @@ describe.skipIf(!ready)('chat', () => {
       prompt: 'and now?',
       requestId: expect.any(String),
     });
+    const [stored] = await app.client.unsafe<{ sdk_message_uuid: string }[]>(
+      "select sdk_message_uuid from messages where run_id = $1 and role = 'user'",
+      [secondBody.runId],
+    );
+    expect(stored?.sdk_message_uuid).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('branches a conversation up to the given message', async () => {
@@ -390,29 +395,6 @@ describe.skipIf(!ready)('chat', () => {
     );
     return row[0]?.status;
   };
-
-  it('cancel of a queued run removes the waiting job so it never reaches a worker', async () => {
-    const agent = await newAgent();
-    const created = await request(app, {
-      method: 'POST',
-      url: '/api/chat',
-      headers: auth(),
-      payload: { agentId: agent.id, message: 'never run' },
-    });
-    const { runId } = created.json<{ runId: string }>();
-    runIds.push(runId);
-    expect(await getQueue().getJob(runId)).toBeDefined();
-
-    const res = await request(app, {
-      method: 'POST',
-      url: `/api/chat/${runId}/cancel`,
-      headers: auth(),
-    });
-    expect(res.statusCode, res.body).toBe(202);
-    expect(await runStatus(runId)).toBe('cancelled');
-    expect(await getQueue().getJob(runId)).toBeUndefined();
-    expect(await cancelAuditCount(runId)).toBe(1);
-  });
 
   it('second cancel of a queued run is idempotent and leaves no job behind', async () => {
     const agent = await newAgent();

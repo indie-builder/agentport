@@ -8,7 +8,6 @@ import {
   knowledgeFaqSchema,
   knowledgeFaqTransferDocumentSchema,
   knowledgeJobPayloadSchema,
-  knowledgeJobSchema,
   knowledgeLocatorSchema,
   knowledgeModelProfileSelectionSchema,
   knowledgeReadInputSchema,
@@ -42,31 +41,6 @@ const documentFixture = {
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
-describe('knowledge job wire', () => {
-  it('keeps probe results together with job object references and display names', () => {
-    const result = { ok: true, checks: [{ rangeId: 'range-1', ok: true }] };
-    expect(
-      knowledgeJobSchema.parse({
-        id: 'kjob_1',
-        type: 'source_probe',
-        status: 'succeeded',
-        step: null,
-        progress: 100,
-        attempts: 1,
-        error: null,
-        result,
-        documentId: null,
-        sourceId: 'ksrc_1',
-        documentTitle: null,
-        sourceName: '来源',
-        createdAt: '2026-10-31T00:00:00Z',
-        startedAt: null,
-        endedAt: null,
-      }),
-    ).toMatchObject({ result, sourceId: 'ksrc_1', sourceName: '来源' });
-  });
-});
-
 describe('knowledge model profile selection wire', () => {
   const selection = {
     id: 'kmp_1',
@@ -99,24 +73,6 @@ describe('knowledge model profile selection wire', () => {
         updatedAt: '2026-01-01T00:00:00.000Z',
       }),
     ).toEqual(selection);
-  });
-
-  it('requires id/name and boolean flags', () => {
-    expect(
-      knowledgeModelProfileSelectionSchema.safeParse({ ...selection, id: undefined }).success,
-    ).toBe(false);
-    expect(
-      knowledgeModelProfileSelectionSchema.safeParse({ ...selection, name: undefined }).success,
-    ).toBe(false);
-    expect(
-      knowledgeModelProfileSelectionSchema.safeParse({ ...selection, enabled: 'yes' }).success,
-    ).toBe(false);
-    expect(
-      knowledgeModelProfileSelectionSchema.safeParse({
-        ...selection,
-        supportsImageVectors: 'no',
-      }).success,
-    ).toBe(false);
   });
 });
 

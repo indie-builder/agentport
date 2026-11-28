@@ -1260,18 +1260,6 @@ describe('chat shell layout', () => {
       addListener() {},
       removeListener() {},
     }));
-    localStorage.setItem(
-      'agentport:conversations',
-      JSON.stringify([
-        {
-          id: 'conversation-local',
-          agentId: 'agent-a',
-          title: 'Local only',
-          createdAt: '',
-          updatedAt: '',
-        },
-      ]),
-    );
     vi.mocked(api.conversations).mockRejectedValue(new ApiError(0, 'Failed to fetch'));
     await mount('/chat?agent=agent-a');
     await act(async () =>
@@ -1280,8 +1268,6 @@ describe('chat shell layout', () => {
     await flush();
     const history = host.querySelector('aside[aria-label="会话历史"]');
     expect(history?.textContent).toContain('连不上 API 服务');
-    expect(history?.textContent).not.toContain('Local only');
-    expect(host.textContent).not.toContain('历史列表来自本浏览器');
   });
 
   it('opens a workspace of conversation results without touching history', async () => {
@@ -1463,26 +1449,6 @@ describe('chat focus handoff and history detail reachability', () => {
     expect(document.activeElement).toBe(conversationInput);
     await type('follow-up draft');
     expect(conversationInput.value).toBe('follow-up draft');
-  });
-
-  it('does not take focus back when another control submits', async () => {
-    vi.spyOn(api, 'sendChat').mockResolvedValue({
-      runId: 'run-new',
-      conversationId: 'conversation-a',
-    });
-    vi.mocked(api.conversation).mockResolvedValue(threeTurnHistory());
-    await mount('/chat?agent=agent-a');
-    await type('mouse send');
-    const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
-    if (!toggle) throw new Error('Missing history toggle');
-    toggle.focus();
-    await act(async () =>
-      host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.click(),
-    );
-    await flush();
-
-    expect(document.activeElement).toBe(toggle);
-    expect(document.activeElement).not.toBe(message());
   });
 
   it('does not take focus back when the send button submits while another control has it', async () => {

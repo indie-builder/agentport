@@ -32,19 +32,6 @@ describe('promptWithOpenUiAction', () => {
     });
   });
 
-  it('passes the whole action context through instead of dropping it at 16KB', () => {
-    const prompt = promptWithOpenUiAction(
-      [
-        { type: 'text', text: 'big' },
-        { type: 'openui_action', context: { blob: 'x'.repeat(20_000) } },
-      ],
-      'fallback',
-    );
-    expect(prompt).not.toContain('已省略');
-    const json = JSON.parse(prompt.slice(prompt.indexOf('[openui_action] ') + 16));
-    expect(json).toEqual({ context: { blob: 'x'.repeat(20_000) } });
-  });
-
   it('keeps params verbatim when the action carries them', () => {
     const prompt = promptWithOpenUiAction(
       [

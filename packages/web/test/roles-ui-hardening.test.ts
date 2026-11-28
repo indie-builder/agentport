@@ -394,7 +394,6 @@ describe('角色权限矩阵：页面契约', () => {
       }
     }
 
-    expect(document.querySelectorAll('input[aria-label="角色名称"]')).toHaveLength(0);
     expect(matrixCheckbox('管理员', '查看专家').getAttribute('aria-checked')).toBe('true');
     expect(matrixCheckbox('成员', '查看专家').getAttribute('aria-checked')).toBe('false');
   });

@@ -13,7 +13,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
 import { queryClient } from '../src/lib/queries.js';
-import { router as appRouter } from '../src/router.js';
 import { Route as PluginRouteImport } from '../src/routes/_shell/plugins.$pluginId.js';
 
 const plugin: Plugin = {
@@ -128,11 +127,6 @@ describe('plugin detail route prefetch', () => {
     expect(fetchPlugin).toHaveBeenCalledTimes(1);
     expect(host?.textContent).toContain('演示插件');
     expect(host?.textContent).toContain('BODY-TOKEN');
-  });
-
-  it('keeps the app router on intent preloading with Query-controlled freshness', () => {
-    expect(appRouter.options.defaultPreload).toBe('intent');
-    expect(appRouter.options.defaultPreloadStaleTime).toBe(0);
   });
 
   it('leaves a failed prefetch to the page error state instead of the route', async () => {

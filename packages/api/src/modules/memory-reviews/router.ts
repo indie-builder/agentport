@@ -48,7 +48,7 @@ import { enqueueRunJob } from '../runs/enqueue.js';
 
 const os = implement(memoryReviewsContract).$context<RequestContext>();
 
-export const MEMORY_REVIEW_MAX_BYTES = 256 * 1024;
+const MEMORY_REVIEW_MAX_BYTES = 256 * 1024;
 
 interface SnapshotMessage {
   id: string;

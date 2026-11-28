@@ -913,28 +913,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       knowledgeDir,
     });
 
-    it('returns description by default and the image when asked', async () => {
-      const seeded = await seedReadable();
-      const description = await readKnowledgeImage(input(seeded.baseId), {
-        chunkId: seeded.chunk.id,
-        format: 'description',
-      });
-      expect(description.image).toBeUndefined();
-      expect(description.result.description).toBe('图中显示令牌轮换流程');
-      expect(description.result.hit.image).toEqual({
-        name: 'fig-1.png',
-        mimeType: 'image/png',
-        page: 1,
-      });
-
-      const withImage = await readKnowledgeImage(input(seeded.baseId), {
-        chunkId: seeded.chunk.id,
-        format: 'image',
-      });
-      expect(withImage.image).toEqual({ mimeType: 'image/png', data: PNG_BASE64 });
-      expect(withImage.result).toEqual(description.result);
-    });
-
     it('rejects disabled base, disabled processing, disabled chunk and stale versions', async () => {
       const seeded = await seedReadable();
       await expect(

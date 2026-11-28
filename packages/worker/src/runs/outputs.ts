@@ -63,7 +63,7 @@ export async function prepareRunOutputs(
   return { dir, hostPath: toHostWorkspacePath(input, dir) };
 }
 
-export function outputPublishProblem(input: {
+function outputPublishProblem(input: {
   cleanupError?: string;
   retrying: boolean;
 }): string | undefined {
