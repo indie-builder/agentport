@@ -26,7 +26,16 @@ import {
   Settings,
   Trash2,
 } from 'lucide-react';
-import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  memo,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   type Control,
   type DeepPartial,
@@ -865,7 +874,10 @@ const PermissionMatrix = memo(function PermissionMatrix({
                   }
                 >
                   {data.kind === 'group' ? (
-                    <div className="flex items-center" style={{ paddingLeft: row.depth * 16 }}>
+                    <div
+                      className="flex items-center pl-(--tree-indent)"
+                      style={{ '--tree-indent': `${row.depth * 16}px` } as CSSProperties}
+                    >
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -882,7 +894,12 @@ const PermissionMatrix = memo(function PermissionMatrix({
                       <span className="pl-1">{data.group.label}</span>
                     </div>
                   ) : (
-                    <div style={{ paddingLeft: (row.depth - 1) * 16 + 32 }}>{data.leaf.label}</div>
+                    <div
+                      className="pl-(--tree-indent)"
+                      style={{ '--tree-indent': `${(row.depth - 1) * 16 + 32}px` } as CSSProperties}
+                    >
+                      {data.leaf.label}
+                    </div>
                   )}
                 </TableHead>
                 {fields.map((role, index) =>

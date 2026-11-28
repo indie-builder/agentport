@@ -47,7 +47,7 @@ beforeEach(() => {
       return rect(WIDTH, HEIGHT);
     }
     if (element.hasAttribute?.('data-openui-chart-frame')) {
-      return rect(WIDTH, Number.parseFloat(element.style.height) || HEIGHT);
+      return rect(WIDTH, Number.parseFloat(element.style.getPropertyValue('--chart-h')) || HEIGHT);
     }
     return rect(0, 0);
   });
@@ -79,7 +79,10 @@ async function render(program: string[]): Promise<void> {
 }
 
 function frameHeight(): string | undefined {
-  return (host.querySelector('[data-openui-chart-frame]') as HTMLElement | null)?.style.height;
+  const frame = host.querySelector('[data-openui-chart-frame]') as HTMLElement | null;
+  if (!frame) return undefined;
+  expect(frame.className).toContain('h-(--chart-h)');
+  return frame.style.getPropertyValue('--chart-h');
 }
 
 function barWidths(): number[] {
@@ -108,7 +111,11 @@ describe('尺寸', () => {
       'small = BarChart(["一月", "二月"], [Series("收入", [1, 2])], "grouped", "月份", "万元", 192)',
     ]);
     const frames = [...host.querySelectorAll<HTMLElement>('[data-openui-chart-frame]')];
-    expect(frames.map((frame) => frame.style.height)).toEqual(['256px', '192px']);
+    expect(frames.every((frame) => frame.className.includes('h-(--chart-h)'))).toBe(true);
+    expect(frames.map((frame) => frame.style.getPropertyValue('--chart-h'))).toEqual([
+      '256px',
+      '192px',
+    ]);
     // 容器本身有显式尺寸，Recharts 不需要先量到高度才渲染。
     expect(frames[0]?.querySelector('.recharts-wrapper')).toBeTruthy();
   });

@@ -440,8 +440,8 @@ function ChartLoading({ height }: { height?: number | undefined }) {
       role="status"
       aria-busy="true"
       aria-label="图表数据加载中"
-      className="w-full rounded-card"
-      style={{ height: height ?? DEFAULT_CHART_HEIGHT }}
+      className="h-(--chart-h) w-full rounded-card"
+      style={{ '--chart-h': `${height ?? DEFAULT_CHART_HEIGHT}px` } as CSSProperties}
     />
   );
 }
@@ -480,8 +480,8 @@ function ChartFrame({
           data-openui-chart-frame=""
           {...(dataAppearance ? { 'data-appearance': dataAppearance } : {})}
           {...(dataVariant ? { 'data-variant': dataVariant } : {})}
-          className="w-full min-w-0"
-          style={{ height: height ?? DEFAULT_CHART_HEIGHT }}
+          className="h-(--chart-h) w-full min-w-0"
+          style={{ '--chart-h': `${height ?? DEFAULT_CHART_HEIGHT}px` } as CSSProperties}
         >
           {children}
         </div>

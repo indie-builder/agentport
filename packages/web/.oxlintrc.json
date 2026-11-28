@@ -19,22 +19,7 @@
         "allow": ["layout", "motion", "forced-colors:*"]
       }
     ],
-    "shadcn/no-inline-styles": [
-      "error",
-      {
-        "allow": [
-          "width",
-          "height",
-          "minWidth",
-          "maxHeight",
-          "paddingLeft",
-          "gap",
-          "gridTemplateColumns",
-          "maskImage",
-          "WebkitMaskImage"
-        ]
-      }
-    ],
+    "shadcn/no-inline-styles": "error",
     "shadcn/no-restyle": [
       "warn",
       {
@@ -116,17 +101,6 @@
         "shadcn/no-inline-styles": [
           "error",
           {
-            "allow": [
-              "width",
-              "height",
-              "minWidth",
-              "maxHeight",
-              "paddingLeft",
-              "gap",
-              "gridTemplateColumns",
-              "maskImage",
-              "WebkitMaskImage"
-            ],
             "allowDynamicIdentifiers": ["tooltipStyle"]
           }
         ]

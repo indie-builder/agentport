@@ -841,7 +841,7 @@ export function AgentsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                className="pointer-events-auto absolute right-4 top-4 z-20 bg-surface"
+                className="pointer-events-auto absolute right-4 top-4 z-20"
               />
             }
           >

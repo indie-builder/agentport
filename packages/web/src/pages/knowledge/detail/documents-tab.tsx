@@ -17,7 +17,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
 import { CursorListFooter } from '../../../components/cursor-list-footer.js';
 import { FilterSelect } from '../../../components/filter-select.js';
@@ -344,10 +344,10 @@ export function DocumentsTab({
               <li key={folder.id} className="group/folder flex items-center gap-0.5">
                 <ButtonPrimitive
                   aria-current={active ? 'true' : undefined}
-                  style={{ paddingLeft: `${8 + folder.depth * 12}px` }}
+                  style={{ '--tree-indent': `${8 + folder.depth * 12}px` } as CSSProperties}
                   onClick={() => onFolderChange(folder.id === 'all' ? undefined : folder.id)}
                   className={cn(
-                    'flex min-w-0 flex-1 items-center gap-1.5 rounded-item py-1.5 pr-2 text-left text-sm transition-colors duration-150 ease-out-soft',
+                    'flex min-w-0 flex-1 items-center gap-1.5 rounded-item py-1.5 pr-2 pl-(--tree-indent) text-left text-sm transition-colors duration-150 ease-out-soft',
                     active
                       ? 'bg-selected font-medium text-selected-foreground'
                       : 'text-muted-foreground hover:bg-hover hover:text-fg',

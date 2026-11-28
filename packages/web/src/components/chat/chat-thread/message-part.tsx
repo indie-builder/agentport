@@ -41,16 +41,15 @@ function FoldingMessageBody({ text }: { text: string }) {
   }, []);
 
   const collapsed = overflowing && !expanded;
-  const maskImage = collapsed
-    ? 'linear-gradient(to bottom, black calc(100% - 3rem), transparent)'
-    : undefined;
 
   return (
     <>
       <p
         ref={bodyRef}
-        className={cn('whitespace-pre-wrap break-words', collapsed && 'max-h-75 overflow-hidden')}
-        style={{ WebkitMaskImage: maskImage, maskImage }}
+        className={cn(
+          'whitespace-pre-wrap break-words',
+          collapsed && 'max-h-75 overflow-hidden mask-fade-v',
+        )}
       >
         {text}
       </p>

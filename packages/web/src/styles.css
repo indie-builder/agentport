@@ -706,3 +706,8 @@
   font-size: max(1em, var(--text-base));
   line-height: var(--text-base--line-height);
 }
+
+@utility mask-fade-v {
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
+}

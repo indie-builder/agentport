@@ -133,12 +133,11 @@ export function Composer({
                 <span className="truncate">{outputRef.path}</span>
               </Badge>
               <Button
-                variant="ghost"
+                variant="muted"
                 size="icon-xs"
                 aria-label="取消引用"
                 title="取消引用"
                 onClick={() => setOutputRef(null)}
-                className="text-muted-foreground"
               >
                 <X />
               </Button>

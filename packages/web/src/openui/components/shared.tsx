@@ -156,12 +156,10 @@ export function CardBlockGrid({
   size?: 'small' | 'medium' | 'overview';
   children: ReactNode;
 }) {
-  const gapStyle =
-    gap === undefined ? undefined : { gap: typeof gap === 'number' ? `${gap}px` : gap };
+  const gapValue = gap === undefined ? undefined : typeof gap === 'number' ? `${gap}px` : gap;
   if (layout === 'carousel') {
-    const gapValue =
-      gap === undefined ? 'calc(var(--spacing) * 3)' : typeof gap === 'number' ? `${gap}px` : gap;
-    const trackStyle = { '--openui-card-gap': gapValue, gap: gapValue } as CSSProperties;
+    const carouselGap = gapValue ?? 'calc(var(--spacing) * 3)';
+    const trackStyle = { '--openui-card-gap': carouselGap } as CSSProperties;
     const itemClass = cn(
       'pl-0',
       size === 'overview'
@@ -182,7 +180,7 @@ export function CardBlockGrid({
     return (
       <Carousel aria-label="卡片轮播" align="start" className="@container min-w-0">
         <CarouselViewport>
-          <CarouselContent style={trackStyle} className="ml-0">
+          <CarouselContent style={trackStyle} className="ml-0 gap-(--openui-card-gap)">
             {slideItems.map(({ child, key }) => (
               <CarouselItem key={key} className={itemClass}>
                 {child}
@@ -201,7 +199,8 @@ export function CardBlockGrid({
     <div className="@container min-w-0">
       <div
         className={cn(
-          'grid gap-3',
+          'grid',
+          gapValue !== undefined ? 'gap-(--openui-card-gap)' : 'gap-3',
           responsive
             ? cn(
                 'grid-cols-1 @min-[481px]:grid-cols-2',
@@ -211,7 +210,9 @@ export function CardBlockGrid({
               ? 'grid-cols-2'
               : 'grid-cols-1',
         )}
-        style={gapStyle}
+        style={
+          gapValue !== undefined ? ({ '--openui-card-gap': gapValue } as CSSProperties) : undefined
+        }
       >
         {children}
       </div>

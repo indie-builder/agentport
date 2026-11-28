@@ -7,7 +7,7 @@ import {
   useTriggerAction,
 } from '@openuidev/react-lang';
 import { ExternalLink } from 'lucide-react';
-import { Fragment, useState } from 'react';
+import { type CSSProperties, Fragment, useState } from 'react';
 import { Markdown } from '../../components/markdown.js';
 import { Button } from '../../components/ui/button.js';
 import {
@@ -75,8 +75,8 @@ export function TableRenderer({ props, renderNode }: RenderProps<{ columns: unkn
         {['row-0', 'row-1', 'row-2'].map((rowKey) => (
           <div
             key={rowKey}
-            className="grid gap-2"
-            style={{ gridTemplateColumns: `repeat(${skeletonCols}, minmax(0, 1fr))` }}
+            className="grid grid-cols-(--table-cols) gap-2"
+            style={{ '--table-cols': `repeat(${skeletonCols}, minmax(0, 1fr))` } as CSSProperties}
           >
             {skeletonColKeys.map((colKey) => (
               <Skeleton key={colKey} className="h-6 w-full" />
@@ -430,8 +430,13 @@ function EditableTableBody({ props }: { props: EditableTableProps }) {
             {columns.map((column, columnIndex) => (
               <TableHead
                 key={columnKeys[columnIndex]}
-                className="px-2 py-2 text-left text-xs font-normal text-muted-foreground"
-                style={column.width ? { width: column.width } : undefined}
+                className={cn(
+                  'px-2 py-2 text-left text-xs font-normal text-muted-foreground',
+                  column.width && 'w-(--col-w)',
+                )}
+                style={
+                  column.width ? ({ '--col-w': `${column.width}px` } as CSSProperties) : undefined
+                }
               >
                 {column.header}
               </TableHead>
