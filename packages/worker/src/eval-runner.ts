@@ -1,11 +1,11 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { DbError, runProgram } from '@agentport/core';
 import { logEvent } from '@agentport/core/logger';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   type AgentDefinition,
   type AgentRunJob,
+  errorText,
   judge,
   RUNS_QUEUE,
   redactSecrets,
@@ -20,7 +20,6 @@ import {
 import { createBunRedisClient, Queue, QueueEvents, UnrecoverableError } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
-import { Cause, Effect, Result } from 'effect';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import { checkRunPromptPolicy } from './content-policy.js';
@@ -197,7 +196,11 @@ export function evalFailureDiagnostics(error: unknown): {
   errorCode?: string;
 } {
   const errorName =
-    error instanceof Error ? error.name : error instanceof DbError ? 'DbError' : typeof error;
+    error instanceof Error
+      ? error.name
+      : typeof error === 'object' && error !== null && '_tag' in error && error._tag === 'DbError'
+        ? 'DbError'
+        : typeof error;
   const errorCode = errorCodeOf(error);
   return errorCode === undefined ? { errorName } : { errorName, errorCode };
 }
@@ -235,17 +238,6 @@ export async function closeEvalRunQueue(): Promise<void> {
   runQueueEvents = undefined;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error || error instanceof DbError ? error.message : String(error);
-}
-
-function dbQuery<A>(run: () => Promise<A>): Effect.Effect<A, DbError> {
-  return Effect.tryPromise({
-    try: run,
-    catch: (cause) => new DbError(errorMessage(cause), cause),
-  });
-}
-
 export function messagesForRun<T extends { runId: string | null }>(
   messages: T[],
   runId: string,
@@ -271,7 +263,11 @@ function calledToolNames(messages: repo.chat.Message[]): string[] {
   });
 }
 
-function runOneCase(
+type CaseRunResult =
+  | { ok: true; output: string; prompt: string; actualTools: string[] }
+  | { ok: false; output: string };
+
+async function runOneCase(
   db: Database,
   redisUrl: string,
   log: Logger,
@@ -286,90 +282,97 @@ function runOneCase(
     definitionSnapshot: AgentDefinition | null;
   },
   context: { runId: string | null },
-) {
-  return Effect.gen(function* () {
-    const prompt = yield* dbQuery(() =>
-      checkRunPromptPolicy(db, {
-        agentId: input.agentId,
-        prompt: input.prompt,
-        sourceId: `eval:${input.evalRunId}`,
-        subject: { kind: 'user', id: input.businessId },
-      }),
-    );
+): Promise<CaseRunResult> {
+  let prompt: string | null;
+  let admitted: Awaited<ReturnType<typeof chatRepo.admitChatRun>>;
+  try {
+    prompt = await checkRunPromptPolicy(db, {
+      agentId: input.agentId,
+      prompt: input.prompt,
+      sourceId: `eval:${input.evalRunId}`,
+      subject: { kind: 'user', id: input.businessId },
+    });
     if (prompt === null) {
-      return yield* Effect.fail(new UnrecoverableError('内容命中安全策略，评估已停止'));
+      return { ok: false, output: '内容命中安全策略，评估已停止' };
     }
-    const admitted = yield* dbQuery(() =>
-      chatRepo.admitChatRun(db, {
-        agentId: input.agentId,
-        message: prompt,
-        title: input.title,
-        trigger: 'event',
-        evalRunId: input.evalRunId,
-        budgetExempt: true,
-        subject: { kind: 'user', businessId: input.businessId },
-        ...(input.agentVersion === null ? {} : { agentVersion: input.agentVersion }),
-        definitionSnapshot: input.definitionSnapshot,
-      }),
-    );
-    const run = admitted.run;
-    context.runId = run.id;
-    const queueEvents = getRunQueueEvents(redisUrl, log);
-    yield* Effect.tryPromise({
-      try: () => queueEvents.waitUntilReady(),
-      catch: (cause) => new Error(errorMessage(cause)),
+    admitted = await chatRepo.admitChatRun(db, {
+      agentId: input.agentId,
+      message: prompt,
+      title: input.title,
+      trigger: 'event',
+      evalRunId: input.evalRunId,
+      budgetExempt: true,
+      subject: { kind: 'user', businessId: input.businessId },
+      ...(input.agentVersion === null ? {} : { agentVersion: input.agentVersion }),
+      definitionSnapshot: input.definitionSnapshot,
     });
-    const job = yield* Effect.tryPromise({
-      try: () =>
-        getRunQueue(redisUrl).add(
-          'run',
-          {
-            runId: run.id,
-            agentId: input.agentId,
-            conversationId: admitted.conversationId,
-            prompt,
-          },
-          runEnqueueOptions(run.id),
-        ),
-      catch: (cause) => new Error(errorMessage(cause)),
-    });
+  } catch {
+    return { ok: false, output: EVAL_FAILURE_PUBLIC_MESSAGE };
+  }
 
-    const timeoutMs = Math.min(input.timeoutMs, 30 * 60_000);
-    const deadline = Date.now() + timeoutMs;
-    const completion = yield* Effect.result(
-      Effect.tryPromise({
-        try: () => job.waitUntilFinished(queueEvents, timeoutMs),
-        catch: (cause) => new Error(errorMessage(cause)),
-      }),
+  const run = admitted.run;
+  context.runId = run.id;
+  let job: Awaited<ReturnType<Queue<AgentRunJob>['add']>>;
+  const queueEvents = getRunQueueEvents(redisUrl, log);
+  try {
+    await queueEvents.waitUntilReady();
+    job = await getRunQueue(redisUrl).add(
+      'run',
+      {
+        runId: run.id,
+        agentId: input.agentId,
+        conversationId: admitted.conversationId,
+        prompt,
+      },
+      runEnqueueOptions(run.id),
     );
-    const current = yield* dbQuery(() => chatRepo.getRun(db, run.id));
-    if (!current) return yield* Effect.fail(new Error('run disappeared'));
+  } catch (err) {
+    return { ok: false, output: errorText(err) };
+  }
+
+  const timeoutMs = Math.min(input.timeoutMs, 30 * 60_000);
+  const deadline = Date.now() + timeoutMs;
+  let waitOutcome: { failed: false } | { failed: true; error: unknown } = { failed: false };
+  try {
+    await job.waitUntilFinished(queueEvents, timeoutMs);
+  } catch (error) {
+    waitOutcome = { failed: true, error };
+  }
+
+  try {
+    const current = await chatRepo.getRun(db, run.id);
+    if (!current) return { ok: false, output: 'run disappeared' };
     if (['failed', 'cancelled', 'timeout'].includes(current.status)) {
-      return yield* Effect.fail(
-        new Error(`run ended with ${current.status}${current.error ? `: ${current.error}` : ''}`),
-      );
+      return {
+        ok: false,
+        output: `run ended with ${current.status}${current.error ? `: ${current.error}` : ''}`,
+      };
     }
     if (current.status === 'succeeded') {
       if (current.error?.includes(MESSAGES_NOT_SAVED_MARKER)) {
-        return yield* Effect.fail(new Error(MESSAGES_NOT_SAVED_ERROR));
+        return { ok: false, output: MESSAGES_NOT_SAVED_ERROR };
       }
       const messages = messagesForRun(
-        yield* dbQuery(() => chatRepo.listMessages(db, admitted.conversationId)),
+        await chatRepo.listMessages(db, admitted.conversationId),
         run.id,
       );
       return {
+        ok: true,
         output: assistantText(messages),
         prompt,
         actualTools: calledToolNames(messages),
       };
     }
-    if (Result.isFailure(completion)) {
-      return yield* Effect.fail(
-        Date.now() >= deadline ? new Error('run timed out') : completion.failure,
-      );
+    if (waitOutcome.failed) {
+      return {
+        ok: false,
+        output: Date.now() >= deadline ? 'run timed out' : errorText(waitOutcome.error),
+      };
     }
-    return yield* Effect.fail(new Error(`run ended with ${current.status}`));
-  });
+    return { ok: false, output: `run ended with ${current.status}` };
+  } catch {
+    return { ok: false, output: EVAL_FAILURE_PUBLIC_MESSAGE };
+  }
 }
 
 export async function executeEvalRun(input: {
@@ -385,214 +388,172 @@ export async function executeEvalRun(input: {
     knowledgeDir: input.judgeConfig?.knowledgeDir ?? join(resolveTmpDir(), 'agentport-eval-judge'),
     anthropicBaseUrl: input.judgeConfig?.anthropicBaseUrl,
   };
-  const program = Effect.gen(function* () {
-    const evalRun = yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId));
-    if (evalRun?.status !== 'running') {
-      logger.info({ evalRunId }, 'eval run no longer running, skipping');
-      return;
-    }
-    const claimed = yield* dbQuery(() => evalRepo.claimEvalRun(db, evalRunId));
-    if (!claimed) {
-      const current = yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId));
-      if (current?.status === 'running' && current.claimedAt !== null) {
-        logger.info(
-          { evalRunId },
-          'eval run already claimed by a live worker, skipping duplicate delivery',
-        );
-        return;
-      }
-      logger.info({ evalRunId }, 'eval run no longer running, skipping duplicate delivery');
-      return;
-    }
 
-    const [agent] = yield* dbQuery(async () =>
-      db
-        .select({ timeoutMs: schema.agents.timeoutMs })
-        .from(schema.agents)
-        .where(eq(schema.agents.id, evalRun.agentId))
-        .limit(1),
-    );
-    if (!agent) return yield* Effect.fail(new Error(`agent ${evalRun.agentId} not found`));
-    const pinnedVersion = evalRun.agentVersion;
-    const definition =
-      evalRun.definitionSnapshot ??
-      (pinnedVersion === null
-        ? null
-        : ((yield* dbQuery(() =>
-            repo.agentVersions.getAgentVersion(db, evalRun.agentId, pinnedVersion),
-          ))?.definition ?? null));
-    if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
-
-    const { denial, grants } = yield* dbQuery(() =>
-      loadUserAgentAccess(db, {
-        businessId: evalRun.createdBy,
-        agentId: evalRun.agentId,
-        permissions: ['agents.use', 'eval.execute'],
-      }),
-    );
-    if (denial !== null) {
-      yield* dbQuery(() =>
-        evalRepo.finishEvalRun(db, evalRunId, {
-          status: 'failed',
-          passed: 0,
-          error: denial.message,
-        }),
-      );
-      yield* dbQuery(() =>
-        repo.audit.writeAudit(db, logger, {
-          actor: 'worker',
-          actorKind: 'service',
-          action: 'eval.denied',
-          target: evalRunId,
-          status: 'denied',
-          input: { reason: denial.reason, businessId: evalRun.createdBy },
-        }),
+  const evalRun = await evalRepo.getEvalRun(db, evalRunId);
+  if (evalRun?.status !== 'running') {
+    logger.info({ evalRunId }, 'eval run no longer running, skipping');
+    return;
+  }
+  const claimed = await evalRepo.claimEvalRun(db, evalRunId);
+  if (!claimed) {
+    const current = await evalRepo.getEvalRun(db, evalRunId);
+    if (current?.status === 'running' && current.claimedAt !== null) {
+      logger.info(
+        { evalRunId },
+        'eval run already claimed by a live worker, skipping duplicate delivery',
       );
       return;
     }
-    const accessFilter = {
-      businessId: evalRun.createdBy,
-      scopes: [
-        ...new Set(
-          grants.filter((grant) => grant.permissionId === 'eval.read').map((grant) => grant.scope),
-        ),
-      ],
-    };
+    logger.info({ evalRunId }, 'eval run no longer running, skipping duplicate delivery');
+    return;
+  }
 
-    const cases =
-      evalRun.caseSnapshot ??
-      (yield* dbQuery(() => evalRepo.listAllCases(db, accessFilter, evalRun.agentId)));
-    let passed = 0;
-    let crashed: string | null = null;
+  const [agent] = await db
+    .select({ timeoutMs: schema.agents.timeoutMs })
+    .from(schema.agents)
+    .where(eq(schema.agents.id, evalRun.agentId))
+    .limit(1);
+  if (!agent) throw new Error(`agent ${evalRun.agentId} not found`);
+  const pinnedVersion = evalRun.agentVersion;
+  const definition =
+    evalRun.definitionSnapshot ??
+    (pinnedVersion === null
+      ? null
+      : ((await repo.agentVersions.getAgentVersion(db, evalRun.agentId, pinnedVersion))
+          ?.definition ?? null));
+  if ((await evalRepo.getEvalRun(db, evalRunId))?.status !== 'running') return;
 
-    yield* Effect.forEach(
-      cases,
-      (testCase) =>
-        Effect.gen(function* () {
-          if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
-            return;
-          let output = '';
-          let ok = false;
-          let judgeReason: string | null = null;
-          let trajectory: { passed: boolean; reason: string | null } = {
-            passed: true,
-            reason: null,
-          };
-          const runContext: { runId: string | null } = { runId: null };
-          const runResult = yield* Effect.result(
-            runOneCase(
-              db,
-              redisUrl,
-              logger,
-              {
-                agentId: evalRun.agentId,
-                evalRunId,
-                businessId: evalRun.createdBy,
-                prompt: testCase.prompt,
-                timeoutMs: definition?.agent.timeoutMs ?? agent.timeoutMs,
-                title: `eval: ${testCase.name}`.slice(0, 80),
-                agentVersion: pinnedVersion,
-                definitionSnapshot: definition,
-              },
-              runContext,
-            ),
-          );
-          if (Result.isSuccess(runResult)) {
-            output = runResult.success.output;
-            trajectory = gradeTrajectory(testCase, runResult.success.actualTools);
-            if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
-              return;
-            const outboundPolicies =
-              testCase.judgeMode === 'llm'
-                ? (yield* dbQuery(() =>
-                    repo.security.listEnabledContentPolicies(db, evalRun.agentId),
-                  )).filter((policy) => policy.direction === 'outbound')
-                : [];
-            if (outboundPolicies.length > 0) {
-              judgeReason = LLM_JUDGE_OUTBOUND_POLICY_REASON;
-            } else {
-              const graded = yield* Effect.result(
-                Effect.tryPromise({
-                  try: () =>
-                    gradeCase(gradeDeps, {
-                      prompt: runResult.success.prompt,
-                      output,
-                      expectation: testCase.expectation,
-                      judgeMode: testCase.judgeMode,
-                    }),
-                  catch: (cause) => new Error(errorMessage(cause)),
-                }),
-              );
-              if (Result.isSuccess(graded)) {
-                ok = graded.success.passed;
-                judgeReason = graded.success.reason;
-              } else {
-                judgeReason = `评判出错：${errorMessage(graded.failure)}`;
-              }
-            }
-          } else {
-            output =
-              runResult.failure instanceof DbError
-                ? publicEvalFailureMessage(runResult.failure)
-                : errorMessage(runResult.failure);
-          }
-          ok = ok && trajectory.passed;
-          if (!trajectory.passed) {
-            judgeReason =
-              judgeReason === null ? trajectory.reason : `${judgeReason}；${trajectory.reason}`;
-          }
-          if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
-            return;
-
-          yield* dbQuery(() =>
-            evalRepo.addResult(
-              db,
-              {
-                id: newId('evalResult'),
-                evalRunId,
-                caseId: testCase.id,
-                runId: runContext.runId,
-                passed: ok,
-                output,
-                judgeReason: judgeReason === null ? null : redactSecrets(judgeReason),
-                caseSnapshot: {
-                  id: testCase.id,
-                  name: testCase.name,
-                  prompt: testCase.prompt,
-                  expectation: testCase.expectation,
-                  judgeMode: testCase.judgeMode,
-                  ...(testCase.expectedTools == null
-                    ? {}
-                    : { expectedTools: testCase.expectedTools }),
-                  ...(testCase.forbiddenTools == null
-                    ? {}
-                    : { forbiddenTools: testCase.forbiddenTools }),
-                },
-              },
-              { recordProgress: true },
-            ),
-          );
-          if (ok) passed += 1;
-        }),
-      { concurrency: 1 },
-    ).pipe(
-      Effect.catchCause((cause) =>
-        Effect.sync(() => {
-          const err = Cause.squash(cause);
-          crashed = publicEvalFailureMessage(err);
-          logger.error({ evalRunId, ...evalFailureDiagnostics(err) }, 'eval run crashed');
-        }),
-      ),
-    );
-
-    if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
-    yield* dbQuery(() =>
-      evalRepo.finishEvalRun(db, evalRunId, {
-        status: crashed === null && passed === cases.length ? 'succeeded' : 'failed',
-        passed,
-        error: crashed,
-      }),
-    );
+  const { denial, grants } = await loadUserAgentAccess(db, {
+    businessId: evalRun.createdBy,
+    agentId: evalRun.agentId,
+    permissions: ['agents.use', 'eval.execute'],
   });
-  await runProgram(program);
+  if (denial !== null) {
+    await evalRepo.finishEvalRun(db, evalRunId, {
+      status: 'failed',
+      passed: 0,
+      error: denial.message,
+    });
+    await repo.audit.writeAudit(db, logger, {
+      actor: 'worker',
+      actorKind: 'service',
+      action: 'eval.denied',
+      target: evalRunId,
+      status: 'denied',
+      input: { reason: denial.reason, businessId: evalRun.createdBy },
+    });
+    return;
+  }
+  const accessFilter = {
+    businessId: evalRun.createdBy,
+    scopes: [
+      ...new Set(
+        grants.filter((grant) => grant.permissionId === 'eval.read').map((grant) => grant.scope),
+      ),
+    ],
+  };
+
+  const cases =
+    evalRun.caseSnapshot ?? (await evalRepo.listAllCases(db, accessFilter, evalRun.agentId));
+  let passed = 0;
+  let crashed: string | null = null;
+
+  try {
+    for (const testCase of cases) {
+      if ((await evalRepo.getEvalRun(db, evalRunId))?.status !== 'running') break;
+      let output = '';
+      let ok = false;
+      let judgeReason: string | null = null;
+      let trajectory: { passed: boolean; reason: string | null } = {
+        passed: true,
+        reason: null,
+      };
+      const runContext: { runId: string | null } = { runId: null };
+      const runResult = await runOneCase(
+        db,
+        redisUrl,
+        logger,
+        {
+          agentId: evalRun.agentId,
+          evalRunId,
+          businessId: evalRun.createdBy,
+          prompt: testCase.prompt,
+          timeoutMs: definition?.agent.timeoutMs ?? agent.timeoutMs,
+          title: `eval: ${testCase.name}`.slice(0, 80),
+          agentVersion: pinnedVersion,
+          definitionSnapshot: definition,
+        },
+        runContext,
+      );
+      if (runResult.ok) {
+        output = runResult.output;
+        trajectory = gradeTrajectory(testCase, runResult.actualTools);
+        if ((await evalRepo.getEvalRun(db, evalRunId))?.status !== 'running') break;
+        const outboundPolicies =
+          testCase.judgeMode === 'llm'
+            ? (await repo.security.listEnabledContentPolicies(db, evalRun.agentId)).filter(
+                (policy) => policy.direction === 'outbound',
+              )
+            : [];
+        if (outboundPolicies.length > 0) {
+          judgeReason = LLM_JUDGE_OUTBOUND_POLICY_REASON;
+        } else {
+          try {
+            const graded = await gradeCase(gradeDeps, {
+              prompt: runResult.prompt,
+              output,
+              expectation: testCase.expectation,
+              judgeMode: testCase.judgeMode,
+            });
+            ok = graded.passed;
+            judgeReason = graded.reason;
+          } catch (err) {
+            judgeReason = `评判出错：${errorText(err)}`;
+          }
+        }
+      } else {
+        output = runResult.output;
+      }
+      ok = ok && trajectory.passed;
+      if (!trajectory.passed) {
+        judgeReason =
+          judgeReason === null ? trajectory.reason : `${judgeReason}；${trajectory.reason}`;
+      }
+      if ((await evalRepo.getEvalRun(db, evalRunId))?.status !== 'running') break;
+
+      await evalRepo.addResult(
+        db,
+        {
+          id: newId('evalResult'),
+          evalRunId,
+          caseId: testCase.id,
+          runId: runContext.runId,
+          passed: ok,
+          output,
+          judgeReason: judgeReason === null ? null : redactSecrets(judgeReason),
+          caseSnapshot: {
+            id: testCase.id,
+            name: testCase.name,
+            prompt: testCase.prompt,
+            expectation: testCase.expectation,
+            judgeMode: testCase.judgeMode,
+            ...(testCase.expectedTools == null ? {} : { expectedTools: testCase.expectedTools }),
+            ...(testCase.forbiddenTools == null ? {} : { forbiddenTools: testCase.forbiddenTools }),
+          },
+        },
+        { recordProgress: true },
+      );
+      if (ok) passed += 1;
+    }
+  } catch (err) {
+    crashed = publicEvalFailureMessage(err);
+    logger.error({ evalRunId, ...evalFailureDiagnostics(err) }, 'eval run crashed');
+  }
+
+  if ((await evalRepo.getEvalRun(db, evalRunId))?.status !== 'running') return;
+  await evalRepo.finishEvalRun(db, evalRunId, {
+    status: crashed === null && passed === cases.length ? 'succeeded' : 'failed',
+    passed,
+    error: crashed,
+  });
 }

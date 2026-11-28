@@ -36,8 +36,9 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const requested = Number(process.env.CI_TEST_SHARDS ?? 12);
-const shardCount = Number.isInteger(requested) && requested > 0 ? requested : 12;
+const defaultShards = 6;
+const requested = Number(process.env.CI_TEST_SHARDS ?? defaultShards);
+const shardCount = Number.isInteger(requested) && requested > 0 ? requested : defaultShards;
 
 type Shard = { files: string[]; load: number };
 const shards: Shard[] = Array.from({ length: shardCount }, () => ({ files: [], load: 0 }));
@@ -103,7 +104,7 @@ const runShard = async (index: number, shard: Shard): Promise<ShardResult> => {
     ],
     {
       cwd: root,
-      env: { ...process.env, DB_POOL_MAX: process.env.DB_POOL_MAX ?? '5' },
+      env: { ...process.env, DB_POOL_MAX: process.env.DB_POOL_MAX ?? '4' },
       stdin: 'inherit',
       stdout: 'inherit',
       stderr: 'inherit',

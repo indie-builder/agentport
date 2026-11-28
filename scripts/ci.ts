@@ -5,58 +5,113 @@ process.chdir(dirname(import.meta.dir));
 type Status = 'PASS' | 'FAIL' | 'SKIP';
 type Result = { stage: string; status: Status; seconds: number };
 
-const run = async (stage: string, commands: string[][]): Promise<Result> => {
-  const started = performance.now();
+const runOne = async (stage: string, args: string[], buffered: boolean): Promise<boolean> => {
   try {
-    for (const args of commands) {
-      const code = await Bun.spawn([process.execPath, ...args], {
-        stdin: 'inherit',
-        stdout: 'inherit',
-        stderr: 'inherit',
-      }).exited;
-      if (code !== 0) {
-        return { stage, status: 'FAIL', seconds: (performance.now() - started) / 1000 };
-      }
+    const proc = Bun.spawn([process.execPath, ...args], {
+      stdin: 'inherit',
+      stdout: buffered ? 'pipe' : 'inherit',
+      stderr: buffered ? 'pipe' : 'inherit',
+    });
+    const [code, stdout, stderr] = buffered
+      ? await Promise.all([
+          proc.exited,
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+        ])
+      : [await proc.exited, '', ''];
+    if (code !== 0 && buffered) {
+      console.error(`--- FAIL: bun ${args.join(' ')} ---`);
+      if (stdout) process.stdout.write(stdout.endsWith('\n') ? stdout : `${stdout}\n`);
+      if (stderr) process.stderr.write(stderr.endsWith('\n') ? stderr : `${stderr}\n`);
     }
-    return { stage, status: 'PASS', seconds: (performance.now() - started) / 1000 };
+    return code === 0;
   } catch (error) {
     console.error(`${stage}: ${error instanceof Error ? error.message : String(error)}`);
-    return { stage, status: 'FAIL', seconds: (performance.now() - started) / 1000 };
+    return false;
   }
 };
 
-const skipped = (stages: string[]): Result[] =>
-  stages.map((stage) => ({ stage, status: 'SKIP' as const, seconds: 0 }));
+const run = async (stage: string, commands: string[][]): Promise<Result> => {
+  const started = performance.now();
+  const buffered = commands.length > 1;
+  const outcomes = await Promise.all(commands.map((args) => runOne(stage, args, buffered)));
+  return {
+    stage,
+    status: outcomes.every(Boolean) ? 'PASS' : 'FAIL',
+    seconds: (performance.now() - started) / 1000,
+  };
+};
+
+const skip = (stage: string): Result => ({ stage, status: 'SKIP', seconds: 0 });
 
 const started = performance.now();
-const phaseOne = await Promise.all([
-  run('lint', [
-    ['run', 'lint'],
-    ['run', 'lint:focus'],
-    ['run', 'lint:contract'],
-    ['run', 'lint:contract:test'],
-    ['run', 'lint:lines'],
-    ['run', 'lint:docs'],
-  ]),
-  run('typecheck', [['run', 'typecheck']]),
-  run('formal', [['run', 'verify:formal']]),
+const withE2e = process.argv.includes('--e2e');
+
+const lintPromise = run('lint', [
+  ['run', 'lint'],
+  ['run', 'lint:focus'],
+  ['run', 'lint:contract'],
+  ['run', 'lint:contract:test'],
+  ['run', 'lint:lines'],
+  ['run', 'lint:docs'],
 ]);
-const results = [...phaseOne];
-const typecheckOk = phaseOne.find((result) => result.stage === 'typecheck')?.status === 'PASS';
-results.push(...(typecheckOk ? [await run('build', [['run', 'build']])] : skipped(['build'])));
-const built = results.find((result) => result.stage === 'build')?.status === 'PASS';
-results.push(
-  ...(built
-    ? await Promise.all([
-        run('openui:check', [['run', 'openui:check']]),
-        run('test', [['run', 'test:sharded']]),
-      ])
-    : skipped(['openui:check', 'test'])),
+const formalPromise = run('formal', [['run', 'verify:formal']]);
+const typecheckPromise = run('typecheck', [['run', 'typecheck']]);
+
+const buildPromise = typecheckPromise.then((typecheck) =>
+  typecheck.status === 'PASS' ? run('build', [['run', 'build']]) : skip('build'),
 );
-results.push(...(built ? [await run('test:web', [['run', 'test:web']])] : skipped(['test:web'])));
-if (process.argv.includes('--e2e')) {
-  results.push(...(built ? [await run('e2e', [['run', 'e2e:suite']])] : skipped(['e2e'])));
-}
+
+const postBuildPromise = buildPromise.then(async (build) => {
+  if (build.status !== 'PASS') {
+    return {
+      openui: skip('openui:check'),
+      test: skip('test'),
+      testWeb: skip('test:web'),
+      e2e: withE2e ? skip('e2e') : null,
+    };
+  }
+  const testPromise = run('test', [['run', 'test:sharded']]);
+  const afterFormal = formalPromise.then(
+    () => undefined,
+    () => undefined,
+  );
+  const openuiPromise = afterFormal.then(() => run('openui:check', [['run', 'openui:check']]));
+  const testWebPromise = afterFormal.then(() =>
+    run('test:web', [['run', 'test:web', '--', '--maxWorkers=4']]),
+  );
+  const e2ePromise = withE2e
+    ? Promise.all([openuiPromise, testPromise, testWebPromise]).then(() =>
+        run('e2e', [['run', 'e2e:suite']]),
+      )
+    : Promise.resolve(null);
+  const [openui, test, testWeb, e2e] = await Promise.all([
+    openuiPromise,
+    testPromise,
+    testWebPromise,
+    e2ePromise,
+  ]);
+  return { openui, test, testWeb, e2e };
+});
+
+const [lint, typecheck, formal, build, postBuild] = await Promise.all([
+  lintPromise,
+  typecheckPromise,
+  formalPromise,
+  buildPromise,
+  postBuildPromise,
+]);
+
+const results: Result[] = [
+  lint,
+  typecheck,
+  formal,
+  build,
+  postBuild.openui,
+  postBuild.test,
+  postBuild.testWeb,
+  ...(postBuild.e2e ? [postBuild.e2e] : []),
+];
 
 console.log('\nCI summary');
 for (const { stage, status, seconds } of results) {

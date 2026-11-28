@@ -297,6 +297,15 @@ export async function mount(path: string, search: Record<string, string> = {}) {
     );
   });
   await flush();
+  for (let pass = 0; pass < 20 && client.isFetching() > 0; pass += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await msw.waitForRequests();
+  }
+  await act(async () => {
+    await Promise.resolve();
+  });
   return router;
 }
 
