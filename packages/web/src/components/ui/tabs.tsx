@@ -5,7 +5,7 @@ import {
   TabsTab,
 } from '@ui-sdk/react/tabs';
 import { cva, type VariantProps } from 'class-variance-authority';
-import type { ComponentProps } from 'react';
+import type { ComponentProps, ReactElement } from 'react';
 import { cn } from '@/lib/cn';
 
 const tabsClassName = 'group/tabs flex gap-2 data-[orientation=horizontal]:flex-col';
@@ -20,27 +20,36 @@ const tabsTriggerClassName = cn(
 const tabsContentClassName =
   'flex-1 p-0 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
-type TabsProps<T extends string = string> = Omit<
+type TabsDetails<T extends string> = Parameters<
+  NonNullable<ComponentProps<typeof TabsPrimitive<T>>['onValueChange']>
+>[1];
+
+type TabsBaseProps<T extends string = string> = Omit<
   ComponentProps<typeof TabsPrimitive<T>>,
   'className' | 'onValueChange'
 > & {
   className?: ComponentProps<typeof TabsPrimitive<T>>['className'] | undefined;
-  onValueChange?:
-    | ((
-        value: T,
-        details: Parameters<
-          NonNullable<ComponentProps<typeof TabsPrimitive<T>>['onValueChange']>
-        >[1],
-      ) => void)
-    | undefined;
 };
 
+type TabsNullableProps<T extends string = string> = TabsBaseProps<T> & {
+  allowNull: true;
+  onValueChange?: ((value: T | null, details: TabsDetails<T>) => void) | undefined;
+};
+
+type TabsNonNullProps<T extends string = string> = TabsBaseProps<T> & {
+  allowNull?: false | undefined;
+  onValueChange?: ((value: T, details: TabsDetails<T>) => void) | undefined;
+};
+
+function Tabs<T extends string = string>(props: TabsNullableProps<T>): ReactElement;
+function Tabs<T extends string = string>(props: TabsNonNullProps<T>): ReactElement;
 function Tabs<T extends string = string>({
   className,
   orientation = 'horizontal',
+  allowNull,
   onValueChange,
   ...props
-}: TabsProps<T>) {
+}: TabsNullableProps<T> | TabsNonNullProps<T>) {
   return (
     <TabsPrimitive<T>
       orientation={orientation}
@@ -54,7 +63,14 @@ function Tabs<T extends string = string>({
         onValueChange === undefined
           ? undefined
           : (value, details) => {
-              if (value !== null) onValueChange(value, details);
+              if (allowNull) {
+                (onValueChange as (value: T | null, details: TabsDetails<T>) => void)(
+                  value,
+                  details,
+                );
+              } else if (value !== null) {
+                (onValueChange as (value: T, details: TabsDetails<T>) => void)(value, details);
+              }
             }
       }
     />

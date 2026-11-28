@@ -111,6 +111,7 @@ describe('card block selected-item context', () => {
       itemId: 'qb',
       itemTitle: '第二季度',
       itemBody: '环比增长 8%',
+      itemBgColor: 'gray',
     });
     expect(action.context).toBe(action.params.context);
     expect(action.formState).toMatchObject(initialState);
@@ -139,7 +140,7 @@ describe('card block selected-item context', () => {
     expect(action).toMatchObject({ type: 'continue_conversation', message: '看详情' });
     expect(contextOf(action)).toEqual({
       original: '{"report":"q2"}',
-      selected: { itemIndex: 1, itemId: 'ob', itemTitle: '博物馆' },
+      selected: { itemIndex: 1, itemId: 'ob', itemTitle: '博物馆', itemSubtitle: '2024' },
     });
     expect(action.formState).toMatchObject(initialState);
   });
@@ -209,9 +210,87 @@ describe('card block selected-item context', () => {
         itemBody: '卢浮宫',
         itemBodySubtext: '世界最大艺术博物馆',
         itemTag: '人流 890 万',
+        itemBgImageSrc: 'https://example.com/louvre.jpg',
       },
     });
     expect(action.formState).toMatchObject(initialState);
+    expect(host.querySelectorAll('[data-slot="visual-card-scrim"]')).toHaveLength(2);
+  });
+
+  it('includes SnippetCard rhs itemValue, OverviewCard itemMetricValue, and ContextCard Tag title & Markdown body', async () => {
+    const onAction = vi.fn();
+    await render(
+      [
+        'root = Card([snips, overviews, contexts])',
+        'snips = SnippetCardBlock([sa, sb], "grid", true, @ToAssistant("选摘要", { s: 1 }))',
+        'sa = SnippetCardItem("sa", saLhs, saRhs)',
+        'saLhs = IconText(Icon("dollar-sign", "finance"), "neutral", "m", "总收入", "本月", false, "horizontal")',
+        'saRhs = Text("number", "284,500", "+12%", "metric")',
+        'sb = SnippetCardItem("sb", sbLhs)',
+        'sbLhs = IconText(Icon("users", "people"), "neutral", "m", "活跃", "本月", false, "horizontal")',
+        'overviews = OverviewCardBlock([oa, ob], "grid", true, @ToAssistant("选概览", { o: 1 }))',
+        'oa = OverviewCardItem("oa", oaTop, oaMetric)',
+        'oaTop = IconText(Icon("users", "people"), "neutral", "m", "访客数", "年度", false, "vertical")',
+        'oaMetric = MetricIndicatorInline("48.7M", "人次")',
+        'ob = OverviewCardItem("ob", obTop)',
+        'obTop = Text("text", "其它", "无", "text", "sm")',
+        'contexts = ContextCardBlock([ca, cb], "grid", true, @ToAssistant("选背景", { c: 1 }))',
+        'ca = ContextCardItem("ca", caTag, "包含 **加粗** 正文", "gray", "https://example.com/bg.jpg", "背景图")',
+        'caTag = Tag("重点标签", Icon("star", "shapes"), "sm", "info")',
+        'cb = ContextCardItem("cb", "普通标题", "说明")',
+      ].join('\n'),
+      { onAction },
+    );
+
+    await click('总收入');
+    expect(contextOf(onAction.mock.calls[0]?.[0]).selected).toEqual({
+      itemIndex: 0,
+      itemId: 'sa',
+      itemTitle: '总收入',
+      itemSubtitle: '本月',
+      itemValue: '284,500',
+    });
+
+    await click('访客数');
+    expect(contextOf(onAction.mock.calls[1]?.[0]).selected).toEqual({
+      itemIndex: 0,
+      itemId: 'oa',
+      itemTitle: '访客数',
+      itemSubtitle: '年度',
+      itemMetricValue: '48.7M',
+    });
+
+    expect(host.querySelector('[data-streamdown="strong"]')?.textContent).toBe('加粗');
+    await click('重点标签');
+    expect(contextOf(onAction.mock.calls[2]?.[0]).selected).toEqual({
+      itemIndex: 0,
+      itemId: 'ca',
+      itemTitle: '重点标签',
+      itemBody: '包含 **加粗** 正文',
+      itemBgColor: 'gray',
+      itemBgImageSrc: 'https://example.com/bg.jpg',
+      itemBgImageAlt: '背景图',
+    });
+  });
+
+  it('uses clean aria-label on clickable ListBlock items', async () => {
+    const onAction = vi.fn();
+    await render(
+      [
+        'root = Card([list])',
+        'list = ListBlock([l1, l2], "number")',
+        'l1 = ListItem("排查日志", "近 24 小时错误", null, "查看", @ToAssistant("查日志"))',
+        'l2 = ListItem("纯展示项", "无动作")',
+      ].join('\n'),
+      { onAction },
+    );
+
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="排查日志"]');
+    expect(button).not.toBeNull();
+    await act(async () => button?.click());
+    await settle(2);
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction.mock.calls[0]?.[0]).toMatchObject({ message: '查日志' });
   });
 });
 

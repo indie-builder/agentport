@@ -301,6 +301,35 @@ describe('多系列可区分', () => {
     expect(rows[2]).toContain('丙');
     expect(rows[2]).toContain('—');
   });
+
+  it('饼图默认 pie 并支持 semiCircular 外观', async () => {
+    await render(['root = Card([c])', 'c = PieChart(["甲", "乙"], [40, 60])']);
+    const frame = host.querySelector<HTMLElement>('[data-openui-chart-frame]');
+    expect(frame?.getAttribute('data-variant')).toBe('pie');
+    expect(frame?.getAttribute('data-appearance')).toBe('circular');
+
+    await render([
+      'root = Card([c])',
+      'c = PieChart(["甲", "乙"], [40, 60], "pie", "semiCircular")',
+    ]);
+    const semiFrame = host.querySelector<HTMLElement>('[data-openui-chart-frame]');
+    expect(semiFrame?.getAttribute('data-appearance')).toBe('semiCircular');
+    expect(host.querySelectorAll('.recharts-pie-sector')).toHaveLength(2);
+  });
+
+  it('支持二维表格行数组格式的图表数据', async () => {
+    await render([
+      'root = Card([c])',
+      'q = Query("metrics", {}, { columns: ["月份", "收入", "成本"], results: [["一月", 10, 4], ["二月", 20, 8]] })',
+      'c = BarChart(q.columns, q.results, "grouped")',
+    ]);
+    expect(barWidths()).toHaveLength(4);
+    const table = await openDataView();
+    const headers = [...table.querySelectorAll('thead th')].map((th) => th.textContent);
+    expect(headers).toEqual(['类别', '收入', '成本']);
+    const rows = [...table.querySelectorAll('tbody tr')].map((row) => row.textContent);
+    expect(rows).toEqual(['一月104', '二月208']);
+  });
 });
 
 describe('数据视图与键盘', () => {

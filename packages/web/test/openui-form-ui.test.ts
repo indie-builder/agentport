@@ -195,7 +195,8 @@ describe('FormControl field wiring', () => {
   it('links group controls to the FormControl label', async () => {
     await renderProgram(CHIPS_FORM.join('\n'));
 
-    const group = host.querySelector<HTMLElement>('fieldset[aria-labelledby]');
+    expect(host.querySelector('fieldset')).toBeNull();
+    const group = host.querySelector<HTMLElement>('[role="group"][aria-labelledby]');
     expect(group).toBeTruthy();
     const label = host.querySelector<HTMLElement>(
       `[id="${group?.getAttribute('aria-labelledby')}"]`,
@@ -215,8 +216,8 @@ describe('FormControl field wiring', () => {
       '选择出行节奏',
     );
 
+    const checkboxGroup = host.querySelector<HTMLElement>('[data-slot="checkbox-group"]');
     const checkbox = host.querySelector<HTMLElement>('[role="checkbox"]');
-    const checkboxField = fieldFor(checkbox as HTMLElement);
     const chip = all<HTMLButtonElement>('button[aria-pressed]').find(
       (button) => button.textContent === '酒店',
     );
@@ -233,10 +234,13 @@ describe('FormControl field wiring', () => {
     expect(radioGroup?.getAttribute('aria-invalid')).toBe('true');
     expect(radio?.getAttribute('aria-invalid')).toBe('true');
     expect(checkbox?.getAttribute('aria-invalid')).toBe('true');
-    expect(checkboxField.querySelector('fieldset')?.getAttribute('aria-invalid')).toBe('true');
+    expect(checkboxGroup?.getAttribute('aria-invalid')).toBe('true');
     expect(chip?.getAttribute('aria-invalid')).toBe('true');
     expect(card?.getAttribute('aria-invalid')).toBe('true');
     expect(range?.getAttribute('aria-invalid')).toBe('true');
+    expect(host.querySelector('[data-slot="slider-thumb"]')?.hasAttribute('aria-invalid')).toBe(
+      false,
+    );
 
     for (const control of [radio, checkbox, chip, card, range]) {
       const labelledBy = control?.getAttribute('aria-labelledby');
@@ -341,7 +345,10 @@ describe('FormControl field wiring', () => {
 
     const ranges = all<HTMLInputElement>('input[type="range"]');
     expect(ranges).toHaveLength(2);
-    expect(ranges.map((input) => input.getAttribute('aria-label'))).toEqual(['最小值', '最大值']);
+    expect(ranges.map((input) => input.getAttribute('aria-label'))).toEqual([
+      '预算范围 最小值',
+      '预算范围 最大值',
+    ]);
     for (const thumb of ranges) {
       expect(thumb.getAttribute('aria-invalid')).toBeNull();
       expect(describedBy(thumb).map((element) => element.textContent)).toContain('拖动选择上下限');
@@ -377,5 +384,77 @@ describe('FormControl field wiring', () => {
         false,
       );
     }
+  });
+
+  it('associates FieldLabel with single-thumb Slider, avoids duplicate aria-describedby ids, and marks required controls with aria-required', async () => {
+    await renderProgram(
+      [
+        'root = Card([form])',
+        'form = Form("audit", buttons, [fcMail, fcBio, fcSel, fcDate, fcRadio, fcCheck, fcSlider])',
+        'buttons = Buttons([submit])',
+        'submit = Button("提交", @ToAssistant("提交"), "primary")',
+        'fcMail = FormControl("邮箱", mail, "提示邮箱")',
+        'mail = Input("email", "", "email", { required: true })',
+        'fcBio = FormControl("简介", bio, "提示简介")',
+        'bio = TextArea("bio", "", 3, { required: true })',
+        'fcSel = FormControl("人数", sel, "提示人数")',
+        'sel = Select("people", [s1], "选择", { required: true })',
+        's1 = SelectItem("1", "1 人")',
+        'fcDate = FormControl("行程", dp, "提示日期")',
+        'dp = DatePicker("trip", "range", { required: true })',
+        'fcRadio = FormControl("节奏", radios, "提示节奏")',
+        'radios = RadioGroup("pace", [r1], "", { required: true })',
+        'r1 = RadioItem("慢", "轻松", "slow")',
+        'fcCheck = FormControl("兴趣", checks, "提示兴趣")',
+        'checks = CheckBoxGroup("hobbies", [cb1], { required: true })',
+        'cb1 = CheckBoxItem("徒步", "山区路线", "hiking")',
+        'fcSlider = FormControl("预算", slider, "提示预算")',
+        'slider = Slider("budget", "discrete", 0, 100, 10, [30], "", { required: true })',
+      ].join('\n'),
+    );
+
+    const submit = all('button').find((button) => button.textContent === '提交');
+    await act(async () => submit?.click());
+    await settle();
+
+    const range = host.querySelector<HTMLInputElement>('input[type="range"]');
+    expect(range).toBeTruthy();
+    const sliderLabel = document.querySelector<HTMLLabelElement>(`label[for="${range?.id}"]`);
+    expect(sliderLabel?.control).toBe(range);
+    expect(sliderLabel?.textContent).toContain('预算');
+
+    const [startDate, endDate] = all<HTMLInputElement>('[data-slot="date-picker-input"]');
+    expect(endDate?.getAttribute('aria-label')).toBe('行程 结束日期');
+
+    const controls = [
+      host.querySelector<HTMLElement>('input[name="email"]'),
+      host.querySelector<HTMLElement>('textarea[name="bio"]'),
+      host.querySelector<HTMLElement>('[data-slot="select-trigger"]'),
+      startDate,
+      endDate,
+      host.querySelector<HTMLElement>('[role="radiogroup"]'),
+      host.querySelector<HTMLElement>('[data-slot="checkbox-group"]'),
+      range,
+    ];
+    for (const control of controls) {
+      expect(control).toBeTruthy();
+      if (control !== range) {
+        expect(control?.getAttribute('aria-required')).toBe('true');
+      }
+      const ids = (control?.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
+      expect(ids.length).toBeGreaterThan(0);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+    expect(describedBy(endDate as HTMLElement).map((element) => element.textContent)).toContain(
+      '提示日期',
+    );
+    expect(
+      describedBy(endDate as HTMLElement).find(
+        (element) => element.getAttribute('role') === 'alert',
+      ),
+    ).toBeTruthy();
+    expect(
+      host.querySelector<HTMLElement>('[data-slot="slider"]')?.getAttribute('aria-required'),
+    ).toBe('true');
   });
 });

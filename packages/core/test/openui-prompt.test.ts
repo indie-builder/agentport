@@ -91,8 +91,11 @@ describe('openuiSystemPrompt', () => {
   it('uses an inline-mode preamble without the conflicting code-only instruction', () => {
     const prompt = openuiSystemPrompt();
     expect(prompt).not.toContain('Your ENTIRE response must be valid openui-lang code');
+    expect(prompt).not.toContain('You are an AI assistant');
     expect(prompt).toContain('```openui-lang');
     expect(prompt).toContain('root = Card(...)');
+    expect(prompt).toContain('inlineMode');
+    expect(prompt).toContain('editMode');
   });
 
   it('includes a valid Query/Mutation/@Run/$binding tool example when tools are present', () => {
@@ -107,8 +110,8 @@ describe('openuiSystemPrompt', () => {
     const bodyEnd = withTools.indexOf('\n\n', bodyStart);
     const program = withTools.slice(bodyStart, bodyEnd === -1 ? undefined : bodyEnd);
 
-    expect(program).toContain('Query(');
-    expect(program).toContain('Mutation(');
+    expect(program).toContain('Query("mcp__support__list_tickets"');
+    expect(program).toContain('Mutation("mcp__support__create_ticket"');
     expect(program).toContain('@Run(');
     expect(program).toContain('$status');
 

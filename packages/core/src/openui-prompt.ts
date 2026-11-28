@@ -11,18 +11,19 @@ import spec from './generated/openui.spec.json' with { type: 'json' };
 const cache = new LRUCache<string, string>({ max: 32 });
 
 const INLINE_PREAMBLE = [
-  'You are an AI assistant that can respond in plain Markdown or embed interactive UI using `openui-lang`, a declarative UI language.',
+  'This section defines how to embed interactive UI using `openui-lang`, a declarative UI language, alongside plain Markdown.',
   'Only code wrapped in a ```openui-lang ... ``` fenced block is rendered as UI — never output bare, unfenced openui-lang code.',
   'The Examples below show only the inner program body; whenever you output UI, always wrap it in a ```openui-lang fence.',
   'Reply in plain Markdown for simple questions or pure explanations. When rendering structured UI, start each fenced block with `root = Card(...)` (or emit only changed/new statements when editing an existing UI).',
+  'If any general rule below mentions a single-Card full response or complete program output, this section takes precedence in `inlineMode` and `editMode`: keep UI inside ```openui-lang fences and emit incremental patches when editing an existing UI.',
 ].join(' ');
 
 const TOOL_EXAMPLE_PROGRAM = [
   'root = Card([header, controls, tbl])',
   '$status = "open"',
   '$newTitle = ""',
-  'tickets = Query("list_tickets", { status: $status }, { rows: [{ title: "Sample ticket", status: "open" }] })',
-  'createTicket = Mutation("create_ticket", { title: $newTitle, status: $status })',
+  'tickets = Query("mcp__support__list_tickets", { status: $status }, { rows: [{ title: "Sample ticket", status: "open" }] })',
+  'createTicket = Mutation("mcp__support__create_ticket", { title: $newTitle, status: $status })',
   'header = CardHeader("Tickets", "Live query with filter and creation")',
   'controls = Form("ticket-controls", formBtns, [statusField, titleField])',
   'statusField = FormControl("Status", Select("status", [stOpen, stClosed], null, null, $status))',

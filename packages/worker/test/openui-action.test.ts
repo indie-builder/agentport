@@ -43,6 +43,61 @@ describe('promptWithOpenUiAction', () => {
     expect(prompt).toContain('https://example.com');
   });
 
+  it('drops duplicate params.context when it matches top-level context', () => {
+    const shared = { card: 'paris', items: [1, 2] };
+    const onlyDuplicate = promptWithOpenUiAction(
+      [
+        { type: 'text', text: 'explore' },
+        {
+          type: 'openui_action',
+          params: { context: shared },
+          context: { card: 'paris', items: [1, 2] },
+        },
+      ],
+      'fallback',
+    );
+    const parsedOnly = JSON.parse(
+      onlyDuplicate.slice(onlyDuplicate.indexOf('[openui_action] ') + 16),
+    );
+    expect(parsedOnly).toEqual({ context: shared });
+    expect('params' in parsedOnly).toBe(false);
+
+    const withOtherParam = promptWithOpenUiAction(
+      [
+        { type: 'text', text: 'explore' },
+        {
+          type: 'openui_action',
+          params: { context: shared, extra: 'keep' },
+          context: shared,
+        },
+      ],
+      'fallback',
+    );
+    const parsedExtra = JSON.parse(
+      withOtherParam.slice(withOtherParam.indexOf('[openui_action] ') + 16),
+    );
+    expect(parsedExtra).toEqual({ params: { extra: 'keep' }, context: shared });
+
+    const distinctContext = promptWithOpenUiAction(
+      [
+        { type: 'text', text: 'explore' },
+        {
+          type: 'openui_action',
+          params: { context: { card: 'lyon' } },
+          context: shared,
+        },
+      ],
+      'fallback',
+    );
+    const parsedDistinct = JSON.parse(
+      distinctContext.slice(distinctContext.indexOf('[openui_action] ') + 16),
+    );
+    expect(parsedDistinct).toEqual({
+      params: { context: { card: 'lyon' } },
+      context: shared,
+    });
+  });
+
   it('ignores a malformed action part', () => {
     expect(
       promptWithOpenUiAction([{ type: 'text', text: 'ok' }, { type: 'openui_action' }], 'x'),

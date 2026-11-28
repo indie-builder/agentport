@@ -1,3 +1,4 @@
+import { isRecord } from '@agentport/core/record';
 import { openUiActionPartSchema } from '@agentport/shared';
 
 function parts(content: unknown): { text: string | null; action: Record<string, unknown> | null } {
@@ -24,14 +25,22 @@ function parts(content: unknown): { text: string | null; action: Record<string, 
   return { text: type === 'text' && typeof text === 'string' ? text : null, action: null };
 }
 
+function dedupeParams(params: unknown, context: unknown): unknown {
+  if (context === undefined || !isRecord(params) || !('context' in params)) return params;
+  if (!Bun.deepEquals(params.context, context)) return params;
+  const { context: _duplicate, ...rest } = params;
+  return Object.keys(rest).length === 0 ? undefined : rest;
+}
+
 export function promptWithOpenUiAction(content: unknown, fallback: string): string {
   const parsed = parts(content);
   const text = parsed.text ?? fallback;
   if (parsed.action === null) return text;
 
   const action = parsed.action;
+  const params = dedupeParams(action.params, action.context);
   const payload = JSON.stringify({
-    ...(action.params === undefined ? {} : { params: action.params }),
+    ...(params === undefined ? {} : { params }),
     ...(action.context === undefined ? {} : { context: action.context }),
     ...(action.formState === undefined ? {} : { formState: action.formState }),
     ...(action.formName === undefined ? {} : { formName: action.formName }),

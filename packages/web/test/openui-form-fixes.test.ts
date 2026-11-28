@@ -633,3 +633,234 @@ describe('IconButton', () => {
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Slider, NumberInput, CheckboxGroup, @Reset, and Button parity', () => {
+  it('computes fractional step for continuous Slider(0, 1) and normalizes empty [] to one thumb at min', async () => {
+    const onAction = vi.fn();
+    await render(
+      [
+        'root = Form("cfg", buttons, [fcTemp, fcEmpty])',
+        'buttons = Buttons([submit])',
+        'submit = Button("提交", @ToAssistant("提交"), "primary")',
+        'fcTemp = FormControl("温度", temp)',
+        'temp = Slider("temp", "continuous", 0, 1)',
+        'fcEmpty = FormControl("权重", weight)',
+        'weight = Slider("weight", "discrete", 5, 50, 5, [])',
+      ].join('\n'),
+      { onAction },
+    );
+    await settle();
+
+    const ranges = [...host.querySelectorAll<HTMLInputElement>('input[type="range"]')];
+    expect(ranges).toHaveLength(2);
+    expect(Number(ranges[0]?.step)).toBeGreaterThan(0);
+    expect(Number(ranges[0]?.step)).toBeLessThan(1);
+    expect(ranges[1]?.value).toBe('5');
+
+    const agent = createUiAgent();
+    const actRes = await act(async () =>
+      agent.act({ steps: [{ ref: '温度', action: 'setValue', args: [[0.35]] }] }),
+    );
+    expect(actRes.ok, actRes.error?.message).toBe(true);
+    await settle();
+
+    await click(byText('提交'));
+    expect(onAction.mock.calls.at(-1)?.[0]?.formState?.cfg?.temp?.value).toEqual([0.35]);
+  });
+
+  it('exposes CheckBoxGroup as checkbox-group and lets agent act on required fields by clean labels', async () => {
+    const onAction = vi.fn();
+    await render(
+      [
+        'root = Form("prefs", buttons, [fcMail, fcCheck])',
+        'buttons = Buttons([submit])',
+        'submit = Button("提交", @ToAssistant("提交"), "primary")',
+        'fcMail = FormControl("邮箱", mail)',
+        'mail = Input("email", "", "email", { required: true })',
+        'fcCheck = FormControl("兴趣", checks)',
+        'checks = CheckBoxGroup("hobbies", [cb1, cb2], { required: true })',
+        'cb1 = CheckBoxItem("徒步", "山区路线", "hiking")',
+        'cb2 = CheckBoxItem("游泳", "室内泳池", "swim")',
+      ].join('\n'),
+      { onAction },
+    );
+    await settle();
+
+    const agent = createUiAgent();
+    const snap = agent.snapshot();
+    expect(snap.find((item) => !item.offPage && item.component === 'input')?.label).toBe('邮箱');
+    const checkGroup = snap.find(
+      (item) =>
+        !item.offPage &&
+        item.label === '兴趣' &&
+        Array.isArray(item.actions) &&
+        item.actions.includes('setValue'),
+    );
+    expect(checkGroup).toBeDefined();
+    expect(host.querySelector('[data-slot="checkbox-group"]')).toBeTruthy();
+
+    const actRes = await act(async () =>
+      agent.act({
+        steps: [
+          { ref: '邮箱', action: 'setValue', args: ['hi@example.com'] },
+          { ref: '兴趣', action: 'setValue', args: [['hiking']] },
+        ],
+      }),
+    );
+    expect(actRes.ok, actRes.error?.message).toBe(true);
+    await settle();
+
+    await click(byText('提交'));
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction.mock.calls[0]?.[0]?.formState?.prefs?.email?.value).toBe('hi@example.com');
+    expect(onAction.mock.calls[0]?.[0]?.formState?.prefs?.hobbies?.value).toEqual({
+      hiking: true,
+      swim: false,
+    });
+  });
+
+  it('does not bounce back to defaultValue/defaultChecked when @Reset sets bindings to null', async () => {
+    await render(
+      [
+        'root = Card([form, switches, resetBtn])',
+        'form = Form("resettable", buttons, [fcRadio, fcSlider, fcCheck, fcChips])',
+        'buttons = Buttons([submit])',
+        'submit = Button("提交", @ToAssistant("提交"), "primary")',
+        'fcRadio = FormControl("节奏", radios)',
+        'radios = RadioGroup("pace", [r1, r2], "slow", {}, $pace)',
+        'r1 = RadioItem("慢", "轻松", "slow")',
+        'r2 = RadioItem("快", "紧凑", "fast")',
+        'fcSlider = FormControl("预算", slider)',
+        'slider = Slider("budget", "discrete", 10, 100, 10, [40], "", {}, $budget)',
+        'fcCheck = FormControl("兴趣", checks)',
+        'checks = CheckBoxGroup("hobbies", [cb1], {}, $hobbies)',
+        'cb1 = CheckBoxItem("徒步", "山区路线", "hiking", true)',
+        'fcChips = FormControl("住宿", chips)',
+        'chips = Chips("stay", "single", [c1], {}, "hotel")',
+        'c1 = ChipItem("hotel", "酒店")',
+        'switches = SwitchGroup("notify", [sw1], "clear", $notify)',
+        'sw1 = SwitchItem("邮件", "每日摘要", "email", true)',
+        'resetBtn = Button("清空", @Reset($pace, $budget, $hobbies, $notify), "secondary")',
+      ].join('\n'),
+      {
+        initialState: {
+          $pace: 'slow',
+          $budget: [40],
+          $hobbies: { hiking: true },
+          $notify: { email: true },
+          resettable: { stay: { value: '', componentType: 'Chips' } },
+        },
+      },
+    );
+    await settle();
+
+    expect(host.querySelector<HTMLElement>('[role="radio"]')?.getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    expect(host.querySelector<HTMLInputElement>('input[type="range"]')?.value).toBe('40');
+    expect(host.querySelector<HTMLElement>('[role="checkbox"]')?.getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    expect(host.querySelector<HTMLElement>('[role="switch"]')?.getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    expect(byText('酒店').getAttribute('aria-pressed')).toBe('false');
+
+    await click(byText('清空'));
+    await settle();
+
+    expect(host.querySelector<HTMLElement>('[role="radio"]')?.getAttribute('aria-checked')).toBe(
+      'false',
+    );
+    expect(host.querySelector<HTMLInputElement>('input[type="range"]')?.value).toBe('10');
+    expect(host.querySelector<HTMLElement>('[role="checkbox"]')?.getAttribute('aria-checked')).toBe(
+      'false',
+    );
+    expect(host.querySelector<HTMLElement>('[role="switch"]')?.getAttribute('aria-checked')).toBe(
+      'false',
+    );
+  });
+
+  it('passes rules.min/max to NumberInput, keeps in-bounds decimals, and clamps out-of-bounds values', async () => {
+    const onAction = vi.fn();
+    await render(
+      [
+        FORM,
+        'fc = FormControl("数量", qty)',
+        'qty = Input("qty", "", "number", { min: 1, max: 10 })',
+      ].join('\n'),
+      { onAction },
+    );
+    await settle();
+
+    const input = host.querySelector<HTMLInputElement>('[data-slot="number-input-control"]');
+    if (!input) throw new Error('number input control not found');
+
+    await typeDate(input, '3.5');
+    await pressEnterDate(input);
+    expect(input.value).toBe('3.5');
+
+    await typeDate(input, '99');
+    await pressEnterDate(input);
+    expect(input.value).toBe('10');
+
+    await click(byText('提交'));
+    expect(onAction.mock.calls.at(-1)?.[0]?.formState?.booking?.qty?.value).toBe('10');
+  });
+
+  it('differentiates destructive Button primary, secondary, and tertiary variants', async () => {
+    await render(
+      [
+        'root = Card([buttons])',
+        'buttons = Buttons([b1, b2, b3])',
+        'b1 = Button("主删除", @ToAssistant("主删除"), "primary", "destructive")',
+        'b2 = Button("次删除", @ToAssistant("次删除"), "secondary", "destructive")',
+        'b3 = Button("轻删除", @ToAssistant("轻删除"), "tertiary", "destructive")',
+      ].join('\n'),
+    );
+    await settle();
+
+    const b1 = byText('主删除');
+    const b2 = byText('次删除');
+    const b3 = byText('轻删除');
+    expect(b1.className).toContain('bg-destructive');
+    expect(b2.getAttribute('data-variant')).toBe('outline');
+    expect(b2.className).toContain('border-destructive');
+    expect(b3.getAttribute('data-variant')).toBe('ghost');
+    expect(b3.className).toContain('text-destructive');
+  });
+
+  it('switches multi-thumb $binding Slider back to FieldLabel with accessible name after @Reset to null', async () => {
+    await render(
+      [
+        'root = Card([form, resetBtn])',
+        'form = Form("budgetForm", buttons, [fcSlider])',
+        'buttons = Buttons([submit])',
+        'submit = Button("提交", @ToAssistant("提交"), "primary")',
+        'fcSlider = FormControl("预算范围", slider)',
+        'slider = Slider("budget", "discrete", 0, 100, 10, [20, 80], "", {}, $budget)',
+        'resetBtn = Button("重置预算", @Reset($budget), "secondary")',
+      ].join('\n'),
+      {
+        initialState: { $budget: [20, 80] },
+      },
+    );
+    await settle();
+
+    expect(host.querySelectorAll<HTMLInputElement>('input[type="range"]')).toHaveLength(2);
+    expect(host.querySelector('label')).toBeNull();
+
+    await click(byText('重置预算'));
+    await settle();
+
+    const ranges = [...host.querySelectorAll<HTMLInputElement>('input[type="range"]')];
+    expect(ranges).toHaveLength(1);
+    const label = host.querySelector<HTMLLabelElement>('label[for]');
+    expect(label?.textContent).toBe('预算范围');
+    expect(label?.control).toBe(ranges[0]);
+    const sliderSnap = createUiAgent()
+      .snapshot()
+      .find((item) => !item.offPage && item.component === 'slider');
+    expect(sliderSnap?.label).toBe('预算范围');
+  });
+});
