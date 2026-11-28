@@ -20,4 +20,4 @@ function mergeClassName<State>(base: string, className: PartClassName<State>) {
     : cn(base, className);
 }
 
-export { type ElementPartProps, mergeClassName, type PartClassName };
+export { type ElementPartProps, mergeClassName };

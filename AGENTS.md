@@ -152,7 +152,10 @@
 | DB `LIKE`/`ILIKE` 必须转义通配符 | 架构 + Lint + CI | `packages/db/src/repo/like.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | DB 枚举列与 `CHECK` 约束从 `@agentport/shared` schema `.options` 派生 | 架构 + 类型 + Lint + CI | `packages/db/src/schema/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 业务日志统一走 `@agentport/core/logger`，禁直接值导入 `pino` | 架构 + Lint + CI | `packages/core/src/logger.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| 单文件物理行数上限 3000 行 | Lint + CI | `scripts/check-file-lines.mjs`（`bun run lint:lines`，已接入 `scripts/ci.ts`） |
+| 单文件物理行数上限（源码 800 / 测试 1500 默认上限 + `file-lines.json` 单向棘轮 + 3000 行硬顶） | Lint + CI | `scripts/check-file-lines.mjs`（`bun run lint:lines`，收紧用 `bun run ratchet:tighten`，已接入 `scripts/ci.ts`） |
+| 零死代码 / 未使用导出 / 未使用依赖（Knip 门禁） | Lint + CI | `knip.json`（`bun run lint:deadcode`，已接入 `scripts/ci.ts`） |
+| 抑制注释理由校验与单向棘轮（`suppressions.json` 基线） | Lint + CI | `bun run lint:ratchet`（收紧用 `bun run ratchet:tighten`，已接入 `scripts/ci.ts`） |
+| 测试前 workspace `dist` 过期毫秒级预检 | CI + 测试入口 | `scripts/check-dist-fresh.ts` + `scripts/test-backend.ts` / `scripts/test-backend-sharded.ts` / `scripts/test-web.ts` |
 | OpenUI 生成物 `openui.spec.json` 与组件库保持同步 | CI | `scripts/check-openui.mjs`（`bun run openui:check`） |
 | 文档链接/锚点/行内路径有效、禁 `pnpm`/`npm` 命令、`PITFALLS` 索引一致 | Lint + CI | `scripts/check-docs.mjs`（`bun run lint:docs`） |
 | 禁止显式 `any`、生产代码零警告契约（禁非空断言与缺失 hook 依赖等）、格式与 import 排序、全仓类型检查 | 类型 + Lint + CI | `biome.json`（`bun run lint`）+ `tsconfig.json` / `tsconfig.base.json` / `tsconfig.scripts.json` / `tsconfig.e2e.json` / `tsconfig.tests.json`（`bun run typecheck` 等）+ `scripts/ci.ts`（`bun run ci` / `ci:fast` / `ci:changed`） |

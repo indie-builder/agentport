@@ -3,7 +3,7 @@ import { parse as parseYaml } from 'yaml';
 import { fail, invalidInput } from './errors.js';
 import { isRecord } from './record.js';
 
-export interface ImportedHttpTool {
+interface ImportedHttpTool {
   name: string;
   description: string;
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';

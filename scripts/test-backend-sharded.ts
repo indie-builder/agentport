@@ -1,7 +1,17 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { BACKEND_DIST_PACKAGES, ensureDistFresh } from './check-dist-fresh.js';
 
 const root = Bun.fileURLToPath(new URL('..', import.meta.url));
+
+const autoBuild = process.argv.includes('--auto-build');
+
+try {
+  ensureDistFresh({ root, packages: BACKEND_DIST_PACKAGES, autoBuild });
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}
 const testBackend = Bun.fileURLToPath(new URL('./test-backend.ts', import.meta.url));
 const tmpDir = join(root, 'tmp');
 const timingsPath = join(tmpDir, 'ci-test-timings.json');
@@ -104,7 +114,11 @@ const runShard = async (index: number, shard: Shard): Promise<ShardResult> => {
     ],
     {
       cwd: root,
-      env: { ...process.env, DB_POOL_MAX: process.env.DB_POOL_MAX ?? '4' },
+      env: {
+        ...process.env,
+        AGENTPORT_DIST_FRESH_CHECKED: '1',
+        DB_POOL_MAX: process.env.DB_POOL_MAX ?? '4',
+      },
       stdin: 'inherit',
       stdout: 'inherit',
       stderr: 'inherit',

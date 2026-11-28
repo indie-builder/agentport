@@ -192,7 +192,7 @@ export function syncJob(status: KnowledgeJob['status'], id = 'kjob_sync'): Knowl
   };
 }
 
-export const msw = createMsw();
+const msw = createMsw();
 export const { server, calls } = msw;
 
 export function mockMe() {

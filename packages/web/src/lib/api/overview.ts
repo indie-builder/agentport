@@ -5,7 +5,6 @@ export type {
   Overview,
   OverviewAgentRow,
   OverviewTimeseriesPoint,
-  RecentRun,
 } from '@agentport/shared';
 
 export default {

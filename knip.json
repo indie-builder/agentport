@@ -1,0 +1,51 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreIssues": {
+    "packages/shared/src/outputs.ts": ["duplicates"],
+    "packages/web/src/lib/toast.ts": ["duplicates"]
+  },
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/*.{ts,mjs}",
+        "e2e*.config.ts",
+        "tests/**/*.e2e.ts",
+        "tests/support/*.test.ts",
+        "formal/**/*.mjs"
+      ],
+      "project": ["scripts/**/*.{ts,mjs}", "tests/**/*.ts", "formal/**/*.mjs"],
+      "vitest": {
+        "config": ["packages/web/vitest.config.ts"]
+      }
+    },
+    "packages/api": {
+      "entry": ["src/index.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
+      "ignoreDependencies": ["pino-pretty"]
+    },
+    "packages/contract": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/core": {
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "packages/db": {
+      "project": ["src/**/*.ts", "scripts/**/*.js", "test/**/*.ts"]
+    },
+    "packages/sandbox": {
+      "entry": ["src/{runner,session-supervisor,probe,native-plugins}.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "packages/shared": {
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "packages/web": {
+      "entry": ["src/openui/library.tsx", "src/components/ui/*.tsx"],
+      "project": ["src/**/*.{ts,tsx,css}", "test/**/*.{ts,tsx}"]
+    },
+    "packages/worker": {
+      "entry": ["src/index.ts", "test/fixtures/*.mjs"],
+      "project": ["src/**/*.ts", "test/**/*.{ts,mjs}"]
+    }
+  }
+}

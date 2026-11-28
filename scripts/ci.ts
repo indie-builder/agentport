@@ -108,7 +108,11 @@ const combineOutput = (stdout: string, stderr: string): string => {
   return parts.join('\n');
 };
 
-const executeStage = async (planned: PlannedStage, verbose: boolean): Promise<StageResult> => {
+const executeStage = async (
+  planned: PlannedStage,
+  verbose: boolean,
+  typecheckRan: boolean,
+): Promise<StageResult> => {
   const command = `bun ${planned.args.join(' ')}`;
   if (!planned.enabled) {
     return {
@@ -122,8 +126,13 @@ const executeStage = async (planned: PlannedStage, verbose: boolean): Promise<St
   }
 
   const started = performance.now();
+  const env =
+    typecheckRan && (planned.stage === 'test' || planned.stage === 'test:web')
+      ? { ...process.env, AGENTPORT_DIST_FRESH_CHECKED: '1' }
+      : process.env;
   try {
     const proc = Bun.spawn([process.execPath, ...planned.args], {
+      env,
       stdin: verbose ? 'inherit' : 'ignore',
       stdout: verbose ? 'inherit' : 'pipe',
       stderr: verbose ? 'inherit' : 'pipe',
@@ -203,6 +212,7 @@ const run = async (): Promise<void> => {
   const plannedByName = new Map<StageName, PlannedStage>(
     plan.stages.map((stage) => [stage.stage, stage]),
   );
+  const typecheckRan = Boolean(plannedByName.get('typecheck')?.enabled);
 
   const schedule = (stageName: StageName): Promise<StageResult> => {
     const existing = stagePromises.get(stageName);
@@ -215,7 +225,7 @@ const run = async (): Promise<void> => {
 
     const promise = (async (): Promise<StageResult> => {
       if (!planned.enabled) {
-        return executeStage(planned, verbose);
+        return executeStage(planned, verbose, typecheckRan);
       }
 
       const depResults = await Promise.all(
@@ -241,7 +251,7 @@ const run = async (): Promise<void> => {
         };
       }
 
-      return executeStage(planned, verbose);
+      return executeStage(planned, verbose, typecheckRan);
     })();
 
     stagePromises.set(stageName, promise);
