@@ -28,18 +28,5 @@
     "packages/worker/test/knowledge-ingestion.test.ts": 5,
     "packages/worker/test/knowledge-queue.test.ts": 5
   },
-  "doubleCasts": {
-    "packages/api/src/modules/knowledge/mcp.ts": 1,
-    "packages/api/src/modules/knowledge/router.ts": 1,
-    "packages/api/src/modules/knowledge/use-cases/faq-commands.ts": 3,
-    "packages/api/src/modules/memory/changes.ts": 6,
-    "packages/core/src/openui-prompt.ts": 1,
-    "packages/shared/src/pagination.ts": 1,
-    "packages/shared/src/url.ts": 1,
-    "packages/web/src/openui/components/layout.tsx": 1,
-    "packages/web/src/pages/agents/agent-editor.tsx": 1,
-    "packages/web/src/pages/agents/create-agent-dialog.tsx": 1,
-    "packages/worker/src/knowledge/parsing.ts": 1,
-    "packages/worker/src/knowledge/scheduler.ts": 1
-  }
+  "doubleCasts": {}
 }

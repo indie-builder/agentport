@@ -1,8 +1,7 @@
 import { createToaster } from '@ui-sdk/react/toast';
 import { describeError } from './api.js';
 
-export const toaster = createToaster({ duration: 4000 });
-export const toast = toaster;
+export const toast = createToaster({ duration: 4000 });
 
 function errorToastPayload(error: unknown) {
   const { message, requestId } = describeError(error);

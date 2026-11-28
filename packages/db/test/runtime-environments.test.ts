@@ -24,10 +24,14 @@ describe.skipIf(!ready)('runtime environment repo', () => {
   const uniqueName = (prefix: string) => `${prefix}-${newId('runtimeEnvironment')}`;
 
   async function makeEnvironment(prefix = 'env') {
-    const environment = await repo.createRuntimeEnvironment(db, {
-      name: uniqueName(prefix),
-      dockerfile: 'FROM scratch\n',
-    });
+    const environment = await repo.createRuntimeEnvironment(
+      db,
+      {
+        name: uniqueName(prefix),
+        dockerfile: 'FROM scratch\n',
+      },
+      'test-owner',
+    );
     environmentIds.push(environment.id);
     return environment;
   }
@@ -46,8 +50,12 @@ describe.skipIf(!ready)('runtime environment repo', () => {
       uiFormat: 'markdown',
       effort: null,
       enabled: true,
+      visibility: 'private',
+      tags: [],
       maxTurns: 20,
       maxBudgetUsd: '2',
+      monthlyBudgetUsd: null,
+      budgetAlertRatio: '0.800',
       timeoutMs: 600_000,
       createdBy: 'test-owner',
       ownerBusinessId: 'test-owner',
@@ -102,10 +110,14 @@ describe.skipIf(!ready)('runtime environment repo', () => {
     ).toBe(true);
 
     await expect(
-      repo.createRuntimeEnvironment(db, {
-        name: environment.name,
-        dockerfile: 'FROM alpine:3.24\n',
-      }),
+      repo.createRuntimeEnvironment(
+        db,
+        {
+          name: environment.name,
+          dockerfile: 'FROM alpine:3.24\n',
+        },
+        'test-owner',
+      ),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(
       await repo.updateRuntimeEnvironment(db, newId('runtimeEnvironment'), { name: 'x' }),
@@ -285,6 +297,7 @@ describe.skipIf(!ready)('runtime environment repo', () => {
     environmentIds.push(registered.id);
     expect(registered.isDefault).toBe(true);
     expect(registered.onlineVersionId).not.toBeNull();
+    if (!registered.onlineVersionId) throw new Error('expected default onlineVersionId');
     expect(await repo.resolveOnlineRuntimeEnvironment(db, null)).toEqual({
       environmentId: registered.id,
       environmentName: registered.name,

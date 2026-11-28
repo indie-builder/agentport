@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
+import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
@@ -35,13 +36,17 @@ async function seedVersion() {
     enabled: true,
   });
   profileId = profile.id;
-  const server = await servers.createServer(db, {
-    name: `chunk-summary-${crypto.getRandomValues(new Uint8Array(4)).toHex()}`,
-    kind: 'knowledge' as never,
-    description: '',
-    config: {},
-    secretsEncrypted: null,
-  });
+  const server = await servers.createServer(
+    db,
+    {
+      name: `chunk-summary-${crypto.getRandomValues(new Uint8Array(4)).toHex()}`,
+      kind: 'knowledge' as never,
+      description: '',
+      config: {},
+      secretsEncrypted: null,
+    },
+    null,
+  );
   serverId = server.id;
   const base = await knowledge.createBase(db, {
     slug: `chunk-summary-${crypto.getRandomValues(new Uint8Array(4)).toHex()}`,
@@ -50,7 +55,11 @@ async function seedVersion() {
     serverId: server.id,
     embeddingProfileId: profile.id,
     rerankProfileId: null,
-    settings: { chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false },
+    settings: knowledgeBaseSettingsSchema.parse({
+      chunkTokens: 800,
+      chunkOverlap: 120,
+      wikiAutoUpdate: false,
+    }),
   });
   baseId = base.id;
   const document = await knowledge.createDocument(db, {
@@ -152,6 +161,7 @@ describe.skipIf(!ready)('knowledge chunk summaries', () => {
     const { chunk, versionId } = await seedChunk('令牌 轮换');
 
     const page = await knowledge.listChunks(db, versionId);
+    if (!page) throw new Error('expected chunks page');
     expect(page.items).toHaveLength(1);
     expect(page.items[0]).toMatchObject({
       id: chunk.id,
@@ -178,6 +188,7 @@ describe.skipIf(!ready)('knowledge chunk summaries', () => {
     const reader = createDb(url.toString());
     try {
       const page = await knowledge.listChunkSummaries(reader.db, versionId);
+      if (!page) throw new Error('expected chunk summaries page');
       expect(page.items).toHaveLength(1);
       expect(page.items[0]).toMatchObject({
         id: chunk.id,

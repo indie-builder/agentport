@@ -20,23 +20,16 @@ const serverIds: string[] = [];
 let profileId = '';
 
 afterEach(async () => {
-  if (baseIds.length > 0) {
-    await client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
-      client.array(baseIds, 'TEXT'),
+  for (const [table, ids] of [
+    ['knowledge_bases', baseIds],
+    ['knowledge_model_profiles', profileIds],
+    ['servers', serverIds],
+  ] as const) {
+    if (ids.length === 0) continue;
+    await client.unsafe(`delete from ${table} where id = any($1::text[])`, [
+      client.array(ids, 'TEXT'),
     ]);
-    baseIds.length = 0;
-  }
-  if (profileIds.length > 0) {
-    await client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
-      client.array(profileIds, 'TEXT'),
-    ]);
-    profileIds.length = 0;
-  }
-  if (serverIds.length > 0) {
-    await client.unsafe('delete from servers where id = any($1::text[])', [
-      client.array(serverIds, 'TEXT'),
-    ]);
-    serverIds.length = 0;
+    ids.length = 0;
   }
   profileId = '';
 });
@@ -46,6 +39,43 @@ afterAll(async () => {
 });
 
 const suffix = () => crypto.getRandomValues(new Uint8Array(6)).toHex();
+
+const defaultBaseSettings = knowledgeBaseSettingsSchema.parse({
+  chunkTokens: 800,
+  chunkOverlap: 120,
+  wikiAutoUpdate: false,
+});
+
+function requirePage<T>(page: T | null): T {
+  if (page === null) throw new Error('expected page');
+  return page;
+}
+
+async function seedIngestGuard(
+  baseId: string,
+  documentId: string,
+  expectedCurrentVersionId: string | null,
+) {
+  const base = await knowledge.getBase(db, baseId);
+  if (!base) throw new Error('base missing');
+  const job = await knowledge.createJob(db, {
+    type: 'ingest',
+    baseId,
+    documentId,
+    sourceId: null,
+    payload: { type: 'ingest', documentId, publish: 'automatic' },
+  });
+  await knowledge.claimJob(db, job.id);
+  return {
+    jobId: job.id,
+    baseId,
+    embeddingProfileId: base.embeddingProfileId,
+    imageProcessingJson: JSON.stringify(
+      knowledgeBaseSettingsSchema.parse(base.settings).imageProcessing,
+    ),
+    expectedCurrentVersionId,
+  };
+}
 
 function pgCode(error: unknown): string | undefined {
   const direct = error as { code?: string; errno?: string };
@@ -87,13 +117,17 @@ async function seedBase(): Promise<string> {
     profileId = profile.id;
     profileIds.push(profile.id);
   }
-  const server = await servers.createServer(db, {
-    name: `foundation-${id}`,
-    kind: 'knowledge' as never,
-    description: '',
-    config: {},
-    secretsEncrypted: null,
-  });
+  const server = await servers.createServer(
+    db,
+    {
+      name: `foundation-${id}`,
+      kind: 'knowledge' as never,
+      description: '',
+      config: {},
+      secretsEncrypted: null,
+    },
+    null,
+  );
   serverIds.push(server.id);
   const base = await knowledge.createBase(db, {
     slug: `foundation-${id}`,
@@ -102,7 +136,7 @@ async function seedBase(): Promise<string> {
     serverId: server.id,
     embeddingProfileId: profileId,
     rerankProfileId: null,
-    settings: { chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false },
+    settings: defaultBaseSettings,
   });
   baseIds.push(base.id);
   return base.id;
@@ -310,7 +344,7 @@ async function seedDocument(
     sourceUrl: null,
     sourcePath: options.sourcePath ?? null,
     sourceConnectionId: options.sourceConnectionId ?? null,
-    contentKind: options.contentKind,
+    ...(options.contentKind === undefined ? {} : { contentKind: options.contentKind }),
     mimeType: 'text/markdown',
     sizeBytes: 10,
   });
@@ -439,12 +473,14 @@ describe.skipIf(!ready)('replaceChunks draft indexing', () => {
     expect(inserted).toHaveLength(1);
     expect(inserted[0]?.content).toBe('new draft');
     expect(inserted[0]?.id).not.toBe(old[0]?.id);
-    expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(inserted);
+    expect(requirePage(await knowledge.listChunks(db, input.versionId)).items).toEqual(inserted);
     await knowledge.replaceChunks(db, { ...input, chunks });
-    expect((await knowledge.listChunks(db, input.versionId)).items).toHaveLength(1);
+    expect(requirePage(await knowledge.listChunks(db, input.versionId)).items).toHaveLength(1);
     await knowledge.replaceChunks(db, { ...input, chunks: [] });
-    expect((await knowledge.listChunks(db, input.versionId)).items).toEqual([]);
-    expect((await knowledge.listChunks(db, published.version.id)).items).toEqual(published.chunks);
+    expect(requirePage(await knowledge.listChunks(db, input.versionId)).items).toEqual([]);
+    expect(requirePage(await knowledge.listChunks(db, published.version.id)).items).toEqual(
+      published.chunks,
+    );
     expect((await knowledge.getDocument(db, input.documentId))?.currentVersionId).toBe(
       published.version.id,
     );
@@ -464,8 +500,10 @@ describe.skipIf(!ready)('replaceChunks draft indexing', () => {
       error = caught;
     }
     expect(pgCode(error)).toBe('23505');
-    expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
-    expect((await knowledge.listChunks(db, published.version.id)).items).toEqual(published.chunks);
+    expect(requirePage(await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
+    expect(requirePage(await knowledge.listChunks(db, published.version.id)).items).toEqual(
+      published.chunks,
+    );
   });
 
   it('当前版、已发布历史版和无草稿标记的历史版均不可覆盖', async () => {
@@ -498,7 +536,9 @@ describe.skipIf(!ready)('replaceChunks draft indexing', () => {
         knowledge.replaceChunks(db, { ...input, versionId: published.version.id }),
       ).rejects.toMatchObject({ code: 'CONFLICT' });
     }
-    expect((await knowledge.listChunks(db, published.version.id)).items).toEqual(published.chunks);
+    expect(requirePage(await knowledge.listChunks(db, published.version.id)).items).toEqual(
+      published.chunks,
+    );
   });
 
   it('库/文档/任务错配、任务已取消或草稿已改绑均零写拒绝', async () => {
@@ -523,7 +563,7 @@ describe.skipIf(!ready)('replaceChunks draft indexing', () => {
       .where(eq(schema.knowledgeDocumentVersions.id, input.versionId));
     await knowledge.finishJob(db, input.jobId, { status: 'cancelled' });
     await expect(knowledge.replaceChunks(db, input)).rejects.toMatchObject({ code: 'CONFLICT' });
-    expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
+    expect(requirePage(await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
   });
 
   it('事务等待文档锁期间取消获胜，恢复后不能替换草稿', async () => {
@@ -544,7 +584,7 @@ describe.skipIf(!ready)('replaceChunks draft indexing', () => {
       await knowledge.finishJob(db, input.jobId, { status: 'cancelled' });
       await blocker.unsafe('commit');
       await expect(replacement).rejects.toMatchObject({ code: 'CONFLICT' });
-      expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
+      expect(requirePage(await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
     } finally {
       await blocker.unsafe('rollback');
       blocker.release();
@@ -563,7 +603,7 @@ describe.skipIf(!ready)('replaceChunks draft indexing', () => {
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(checks).toBe(abortAt);
-    expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
+    expect(requirePage(await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
   });
 });
 
@@ -715,24 +755,8 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       await knowledge.setCurrentVersion(db, seeded.document.id, seeded.version.id),
     ).not.toBeNull();
 
-    const base = await knowledge.getBase(db, baseId);
-    if (!base) throw new Error('base missing');
-    const job = await knowledge.createJob(db, {
-      type: 'ingest',
-      baseId,
-      documentId: seeded.document.id,
-      sourceId: null,
-      payload: { type: 'ingest', documentId: seeded.document.id },
-    });
-    await knowledge.claimJob(db, job.id);
     const guard = {
-      jobId: job.id,
-      baseId,
-      embeddingProfileId: base.embeddingProfileId,
-      imageProcessingJson: JSON.stringify(
-        knowledgeBaseSettingsSchema.parse(base.settings).imageProcessing,
-      ),
-      expectedCurrentVersionId: seeded.version.id,
+      ...(await seedIngestGuard(baseId, seeded.document.id, seeded.version.id)),
       sourceSnapshot: await snapshotFor(source.id),
     };
     const second = await knowledge.createVersion(db, versionInput(seeded.document.id));
@@ -867,7 +891,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     expect(edited.chunk?.metadata.originalChunkId).toBe(child.id);
 
-    const oldChunks = await knowledge.listChunks(db, seeded.version.id);
+    const oldChunks = requirePage(await knowledge.listChunks(db, seeded.version.id));
     expect(oldChunks.items.map((chunk) => chunk.content)).toEqual(['root', 'child', 'tail']);
     expect(oldChunks.items[1]?.editedByUser).toBe(false);
     expect(oldChunks.items[1]?.locator).toEqual(locator);
@@ -878,7 +902,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     const newVersion = await knowledge.getVersion(db, newVersionId);
     expect(newVersion?.origin).toBe('manual');
     expect(newVersion?.parentVersionId).toBe(seeded.version.id);
-    const newChunks = await knowledge.listChunkSummaries(db, newVersionId);
+    const newChunks = requirePage(await knowledge.listChunkSummaries(db, newVersionId));
     expect(newChunks.items.map((chunk) => chunk.ordinal)).toEqual([0, 1, 2]);
     expect(newChunks.items[1]?.parentOrdinal).toBe(0);
     expect(newChunks.items[0]?.locator).toEqual(locator);
@@ -891,9 +915,8 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       mutation: { type: 'update', chunkId: newRoot.id, patch: { enabled: false } },
       preparedVersion: preparedVersion(),
     });
-    const toggledChunks = await knowledge.listChunkSummaries(
-      db,
-      toggled.document.currentVersionId ?? '',
+    const toggledChunks = requirePage(
+      await knowledge.listChunkSummaries(db, toggled.document.currentVersionId ?? ''),
     );
     const toggledRoot = toggledChunks.items.find((chunk) => chunk.content === 'root');
     expect(toggledRoot).toMatchObject({
@@ -911,13 +934,12 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       preparedVersion: preparedVersion(),
     });
     expect(deleted.chunk).toBeNull();
-    const afterDelete = await knowledge.listChunkSummaries(
-      db,
-      deleted.document.currentVersionId ?? '',
+    const afterDelete = requirePage(
+      await knowledge.listChunkSummaries(db, deleted.document.currentVersionId ?? ''),
     );
     expect(afterDelete.items.map((chunk) => chunk.content)).toEqual(['manual child', 'tail']);
     expect(afterDelete.items[0]?.parentOrdinal).toBeNull();
-    const firstVersionChunks = await knowledge.listChunks(db, seeded.version.id);
+    const firstVersionChunks = requirePage(await knowledge.listChunks(db, seeded.version.id));
     expect(firstVersionChunks.items).toHaveLength(3);
   });
 
@@ -946,7 +968,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(edited.chunk?.enabled).toBe(false);
     const newVersionId = edited.document.currentVersionId;
     if (!newVersionId) throw new Error('new version missing');
-    const chunks = await knowledge.listChunkSummaries(db, newVersionId);
+    const chunks = requirePage(await knowledge.listChunkSummaries(db, newVersionId));
     expect(chunks.items.find((chunk) => chunk.content === 'off')?.enabled).toBe(false);
   });
 
@@ -1106,16 +1128,20 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
         versionRow(foreign, otherPage.id, 1, '2026-01-04T00:00:00Z'),
       ]);
 
-    const first = await knowledge.listWikiVersions(db, page.id, { limit: 1 });
+    const first = requirePage(await knowledge.listWikiVersions(db, page.id, { limit: 1 }));
     expect(first.items.map((row) => row.id)).toEqual([v3]);
-    const second = await knowledge.listWikiVersions(db, page.id, {
-      limit: 1,
-      cursor: first.nextCursor,
-    });
-    const third = await knowledge.listWikiVersions(db, page.id, {
-      limit: 1,
-      cursor: second.nextCursor,
-    });
+    const second = requirePage(
+      await knowledge.listWikiVersions(db, page.id, {
+        limit: 1,
+        cursor: first.nextCursor,
+      }),
+    );
+    const third = requirePage(
+      await knowledge.listWikiVersions(db, page.id, {
+        limit: 1,
+        cursor: second.nextCursor,
+      }),
+    );
     expect([...first.items, ...second.items, ...third.items].map((row) => row.id)).toEqual([
       v3,
       v2,
@@ -1159,7 +1185,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(faqVersion?.origin).toBe('faq');
     expect(await knowledge.getReadableDocument(db, baseId, faqDoc.document.id)).not.toBeNull();
 
-    const versions = await knowledge.listDocumentVersions(db, faqDoc.document.id);
+    const versions = requirePage(await knowledge.listDocumentVersions(db, faqDoc.document.id));
     expect(versions.items[0]).toMatchObject({
       id: faqDoc.version.id,
       isCurrent: true,
@@ -1171,9 +1197,11 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       contentKind: 'wiki',
       chunks: [{ content: 'wiki index' }],
     });
-    const faqOnly = await knowledge.listDocuments(db, { baseId, contentKind: 'faq' });
+    const faqOnly = requirePage(await knowledge.listDocuments(db, { baseId, contentKind: 'faq' }));
     expect(faqOnly.items.map((document) => document.id)).toEqual([faqDoc.document.id]);
-    const ordinary = await knowledge.listDocuments(db, { baseId, contentKind: 'document' });
+    const ordinary = requirePage(
+      await knowledge.listDocuments(db, { baseId, contentKind: 'document' }),
+    );
     expect(ordinary.items.map((document) => document.id)).not.toContain(faqDoc.document.id);
     expect(ordinary.items.map((document) => document.id)).not.toContain(wikiIndex.document.id);
 
@@ -1193,7 +1221,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       retryable: false,
     });
     expect(item.id).toMatch(/^ksit_/);
-    const listed = await knowledge.listSyncItems(db, run.id, { status: 'failed' });
+    const listed = requirePage(await knowledge.listSyncItems(db, run.id, { status: 'failed' }));
     expect(listed.items.map((row) => row.id)).toEqual([item.id]);
 
     const { source: source2, ranges } = await seedSource(baseId, [
@@ -2010,7 +2038,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     const afterDelete = deleted.document.currentVersionId ?? '';
     expect(await knowledge.countEditedChunks(db, afterDelete)).toBe(1);
-    const remaining = await knowledge.listChunkSummaries(db, afterDelete);
+    const remaining = requirePage(await knowledge.listChunkSummaries(db, afterDelete));
     expect(remaining.items.map((chunk) => chunk.content)).toEqual(['keep']);
     expect(remaining.items[0]?.editedByUser).toBe(false);
     expect((await knowledge.getVersion(db, afterDelete))?.metadata.manualChanges).toMatchObject({
@@ -2027,7 +2055,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     const afterToggle = toggled.document.currentVersionId ?? '';
     expect(await knowledge.countEditedChunks(db, afterToggle)).toBe(1);
-    const toggledChunks = await knowledge.listChunkSummaries(db, afterToggle);
+    const toggledChunks = requirePage(await knowledge.listChunkSummaries(db, afterToggle));
     expect(toggledChunks.items[0]).toMatchObject({ enabled: false, editedByUser: false });
   });
 
@@ -2429,24 +2457,8 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     if (!first) throw new Error('first publish missing');
     const second = await knowledge.createVersion(db, versionInput(seeded.document.id));
     const guardSnapshot = await snapshotFor(source.id);
-    const base = await knowledge.getBase(db, baseId);
-    if (!base) throw new Error('base missing');
-    const job = await knowledge.createJob(db, {
-      type: 'ingest',
-      baseId,
-      documentId: seeded.document.id,
-      sourceId: null,
-      payload: { type: 'ingest', documentId: seeded.document.id },
-    });
-    await knowledge.claimJob(db, job.id);
     const guard = {
-      jobId: job.id,
-      baseId,
-      embeddingProfileId: base.embeddingProfileId,
-      imageProcessingJson: JSON.stringify(
-        knowledgeBaseSettingsSchema.parse(base.settings).imageProcessing,
-      ),
-      expectedCurrentVersionId: first.currentVersionId,
+      ...(await seedIngestGuard(baseId, seeded.document.id, first.currentVersionId)),
       sourceSnapshot: guardSnapshot,
     };
     const expectOnlineUnchanged = async () => {
@@ -2736,13 +2748,17 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       asrProfileId: null,
     });
 
-    const server = await servers.createServer(db, {
-      name: `foundation-asr-${suffix()}`,
-      kind: 'knowledge' as never,
-      description: '',
-      config: {},
-      secretsEncrypted: null,
-    });
+    const server = await servers.createServer(
+      db,
+      {
+        name: `foundation-asr-${suffix()}`,
+        kind: 'knowledge' as never,
+        description: '',
+        config: {},
+        secretsEncrypted: null,
+      },
+      null,
+    );
     serverIds.push(server.id);
     await expect(
       knowledge.createBase(db, {
@@ -2753,7 +2769,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
         embeddingProfileId: profileId,
         rerankProfileId: null,
         asrProfileId: profileId,
-        settings: { chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false },
+        settings: defaultBaseSettings,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
   });
@@ -2768,24 +2784,8 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       await knowledge.setCurrentVersion(db, seeded.document.id, seeded.version.id),
     ).not.toBeNull();
 
-    const base = await knowledge.getBase(db, baseId);
-    if (!base) throw new Error('base missing');
-    const job = await knowledge.createJob(db, {
-      type: 'ingest',
-      baseId,
-      documentId: seeded.document.id,
-      sourceId: null,
-      payload: { type: 'ingest', documentId: seeded.document.id },
-    });
-    await knowledge.claimJob(db, job.id);
     const guard = {
-      jobId: job.id,
-      baseId,
-      embeddingProfileId: base.embeddingProfileId,
-      imageProcessingJson: JSON.stringify(
-        knowledgeBaseSettingsSchema.parse(base.settings).imageProcessing,
-      ),
-      expectedCurrentVersionId: seeded.version.id,
+      ...(await seedIngestGuard(baseId, seeded.document.id, seeded.version.id)),
       asrProfileId: asrA.id,
     };
     const second = await knowledge.createVersion(db, versionInput(seeded.document.id));
@@ -2864,9 +2864,8 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(newVersion?.metadata.audio).toEqual({ ...audio, segments: [] });
     expect(newVersion?.metadata.manualChanges).toEqual({ [first.id]: 'edited' });
 
-    const newChunks = await knowledge.listChunkSummaries(
-      db,
-      edited.document.currentVersionId ?? '',
+    const newChunks = requirePage(
+      await knowledge.listChunkSummaries(db, edited.document.currentVersionId ?? ''),
     );
     expect(newChunks.items[0]?.locator).toBeNull();
     expect(newChunks.items[1]?.locator).toEqual({

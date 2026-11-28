@@ -229,7 +229,11 @@ describe('permission catalog', () => {
     expect(DEFAULT_ROLES[0]?.grants).toHaveLength(PERMISSIONS.length);
     expect(DEFAULT_ROLES[0]?.grants.every((grant) => grant.scope === 'platform')).toBe(true);
     const byKey = new Map(DEFAULT_ROLES.map((role) => [role.systemKey, role]));
-    const has = (key: string, permissionId: string, scope: string) =>
+    const has = (
+      key: (typeof DEFAULT_ROLES)[number]['systemKey'],
+      permissionId: string,
+      scope: string,
+    ) =>
       byKey
         .get(key)
         ?.grants.some((grant) => grant.permissionId === permissionId && grant.scope === scope) ??
@@ -297,6 +301,7 @@ describe('permission catalog', () => {
   it('covers exactly the documented scope matrix', () => {
     const all: AccessScope[] = [
       'own_data',
+      'authorized_resources',
       'authorized_agents',
       'maintained_agents',
       'owned_agents',
@@ -304,6 +309,7 @@ describe('permission catalog', () => {
     ];
     const expected: Record<AccessScope, AccessScope[]> = {
       own_data: ['own_data'],
+      authorized_resources: ['authorized_resources'],
       authorized_agents: ['authorized_agents', 'owned_agents'],
       maintained_agents: ['maintained_agents', 'owned_agents'],
       owned_agents: ['owned_agents'],

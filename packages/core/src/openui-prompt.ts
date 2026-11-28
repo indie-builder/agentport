@@ -62,8 +62,13 @@ export function openuiSystemPrompt(tools: OpenUiToolDescriptor[] = []): string {
   if (cached !== undefined) return cached;
 
   const { tools: _ignored, examples, ...options } = openUiPromptOptions();
+  const library: LibrarySpec = {
+    root: spec.root,
+    components: spec.components,
+    componentGroups: spec.componentGroups,
+  };
   const input: SystemPromptSpec = {
-    library: spec as unknown as LibrarySpec,
+    library,
     promptOptions: {
       ...options,
       preamble: INLINE_PREAMBLE,

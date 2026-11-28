@@ -368,18 +368,7 @@ async function encryptIfAny(
     : null;
 }
 
-export async function createSource(
-  deps: KnowledgeDeps,
-  id: string,
-  input: {
-    type: KnowledgeSourceRow['type'];
-    name: string;
-    config: Record<string, unknown>;
-    secrets: Record<string, string>;
-    syncCron: string | null;
-    ranges: RangeInput[];
-  },
-) {
+export async function createSource(deps: KnowledgeDeps, id: string, input: KnowledgeSourceInput) {
   const base = await repo.knowledge.getBase(deps.db, id);
   if (!base) notFound('知识库');
   if (input.syncCron !== null && !isSchedulableCron(input.syncCron, 'UTC')) {

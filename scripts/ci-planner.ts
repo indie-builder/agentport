@@ -86,6 +86,7 @@ const TEST_CHECKED_PACKAGES: readonly WorkspacePackage[] = [
   'shared',
   'contract',
   'core',
+  'db',
   'sandbox',
 ];
 

@@ -101,7 +101,7 @@ async function rowsOf(source: string) {
     .limit(1);
   const runs = await knowledge.listSyncRuns(db, source);
   const row = await knowledge.getSource(db, source);
-  return { job: job ?? null, run: runs.items[0] ?? null, source: row };
+  return { job: job ?? null, run: runs?.items[0] ?? null, source: row };
 }
 
 describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
@@ -170,7 +170,7 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     );
     expect(results.filter((result) => result.status === 'created')).toHaveLength(1);
     expect(results.filter((result) => result.status === 'in_progress')).toHaveLength(4);
-    expect((await knowledge.listSyncRuns(db, sourceId)).items).toHaveLength(1);
+    expect((await knowledge.listSyncRuns(db, sourceId))?.items).toHaveLength(1);
 
     const createdOther = await knowledge.createSyncJob(db, other);
     expect(createdOther.status).toBe('created');
@@ -483,7 +483,7 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
       probeResult: result,
     });
     expect(finished).toMatchObject({ status: 'succeeded', result });
-    const summary = (await knowledge.listJobs(db, { baseId })).items.find(
+    const summary = (await knowledge.listJobs(db, { baseId }))?.items.find(
       (row) => row.id === job.id,
     );
     expect(summary).toMatchObject({
@@ -496,7 +496,7 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
       cursor: {},
       lastSyncStatus: null,
     });
-    expect((await knowledge.listSyncRuns(db, sourceId)).items).toHaveLength(0);
+    expect((await knowledge.listSyncRuns(db, sourceId))?.items).toHaveLength(0);
     expect(
       await knowledge.finishJob(db, job.id, {
         status: 'failed',

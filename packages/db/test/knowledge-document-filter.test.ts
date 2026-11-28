@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
+import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
 import { probeTestDb } from './db-probe.js';
@@ -37,6 +38,11 @@ afterAll(async () => {
 
 let profileId = '';
 
+function requirePage<T>(page: T | null): T {
+  if (page === null) throw new Error('expected page');
+  return page;
+}
+
 async function seedBase(): Promise<string> {
   const suffix = crypto.getRandomValues(new Uint8Array(4)).toHex();
   if (!profileId) {
@@ -52,13 +58,17 @@ async function seedBase(): Promise<string> {
     profileId = profile.id;
     profileIds.push(profile.id);
   }
-  const server = await servers.createServer(db, {
-    name: `document-filter-${suffix}`,
-    kind: 'knowledge' as never,
-    description: '',
-    config: {},
-    secretsEncrypted: null,
-  });
+  const server = await servers.createServer(
+    db,
+    {
+      name: `document-filter-${suffix}`,
+      kind: 'knowledge' as never,
+      description: '',
+      config: {},
+      secretsEncrypted: null,
+    },
+    null,
+  );
   serverIds.push(server.id);
   const base = await knowledge.createBase(db, {
     slug: `document-filter-${suffix}`,
@@ -67,7 +77,11 @@ async function seedBase(): Promise<string> {
     serverId: server.id,
     embeddingProfileId: profileId,
     rerankProfileId: null,
-    settings: { chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false },
+    settings: knowledgeBaseSettingsSchema.parse({
+      chunkTokens: 800,
+      chunkOverlap: 120,
+      wikiAutoUpdate: false,
+    }),
   });
   baseIds.push(base.id);
   return base.id;
@@ -135,22 +149,26 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
       sourceConnectionId: sourceA,
     });
 
-    const filtered = await knowledge.listDocuments(db, { baseId, sourceConnectionId: sourceA });
+    const filtered = requirePage(
+      await knowledge.listDocuments(db, { baseId, sourceConnectionId: sourceA }),
+    );
     const filteredIds = filtered.items.map((document) => document.id).sort();
     expect(filteredIds).toEqual([aReady1, aReady2, aPending].sort());
     expect(filtered.items.every((document) => document.sourceConnectionId === sourceA)).toBe(true);
     expect(filteredIds).not.toContain(foreign);
 
-    const readyOnly = await knowledge.listDocuments(db, {
-      baseId,
-      sourceConnectionId: sourceA,
-      status: 'ready',
-    });
+    const readyOnly = requirePage(
+      await knowledge.listDocuments(db, {
+        baseId,
+        sourceConnectionId: sourceA,
+        status: 'ready',
+      }),
+    );
     expect(readyOnly.items.map((document) => document.id).sort()).toEqual(
       [aReady1, aReady2].sort(),
     );
 
-    const all = await knowledge.listDocuments(db, { baseId, limit: 50 });
+    const all = requirePage(await knowledge.listDocuments(db, { baseId, limit: 50 }));
     expect(all.items.map((document) => document.id).sort()).toEqual(
       [aReady1, aReady2, aPending, bReady, manual, missing].sort(),
     );
@@ -176,11 +194,13 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
       });
     }
 
-    const oneShot = await knowledge.listDocuments(db, {
-      baseId,
-      sourceConnectionId: source,
-      limit: 50,
-    });
+    const oneShot = requirePage(
+      await knowledge.listDocuments(db, {
+        baseId,
+        sourceConnectionId: source,
+        limit: 50,
+      }),
+    );
 
     const ids: string[] = [];
     let cursor: string | null = null;
@@ -192,10 +212,13 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
         limit: 2,
         cursor,
       });
+      if (!page) throw new Error('expected document page');
       pages += 1;
       ids.push(...page.items.map((document) => document.id));
       if (page.nextCursor !== null) {
-        expect(page.nextCursor).toBe(page.items.at(-1)?.id);
+        const lastItem = page.items.at(-1);
+        if (!lastItem) throw new Error('expected last item when nextCursor is set');
+        expect(page.nextCursor).toBe(lastItem.id);
       }
       cursor = page.nextCursor;
       if (pages > 10) throw new Error('分页没有收敛');
@@ -211,13 +234,13 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
     const percent = await seedDocument(baseId, { title: '100% done' });
     const underscore = await seedDocument(baseId, { title: 'a_b' });
 
-    const quotedPercent = await knowledge.listDocuments(db, { baseId, q: '%' });
+    const quotedPercent = requirePage(await knowledge.listDocuments(db, { baseId, q: '%' }));
     expect(quotedPercent.items.map((document) => document.id)).toEqual([percent]);
 
-    const quotedUnderscore = await knowledge.listDocuments(db, { baseId, q: '_' });
+    const quotedUnderscore = requirePage(await knowledge.listDocuments(db, { baseId, q: '_' }));
     expect(quotedUnderscore.items.map((document) => document.id)).toEqual([underscore]);
 
-    const all = await knowledge.listDocuments(db, { baseId });
+    const all = requirePage(await knowledge.listDocuments(db, { baseId }));
     expect(all.items.map((document) => document.id).sort()).toEqual(
       [plain, percent, underscore].sort(),
     );

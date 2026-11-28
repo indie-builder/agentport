@@ -132,55 +132,72 @@ export function inputFromDraft(draft: AgentDraft): AgentInput {
 
 const agentShape = agentInputSchema.shape;
 
-export const agentFormSchema = agentInputSchema
-  .omit({ allowedTools: true })
-  .extend({
+export const agentFormSchema = z
+  .object({
+    slug: agentShape.slug,
     name: withFieldMessages(z.string().trim(), agentShape.name, {
       tooSmall: '不能为空，请填写后再保存',
       tooBig: '最多 128 个字符，请精简后再保存',
     }),
+    role: agentShape.role.unwrap(),
     description: withFieldMessages(z.string(), agentShape.description.unwrap(), {
       tooBig: '最多 300 个字符，请精简后再保存',
-    }).default(''),
-    allowedTools: z.string().default(''),
-    tags: z
-      .string()
-      .default('')
-      .superRefine((value, ctx) => {
-        const parsed = agentShape.tags.unwrap().safeParse(tagList(value));
-        if (parsed.success) return;
-        if (parsed.error.issues.some((issue) => issue.path.length === 0)) {
-          ctx.addIssue({ code: 'custom', message: '最多 10 个标签，请精简后再保存' });
-        }
-        if (parsed.error.issues.some((issue) => issue.path.length > 0)) {
-          ctx.addIssue({ code: 'custom', message: '单个标签最多 24 个字符，请精简后再保存' });
-        }
+    }),
+    model: agentShape.model.unwrap(),
+    systemPrompt: agentShape.systemPrompt.unwrap(),
+    serverIds: agentShape.serverIds.unwrap(),
+    skillIds: agentShape.skillIds.unwrap(),
+    pluginBindings: z.array(
+      z.object({
+        pluginId: z.string(),
+        allowHooks: z.boolean(),
+        allowMcp: z.boolean(),
       }),
+    ),
+    subAgentIds: agentShape.subAgentIds.unwrap(),
+    runtimeEnvironmentId: agentShape.runtimeEnvironmentId.unwrap(),
+    allowedTools: z.string(),
+    disallowedTools: agentShape.disallowedTools.unwrap(),
+    permissionMode: agentShape.permissionMode.unwrap(),
+    uiFormat: agentShape.uiFormat.unwrap(),
     maxTurns: withFieldMessages(
       z.number({ error: invalidNumberMessage }),
       agentShape.maxTurns.unwrap(),
       { invalidType: invalidNumberMessage, tooSmall: positiveIntMessage },
-    ).default(agentDefaults.maxTurns),
+    ),
     maxBudgetUsd: withFieldMessages(
       z.number({ error: invalidNumberMessage }),
       agentShape.maxBudgetUsd.unwrap(),
       { invalidType: invalidNumberMessage, tooSmall: positiveIntMessage },
-    ).default(agentDefaults.maxBudgetUsd),
+    ),
     monthlyBudgetUsd: withFieldMessages(
       z.number({ error: invalidNumberMessage }).nullable(),
       agentShape.monthlyBudgetUsd.unwrap(),
       { invalidType: invalidNumberMessage, tooSmall: '至少 0.01 美元，留空表示不限' },
-    ).default(agentDefaults.monthlyBudgetUsd),
+    ),
     budgetAlertRatio: withFieldMessages(
       z.number({ error: invalidNumberMessage }),
       agentShape.budgetAlertRatio.unwrap(),
       { invalidType: invalidNumberMessage, tooSmall: '至少 0.1%', tooBig: '最多 100%' },
-    ).default(agentDefaults.budgetAlertRatio),
+    ),
     timeoutMs: withFieldMessages(
       z.number({ error: invalidNumberMessage }),
       agentShape.timeoutMs.unwrap(),
       { invalidType: invalidNumberMessage, tooSmall: positiveIntMessage },
-    ).default(agentDefaults.timeoutMs),
+    ),
+    effort: agentShape.effort,
+    enabled: agentShape.enabled.unwrap(),
+    visibility: agentShape.visibility.unwrap(),
+    tags: z.string().superRefine((value, ctx) => {
+      const parsed = agentShape.tags.unwrap().safeParse(tagList(value));
+      if (parsed.success) return;
+      if (parsed.error.issues.some((issue) => issue.path.length === 0)) {
+        ctx.addIssue({ code: 'custom', message: '最多 10 个标签，请精简后再保存' });
+      }
+      if (parsed.error.issues.some((issue) => issue.path.length > 0)) {
+        ctx.addIssue({ code: 'custom', message: '单个标签最多 24 个字符，请精简后再保存' });
+      }
+    }),
   })
   .superRefine((value, ctx) => {
     if (!toolLines(value.allowedTools).every((tool) => !/\s/.test(tool))) {

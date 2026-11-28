@@ -78,7 +78,7 @@ export async function processKnowledgeSyncTrigger(
 }
 
 export interface KnowledgeSchedulerQueue {
-  getJobSchedulers(): Promise<Array<{ key: string; pattern?: string | null }>>;
+  getJobSchedulers(): Promise<Array<{ key: string; pattern?: string | null | undefined }>>;
   upsertJobScheduler(
     id: string,
     repeat: { pattern: string; tz: 'UTC' },
@@ -193,7 +193,7 @@ export function startKnowledgeScheduler(input: {
     await syncKnowledgeSchedulers({
       db: input.db,
       logger: input.logger,
-      queue: queue as unknown as KnowledgeSchedulerQueue,
+      queue,
     });
   }
 

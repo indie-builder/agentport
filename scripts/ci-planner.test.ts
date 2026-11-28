@@ -234,6 +234,18 @@ describe('planCi', () => {
     const stages = byName(plan);
     expect(stages.get('typecheck:e2e')?.enabled).toBe(true);
     expect(stages.get('typecheck:e2e')?.dependsOn).toEqual(['typecheck']);
+    expect(stages.get('typecheck:tests')?.enabled).toBe(true);
+    expect(stages.get('typecheck:tests')?.dependsOn).toEqual(['typecheck']);
+  });
+
+  test('activates typecheck:tests when packages/db test files change', () => {
+    const plan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['packages/db/test/runs-repo.test.ts'],
+    });
+    const stages = byName(plan);
+    expect(stages.get('typecheck:tests')?.enabled).toBe(true);
+    expect(stages.get('typecheck:tests')?.dependsOn).toEqual(['typecheck']);
   });
 
   test('scopes web-only change precisely', () => {

@@ -280,6 +280,7 @@ describe.skipIf(!ready)('history integrity', () => {
       name: 'original case',
       prompt: 'p',
       expectation: 'e',
+      judgeMode: 'contains',
       createdBy: testSubject.businessId,
     });
     await evalRepo.createEvalRun(db, {

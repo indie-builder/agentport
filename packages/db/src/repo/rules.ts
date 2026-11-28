@@ -1,5 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agentRules } from '../schema.js';
 
@@ -11,7 +11,7 @@ export interface RuleWrite {
   globs: string;
 }
 
-export async function listRules(db: Database, agentId: string): Promise<AgentRuleRow[]> {
+export async function listRules(db: DbHandle, agentId: string): Promise<AgentRuleRow[]> {
   return db
     .select()
     .from(agentRules)
@@ -20,7 +20,7 @@ export async function listRules(db: Database, agentId: string): Promise<AgentRul
 }
 
 export async function upsertRule(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   input: RuleWrite,
 ): Promise<AgentRuleRow> {
@@ -36,7 +36,7 @@ export async function upsertRule(
   return row;
 }
 
-export async function deleteRule(db: Database, agentId: string, slug: string): Promise<boolean> {
+export async function deleteRule(db: DbHandle, agentId: string, slug: string): Promise<boolean> {
   const rows = await db
     .delete(agentRules)
     .where(and(eq(agentRules.agentId, agentId), eq(agentRules.slug, slug)))

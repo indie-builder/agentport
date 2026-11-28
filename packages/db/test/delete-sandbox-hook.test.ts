@@ -90,10 +90,12 @@ describe.skipIf(!ready)('short delete transactions', () => {
       db,
       conversationInput(conversationId),
     );
+    const agent = await agentsRepo.getAgent(db, agentId);
+    if (!agent || !snapshot) throw new Error('expected agent and snapshot');
     expect(snapshot).toEqual({
       id: conversationId,
       agentId,
-      agentSlug: (await agentsRepo.getAgent(db, agentId))?.slug,
+      agentSlug: agent.slug,
       createdBy: owner,
       targets: [{ conversationId, sandboxIds: ['sandbox-a', 'sandbox-b'] }],
     });
@@ -102,7 +104,7 @@ describe.skipIf(!ready)('short delete transactions', () => {
     expect(
       await chatRepo.deleteConversation(db, {
         ...conversationInput(conversationId),
-        expected: snapshot!,
+        expected: snapshot,
       }),
     ).toBe(true);
     expect(await chatRepo.getConversation(db, conversationId)).toBeNull();

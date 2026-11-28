@@ -15,8 +15,8 @@ import {
   knowledgeReadInputSchema,
   knowledgeSearchQuerySchema,
 } from '@agentport/shared';
-import type { CallToolResult, JsonSchemaType, McpHttpHandler } from '@modelcontextprotocol/server';
-import { createMcpHandler, fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
+import type { CallToolResult, McpHttpHandler } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { toolError } from '../../lib/mcp.js';
@@ -34,11 +34,12 @@ const baseIdArg = z.object({
     .describe('Must be the bound knowledge base ID; other bases are rejected.'),
 });
 
-function toolInput(schema: z.ZodObject) {
-  return fromJsonSchema<Record<string, unknown>>(
-    z.toJSONSchema(schema, { io: 'input' }) as unknown as JsonSchemaType,
-  );
-}
+const knowledgeSearchToolInputSchema = knowledgeSearchQuerySchema
+  .omit({ diagnostics: true })
+  .extend(baseIdArg.shape);
+const knowledgeReadToolInputSchema = knowledgeReadInputSchema.extend(baseIdArg.shape);
+const knowledgeListToolInputSchema = knowledgeListInputSchema.extend(baseIdArg.shape);
+const knowledgeReadImageToolInputSchema = knowledgeReadImageInputSchema.extend(baseIdArg.shape);
 
 class KnowledgeReadError extends Error {
   constructor(
@@ -447,10 +448,8 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
     const baseActive = base?.status === 'active';
     const imageProcessingEnabled = base?.settings.imageProcessing?.enabled === true;
 
-    const guard = (args: unknown): CallToolResult | null => {
+    const guard = (requested: string | undefined): CallToolResult | null => {
       if (!baseActive) return toolError('BASE_DISABLED', KNOWLEDGE_BASE_DISABLED_MESSAGE);
-      const parsed = baseIdArg.safeParse(args);
-      const requested = parsed.success ? parsed.data.baseId : undefined;
       if (requested !== undefined && requested !== input.baseId) {
         return toolError('BASE_MISMATCH', '只能访问当前绑定的知识库');
       }
@@ -462,19 +461,21 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
       {
         description:
           'Search the knowledge base bound to this connection and return cited chunks. Use it for factual questions the bound documents, FAQs or wiki pages may answer; it cannot reach any other base. Results carry hits with citations, a degraded flag and warnings when retrieval fell back, and directAnswer when an FAQ answers directly.',
-        inputSchema: toolInput(
-          knowledgeSearchQuerySchema.omit({ diagnostics: true }).extend(baseIdArg.shape),
-        ),
+        inputSchema: knowledgeSearchToolInputSchema,
       },
       async (args, ctx) => {
-        const denied = guard(args);
+        const { baseId, ...query } = args;
+        const denied = guard(baseId);
         if (denied) return denied;
-        const parsed = knowledgeSearchQuerySchema.safeParse({ ...args, diagnostics: false });
-        if (!parsed.success) return toolError('INVALID_INPUT', '检索参数不合法');
-        const result = await searchKnowledge(input.db, input.baseId, parsed.data, {
-          secretKey: input.secretKey,
-          signal: input.signal ?? ctx.mcpReq.signal,
-        });
+        const result = await searchKnowledge(
+          input.db,
+          input.baseId,
+          { ...query, diagnostics: false },
+          {
+            secretKey: input.secretKey,
+            signal: input.signal ?? ctx.mcpReq.signal,
+          },
+        );
         return jsonResult({
           hits: result.hits,
           degraded: result.degraded,
@@ -489,15 +490,14 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
       {
         description:
           'Read the current readable version of one document, FAQ or published wiki page as markdown. Use it when a search hit is not enough. Long content is paged with offset (Unicode code-point index) and limit; the result carries nextOffset while more remains. Only targets readable from the bound base can be read; anything else fails with an error.',
-        inputSchema: toolInput(knowledgeReadInputSchema.extend(baseIdArg.shape)),
+        inputSchema: knowledgeReadToolInputSchema,
       },
       async (args) => {
-        const denied = guard(args);
+        const { baseId, ...readInput } = args;
+        const denied = guard(baseId);
         if (denied) return denied;
-        const parsed = knowledgeReadInputSchema.safeParse(args);
-        if (!parsed.success) return toolError('INVALID_INPUT', '读取参数不合法');
         try {
-          return jsonResult(await readKnowledgeTarget(input, parsed.data));
+          return jsonResult(await readKnowledgeTarget(input, readInput));
         } catch (err) {
           if (err instanceof KnowledgeReadError) return toolError(err.code, err.message);
           throw err;
@@ -510,15 +510,14 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
       {
         description:
           'List readable documents, FAQs and published wiki pages in the knowledge base bound to this connection. Use it to discover what exists before searching, or to find IDs for knowledge_read. Filter by kinds; page with cursor and limit. A disabled base fails with BASE_DISABLED, and another base ID is rejected.',
-        inputSchema: toolInput(knowledgeListInputSchema.extend(baseIdArg.shape)),
+        inputSchema: knowledgeListToolInputSchema,
       },
       async (args) => {
-        const denied = guard(args);
+        const { baseId, ...listInput } = args;
+        const denied = guard(baseId);
         if (denied) return denied;
-        const parsed = knowledgeListInputSchema.safeParse(args);
-        if (!parsed.success) return toolError('INVALID_INPUT', '列表参数不合法');
         try {
-          return jsonResult(await listReadable(input.db, input.baseId, parsed.data));
+          return jsonResult(await listReadable(input.db, input.baseId, listInput));
         } catch (err) {
           if (err instanceof KnowledgeReadError) return toolError(err.code, err.message);
           throw err;
@@ -532,17 +531,16 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
         {
           description:
             'Read one image hit returned by knowledge_search. format=description (default) returns the stored OCR/caption text as JSON; format=image returns the original image plus its JSON metadata for vision models. chunkId must come from a prior search hit. Only available when image processing is enabled on the base; invalid parameters fail with an error.',
-          inputSchema: toolInput(knowledgeReadImageInputSchema.extend(baseIdArg.shape)),
+          inputSchema: knowledgeReadImageToolInputSchema,
         },
         async (args, ctx) => {
-          const denied = guard(args);
+          const { baseId, ...imageInput } = args;
+          const denied = guard(baseId);
           if (denied) return denied;
-          const parsed = knowledgeReadImageInputSchema.safeParse(args);
-          if (!parsed.success) return toolError('INVALID_INPUT', '图片参数不合法');
           try {
             const { result, image } = await readKnowledgeImage(
               { ...input, signal: input.signal ?? ctx.mcpReq.signal },
-              parsed.data,
+              imageInput,
             );
             const content: CallToolResult['content'] = [
               { type: 'text', text: JSON.stringify(result) },

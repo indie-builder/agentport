@@ -31,7 +31,7 @@ describe.skipIf(!ready)('db repo guards', () => {
     const rows = Array.from({ length: 5 }, (_, i) => ({
       id: newId('message'),
       conversationId,
-      role: 'user',
+      role: 'user' as const,
       senderBusinessId: businessId,
       content: { text: `m${i}` },
       createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)),
@@ -44,10 +44,13 @@ describe.skipIf(!ready)('db repo guards', () => {
     const page = await chat.listMessages(db, conversationId, { limit: 2 });
     expect(page.map((row) => row.content)).toEqual([{ text: 'm3' }, { text: 'm4' }]);
 
+    const firstMessage = page[0];
+    if (!firstMessage) throw new Error('expected first message in page');
     const older = await chat.listMessages(db, conversationId, {
       limit: 2,
-      before: page[0]?.id,
+      before: firstMessage.id,
     });
+    if (!older) throw new Error('expected older messages');
     expect(older.map((row) => row.content)).toEqual([{ text: 'm1' }, { text: 'm2' }]);
   });
 

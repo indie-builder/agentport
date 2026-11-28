@@ -434,65 +434,37 @@ async function setFaqEnabled(deps: KnowledgeDeps, document: DocumentRow, enabled
   return updated;
 }
 
-interface PreparedDraft {
-  draft: {
-    operation: 'add' | 'merge';
-    documentId: string;
-    faq: KnowledgeFaq;
-    enabled: boolean;
-    version: {
-      id: string;
-      blobSha256: string;
-      markdownSha256: string;
-      originalFilename: string;
-      mimeType: string;
-      sizeBytes: number;
-      sourceRevision: null;
-      parseStatus: 'parsed';
-      pageMap: [];
-      images: [];
-      embeddingProfileId: string;
-    };
-    title?: string | undefined;
-    folderId?: string | null | undefined;
-  };
-}
-
 async function prepareImportDraft(
   deps: KnowledgeDeps,
-  base: NonNullable<Awaited<ReturnType<typeof repo.knowledge.getBase>>>,
   input: {
     operation: 'add' | 'merge';
     documentId: string;
     faq: KnowledgeFaq;
     enabled: boolean;
   },
-): Promise<PreparedDraft> {
+): Promise<repo.knowledge.FaqImportDraftInput> {
   const versionId = newId('knowledgeVersion');
   const markdown = faqMarkdown(input.faq);
   const faqJson = JSON.stringify(input.faq, null, 2);
   const blobSha = sha256Hex(faqJson);
   await writeVersionFiles(deps, input.documentId, versionId, markdown, faqJson);
   return {
-    draft: {
-      ...input,
-      version: {
-        id: versionId,
-        blobSha256: blobSha,
-        markdownSha256: sha256Hex(markdown),
-        originalFilename: `${input.faq.question.slice(0, 300)}.faq.json`,
-        mimeType: 'application/json',
-        sizeBytes: Buffer.byteLength(faqJson, 'utf8'),
-        sourceRevision: null,
-        parseStatus: 'parsed',
-        pageMap: [],
-        images: [],
-        embeddingProfileId: base.embeddingProfileId,
-      },
-      ...(input.operation === 'add'
-        ? { title: input.faq.question.slice(0, 300), folderId: null }
-        : {}),
+    ...input,
+    version: {
+      id: versionId,
+      blobSha256: blobSha,
+      markdownSha256: sha256Hex(markdown),
+      originalFilename: `${input.faq.question.slice(0, 300)}.faq.json`,
+      mimeType: 'application/json',
+      sizeBytes: Buffer.byteLength(faqJson, 'utf8'),
+      sourceRevision: null,
+      parseStatus: 'parsed',
+      pageMap: [],
+      images: [],
     },
+    ...(input.operation === 'add'
+      ? { title: input.faq.question.slice(0, 300), folderId: null }
+      : {}),
   };
 }
 
@@ -868,7 +840,7 @@ export async function importFaqs(
     committed: false,
     importBatchId: null as string | null,
     counts: plan.counts,
-    results: plan.results as unknown as KnowledgeFaqImportResult[],
+    results: plan.results,
   };
   if (input.dryRun) return response;
   if (plan.counts.failed > 0) return response;
@@ -892,10 +864,10 @@ export async function importFaqs(
           const entry = existingById.get(draft.documentId);
           return entry ? [entry] : [];
         });
-  const prepared: PreparedDraft[] = [];
+  const prepared: repo.knowledge.FaqImportDraftInput[] = [];
   for (const draft of plan.drafts) {
     prepared.push(
-      await prepareImportDraft(deps, base, {
+      await prepareImportDraft(deps, {
         operation: draft.operation,
         documentId: draft.documentId,
         faq: draft.faq,
@@ -908,12 +880,7 @@ export async function importFaqs(
     importBatchId,
     mode: input.mode,
     expectedState: targets.map(existingState),
-    drafts: prepared.map(
-      (item) =>
-        item.draft as unknown as Parameters<
-          typeof repo.knowledge.saveFaqImportDrafts
-        >[1]['drafts'][number],
-    ),
+    drafts: prepared,
   });
   const jobs = new Map(saved.items.map((item) => [item.documentId, item]));
   await enqueueKnowledgeJobsAfterCommit(
@@ -921,12 +888,12 @@ export async function importFaqs(
     saved.items.map((item) => ({ id: item.jobId })),
   );
   await repo.governance.notifyKnowledgeDocumentQuota(deps.db, base.id);
-  const results = plan.results.map((result) => {
+  const results: KnowledgeFaqImportResult[] = plan.results.map((result) => {
     const item = result.documentId ? jobs.get(result.documentId) : undefined;
     return item
       ? { ...result, expectedVersionId: item.expectedVersionId, jobId: item.jobId }
       : result;
-  }) as unknown as KnowledgeFaqImportResult[];
+  });
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.faq.imported',

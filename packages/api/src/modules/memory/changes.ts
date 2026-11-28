@@ -1,5 +1,5 @@
 import { fail, notFound } from '@agentport/core';
-import { type Database, newId, repo, schema } from '@agentport/db';
+import { type Database, type DbHandle, newId, repo, schema } from '@agentport/db';
 import {
   DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
@@ -188,7 +188,7 @@ export type WriteMemoryTargetInput = WriteMemoryTargetBase &
   );
 
 async function writeProjection(
-  db: Database,
+  db: DbHandle,
   target: Extract<MemoryReviewTarget, { kind: 'agent_rule' }>,
   after: MemoryContentSnapshot,
 ): Promise<void> {
@@ -204,7 +204,7 @@ async function writeProjection(
 }
 
 async function insertChange(
-  db: Database,
+  db: DbHandle,
   input: WriteMemoryTargetBase & { after: MemoryContentSnapshot },
   agentId: string | null,
   before: MemoryContentSnapshot,
@@ -349,7 +349,7 @@ async function finalizeJournalEntry(
     assertJournalMatchesSnapshot(entry, agentTarget, after, 'after');
     return db.transaction((tx) =>
       insertChange(
-        tx as unknown as Database,
+        tx,
         {
           workspacesDir,
           businessId: review.businessId,
@@ -381,7 +381,7 @@ async function finalizeJournalEntry(
     assertJournalMatchesSnapshot(entry, agentTarget, change.before, 'after');
     return db.transaction((tx) =>
       insertChange(
-        tx as unknown as Database,
+        tx,
         {
           workspacesDir,
           businessId: change.businessId,
@@ -665,7 +665,7 @@ async function writeAgentMemoryTarget(
   try {
     const change = await db.transaction((tx) =>
       insertChange(
-        tx as unknown as Database,
+        tx,
         { ...input, after },
         target.agentId,
         input.before ?? current,
@@ -761,9 +761,7 @@ export async function writeMemoryTargetLocked(
       if (input.before === undefined) return recordManualSameContent(db, input, target, current);
       if (input.sourceReviewRunId) fail('CONFLICT', '该提案不需要改动记忆文件');
       const before = input.before;
-      return db.transaction((tx) =>
-        insertChange(tx as unknown as Database, { ...input, after }, target.agentId, before),
-      );
+      return db.transaction((tx) => insertChange(tx, { ...input, after }, target.agentId, before));
     }
     return writeAgentMemoryTarget(db, input, target, current, changed, after);
   }
@@ -774,16 +772,13 @@ export async function writeMemoryTargetLocked(
   if (sameSnapshot(current, after)) {
     if (input.before === undefined) return null;
     const before = input.before;
-    return db.transaction((tx) =>
-      insertChange(tx as unknown as Database, { ...input, after }, target.agentId, before),
-    );
+    return db.transaction((tx) => insertChange(tx, { ...input, after }, target.agentId, before));
   }
   return repo.agentVersions.retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
-      const txdb = tx as unknown as Database;
-      await writeProjection(txdb, target, after);
+      await writeProjection(tx, target, after);
       await repo.agentDefinitions.recordDraftVersionTx(tx, target.agentId, null);
-      return insertChange(txdb, { ...input, after }, target.agentId, current);
+      return insertChange(tx, { ...input, after }, target.agentId, current);
     }),
   );
 }
