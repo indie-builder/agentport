@@ -1,17 +1,17 @@
 #!/usr/bin/env bun
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const root = resolve(dirname(Bun.fileURLToPath(import.meta.url)), '..');
 const committedSpecPath = resolve(root, 'packages/core/src/generated/openui.spec.json');
 const entry = resolve(root, 'packages/web/src/openui/library.tsx');
 const cli = resolve(root, 'node_modules/@openuidev/cli/dist/index.js');
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+const formatRunStatus = (run) =>
+  run.signalCode ? `signal ${run.signalCode}` : `exit ${run.exitCode}`;
 
 const results = [];
 const check = (label, detail, ok) => results.push({ label, ok, detail });
@@ -46,18 +46,24 @@ function satisfiesRange(version, range) {
 const tsc = resolve(root, 'node_modules/typescript/bin/tsc');
 let dry = '';
 try {
-  dry = execFileSync(
-    'node',
-    [tsc, '-b', 'packages/shared', 'packages/core', '--dry'],
-    { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+  const tscRun = Bun.spawnSync(
+    ['node', tsc, '-b', 'packages/shared', 'packages/core', '--dry'],
+    { cwd: root, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
   );
+  if (!tscRun.success) {
+    const detail = [tscRun.stdout?.toString('utf8'), tscRun.stderr?.toString('utf8')]
+      .map((text) => text?.trim())
+      .filter(Boolean)
+      .join('\n');
+    console.error(`FAIL  shared/core 构建检查执行失败：${detail || formatRunStatus(tscRun)}`);
+    console.error('先运行 bun run build，再重跑 bun run openui:check。');
+    process.exit(1);
+  }
+  dry = tscRun.stdout.toString('utf8');
 } catch (error) {
-  const detail = [error?.stdout, error?.stderr]
-    .filter(Boolean)
-    .map(String)
-    .join('\n')
-    .trim();
-  console.error(`FAIL  shared/core 构建检查执行失败：${detail || error.message}`);
+  console.error(
+    `FAIL  shared/core 构建检查执行失败：${error instanceof Error ? error.message : String(error)}`,
+  );
   console.error('先运行 bun run build，再重跑 bun run openui:check。');
   process.exit(1);
 }
@@ -72,12 +78,16 @@ const committed = readJson(committedSpecPath);
 let regenerated = null;
 const scratch = mkdtempSync(join(tmpdir(), 'openui-check-'));
 try {
-  execFileSync(
-    'node',
-    [cli, 'generate', entry, '--spec', '--out', join(scratch, 'spec.json'), '--no-telemetry'],
-    { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] },
+  const genRun = Bun.spawnSync(
+    ['node', cli, 'generate', entry, '--spec', '--out', join(scratch, 'spec.json'), '--no-telemetry'],
+    { cwd: root, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
   );
-  regenerated = readJson(join(scratch, 'spec.json'));
+  if (!genRun.success) {
+    const detail = genRun.stderr?.toString('utf8').trim() || genRun.stdout?.toString('utf8').trim();
+    check('现场重生成 spec', `官方 CLI 生成失败：${detail || formatRunStatus(genRun)}`, false);
+  } else {
+    regenerated = readJson(join(scratch, 'spec.json'));
+  }
 } catch (error) {
   check(
     '现场重生成 spec',
@@ -108,7 +118,7 @@ if (regenerated) {
 }
 
 const official = await import(
-  pathToFileURL(resolve(root, 'node_modules/@openuidev/react-ui/dist/genui-lib/index.mjs')).href
+  Bun.pathToFileURL(resolve(root, 'node_modules/@openuidev/react-ui/dist/genui-lib/index.mjs')).href
 );
 const officialLibrary = official.openuiChatLibrary;
 const officialSpec = officialLibrary.toSpec();
@@ -173,21 +183,31 @@ const behaviorTests = [
 ];
 const backendRunner = resolve(root, 'scripts/test-backend.ts');
 try {
-  execFileSync('bun', [backendRunner, ...behaviorTests], {
+  const testRun = Bun.spawnSync([process.execPath, backendRunner, ...behaviorTests], {
     cwd: root,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
   });
-  check('Zod/reactive 行为契约测试', `${behaviorTests.length} 个文件`, true);
+  if (testRun.success) {
+    check('Zod/reactive 行为契约测试', `${behaviorTests.length} 个文件`, true);
+  } else {
+    const stdout = testRun.stdout?.toString('utf8') ?? '';
+    const failed = stdout
+      .split('\n')
+      .filter((line) => line.includes('FAIL') || line.includes('AssertionError'))
+      .slice(0, 6)
+      .join(' | ');
+    check(
+      'Zod/reactive 行为契约测试',
+      `未通过：${failed || testRun.stderr?.toString('utf8').trim() || formatRunStatus(testRun)}`,
+      false,
+    );
+  }
 } catch (error) {
-  const stdout = error?.stdout?.toString() ?? '';
-  const failed = stdout
-    .split('\n')
-    .filter((line) => line.includes('FAIL') || line.includes('AssertionError'))
-    .slice(0, 6)
-    .join(' | ');
   check(
     'Zod/reactive 行为契约测试',
-    `未通过：${failed || (error instanceof Error ? error.message : String(error))}`,
+    `未通过：${error instanceof Error ? error.message : String(error)}`,
     false,
   );
 }

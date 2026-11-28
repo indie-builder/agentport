@@ -18,7 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { UiAgentHost } from './components/ui-agent-host.js';
-import { queryClient } from './lib/queries.js';
+import { queryClient } from './lib/queries/client.js';
 import { toaster } from './lib/toast.js';
 import { router } from './router.js';
 

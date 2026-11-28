@@ -1,6 +1,7 @@
 import { noop } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { pluginQuery, queryClient } from '../../lib/queries.js';
+import { queryClient } from '../../lib/queries/client.js';
+import { pluginQuery } from '../../lib/queries/plugins.js';
 import { PluginDetailPage } from '../../pages/plugins/plugin-detail.js';
 import { pluginDetailSearchSchema } from '../-search.js';
 

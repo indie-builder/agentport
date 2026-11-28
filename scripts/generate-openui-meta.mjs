@@ -1,13 +1,12 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   openuiChatComponentGroups,
   openuiChatLibrary,
   openuiChatPromptOptions,
 } from '@openuidev/react-ui/genui-lib';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const root = resolve(dirname(Bun.fileURLToPath(import.meta.url)), '..');
 const spec = openuiChatLibrary.toSpec();
 // 顺序即注册顺序：组件表、$defs 与提示词都按它排列，不能排序。
 const names = Object.keys(spec.components);
