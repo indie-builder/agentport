@@ -849,7 +849,7 @@ describe('sidebar collapse', () => {
       if (!logo) throw new Error('missing sidebar logo');
       await act(async () => logo.focus());
       const preventEscape = (event: KeyboardEvent): void => event.preventDefault();
-      document.addEventListener('keydown', preventEscape);
+      logo.addEventListener('keydown', preventEscape);
       try {
         await act(async () => {
           logo.dispatchEvent(
@@ -859,7 +859,7 @@ describe('sidebar collapse', () => {
         expect(document.activeElement).toBe(logo);
         expect(collapse.getAttribute('aria-expanded')).toBe('true');
       } finally {
-        document.removeEventListener('keydown', preventEscape);
+        logo.removeEventListener('keydown', preventEscape);
       }
       await act(async () => {
         logo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

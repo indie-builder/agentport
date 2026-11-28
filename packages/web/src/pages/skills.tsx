@@ -305,6 +305,7 @@ export function SkillsPage() {
         <>
           <FileInput
             controller={importController}
+            aria-label="导入技能文件"
             accept=".md,text/markdown,text/plain"
             disabled={importSkill.isPending}
             className="contents"
@@ -460,6 +461,7 @@ export function SkillsPage() {
               <div className="min-w-0 flex-1">
                 <Button
                   variant="ghost"
+                  aria-label={`查看技能 ${skill.name}`}
                   className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium"
                   onClick={(event) => {
                     actionTriggerRef.current = event.currentTarget;
@@ -570,6 +572,7 @@ export function SkillsPage() {
                   <CardTitle className="min-w-0">
                     <Button
                       variant="ghost"
+                      aria-label={`查看技能 ${skill.name}`}
                       className="h-auto w-full min-w-0 justify-start p-0 text-left text-sm font-medium"
                       onClick={(event) => {
                         actionTriggerRef.current = event.currentTarget;

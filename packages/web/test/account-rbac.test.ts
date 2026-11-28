@@ -397,9 +397,9 @@ describe('专家详情只认完整配置', () => {
     await click(button('关闭'));
     await click(button('专家管理操作'));
     await click(menuItem('转交负责人'));
-    await waitFor(() => document.querySelector('[role="checkbox"]'));
-    const transferTarget = document.querySelector<HTMLElement>('[role="checkbox"]');
-    if (!transferTarget) throw new Error('Missing transfer checkbox');
+    await waitFor(() => document.querySelector('[role="radio"]'));
+    const transferTarget = document.querySelector<HTMLElement>('[role="radio"]');
+    if (!transferTarget) throw new Error('Missing transfer radio');
     await click(transferTarget);
     await click(button('转交'));
     expect(bodyOf('/api/agents/agt_1/transfer', 'POST')).toEqual({ ownerBusinessId: 'bob' });

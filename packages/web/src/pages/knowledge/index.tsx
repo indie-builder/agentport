@@ -547,6 +547,7 @@ export function KnowledgePage() {
         <>
           <FileInput
             controller={importController}
+            aria-label="导入知识包"
             accept="application/zip,.zip"
             disabled={importer.isPending}
             className="contents"

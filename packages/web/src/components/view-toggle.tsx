@@ -1,4 +1,5 @@
 import { LayoutGrid, type LucideIcon, Table2 } from 'lucide-react';
+import { useOptimisticValue } from '../lib/use-optimistic-value.js';
 import {
   SegmentedControl,
   SegmentedControlIndicator,
@@ -23,13 +24,16 @@ export function SegmentedToggle<T extends string>({
   options: readonly { value: T; label: string; icon?: LucideIcon }[];
   onChange: (value: T) => void;
 }) {
+  const [optimisticValue, commitValue] = useOptimisticValue(value);
+
   return (
     <SegmentedControl<T>
       aria-label={label}
-      value={value}
-      onValueChange={(next, details) => {
-        details.cancel();
-        if (next !== null && next !== value) onChange(next);
+      value={optimisticValue}
+      onValueChange={(next) => {
+        if (next !== null && next !== optimisticValue) {
+          commitValue(next, () => onChange(next));
+        }
       }}
     >
       <SegmentedControlIndicator />

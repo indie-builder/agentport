@@ -316,6 +316,7 @@ export function AgentDetailPage() {
                       ) : null}
                       {canDelete && !isArchived ? (
                         <DropdownMenuItem
+                          data-agent-confirm={`归档专家「${current.name}」`}
                           onSelect={() =>
                             archive.mutate(agentId, {
                               onSuccess: () => {
@@ -331,6 +332,7 @@ export function AgentDetailPage() {
                       ) : null}
                       {canDelete && isArchived ? (
                         <DropdownMenuItem
+                          data-agent-confirm={`恢复专家「${current.name}」`}
                           onSelect={() =>
                             restore.mutate(agentId, {
                               onSuccess: () => {

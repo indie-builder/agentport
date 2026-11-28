@@ -182,6 +182,7 @@ export function PluginsPage() {
         <>
           <FileInput
             controller={importController}
+            aria-label="导入插件 ZIP"
             accept=".zip,application/zip"
             disabled={importPlugin.isPending}
             className="contents"

@@ -1,3 +1,4 @@
+import { useOptimisticValue } from '../lib/use-optimistic-value.js';
 import {
   Select,
   SelectContent,
@@ -22,12 +23,13 @@ export function FilterSelect({
   label: string;
   className?: string;
 }) {
+  const [optimisticValue, commitValue] = useOptimisticValue(value);
+
   return (
     <Select
-      value={value}
-      onValueChange={(next, details) => {
-        details.cancel();
-        if (next !== null) onValueChange(next);
+      value={optimisticValue}
+      onValueChange={(next) => {
+        if (next !== null) commitValue(next, () => onValueChange(next));
       }}
       items={[...options]}
     >

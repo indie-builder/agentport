@@ -282,6 +282,7 @@ export function AgentsPage() {
             <>
               <FileInput
                 controller={importController}
+                aria-label="导入专家文件"
                 accept="application/zip,.zip,text/markdown,.md"
                 disabled={importing}
                 className="contents"
@@ -765,6 +766,7 @@ export function AgentsPage() {
                               {canDelete && (isArchived || isDeleted) ? (
                                 <DropdownMenuItem
                                   disabled={restore.isPending}
+                                  data-agent-confirm={`恢复专家「${agent.name}」`}
                                   onSelect={() =>
                                     restore.mutate(agent.id, {
                                       onSuccess: () => toastSuccess('已恢复专家'),
@@ -778,6 +780,7 @@ export function AgentsPage() {
                               {canDelete && !isArchived && !isDeleted ? (
                                 <DropdownMenuItem
                                   disabled={archive.isPending}
+                                  data-agent-confirm={`归档专家「${agent.name}」`}
                                   onSelect={() =>
                                     archive.mutate(agent.id, {
                                       onSuccess: () => toastSuccess('已归档专家'),

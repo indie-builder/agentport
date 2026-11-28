@@ -420,7 +420,7 @@ describe('记忆提案', () => {
     });
     const router = await mount('/personal/reviews?stage=pending');
     await vi.waitFor(() => expect(host.textContent).toContain('补充长期偏好'));
-    expect(host.querySelector('ul')).toBeNull();
+    expect(host.querySelector('ul[aria-label="记忆提案列表"]')).toBeTruthy();
     const cards = [...host.querySelectorAll<HTMLElement>('[data-slot="card"]')];
     expect(cards).toHaveLength(2);
     expect(cards[0]?.textContent).toContain('运行状态');
@@ -432,6 +432,7 @@ describe('记忆提案', () => {
     await vi.waitFor(() =>
       expect(router.state.location.search).toMatchObject({ view: 'table', stage: 'pending' }),
     );
+    expect(host.querySelector('ul[aria-label="记忆提案列表"]')).toBeNull();
     expect(host.querySelector('ul')).toBeTruthy();
     expect(host.querySelectorAll('[data-slot="card"]')).toHaveLength(0);
   });

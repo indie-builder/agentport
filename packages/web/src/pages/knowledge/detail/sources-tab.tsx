@@ -187,6 +187,7 @@ export function SourcesTab({
                       <ProviderIcon className="size-3.5" aria-hidden="true" />
                     </span>
                     <ButtonPrimitive
+                      aria-label={`查看来源 ${source.name}`}
                       className="min-w-0 truncate text-sm font-medium text-fg hover:underline"
                       onClick={() => selectSource(selected === source.id ? null : source.id)}
                       aria-expanded={selected === source.id}

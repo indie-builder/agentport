@@ -164,6 +164,10 @@ export function DataDomainEnrichment({
             <FieldLabel htmlFor="data-domain-enrich-source">源版本</FieldLabel>
             <Select
               value={sourceVersionId === '' ? null : sourceVersionId}
+              items={orderedVersions.map((version) => ({
+                value: version.id,
+                label: `${shortId(version.id)} · ${formatRelative(version.createdAt)}`,
+              }))}
               disabled={pending || noReadyVersions}
               onValueChange={(value) => {
                 if (value !== null) sourceVersionField.onChange(value);
