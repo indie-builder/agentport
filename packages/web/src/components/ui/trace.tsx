@@ -52,13 +52,7 @@ function TraceIcon({ className, ...props }: React.ComponentProps<'span'>) {
 }
 
 function TraceTitle({ className, ...props }: React.ComponentProps<'span'>) {
-  return (
-    <span
-      data-slot="trace-title"
-      className={cn('min-w-0 truncate motion-reduce:shimmer-none', className)}
-      {...props}
-    />
-  );
+  return <span data-slot="trace-title" className={cn('min-w-0 truncate', className)} {...props} />;
 }
 
 function TraceDescription({ className, ...props }: React.ComponentProps<'span'>) {

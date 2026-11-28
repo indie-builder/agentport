@@ -504,7 +504,7 @@ function CitationMeta({ citation }: { citation: KnowledgeCitation }) {
       {citation.target.kind === 'document' ? (
         <a
           href={api.knowledgeOriginalUrl(citation.targetVersionId)}
-          className="text-[var(--color-link)] underline underline-offset-2"
+          className="text-link underline underline-offset-2"
           download
         >
           下载原件
@@ -515,7 +515,7 @@ function CitationMeta({ citation }: { citation: KnowledgeCitation }) {
           href={sourceUrl}
           target="_blank"
           rel="noreferrer noopener"
-          className="text-[var(--color-link)] underline underline-offset-2"
+          className="text-link underline underline-offset-2"
         >
           查看来源
         </a>

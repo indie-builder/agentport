@@ -1,0 +1,100 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [],
+  "categories": {
+    "correctness": "off"
+  },
+  "jsPlugins": ["@shadcn/lint"],
+  "settings": {
+    "shadcn": {
+      "note": "See packages/web/DESIGN.md for design rules and packages/web/src/styles.css for theme tokens."
+    }
+  },
+  "rules": {
+    "shadcn/no-raw-colors": "error",
+    "shadcn/no-unknown-classes": "error",
+    "shadcn/no-arbitrary-values": [
+      "error",
+      {
+        "allow": ["layout", "motion", "tracking", "forced-colors:*"]
+      }
+    ],
+    "shadcn/no-restyle": [
+      "warn",
+      {
+        "allow": ["layout"],
+        "contracts": [
+          {
+            "pattern": "^(?:Collapsible|CollapsibleTrigger|CollapsibleContent|TooltipTrigger|PopoverTrigger|DialogTrigger|DropdownMenuTrigger)$",
+            "allow": ["*"]
+          },
+          {
+            "pattern": "^(?:Field|FieldGroup|FieldSet|CardContent|CardHeader|CardFooter|SheetContent|DialogContent|Tabs|TabsContent|ChartLegendContent)$",
+            "allow": ["layout", "spacing"]
+          },
+          {
+            "pattern": "^(?:CardTitle|CardDescription)$",
+            "allow": ["layout", "typography", "spacing"]
+          },
+          {
+            "pattern": "^(?:TableCell|TableHead)$",
+            "allow": ["layout", "spacing", "typography", "color"]
+          },
+          {
+            "pattern": "^(?:Input|Textarea)$",
+            "allow": ["layout", "typography"]
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/components/ui/**"],
+      "rules": {
+        "shadcn/no-restyle": "off",
+        "shadcn/no-arbitrary-values": "off"
+      }
+    },
+    {
+      "files": ["src/pages/agents/agents-page.tsx"],
+      "rules": {
+        "shadcn/no-arbitrary-values": [
+          "error",
+          {
+            "allow": [
+              "layout",
+              "motion",
+              "tracking",
+              "forced-colors:*",
+              "rounded-[18px]",
+              "rounded-[24px]"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/components/knowledge/knowledge-wiki-graph.tsx"],
+      "rules": {
+        "shadcn/no-arbitrary-values": [
+          "error",
+          {
+            "allow": ["layout", "motion", "tracking", "forced-colors:*", "text-[10px]"]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/openui/components/layout.tsx"],
+      "rules": {
+        "shadcn/no-arbitrary-values": [
+          "error",
+          {
+            "allow": ["layout", "motion", "tracking", "forced-colors:*", "px-[3px]"]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -100,7 +100,7 @@ export const MessagePart = memo(function MessagePart({
               variant="secondary"
               className="max-w-[85%]"
             >
-              <BubbleContent className="px-4 py-3 text-base leading-[22px]">
+              <BubbleContent className="px-4 py-3 text-base">
                 <FoldingMessageBody text={item.text} />
               </BubbleContent>
             </Bubble>

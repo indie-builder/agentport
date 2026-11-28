@@ -756,7 +756,7 @@ function ScheduleRunsDialog({
                             to="/runs/$runId"
                             params={{ runId: run.id }}
                             search={{ backTo: location.href }}
-                            className="text-xs text-[var(--color-link)] underline underline-offset-2"
+                            className="text-xs text-link underline underline-offset-2"
                           >
                             查看
                           </Link>

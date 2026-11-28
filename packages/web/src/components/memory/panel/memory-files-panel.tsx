@@ -103,7 +103,7 @@ function MemoryReviewLink({ agentId }: { agentId: string }) {
     <div className="flex justify-end">
       <a
         href={`/personal/reviews?${query.toString()}`}
-        className="text-sm text-[var(--color-link)] underline underline-offset-4"
+        className="text-sm text-link underline underline-offset-4"
       >
         记忆提案
       </a>
