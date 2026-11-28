@@ -401,7 +401,7 @@ function Diagnostics({ result }: { result: KnowledgeSearchResponse }) {
                 </TableHeader>
                 <TableBody>
                   {diagnostics.candidates.map((candidate) => (
-                    <TableRow key={candidate.chunkId} className="hover:bg-transparent">
+                    <TableRow key={candidate.chunkId} hover="none">
                       <TableCell className="max-w-0 truncate px-0 py-1 pr-2 font-mono">
                         {candidate.chunkId}
                       </TableCell>

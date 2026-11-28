@@ -199,8 +199,8 @@ export function ImportOpenApiDialog({
                         </TableCell>
                         <TableCell className="font-mono text-xs text-fg">{tool.name}</TableCell>
                         <TableCell>
-                          <Badge variant="secondary" className="font-mono text-2xs">
-                            {tool.method}
+                          <Badge variant="mono">
+                            <span className="text-2xs">{tool.method}</span>
                           </Badge>
                         </TableCell>
                         <TableCell className="font-mono text-2xs text-muted-foreground">

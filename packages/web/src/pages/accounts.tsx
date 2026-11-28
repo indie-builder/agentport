@@ -871,12 +871,12 @@ function RoleBadges({
         <Badge
           key={role.id}
           variant="secondary"
-          className={inTable ? 'h-auto max-w-full whitespace-normal py-0.5' : 'max-w-[120px]'}
+          className={inTable ? 'h-auto max-w-full' : 'max-w-[120px]'}
         >
           <span
             className={
               inTable
-                ? 'min-w-0 [overflow-wrap:anywhere]'
+                ? 'min-w-0 whitespace-normal [overflow-wrap:anywhere]'
                 : 'overflow-hidden text-ellipsis whitespace-nowrap'
             }
           >
@@ -885,8 +885,8 @@ function RoleBadges({
         </Badge>
       ))}
       {rest > 0 ? (
-        <Badge variant="outline" className="shrink-0 font-mono tabular-nums">
-          +{rest}
+        <Badge variant="outline" className="shrink-0">
+          <span className="font-mono tabular-nums">+{rest}</span>
         </Badge>
       ) : null}
     </div>

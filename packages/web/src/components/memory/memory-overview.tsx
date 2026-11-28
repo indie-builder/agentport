@@ -79,7 +79,7 @@ function AssemblySection({ agentId }: { agentId: string }) {
           ) : null}
           <Table>
             <TableHeader>
-              <TableRow className="hover:bg-transparent">
+              <TableRow hover="none">
                 <TableHead>对象</TableHead>
                 <TableHead>触发方式</TableHead>
                 <TableHead className="text-right">大小</TableHead>
@@ -91,7 +91,8 @@ function AssemblySection({ agentId }: { agentId: string }) {
                 return (
                   <TableRow
                     key={`${block.kind}-${block.path}`}
-                    className={skipped ? 'opacity-60 hover:bg-transparent' : 'hover:bg-transparent'}
+                    hover="none"
+                    className={skipped ? 'opacity-60' : undefined}
                   >
                     <TableCell className="whitespace-normal">
                       <div className="break-all font-mono text-xs" title={block.path}>

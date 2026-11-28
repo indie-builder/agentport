@@ -635,9 +635,9 @@ export function ModelsPage() {
                                 key={model}
                                 tone="mono"
                                 title={model}
-                                className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+                                className="max-w-full"
                               >
-                                {model}
+                                <span className="truncate">{model}</span>
                               </StatusBadge>
                             ))}
                             {provider.models.length > 3 ? (

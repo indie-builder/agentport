@@ -1,37 +1,26 @@
 import type { RuntimeEnvironmentVersionStatus } from '@agentport/shared';
-import { cva, type VariantProps } from 'class-variance-authority';
 import { CircleAlert, CircleCheck, Clock, LoaderCircle } from 'lucide-react';
 import type { ComponentProps } from 'react';
-import { cn } from '../lib/cn.js';
 import { Badge } from './ui/badge.js';
 
-const statusBadgeVariants = cva('rounded-tag px-1.5', {
-  variants: {
-    tone: {
-      default: 'border-line bg-sunken text-fg',
-      success: 'border-line bg-success-soft text-success',
-      warn: 'border-line bg-warning-soft text-warning',
-      brand: 'border-line bg-selected text-fg',
-      danger: 'border-line bg-danger-soft text-danger',
-      outline: 'border-line-strong bg-transparent text-muted-foreground',
-      mono: 'border-code-line bg-code font-mono text-muted-foreground',
-    },
-  },
-  defaultVariants: {
-    tone: 'default',
-  },
-});
+const STATUS_TONE_VARIANT = {
+  default: 'neutral',
+  success: 'success',
+  warn: 'warn',
+  brand: 'brand',
+  danger: 'danger',
+  outline: 'subtle',
+  mono: 'mono',
+} as const;
 
-type StatusTone = NonNullable<VariantProps<typeof statusBadgeVariants>['tone']>;
+type StatusTone = keyof typeof STATUS_TONE_VARIANT;
 
 export function StatusBadge({
   tone = 'default',
   className,
   ...props
-}: Omit<ComponentProps<typeof Badge>, 'variant'> & { tone?: StatusTone }) {
-  return (
-    <Badge variant="outline" className={cn(statusBadgeVariants({ tone }), className)} {...props} />
-  );
+}: Omit<ComponentProps<typeof Badge>, 'variant' | 'size'> & { tone?: StatusTone }) {
+  return <Badge variant={STATUS_TONE_VARIANT[tone]} size="tag" className={className} {...props} />;
 }
 
 const buildStatusMeta: Record<

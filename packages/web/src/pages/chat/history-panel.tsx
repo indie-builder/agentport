@@ -1,3 +1,4 @@
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { createMenuController } from '@ui-sdk/react/menu';
 import {
   EllipsisVertical,
@@ -63,7 +64,7 @@ export function HistoryPanel({
         <Button
           variant="outline"
           onClick={(event) => onOpenSearch(event.currentTarget)}
-          className="h-8 w-full justify-start gap-2 px-2.5 font-normal text-muted-foreground"
+          className="w-full justify-start gap-2 font-normal text-muted-foreground"
         >
           <Search aria-hidden="true" className="size-4" />
           <span className="min-w-0 flex-1 truncate text-left text-sm">搜索全部会话</span>
@@ -84,50 +85,51 @@ export function HistoryPanel({
         <ul className="flex flex-col gap-0.5">
           {history.map((conversation) => (
             <li key={conversation.id} className="group relative">
-              <Button
-                variant="ghost"
+              <ButtonPrimitive
+                type="button"
                 aria-current={conversation.id === conversationId ? 'true' : undefined}
                 onClick={() => onOpen(conversation.id)}
                 className={cn(
-                  'h-auto w-full min-w-0 flex-col items-start gap-0 whitespace-normal px-2.5 py-2 pr-8 text-left font-normal',
+                  'flex w-full min-w-0 flex-col items-start gap-0 rounded-item px-2.5 py-2 pr-8 text-left text-sm font-normal whitespace-normal outline-none transition-colors duration-150 ease-out-soft focus-visible:ring-2 focus-visible:ring-ring',
                   conversation.id === conversationId
                     ? 'bg-selected text-selected-foreground hover:bg-selected hover:text-selected-foreground'
-                    : 'text-muted-foreground hover:bg-hover',
+                    : 'text-muted-foreground hover:bg-hover hover:text-foreground',
                 )}
               >
                 <span className="block w-full truncate text-sm">{conversation.title}</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
                   {formatRelative(conversation.updatedAt)}
                 </span>
-              </Button>
-              <DropdownMenuTrigger
-                controller={menu}
-                payload={conversation}
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`操作「${conversation.title}」`}
-                    disabled={branching !== null}
-                    className="absolute right-1 top-2.5 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-open:opacity-100"
-                    onFocus={(event) => {
-                      menuTriggerRef.current = event.currentTarget;
-                    }}
-                    onPointerDown={(event) => {
-                      menuTriggerRef.current = event.currentTarget;
-                    }}
-                    onClick={(event) => {
-                      menuTriggerRef.current = event.currentTarget;
-                    }}
-                  >
-                    {branching === conversation.id ? (
-                      <LoaderCircle className="size-3.5 animate-spin" />
-                    ) : (
-                      <EllipsisVertical className="size-3.5" />
-                    )}
-                  </Button>
-                }
-              />
+              </ButtonPrimitive>
+              <span className="absolute right-1 top-2.5 inline-flex [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft has-focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 has-data-open:opacity-100">
+                <DropdownMenuTrigger
+                  controller={menu}
+                  payload={conversation}
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`操作「${conversation.title}」`}
+                      disabled={branching !== null}
+                      onFocus={(event) => {
+                        menuTriggerRef.current = event.currentTarget;
+                      }}
+                      onPointerDown={(event) => {
+                        menuTriggerRef.current = event.currentTarget;
+                      }}
+                      onClick={(event) => {
+                        menuTriggerRef.current = event.currentTarget;
+                      }}
+                    >
+                      {branching === conversation.id ? (
+                        <LoaderCircle className="size-3.5 animate-spin" />
+                      ) : (
+                        <EllipsisVertical className="size-3.5" />
+                      )}
+                    </Button>
+                  }
+                />
+              </span>
             </li>
           ))}
         </ul>

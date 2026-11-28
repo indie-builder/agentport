@@ -1297,6 +1297,7 @@ function ScheduleDialog({
                         <ToggleGroup
                           ref={field.ref}
                           multiple
+                          size="icon"
                           spacing={2}
                           tabIndex={-1}
                           value={field.value}
@@ -1316,7 +1317,6 @@ function ScheduleDialog({
                               key={day.value}
                               value={day.value}
                               aria-label={day.name}
-                              className="w-8 min-w-8 px-0"
                             >
                               {day.label}
                             </ToggleGroupItem>

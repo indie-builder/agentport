@@ -883,30 +883,23 @@ export function ChipsRenderer({
       multiple={type === 'multiple'}
       value={state.selection}
       onValueChange={(next) => state.setSelection(next)}
-      className="flex w-full min-w-0 flex-wrap gap-1.5"
+      variant="pill"
+      size="pill"
+      spacing={1.5}
+      className="flex w-full min-w-0 flex-wrap"
     >
-      {items.map((item) => {
-        const selected = state.selection.includes(item.value);
-        return (
-          <ToggleGroupItem
-            key={item.value}
-            value={item.value}
-            aria-invalid={state.error ? true : undefined}
-            aria-describedby={wiring?.describedBy}
-            disabled={Boolean(item.disabled)}
-            className={cn(
-              'h-auto min-w-0 rounded-full border px-3 py-1 font-normal',
-              selected
-                ? 'border-line-strong bg-selected text-selected-foreground'
-                : 'border-line bg-transparent text-muted-foreground hover:bg-hover',
-              'disabled:cursor-not-allowed disabled:opacity-50 data-disabled:cursor-not-allowed data-disabled:opacity-50',
-            )}
-          >
-            {item.icon ? renderNode(item.icon) : null}
-            {item.label}
-          </ToggleGroupItem>
-        );
-      })}
+      {items.map((item) => (
+        <ToggleGroupItem
+          key={item.value}
+          value={item.value}
+          aria-invalid={state.error ? true : undefined}
+          aria-describedby={wiring?.describedBy}
+          disabled={Boolean(item.disabled)}
+        >
+          {item.icon ? renderNode(item.icon) : null}
+          {item.label}
+        </ToggleGroupItem>
+      ))}
     </ToggleGroup>
   );
 }
@@ -960,7 +953,9 @@ export function OptionCardsRenderer({
       multiple={type === 'multiple'}
       value={state.selection}
       onValueChange={(next) => state.setSelection(next)}
-      className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 sm:grid-cols-2"
+      variant="card"
+      size="card"
+      className="grid w-full min-w-0 grid-cols-1 items-stretch sm:grid-cols-2"
     >
       {items.map((item) => {
         const selected = state.selection.includes(item.value);
@@ -971,13 +966,6 @@ export function OptionCardsRenderer({
             aria-invalid={state.error ? true : undefined}
             aria-describedby={wiring?.describedBy}
             disabled={Boolean(item.disabled)}
-            className={cn(
-              'cds-card-surface flex h-auto min-w-0 items-start justify-start gap-2 rounded-card border p-3 text-left font-normal whitespace-normal',
-              selected
-                ? 'border-line-strong bg-selected text-selected-foreground'
-                : 'border-transparent bg-surface',
-              'disabled:cursor-not-allowed disabled:opacity-50 data-disabled:cursor-not-allowed data-disabled:opacity-50',
-            )}
           >
             {item.topContent ? (
               <span className="shrink-0">{renderNode(item.topContent)}</span>

@@ -545,7 +545,7 @@ export function AgentOverview({
                       <CollapsibleContent className="pt-2">
                         <Table>
                           <TableHeader>
-                            <TableRow className="hover:bg-transparent">
+                            <TableRow hover="none">
                               <TableHead>日期</TableHead>
                               <TableHead>运行数</TableHead>
                               <TableHead>成本</TableHead>
@@ -553,7 +553,7 @@ export function AgentOverview({
                           </TableHeader>
                           <TableBody>
                             {daily.map((day) => (
-                              <TableRow key={day.day} className="hover:bg-transparent">
+                              <TableRow key={day.day} hover="none">
                                 <TableCell>{day.day}</TableCell>
                                 <TableCell>{day.runs}</TableCell>
                                 <TableCell>{formatCost(day.cost)}</TableCell>
@@ -584,7 +584,7 @@ export function AgentOverview({
               <>
                 <Table>
                   <TableHeader>
-                    <TableRow className="hover:bg-transparent">
+                    <TableRow hover="none">
                       <TableHead>时间</TableHead>
                       <TableHead>触发方式</TableHead>
                       <TableHead>状态</TableHead>
@@ -592,7 +592,7 @@ export function AgentOverview({
                   </TableHeader>
                   <TableBody>
                     {recentRuns.map((run) => (
-                      <TableRow key={run.id} className="hover:bg-transparent">
+                      <TableRow key={run.id} hover="none">
                         <TableCell
                           className="text-muted-foreground"
                           title={run.startedAt ? formatDateTime(run.startedAt) : undefined}

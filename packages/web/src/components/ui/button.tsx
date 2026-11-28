@@ -19,21 +19,26 @@ const buttonVariantStyles = cva(
           'bg-secondary text-secondary-foreground hover:bg-hover aria-expanded:bg-secondary aria-expanded:text-secondary-foreground',
         ghost:
           'hover:bg-hover hover:text-foreground aria-expanded:bg-hover aria-expanded:text-foreground',
+        muted:
+          'text-muted-foreground hover:bg-hover hover:text-fg aria-expanded:bg-hover aria-expanded:text-fg',
+        nav: 'justify-start border-0 font-normal text-fg hover:bg-sidebar-hover aria-expanded:bg-sidebar-hover',
         destructive: 'bg-destructive/10 text-destructive hover:bg-destructive/20',
         link: 'text-link underline-offset-4 hover:underline',
       },
       size: {
+        none: 'h-auto p-0',
+        nav: 'h-8 gap-2 px-2 text-sm',
         default:
           'h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2',
         xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-sm in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pe-1.5 has-data-[icon=inline-start]:ps-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-sm in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pe-1.5 has-data-[icon=inline-start]:ps-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: 'h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2',
-        icon: 'size-8 rounded-icon',
+        icon: 'size-8',
         'icon-xs':
           "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
         'icon-sm':
           "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3.5",
-        'icon-lg': 'size-9 rounded-icon',
+        'icon-lg': 'size-9',
       },
     },
     defaultVariants: {

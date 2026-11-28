@@ -375,7 +375,7 @@ export function RunTrendCard({ days, enabled = true }: { days: number; enabled?:
                         </TableHeader>
                         <TableBody>
                           {points.map((point) => (
-                            <TableRow key={point.date} className="hover:bg-transparent">
+                            <TableRow key={point.date} hover="none">
                               <TableHead
                                 scope="row"
                                 className="h-auto text-xs font-normal text-muted-foreground"

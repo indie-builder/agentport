@@ -1,5 +1,6 @@
 import { isSafeOpenUrl } from '@agentport/shared';
 import { useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { CircleDot, icons, type LucideIcon } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Markdown } from '../../components/markdown.js';
@@ -657,15 +658,14 @@ export function ListRenderer({
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表项由模型按顺序生成
           <li key={index} className="min-w-0">
             {clickable ? (
-              <Button
+              <ButtonPrimitive
                 type="button"
-                variant="ghost"
                 aria-label={itemProps.title}
-                className="h-auto w-full min-w-0 items-start justify-start gap-2.5 rounded-item px-1.5 py-2 text-left font-normal whitespace-normal"
+                className="flex w-full min-w-0 items-start justify-start gap-2.5 rounded-item px-1.5 py-2 text-left text-sm font-normal whitespace-normal outline-none transition-colors duration-150 ease-out-soft hover:bg-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => void trigger(itemProps.title, undefined, action)}
               >
                 {content}
-              </Button>
+              </ButtonPrimitive>
             ) : (
               <div className="flex min-w-0 items-start gap-2.5 py-2">{content}</div>
             )}

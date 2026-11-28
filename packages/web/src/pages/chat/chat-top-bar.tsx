@@ -73,25 +73,25 @@ export function ChatTopBar({
   return (
     <div className="flex h-14 shrink-0 items-center gap-2 px-6">
       <Button
-        variant="ghost"
+        variant="muted"
         size="icon"
         aria-label={historyVisible ? '隐藏会话历史' : '显示会话历史'}
         title={historyVisible ? '隐藏会话历史' : '显示会话历史'}
         aria-expanded={historyVisible}
         aria-controls={historyPanelId}
         onClick={onToggleHistory}
-        className="shrink-0 text-muted-foreground hover:text-fg"
+        className="shrink-0"
       >
         <PanelLeftDashed />
       </Button>
       {historyVisible ? null : (
         <Button
-          variant="ghost"
+          variant="muted"
           size="icon"
           aria-label="搜索会话"
           title="搜索会话"
           onClick={(event) => onOpenSearch(event.currentTarget)}
-          className="shrink-0 text-muted-foreground hover:text-fg"
+          className="shrink-0"
         >
           <Search />
         </Button>
@@ -122,12 +122,12 @@ export function ChatTopBar({
             render={
               <Button
                 ref={headerTriggerRef}
-                variant="ghost"
+                variant="muted"
                 size="icon"
                 aria-label="会话操作"
                 title={conversationId ? '会话操作' : '先发送消息，保存会话后可操作'}
                 disabled={!conversationId || deleting}
-                className="shrink-0 text-muted-foreground hover:text-fg"
+                className="shrink-0"
               >
                 <EllipsisVertical className="size-4" />
               </Button>
@@ -169,14 +169,14 @@ export function ChatTopBar({
       </div>
       <Button
         ref={workspaceToggleRef}
-        variant="ghost"
+        variant="muted"
         size="icon"
         aria-label={workspaceOpen ? '隐藏会话成果' : '打开会话成果'}
         title={workspaceOpen ? '隐藏会话成果' : '打开会话成果'}
         aria-expanded={workspaceOpen}
         aria-controls={workspacePanelId}
         onClick={onToggleWorkspace}
-        className="shrink-0 gap-1.5 text-muted-foreground hover:text-fg lg:w-auto lg:px-2"
+        className="shrink-0 gap-1.5 lg:w-auto lg:px-2"
       >
         <PanelRightDashed />
         <span className="hidden text-sm lg:inline">会话成果</span>

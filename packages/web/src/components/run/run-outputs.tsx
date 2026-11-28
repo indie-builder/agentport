@@ -30,7 +30,7 @@ export function RunOutputs({
         return (
           <li key={`${file.runId}:${file.path}`} className="min-w-0 max-w-full">
             <Button
-              variant="ghost"
+              variant="muted"
               size="sm"
               title={file.path}
               onClick={() =>
@@ -40,7 +40,7 @@ export function RunOutputs({
                   mode: outputSelectionMode(file.mediaType),
                 })
               }
-              className="h-7 max-w-full min-w-0 justify-start gap-1.5 px-1.5 text-sm font-normal text-muted-foreground hover:bg-hover hover:text-fg"
+              className="max-w-full min-w-0 justify-start gap-1.5 px-1.5 font-normal"
             >
               <FileText className="size-3.5 shrink-0" aria-hidden="true" />
               <span className="truncate">{file.path}</span>

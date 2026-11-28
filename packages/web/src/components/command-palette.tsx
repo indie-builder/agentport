@@ -298,11 +298,12 @@ export function CommandPaletteTrigger() {
   const hint = useShortcutHint('mod+k');
   return (
     <Button
-      variant="ghost"
+      variant="nav"
+      size="nav"
       aria-label={`搜索（${hint.text}）`}
       aria-keyshortcuts={hint.ariaKeyshortcuts}
       onClick={openCommandPalette}
-      className="h-8 w-full justify-start gap-2.5 rounded-item border-0 px-2 text-sm text-fg hover:bg-sidebar-hover"
+      className="w-full gap-2.5"
     >
       <Search aria-hidden="true" className="shrink-0" />
       <span className="truncate">搜索…</span>

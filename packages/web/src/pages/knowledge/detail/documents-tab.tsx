@@ -361,29 +361,30 @@ export function DocumentsTab({
                   <span className="truncate">{folder.label}</span>
                 </ButtonPrimitive>
                 {entry && caps.content ? (
-                  <DropdownMenuTrigger
-                    controller={folderMenu}
-                    payload={entry}
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={`文件夹操作 ${entry.name}`}
-                        className="transition-opacity duration-150 ease-out-soft [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/folder:opacity-100 group-focus-within/folder:opacity-100 focus-visible:opacity-100 data-open:opacity-100"
-                        onFocus={(event) => {
-                          folderTriggerRef.current = event.currentTarget;
-                        }}
-                        onPointerDown={(event) => {
-                          folderTriggerRef.current = event.currentTarget;
-                        }}
-                        onClick={(event) => {
-                          folderTriggerRef.current = event.currentTarget;
-                        }}
-                      >
-                        <EllipsisVertical />
-                      </Button>
-                    }
-                  />
+                  <span className="inline-flex transition-opacity duration-150 ease-out-soft [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/folder:opacity-100 group-focus-within/folder:opacity-100 has-focus-visible:opacity-100 has-data-open:opacity-100">
+                    <DropdownMenuTrigger
+                      controller={folderMenu}
+                      payload={entry}
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={`文件夹操作 ${entry.name}`}
+                          onFocus={(event) => {
+                            folderTriggerRef.current = event.currentTarget;
+                          }}
+                          onPointerDown={(event) => {
+                            folderTriggerRef.current = event.currentTarget;
+                          }}
+                          onClick={(event) => {
+                            folderTriggerRef.current = event.currentTarget;
+                          }}
+                        >
+                          <EllipsisVertical />
+                        </Button>
+                      }
+                    />
+                  </span>
                 ) : null}
               </li>
             );

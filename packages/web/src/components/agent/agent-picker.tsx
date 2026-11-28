@@ -83,8 +83,8 @@ export function AgentPicker({
         <ComboboxTrigger
           ref={setButton}
           render={
-            <Button
-              variant="plain"
+            <button
+              type="button"
               {...(triggerRef === undefined ? {} : { ref: triggerRef })}
               {...(onBlur === undefined ? {} : { onBlur })}
               {...(disabled === undefined ? {} : { disabled })}
@@ -93,7 +93,7 @@ export function AgentPicker({
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedby}
               className={cn(
-                'flex w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none cds-focus-glow focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-35',
+                'flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm font-medium whitespace-nowrap transition-colors outline-none select-none cds-focus-glow disabled:cursor-not-allowed disabled:opacity-35 aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0',
                 triggerClassName,
               )}
             />
@@ -114,6 +114,7 @@ export function AgentPicker({
           render={
             <Button
               variant="ghost"
+              size="nav"
               {...(triggerRef === undefined ? {} : { ref: triggerRef })}
               {...(onBlur === undefined ? {} : { onBlur })}
               {...(disabled === undefined ? {} : { disabled })}
@@ -122,10 +123,7 @@ export function AgentPicker({
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedby}
               title="切换专家"
-              className={cn(
-                'h-8 w-full min-w-0 justify-start gap-2 px-2 font-normal',
-                triggerClassName,
-              )}
+              className={cn('w-full min-w-0 justify-start font-normal', triggerClassName)}
             />
           }
         >
