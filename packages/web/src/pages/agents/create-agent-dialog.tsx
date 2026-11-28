@@ -12,6 +12,15 @@ import {
   CollapsibleTrigger,
 } from '../../components/motion-collapsible.js';
 import { RequiredMark } from '../../components/required-mark.js';
+import {
+  Autocomplete,
+  AutocompleteContent,
+  AutocompleteEmpty,
+  AutocompleteInput,
+  AutocompleteItem,
+  AutocompleteItemText,
+  AutocompleteList,
+} from '../../components/ui/autocomplete.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import {
@@ -75,6 +84,7 @@ export function CreateAgentDialog({
   const roleField = useController({ control, name: 'role' }).field;
   const visibilityField = useController({ control, name: 'visibility' }).field;
   const tagsField = useController({ control, name: 'tags' }).field;
+  const modelField = useController({ control, name: 'model' }).field;
   const isTwin = roleField.value === '数字分身';
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -302,20 +312,45 @@ export function CreateAgentDialog({
             </CollapsibleTrigger>
             <CollapsibleContent keepMounted animated>
               <div className="flex flex-col gap-3 border-t p-3">
-                <Field data-disabled={create.isPending} className="gap-1.5">
+                <Field
+                  data-disabled={create.isPending}
+                  className="gap-1.5"
+                  data-invalid={Boolean(errors.model)}
+                >
                   <FieldLabel htmlFor="new-agent-model">模型</FieldLabel>
-                  <Input
-                    {...rhf.register('model')}
+                  <Autocomplete
                     disabled={create.isPending}
-                    id="new-agent-model"
-                    list="new-agent-models"
-                    className="font-mono"
-                  />
-                  <datalist id="new-agent-models">
-                    {models.map((model) => (
-                      <option key={model} value={model} />
-                    ))}
-                  </datalist>
+                    value={modelField.value}
+                    onValueChange={(next) => modelField.onChange(next)}
+                    openOnFocus
+                    filter={(item, query) => {
+                      const needle = query.trim().toLowerCase();
+                      return (
+                        !needle ||
+                        models.includes(query) ||
+                        item.label.toLowerCase().includes(needle)
+                      );
+                    }}
+                  >
+                    <AutocompleteInput
+                      ref={modelField.ref}
+                      id="new-agent-model"
+                      onBlur={modelField.onBlur}
+                      aria-invalid={Boolean(errors.model)}
+                      className="font-mono"
+                    />
+                    <AutocompleteContent>
+                      <AutocompleteEmpty>无匹配预设，可直接保留输入</AutocompleteEmpty>
+                      <AutocompleteList>
+                        {models.map((model) => (
+                          <AutocompleteItem key={model} value={model}>
+                            <AutocompleteItemText className="font-mono" />
+                          </AutocompleteItem>
+                        ))}
+                      </AutocompleteList>
+                    </AutocompleteContent>
+                  </Autocomplete>
+                  <FieldError id="new-agent-model-error">{errors.model?.message}</FieldError>
                 </Field>
                 <Field
                   data-disabled={create.isPending}

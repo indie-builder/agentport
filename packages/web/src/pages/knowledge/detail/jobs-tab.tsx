@@ -15,6 +15,12 @@ import {
 import { StatusBadge } from '../../../components/status-badge.js';
 import { Button } from '../../../components/ui/button.js';
 import {
+  Progress,
+  ProgressIndicator,
+  ProgressTrack,
+  ProgressValue,
+} from '../../../components/ui/progress.js';
+import {
   Table,
   TableBody,
   TableCell,
@@ -144,7 +150,7 @@ export function JobsTab({
               <TableHead className="min-w-56">对象</TableHead>
               <TableHead className="w-24">状态</TableHead>
               <TableHead className="min-w-60">步骤</TableHead>
-              <TableHead className="w-16 text-right">进度</TableHead>
+              <TableHead className="w-28 text-end">进度</TableHead>
               <TableHead className="w-32">创建</TableHead>
               <TableHead className="w-32">已运行</TableHead>
               <TableHead className="w-28">
@@ -244,7 +250,18 @@ function JobRow({
           {reason ?? job.step ?? '—'}
         </span>
       </TableCell>
-      <TableCell className="text-right text-xs tabular-nums">{job.progress}%</TableCell>
+      <TableCell className="text-end">
+        <Progress
+          value={job.progress}
+          aria-label={`${jobTypeLabel[job.type]} ${jobTargetLabel(job)} 进度`}
+          className="grid-cols-[minmax(0,1fr)_auto] items-center gap-2"
+        >
+          <ProgressTrack className="col-span-1">
+            <ProgressIndicator />
+          </ProgressTrack>
+          <ProgressValue>{job.progress}%</ProgressValue>
+        </Progress>
+      </TableCell>
       <TableCell className="text-xs text-muted-foreground" title={formatDateTime(job.createdAt)}>
         {formatRelative(job.createdAt)}
       </TableCell>

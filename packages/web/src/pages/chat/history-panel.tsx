@@ -1,3 +1,4 @@
+import { createMenuController } from '@ui-sdk/react/menu';
 import {
   EllipsisVertical,
   GitBranch,
@@ -6,7 +7,7 @@ import {
   Pencil,
   Search,
 } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
 import {
@@ -55,6 +56,7 @@ export function HistoryPanel({
   onLoadMore: () => void;
 }) {
   const menuTriggerRef = useRef<HTMLElement | null>(null);
+  const [menu] = useState(() => createMenuController<HistoryEntry>());
   return (
     <>
       <div className="shrink-0 px-3">
@@ -98,55 +100,34 @@ export function HistoryPanel({
                   {formatRelative(conversation.updatedAt)}
                 </span>
               </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`操作「${conversation.title}」`}
-                      disabled={branching !== null}
-                      className="absolute right-1 top-2.5 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-open:opacity-100"
-                      onFocus={(event) => {
-                        menuTriggerRef.current = event.currentTarget;
-                      }}
-                      onClick={(event) => {
-                        menuTriggerRef.current = event.currentTarget;
-                      }}
-                    >
-                      {branching === conversation.id ? (
-                        <LoaderCircle className="size-3.5 animate-spin" />
-                      ) : (
-                        <EllipsisVertical className="size-3.5" />
-                      )}
-                    </Button>
-                  }
-                />
-                <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        if (menuTriggerRef.current) {
-                          onRename(conversation, menuTriggerRef.current);
-                        }
-                      }}
-                    >
-                      <Pencil /> 重命名
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={branching !== null}
-                      onSelect={() => onBranch(conversation.id)}
-                    >
-                      {branching === conversation.id ? (
-                        <LoaderCircle className="animate-spin" />
-                      ) : (
-                        <GitBranch />
-                      )}
-                      分支
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <DropdownMenuTrigger
+                controller={menu}
+                payload={conversation}
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`操作「${conversation.title}」`}
+                    disabled={branching !== null}
+                    className="absolute right-1 top-2.5 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-open:opacity-100"
+                    onFocus={(event) => {
+                      menuTriggerRef.current = event.currentTarget;
+                    }}
+                    onPointerDown={(event) => {
+                      menuTriggerRef.current = event.currentTarget;
+                    }}
+                    onClick={(event) => {
+                      menuTriggerRef.current = event.currentTarget;
+                    }}
+                  >
+                    {branching === conversation.id ? (
+                      <LoaderCircle className="size-3.5 animate-spin" />
+                    ) : (
+                      <EllipsisVertical className="size-3.5" />
+                    )}
+                  </Button>
+                }
+              />
             </li>
           ))}
         </ul>
@@ -164,6 +145,38 @@ export function HistoryPanel({
           </div>
         ) : null}
       </div>
+      <DropdownMenu controller={menu}>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+          {(state) => {
+            const conversation = state.payload as HistoryEntry | undefined;
+            if (!conversation) return null;
+            return (
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    if (menuTriggerRef.current) {
+                      onRename(conversation, menuTriggerRef.current);
+                    }
+                  }}
+                >
+                  <Pencil /> 重命名
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={branching !== null}
+                  onSelect={() => onBranch(conversation.id)}
+                >
+                  {branching === conversation.id ? (
+                    <LoaderCircle className="animate-spin" />
+                  ) : (
+                    <GitBranch />
+                  )}
+                  分支
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            );
+          }}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </>
   );
 }

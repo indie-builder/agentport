@@ -10,6 +10,7 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import { createMenuController } from '@ui-sdk/react/menu';
 import {
   Check,
   Download,
@@ -193,6 +194,7 @@ export function SkillsPage() {
   const approveSkill = useApproveSkill();
   const install = useInstallMarketSkill();
   const actionTriggerRef = useRef<HTMLElement | null>(null);
+  const [rowMenu] = useState(() => createMenuController<SkillWithAgentCount>());
   const panelFocus = (): HTMLElement | null =>
     actionTriggerRef.current?.isConnected ? actionTriggerRef.current : createButtonRef.current;
   const setFilter = (
@@ -505,68 +507,28 @@ export function SkillsPage() {
                   {skill.sourceId.split('/').slice(0, 2).join('/')}
                 </span>
               ) : null}
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`操作 ${skill.name}`}
-                      onFocus={(event) => {
-                        actionTriggerRef.current = event.currentTarget;
-                      }}
-                      onClick={(event) => {
-                        actionTriggerRef.current = event.currentTarget;
-                      }}
-                    >
-                      <EllipsisVertical />
-                    </Button>
-                  }
-                />
-                <DropdownMenuContent align="end" sideOffset={4} className="w-44">
-                  <DropdownMenuGroup>
-                    {canUpdateSkill ? (
-                      <DropdownMenuItem onSelect={() => setEditing(skill)}>
-                        <Pencil /> 编辑
-                      </DropdownMenuItem>
-                    ) : null}
-                    {canReadSkillFiles && skill.status === 'published' ? (
-                      <DropdownMenuItem render={<a href={`/api/skills/${skill.id}/file`} />}>
-                        <Download /> 导出 SKILL.md
-                      </DropdownMenuItem>
-                    ) : null}
-                    {canUpdateSkill && (skill.status === 'draft' || skill.status === 'rejected') ? (
-                      <DropdownMenuItem
-                        disabled={submitSkill.isPending}
-                        onSelect={() => submitForReview(skill)}
-                      >
-                        <Send /> 提交审核
-                      </DropdownMenuItem>
-                    ) : null}
-                    {canReviewSkill && skill.status === 'pending' ? (
-                      <>
-                        <DropdownMenuItem
-                          disabled={approveSkill.isPending}
-                          onSelect={() => approve(skill)}
-                        >
-                          <Check /> 批准
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onSelect={() => setRejecting(skill)}
-                        >
-                          <X /> 驳回
-                        </DropdownMenuItem>
-                      </>
-                    ) : null}
-                    {canDeleteSkill ? (
-                      <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(skill)}>
-                        <Trash2 /> 删除
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <DropdownMenuTrigger
+                controller={rowMenu}
+                payload={skill}
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`操作 ${skill.name}`}
+                    onFocus={(event) => {
+                      actionTriggerRef.current = event.currentTarget;
+                    }}
+                    onPointerDown={(event) => {
+                      actionTriggerRef.current = event.currentTarget;
+                    }}
+                    onClick={(event) => {
+                      actionTriggerRef.current = event.currentTarget;
+                    }}
+                  >
+                    <EllipsisVertical />
+                  </Button>
+                }
+              />
             </li>
           ))}
         </ul>
@@ -600,72 +562,28 @@ export function SkillsPage() {
                     <StatusBadge tone={statusMeta[skill.status].tone}>
                       {statusMeta[skill.status].label}
                     </StatusBadge>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`操作 ${skill.name}`}
-                            onFocus={(event) => {
-                              actionTriggerRef.current = event.currentTarget;
-                            }}
-                            onClick={(event) => {
-                              actionTriggerRef.current = event.currentTarget;
-                            }}
-                          >
-                            <EllipsisVertical />
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end" sideOffset={4} className="w-44">
-                        <DropdownMenuGroup>
-                          {canUpdateSkill ? (
-                            <DropdownMenuItem onSelect={() => setEditing(skill)}>
-                              <Pencil /> 编辑
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canReadSkillFiles && skill.status === 'published' ? (
-                            <DropdownMenuItem render={<a href={`/api/skills/${skill.id}/file`} />}>
-                              <Download /> 导出 SKILL.md
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canUpdateSkill &&
-                          (skill.status === 'draft' || skill.status === 'rejected') ? (
-                            <DropdownMenuItem
-                              disabled={submitSkill.isPending}
-                              onSelect={() => submitForReview(skill)}
-                            >
-                              <Send /> 提交审核
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canReviewSkill && skill.status === 'pending' ? (
-                            <>
-                              <DropdownMenuItem
-                                disabled={approveSkill.isPending}
-                                onSelect={() => approve(skill)}
-                              >
-                                <Check /> 批准
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onSelect={() => setRejecting(skill)}
-                              >
-                                <X /> 驳回
-                              </DropdownMenuItem>
-                            </>
-                          ) : null}
-                          {canDeleteSkill ? (
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onSelect={() => setDeleting(skill)}
-                            >
-                              <Trash2 /> 删除
-                            </DropdownMenuItem>
-                          ) : null}
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <DropdownMenuTrigger
+                      controller={rowMenu}
+                      payload={skill}
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`操作 ${skill.name}`}
+                          onFocus={(event) => {
+                            actionTriggerRef.current = event.currentTarget;
+                          }}
+                          onPointerDown={(event) => {
+                            actionTriggerRef.current = event.currentTarget;
+                          }}
+                          onClick={(event) => {
+                            actionTriggerRef.current = event.currentTarget;
+                          }}
+                        >
+                          <EllipsisVertical />
+                        </Button>
+                      }
+                    />
                   </CardAction>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
@@ -751,6 +669,54 @@ export function SkillsPage() {
           onClose={() => setRejecting(null)}
         />
       ) : null}
+      <DropdownMenu controller={rowMenu}>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+          {(state) => {
+            const skill = state.payload as SkillWithAgentCount | undefined;
+            if (!skill) return null;
+            return (
+              <DropdownMenuGroup>
+                {canUpdateSkill ? (
+                  <DropdownMenuItem onSelect={() => setEditing(skill)}>
+                    <Pencil /> 编辑
+                  </DropdownMenuItem>
+                ) : null}
+                {canReadSkillFiles && skill.status === 'published' ? (
+                  <DropdownMenuItem render={<a href={`/api/skills/${skill.id}/file`} />}>
+                    <Download /> 导出 SKILL.md
+                  </DropdownMenuItem>
+                ) : null}
+                {canUpdateSkill && (skill.status === 'draft' || skill.status === 'rejected') ? (
+                  <DropdownMenuItem
+                    disabled={submitSkill.isPending}
+                    onSelect={() => submitForReview(skill)}
+                  >
+                    <Send /> 提交审核
+                  </DropdownMenuItem>
+                ) : null}
+                {canReviewSkill && skill.status === 'pending' ? (
+                  <>
+                    <DropdownMenuItem
+                      disabled={approveSkill.isPending}
+                      onSelect={() => approve(skill)}
+                    >
+                      <Check /> 批准
+                    </DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" onSelect={() => setRejecting(skill)}>
+                      <X /> 驳回
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+                {canDeleteSkill ? (
+                  <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(skill)}>
+                    <Trash2 /> 删除
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuGroup>
+            );
+          }}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </ResourcePage>
   );
 }

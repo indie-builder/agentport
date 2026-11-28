@@ -20,6 +20,15 @@ import {
 } from '../../components/ui/carousel.js';
 import { Separator } from '../../components/ui/separator.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
+import {
+  Timeline,
+  TimelineConnector,
+  TimelineDescription,
+  TimelineItem,
+  TimelineMarker,
+  type TimelineStatus,
+  TimelineTitle,
+} from '../../components/ui/timeline.js';
 import { cn } from '../../lib/cn.js';
 import { asArray, childProps, metricTone, type RenderProps, ValueText } from './shared.js';
 
@@ -385,28 +394,40 @@ export function SectionBlockRenderer({
 
 export function StepsRenderer({ props, renderNode }: RenderProps<{ items: unknown[] }>) {
   const items = (props.items ?? []).filter((item) => childProps(item) !== undefined);
+  const streaming = useIsStreaming();
   if (items.length === 0) return null;
+  const seen = new Map<string, number>();
+  const entries = items.map((item, index) => {
+    const itemProps = childProps<{ title?: unknown; details?: unknown; status?: unknown }>(item);
+    const title = String(itemProps?.title ?? '');
+    const base = title || 'step';
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    const key = count === 1 ? base : `${base}-${count}`;
+    const rawStatus = itemProps?.status;
+    const status: TimelineStatus | undefined =
+      rawStatus === 'complete' || rawStatus === 'current' || rawStatus === 'upcoming'
+        ? rawStatus
+        : streaming
+          ? index < items.length - 1
+            ? 'complete'
+            : 'current'
+          : undefined;
+    return { key, index, title, details: itemProps?.details, status };
+  });
   return (
-    <ol className="flex min-w-0 flex-col gap-3">
-      {items.map((item, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: 步骤顺序即身份
-        <li key={index} className="flex min-w-0 gap-2.5">
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-chip font-mono text-xs tabular-nums text-muted-foreground">
-            {index + 1}
-          </span>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-base font-medium break-words text-fg">
-              {String(childProps(item)?.title ?? '')}
-            </span>
-            {childProps(item)?.details ? (
-              <div className="min-w-0 text-base text-muted-foreground">
-                {renderNode(childProps(item)?.details)}
-              </div>
-            ) : null}
-          </div>
-        </li>
+    <Timeline aria-label="步骤" className="min-w-0">
+      {entries.map(({ key, index, title, details, status }) => (
+        <TimelineItem key={key} value={key} {...(status === undefined ? {} : { status })}>
+          <TimelineMarker>{index + 1}</TimelineMarker>
+          <TimelineConnector />
+          <TimelineTitle className="text-base">{title}</TimelineTitle>
+          {details ? (
+            <TimelineDescription className="text-base">{renderNode(details)}</TimelineDescription>
+          ) : null}
+        </TimelineItem>
       ))}
-    </ol>
+    </Timeline>
   );
 }
 

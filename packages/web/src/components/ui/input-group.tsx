@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/cn';
 
 const inputGroupClassName =
-  'group/input-group relative flex h-8 w-full min-w-0 items-center rounded-lg border border-input transition-colors outline-none has-[:is([data-slot=input],[data-slot=textarea]):disabled]:bg-sunken has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:border-[var(--color-subtle)] has-[[data-slot][aria-invalid=true]]:border-destructive has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:border-destructive has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-2 has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-solid has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-ring has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-offset-2 has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto dark:bg-input/30 dark:has-[:is([data-slot=input],[data-slot=textarea]):disabled]:bg-input/80 dark:has-[[data-slot][aria-invalid=true]]:border-destructive/50 has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-1.5 has-[>[data-align=inline-start]]:[&>input]:pl-1.5';
+  'group/input-group relative flex h-8 w-full min-w-0 items-center rounded-lg border border-input transition-colors outline-none has-[:is([data-slot=input],[data-slot=textarea]):disabled]:bg-sunken has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:border-[var(--color-subtle)] has-[[data-slot][aria-invalid=true]]:border-destructive has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:border-destructive has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-2 has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-solid has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-ring has-[[data-slot][aria-invalid=true]]:has-[:is([data-slot=input],[data-slot=textarea]):focus-visible]:outline-offset-2 has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto dark:bg-input/30 dark:has-[:is([data-slot=input],[data-slot=textarea]):disabled]:bg-input/80 dark:has-[[data-slot][aria-invalid=true]]:border-destructive/50 has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pe-1.5 has-[>[data-align=inline-start]]:[&>input]:ps-1.5';
 
 type InputGroupProps = Omit<ComponentProps<typeof InputGroupPrimitive>, 'className'> & {
   className?: ComponentProps<typeof InputGroupPrimitive>['className'] | undefined;
@@ -31,8 +31,8 @@ const inputGroupAddonVariants = cva(
   {
     variants: {
       align: {
-        'inline-start': 'order-first pl-2 has-[>button]:ml-[-0.3rem] has-[>kbd]:ml-[-0.15rem]',
-        'inline-end': 'order-last pr-2 has-[>button]:mr-[-0.3rem] has-[>kbd]:mr-[-0.15rem]',
+        'inline-start': 'order-first ps-2 has-[>button]:ms-[-0.3rem] has-[>kbd]:ms-[-0.15rem]',
+        'inline-end': 'order-last pe-2 has-[>button]:me-[-0.3rem] has-[>kbd]:me-[-0.15rem]',
         'block-start':
           'order-first w-full justify-start px-2.5 pt-2 group-has-[>input]/input-group:pt-2 [.border-b]:pb-2',
         'block-end':

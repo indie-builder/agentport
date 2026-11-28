@@ -7,6 +7,7 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { createMenuController } from '@ui-sdk/react/menu';
 import {
   Download,
   EllipsisVertical,
@@ -118,6 +119,7 @@ export function PluginsPage() {
   const [importController] = useState(createFileInputController);
   const importPlugin = useImportPlugin();
   const actionTriggerRef = useRef<HTMLElement | null>(null);
+  const [rowMenu] = useState(() => createMenuController<PluginWithAgentCount>());
   const panelFocus = (): HTMLElement | null =>
     actionTriggerRef.current?.isConnected
       ? actionTriggerRef.current
@@ -353,47 +355,28 @@ export function PluginsPage() {
                 {plugin.agentCount} 个专家
               </span>
               <div className="flex w-8 shrink-0 justify-end">
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`操作 ${plugin.name}`}
-                        onFocus={(event) => {
-                          actionTriggerRef.current = event.currentTarget;
-                        }}
-                        onClick={(event) => {
-                          actionTriggerRef.current = event.currentTarget;
-                        }}
-                      >
-                        <EllipsisVertical />
-                      </Button>
-                    }
-                  />
-                  <DropdownMenuContent align="end" sideOffset={4} className="w-44">
-                    <DropdownMenuGroup>
-                      {canUpdate ? (
-                        <DropdownMenuItem onSelect={() => setEditing(plugin)}>
-                          <Pencil /> 编辑
-                        </DropdownMenuItem>
-                      ) : null}
-                      {canExport ? (
-                        <DropdownMenuItem render={<a href={`/api/plugins/${plugin.id}/export`} />}>
-                          <Download /> 导出 ZIP
-                        </DropdownMenuItem>
-                      ) : null}
-                      {canDelete ? (
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onSelect={() => setDeleting(plugin)}
-                        >
-                          <Trash2 /> 删除
-                        </DropdownMenuItem>
-                      ) : null}
-                    </DropdownMenuGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <DropdownMenuTrigger
+                  controller={rowMenu}
+                  payload={plugin}
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`操作 ${plugin.name}`}
+                      onFocus={(event) => {
+                        actionTriggerRef.current = event.currentTarget;
+                      }}
+                      onPointerDown={(event) => {
+                        actionTriggerRef.current = event.currentTarget;
+                      }}
+                      onClick={(event) => {
+                        actionTriggerRef.current = event.currentTarget;
+                      }}
+                    >
+                      <EllipsisVertical />
+                    </Button>
+                  }
+                />
               </div>
             </li>
           ))}
@@ -420,49 +403,28 @@ export function PluginsPage() {
                     </Link>
                   </CardTitle>
                   <CardAction>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`操作 ${plugin.name}`}
-                            onFocus={(event) => {
-                              actionTriggerRef.current = event.currentTarget;
-                            }}
-                            onClick={(event) => {
-                              actionTriggerRef.current = event.currentTarget;
-                            }}
-                          >
-                            <EllipsisVertical />
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end" sideOffset={4} className="w-44">
-                        <DropdownMenuGroup>
-                          {canUpdate ? (
-                            <DropdownMenuItem onSelect={() => setEditing(plugin)}>
-                              <Pencil /> 编辑
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canExport ? (
-                            <DropdownMenuItem
-                              render={<a href={`/api/plugins/${plugin.id}/export`} />}
-                            >
-                              <Download /> 导出 ZIP
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canDelete ? (
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onSelect={() => setDeleting(plugin)}
-                            >
-                              <Trash2 /> 删除
-                            </DropdownMenuItem>
-                          ) : null}
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <DropdownMenuTrigger
+                      controller={rowMenu}
+                      payload={plugin}
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`操作 ${plugin.name}`}
+                          onFocus={(event) => {
+                            actionTriggerRef.current = event.currentTarget;
+                          }}
+                          onPointerDown={(event) => {
+                            actionTriggerRef.current = event.currentTarget;
+                          }}
+                          onClick={(event) => {
+                            actionTriggerRef.current = event.currentTarget;
+                          }}
+                        >
+                          <EllipsisVertical />
+                        </Button>
+                      }
+                    />
                   </CardAction>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
@@ -517,6 +479,33 @@ export function PluginsPage() {
           onClose={() => setDeleting(null)}
         />
       ) : null}
+      <DropdownMenu controller={rowMenu}>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+          {(state) => {
+            const plugin = state.payload as PluginWithAgentCount | undefined;
+            if (!plugin) return null;
+            return (
+              <DropdownMenuGroup>
+                {canUpdate ? (
+                  <DropdownMenuItem onSelect={() => setEditing(plugin)}>
+                    <Pencil /> 编辑
+                  </DropdownMenuItem>
+                ) : null}
+                {canExport ? (
+                  <DropdownMenuItem render={<a href={`/api/plugins/${plugin.id}/export`} />}>
+                    <Download /> 导出 ZIP
+                  </DropdownMenuItem>
+                ) : null}
+                {canDelete ? (
+                  <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(plugin)}>
+                    <Trash2 /> 删除
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuGroup>
+            );
+          }}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </ResourcePage>
   );
 }

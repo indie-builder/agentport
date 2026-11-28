@@ -12,8 +12,16 @@ import { SearchInput } from '../../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
-import { Field, FieldDescription, FieldError, FieldLabel } from '../../components/ui/field.js';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
+import { Listbox, ListboxItem, ListboxItemIndicator } from '../../components/ui/listbox.js';
 import {
   Table,
   TableBody,
@@ -25,6 +33,7 @@ import {
 import { can } from '../../lib/access.js';
 import type { DataDomainIdentity } from '../../lib/api.js';
 import { errorMessage } from '../../lib/api.js';
+import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { useFormBlocker } from '../../lib/form.js';
 import { formatRelative } from '../../lib/format.js';
@@ -86,10 +95,16 @@ const emptyForm: FormValues = {
 function BusinessUserPicker({
   selected,
   enabled,
+  disabled,
+  invalid,
+  errorId,
   onSelect,
 }: {
   selected: string;
   enabled: boolean;
+  disabled: boolean;
+  invalid: boolean;
+  errorId: string;
   onSelect: (businessId: string) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -114,26 +129,37 @@ function BusinessUserPicker({
       {accounts.data && accounts.data.items.length === 0 ? (
         <EmptyState variant="filter" scale="inline" title="没有匹配的业务用户" />
       ) : null}
-      <fieldset aria-label="可选择的业务用户" className="flex max-h-48 flex-col overflow-y-auto">
-        {(accounts.data?.items ?? []).map((account) => (
-          <Button
-            key={account.businessId}
-            type="button"
-            variant={account.businessId === selected ? 'secondary' : 'outline'}
-            className="h-auto justify-start py-2"
-            aria-pressed={account.businessId === selected}
-            onClick={() => onSelect(account.businessId)}
-          >
-            <span className="flex min-w-0 flex-col items-start gap-0.5 text-left">
-              <span className="truncate">{account.name || account.businessId}</span>
-              <span className="truncate font-mono text-xs text-muted-foreground">
-                {account.businessId}
-                {account.status === 'active' ? '' : ' · 已停用'}
+      {accounts.data && accounts.data.items.length > 0 ? (
+        <Listbox
+          aria-label="可选择的业务用户"
+          value={selected || null}
+          disabled={disabled}
+          aria-invalid={invalid ? true : undefined}
+          aria-describedby={invalid ? errorId : undefined}
+          onValueChange={(next) => {
+            if (next !== null) onSelect(next);
+          }}
+          className="max-h-48 overflow-y-auto"
+        >
+          {accounts.data.items.map((account) => (
+            <ListboxItem
+              key={account.businessId}
+              value={account.businessId}
+              label={account.name || account.businessId}
+              className="py-2"
+            >
+              <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-start">
+                <span className="truncate">{account.name || account.businessId}</span>
+                <span className="truncate font-mono text-xs text-muted-foreground">
+                  {account.businessId}
+                  {account.status === 'active' ? '' : ' · 已停用'}
+                </span>
               </span>
-            </span>
-          </Button>
-        ))}
-      </fieldset>
+              <ListboxItemIndicator />
+            </ListboxItem>
+          ))}
+        </Listbox>
+      ) : null}
     </div>
   );
 }
@@ -240,37 +266,56 @@ function IdentityDialog({
           }}
         >
           <FieldError>{submitError}</FieldError>
-          <Field data-disabled={pending} data-invalid={Boolean(errors.businessId)}>
-            <FieldLabel htmlFor="data-domain-identity-business">
-              业务用户
-              <RequiredMark />
-            </FieldLabel>
-            {identity ? (
-              <Input
-                id="data-domain-identity-business"
-                value={identity.businessId}
-                readOnly
-                className="font-mono"
-              />
-            ) : canReadAccounts ? (
+          {!identity && canReadAccounts ? (
+            <FieldSet data-disabled={pending} className="gap-2">
+              <FieldLegend
+                variant="label"
+                className={cn('mb-0', Boolean(errors.businessId) && 'text-destructive')}
+              >
+                业务用户
+                <RequiredMark />
+              </FieldLegend>
               <BusinessUserPicker
                 selected={businessId}
                 enabled={canReadAccounts}
-                onSelect={(next) => setValue('businessId', next, { shouldDirty: true })}
-              />
-            ) : (
-              <Input
-                {...register('businessId')}
-                id="data-domain-identity-business"
-                placeholder="业务 ID"
-                autoComplete="off"
-                className="font-mono"
                 disabled={pending}
-                aria-invalid={Boolean(errors.businessId)}
+                invalid={Boolean(errors.businessId)}
+                errorId="data-domain-identity-business-error"
+                onSelect={(next) =>
+                  setValue('businessId', next, { shouldDirty: true, shouldValidate: true })
+                }
               />
-            )}
-            <FieldError>{errors.businessId?.message}</FieldError>
-          </Field>
+              <FieldError id="data-domain-identity-business-error">
+                {errors.businessId?.message}
+              </FieldError>
+            </FieldSet>
+          ) : (
+            <Field data-disabled={pending} data-invalid={Boolean(errors.businessId)}>
+              <FieldLabel htmlFor="data-domain-identity-business">
+                业务用户
+                <RequiredMark />
+              </FieldLabel>
+              {identity ? (
+                <Input
+                  id="data-domain-identity-business"
+                  value={identity.businessId}
+                  readOnly
+                  className="font-mono"
+                />
+              ) : (
+                <Input
+                  {...register('businessId')}
+                  id="data-domain-identity-business"
+                  placeholder="业务 ID"
+                  autoComplete="off"
+                  className="font-mono"
+                  disabled={pending}
+                  aria-invalid={Boolean(errors.businessId)}
+                />
+              )}
+              <FieldError>{errors.businessId?.message}</FieldError>
+            </Field>
+          )}
           <Field data-disabled={pending} data-invalid={Boolean(errors.properties)}>
             <FieldLabel>属性</FieldLabel>
             <KeyValueRowEditor

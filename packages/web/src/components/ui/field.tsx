@@ -198,7 +198,7 @@ function FieldTitle({ className, ...props }: ComponentProps<'div'>) {
 }
 
 const fieldDescriptionClassName =
-  'text-left text-sm font-normal text-muted-foreground group-data-[orientation=horizontal]/field:text-balance [[data-variant=legend]+&]:-mt-1.5 last:mt-0 nth-last-2:-mt-1 [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary';
+  'text-start text-sm font-normal text-muted-foreground group-data-[orientation=horizontal]/field:text-balance [[data-variant=legend]+&]:-mt-1.5 last:mt-0 nth-last-2:-mt-1 [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary';
 
 function FieldDescription({
   className,
@@ -254,7 +254,7 @@ function FieldError(rawProps: FieldErrorProps) {
       return messages[0];
     }
     return (
-      <ul className="ml-4 flex list-disc flex-col gap-1">
+      <ul className="ms-4 flex list-disc flex-col gap-1">
         {messages.map((message) => (
           <li key={message}>{message}</li>
         ))}

@@ -60,7 +60,7 @@ function SheetContent<Payload = unknown>({
                 className={buttonVariants({
                   variant: 'ghost',
                   size: 'icon-sm',
-                  className: 'absolute top-3 right-3',
+                  className: 'absolute top-3 end-3',
                 })}
               >
                 <XIcon className="size-3" aria-hidden="true" />

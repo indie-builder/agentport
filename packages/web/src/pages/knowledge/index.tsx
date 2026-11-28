@@ -1,6 +1,7 @@
 import { type KnowledgeBase, knowledgeBaseInputSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { createMenuController, type MenuController } from '@ui-sdk/react/menu';
 import {
   ChevronRight,
   CirclePause,
@@ -138,93 +139,33 @@ const statusFilterOptions = [
 function KnowledgeRow({
   base,
   pinned,
-  pinPending,
-  onTogglePin,
-  onEdit,
-  onDuplicate,
-  onSettings,
-  onToggleStatus,
-  onExport,
-  onDelete,
-  canUpdate,
-  canCreate,
-  canExport,
-  canDelete,
+  menuController,
+  onMenuTrigger,
   layout = 'row',
 }: {
   base: KnowledgeBase;
   pinned: boolean;
-  pinPending: boolean;
-  canUpdate: boolean;
-  canCreate: boolean;
-  canExport: boolean;
-  canDelete: boolean;
-  onTogglePin: () => void;
-  onEdit: (trigger: HTMLElement) => void;
-  onDuplicate: (trigger: HTMLElement) => void;
-  onSettings: (trigger: HTMLElement) => void;
-  onToggleStatus: (trigger: HTMLElement) => void;
-  onExport: (trigger: HTMLElement) => void;
-  onDelete: (trigger: HTMLElement) => void;
+  menuController: MenuController<KnowledgeBase>;
+  onMenuTrigger: (trigger: HTMLElement) => void;
   layout?: 'row' | 'card';
 }) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const menu = (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button ref={triggerRef} variant="ghost" size="icon" aria-label={`操作 ${base.name}`}>
-            <EllipsisVertical />
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-        <DropdownMenuGroup>
-          <DropdownMenuItem disabled={pinPending} onSelect={onTogglePin}>
-            {pinned ? <PinOff /> : <Pin />}
-            {pinned ? '取消置顶' : '置顶'}
-          </DropdownMenuItem>
-          {canUpdate ? (
-            <DropdownMenuItem onSelect={() => triggerRef.current && onEdit(triggerRef.current)}>
-              <Pencil /> 编辑信息
-            </DropdownMenuItem>
-          ) : null}
-          {canCreate ? (
-            <DropdownMenuItem
-              onSelect={() => triggerRef.current && onDuplicate(triggerRef.current)}
-            >
-              <Copy /> 复制知识库
-            </DropdownMenuItem>
-          ) : null}
-          {canUpdate ? (
-            <DropdownMenuItem onSelect={() => triggerRef.current && onSettings(triggerRef.current)}>
-              <Settings /> 设置
-            </DropdownMenuItem>
-          ) : null}
-          {canUpdate ? (
-            <DropdownMenuItem
-              onSelect={() => triggerRef.current && onToggleStatus(triggerRef.current)}
-            >
-              {base.status === 'active' ? <CirclePause /> : <CirclePlay />}
-              {base.status === 'active' ? '停用' : '启用'}
-            </DropdownMenuItem>
-          ) : null}
-          {canExport ? (
-            <DropdownMenuItem onSelect={() => triggerRef.current && onExport(triggerRef.current)}>
-              <Download /> 导出知识包
-            </DropdownMenuItem>
-          ) : null}
-          {canDelete ? (
-            <DropdownMenuItem
-              variant="destructive"
-              onSelect={() => triggerRef.current && onDelete(triggerRef.current)}
-            >
-              <Trash2 /> 删除
-            </DropdownMenuItem>
-          ) : null}
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <DropdownMenuTrigger
+      controller={menuController}
+      payload={base}
+      render={
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`操作 ${base.name}`}
+          onFocus={(event) => onMenuTrigger(event.currentTarget)}
+          onPointerDown={(event) => onMenuTrigger(event.currentTarget)}
+          onClick={(event) => onMenuTrigger(event.currentTarget)}
+        >
+          <EllipsisVertical />
+        </Button>
+      }
+    />
   );
   if (layout === 'card') {
     return (
@@ -368,6 +309,8 @@ export function KnowledgePage() {
   const [duplicatedBaseId, setDuplicatedBaseId] = useState<string | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
+  const rowTriggerRef = useRef<HTMLElement | null>(null);
+  const [rowMenu] = useState(() => createMenuController<KnowledgeBase>());
 
   useEffect(() => {
     if (creating || createdBaseId === null) return;
@@ -432,50 +375,9 @@ export function KnowledgePage() {
         base={base}
         layout={layout}
         pinned={pinnedIds.has(base.id)}
-        pinPending={setPin.isPending && setPin.variables?.baseId === base.id}
-        onTogglePin={() =>
-          setPin.mutate(
-            { baseId: base.id, pinned: !pinnedIds.has(base.id) },
-            { onError: toastError },
-          )
-        }
-        onEdit={(trigger) => {
-          setActionFocus(trigger);
-          setEditing(base);
-        }}
-        onDuplicate={(trigger) => {
-          setActionFocus(trigger);
-          setDuplicating(base);
-        }}
-        onSettings={(trigger) => {
-          setActionFocus(trigger);
-          setConfiguring(base);
-        }}
-        onToggleStatus={(trigger) => {
-          setActionFocus(trigger);
-          update.mutate(
-            {
-              baseId: base.id,
-              patch: { status: base.status === 'active' ? 'disabled' : 'active' },
-            },
-            {
-              onSuccess: () =>
-                toastSuccess(base.status === 'active' ? '知识库已停用' : '知识库已启用'),
-              onError: toastError,
-            },
-          );
-        }}
-        onExport={(trigger) => {
-          setActionFocus(trigger);
-          download(base);
-        }}
-        canUpdate={canUpdate}
-        canCreate={canCreate}
-        canExport={canExport}
-        canDelete={canDelete}
-        onDelete={(trigger) => {
-          setActionFocus(trigger);
-          setDeleting(base);
+        menuController={rowMenu}
+        onMenuTrigger={(trigger) => {
+          rowTriggerRef.current = trigger;
         }}
       />
     ));
@@ -804,6 +706,103 @@ export function KnowledgePage() {
           }}
         />
       ) : null}
+      <DropdownMenu controller={rowMenu}>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+          {(state) => {
+            const base = state.payload as KnowledgeBase | undefined;
+            if (!base) return null;
+            const pinned = pinnedIds.has(base.id);
+            const pinPending = setPin.isPending && setPin.variables?.baseId === base.id;
+            return (
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  disabled={pinPending}
+                  onSelect={() =>
+                    setPin.mutate({ baseId: base.id, pinned: !pinned }, { onError: toastError })
+                  }
+                >
+                  {pinned ? <PinOff /> : <Pin />}
+                  {pinned ? '取消置顶' : '置顶'}
+                </DropdownMenuItem>
+                {canUpdate ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setActionFocus(rowTriggerRef.current);
+                      setEditing(base);
+                    }}
+                  >
+                    <Pencil /> 编辑信息
+                  </DropdownMenuItem>
+                ) : null}
+                {canCreate ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setActionFocus(rowTriggerRef.current);
+                      setDuplicating(base);
+                    }}
+                  >
+                    <Copy /> 复制知识库
+                  </DropdownMenuItem>
+                ) : null}
+                {canUpdate ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setActionFocus(rowTriggerRef.current);
+                      setConfiguring(base);
+                    }}
+                  >
+                    <Settings /> 设置
+                  </DropdownMenuItem>
+                ) : null}
+                {canUpdate ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setActionFocus(rowTriggerRef.current);
+                      update.mutate(
+                        {
+                          baseId: base.id,
+                          patch: { status: base.status === 'active' ? 'disabled' : 'active' },
+                        },
+                        {
+                          onSuccess: () =>
+                            toastSuccess(
+                              base.status === 'active' ? '知识库已停用' : '知识库已启用',
+                            ),
+                          onError: toastError,
+                        },
+                      );
+                    }}
+                  >
+                    {base.status === 'active' ? <CirclePause /> : <CirclePlay />}
+                    {base.status === 'active' ? '停用' : '启用'}
+                  </DropdownMenuItem>
+                ) : null}
+                {canExport ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setActionFocus(rowTriggerRef.current);
+                      download(base);
+                    }}
+                  >
+                    <Download /> 导出知识包
+                  </DropdownMenuItem>
+                ) : null}
+                {canDelete ? (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => {
+                      setActionFocus(rowTriggerRef.current);
+                      setDeleting(base);
+                    }}
+                  >
+                    <Trash2 /> 删除
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuGroup>
+            );
+          }}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </ResourcePage>
   );
 }

@@ -46,6 +46,18 @@ function byText(text: string): HTMLButtonElement {
   return button;
 }
 
+function dateTrigger(): HTMLButtonElement {
+  const trigger = host.querySelector<HTMLButtonElement>('[data-slot="date-picker-trigger"]');
+  if (!trigger) throw new Error('date picker trigger not found');
+  return trigger;
+}
+
+function dateInput(): HTMLInputElement {
+  const input = host.querySelector<HTMLInputElement>('[data-slot="date-picker-input"]');
+  if (!input) throw new Error('date picker input not found');
+  return input;
+}
+
 const FORM = [
   'root = Form("booking", buttons, [fc])',
   'buttons = Buttons([submit])',
@@ -62,12 +74,13 @@ describe('DatePicker', () => {
       [FORM, 'fc = FormControl("日期", date)', 'date = DatePicker("when", "single")'].join('\n'),
     );
 
-    const trigger = byText('Select date');
+    const trigger = dateTrigger();
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     await click(trigger);
 
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
-    expect(document.querySelector('[data-slot="calendar"]')).toBeTruthy();
+    expect(document.querySelector('[data-slot="date-picker-content"]')).toBeTruthy();
+    expect(document.querySelector('[data-slot="calendar-grid"]')).toBeTruthy();
   });
 
   it('stores the clicked local day and restores it as selected', async () => {
@@ -77,9 +90,14 @@ describe('DatePicker', () => {
       { onAction },
     );
 
-    await click(byText('Select date'));
+    await click(dateTrigger());
     const cell = document.querySelector(`[data-slot="calendar-day"][data-value="${targetIso}"]`);
     await click(cell);
+    expect(dateTrigger().getAttribute('aria-expanded')).toBe('false');
+    expect(host.querySelector<HTMLInputElement>('input[type="hidden"][name="when"]')?.value).toBe(
+      targetIso,
+    );
+    await click(dateTrigger());
     expect(
       document
         .querySelector(`[data-slot="calendar-day"][data-value="${targetIso}"]`)
@@ -99,8 +117,11 @@ describe('DatePicker', () => {
         },
       },
     );
-    expect(byText(targetIso)).toBeTruthy();
-    await click(byText(targetIso));
+    expect(host.querySelector<HTMLInputElement>('input[type="hidden"][name="when"]')?.value).toBe(
+      targetIso,
+    );
+    expect(dateInput().value.length).toBeGreaterThan(0);
+    await click(dateTrigger());
     expect(
       document
         .querySelector(`[data-slot="calendar-day"][data-value="${targetIso}"]`)
@@ -114,7 +135,7 @@ describe('DatePicker', () => {
       { initialState: { booking: { when: { value: '2030-06-15', componentType: 'DatePicker' } } } },
     );
 
-    await click(byText('2030-06-15'));
+    await click(dateTrigger());
     expect(document.body.textContent).toContain('June 2030');
     expect(
       document
@@ -134,9 +155,13 @@ describe('DatePicker', () => {
       { onAction },
     );
 
-    await click(byText('2030-06-15'));
-    await click(document.querySelector('[data-slot="calendar-day"][data-value="2030-06-15"]'));
-    expect(byText('Select date').textContent).toContain('Select date');
+    const clear = host.querySelector<HTMLButtonElement>('[data-slot="date-picker-clear"]');
+    expect(clear).toBeTruthy();
+    expect(clear?.hasAttribute('data-empty')).toBe(false);
+    await click(clear);
+    expect(dateInput().value).toBe('');
+    expect(clear?.hasAttribute('data-empty')).toBe(true);
+    await click(dateTrigger());
     expect(
       document
         .querySelector('[data-slot="calendar-day"][data-value="2030-06-15"]')
@@ -168,7 +193,12 @@ describe('DatePicker range', () => {
       },
     });
 
-    await click(byText('2030-06-10 → 2030-06-12'));
+    expect(
+      [...host.querySelectorAll<HTMLInputElement>('input[type="hidden"][name="stay"]')].map(
+        (input) => input.value,
+      ),
+    ).toEqual(['2030-06-10', '2030-06-12']);
+    await click(dateTrigger());
     expect(document.body.textContent).toContain('June 2030');
     expect(
       document

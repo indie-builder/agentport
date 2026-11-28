@@ -12,6 +12,8 @@ import {
   tableFeatures,
   useTable,
 } from '@tanstack/react-table';
+import { createFocusRecovery, createRovingFocus, definePrimitive, selects } from '@ui-sdk/core';
+import { createParts } from '@ui-sdk/react/primitive';
 import {
   ArrowDown,
   ArrowUp,
@@ -22,16 +24,7 @@ import {
   Columns3,
   GripVertical,
 } from 'lucide-react';
-import {
-  Fragment,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { Fragment, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { cn } from '../lib/cn.js';
 import { readJsonStorage, writeStorage } from '../lib/storage.js';
 import { EmptyState } from './empty-state.js';
@@ -85,6 +78,53 @@ const features = tableFeatures({
 });
 
 type Features = typeof features;
+
+const dataTableRows = definePrimitive({
+  name: 'data-table-rows',
+  state: () => ({ focused: null as string | null }),
+  api: (context) => {
+    const roving = createRovingFocus(context, {
+      slot: 'row-trigger',
+      key: 'focused',
+      orientation: () => 'vertical',
+    });
+    const recovery = createFocusRecovery<{ value: string; index: number }>({
+      fallback: (lost) => {
+        const items = roving.items();
+        return (items[lost.props.index] ?? items.at(-1))?.el;
+      },
+    });
+    return { roving, recovery };
+  },
+  slots: (slot) => ({
+    root: slot({}),
+    'row-trigger': slot<{ value: string; index: number }>({
+      props: { value: 'string', index: 'number' },
+      selects: selects({ focused: ({ key }) => [key, null] }),
+      attrs: (state, part) => ({
+        type: 'button',
+        tabindex: part.api.roving.tabIndex(state, part),
+      }),
+      on: {
+        keydown: (event, { el, api }) => {
+          if (el) api.roving.keydown(event, el);
+        },
+      },
+      bind: (el, part) => {
+        const unbindRoving = part.api.roving.bind(el, part);
+        const unbindRecovery = part.api.recovery.bind(el, part);
+        return () => {
+          unbindRoving();
+          unbindRecovery();
+        };
+      },
+    }),
+  }),
+});
+
+const { Root: DataTableRows, RowTrigger: DataTableRowTrigger } = createParts(dataTableRows, {
+  'row-trigger': 'button',
+});
 
 function asIds(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : [];
@@ -341,18 +381,6 @@ export function DataTable<T extends RowData>({
     32 +
     44;
 
-  const onRowKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    event.preventDefault();
-    const buttons = Array.from(
-      event.currentTarget
-        .closest('tbody')
-        ?.querySelectorAll<HTMLButtonElement>('button[data-row]') ?? [],
-    );
-    const index = buttons.indexOf(event.currentTarget);
-    buttons[event.key === 'ArrowDown' ? index + 1 : index - 1]?.focus();
-  };
-
   return (
     <div className={cn('flex min-w-0 max-w-full flex-col', className)}>
       {hideRowCount ? null : (
@@ -470,148 +498,154 @@ export function DataTable<T extends RowData>({
             </TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody role="rowgroup" className="block">
-          {loading && rows.length === 0 ? (
-            Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
-              <TableRow key={key} role="row" className="block hover:bg-transparent">
-                <TableCell role="cell" colSpan={visible.length + 1} className="block p-0">
-                  <Skeleton className="h-14" />
+        <DataTableRows>
+          <TableBody role="rowgroup" className="block">
+            {loading && rows.length === 0 ? (
+              Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
+                <TableRow key={key} role="row" className="block hover:bg-transparent">
+                  <TableCell role="cell" colSpan={visible.length + 1} className="block p-0">
+                    <Skeleton className="h-14" />
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : rows.length === 0 ? (
+              <TableRow role="row" className="block hover:bg-transparent">
+                <TableCell
+                  role="cell"
+                  colSpan={visible.length + 1}
+                  className="block p-0 whitespace-normal"
+                >
+                  {empty === undefined || typeof empty === 'string' ? (
+                    <EmptyState variant="idle" scale="inline" title={empty ?? '暂无数据'} />
+                  ) : (
+                    empty
+                  )}
                 </TableCell>
               </TableRow>
-            ))
-          ) : rows.length === 0 ? (
-            <TableRow role="row" className="block hover:bg-transparent">
-              <TableCell
-                role="cell"
-                colSpan={visible.length + 1}
-                className="block p-0 whitespace-normal"
-              >
-                {empty === undefined || typeof empty === 'string' ? (
-                  <EmptyState variant="idle" scale="inline" title={empty ?? '暂无数据'} />
-                ) : (
-                  empty
-                )}
-              </TableCell>
-            </TableRow>
-          ) : (
-            table.getRowModel().rows.map((row) => {
-              const key = row.id;
-              const rowName = rowLabel?.(row.original) ?? key;
-              const expandedContent = renderExpanded?.(row.original) ?? null;
-              const isOpen = expanded === key && expandedContent !== null;
-              const interactive =
-                (rowInteractive?.(row.original) ?? true) &&
-                (expandedContent !== null || Boolean(onRowClick));
-              const panelId = `${tableId}-row-panel-${key}`;
-              const activate = (trigger: HTMLElement) => {
-                if (expandedContent !== null) setExpanded(isOpen ? null : key);
-                onRowClick?.(row.original, trigger);
-              };
-              return (
-                <Fragment key={key}>
-                  <TableRow
-                    role="row"
-                    onClick={
-                      interactive
-                        ? (event) => {
-                            const target = event.target as Element;
-                            if (!event.currentTarget.contains(target)) return;
-                            const control = target.closest(
-                              'a, button, input, select, textarea, label, [role="button"], [role="checkbox"], [contenteditable], [tabindex]',
-                            );
-                            if (control && event.currentTarget.contains(control)) return;
-                            event.currentTarget
-                              .querySelector<HTMLButtonElement>('button[data-row]')
-                              ?.click();
-                          }
-                        : undefined
-                    }
-                    className={cn(
-                      'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left transition-colors duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-transparent',
-                      interactive ? 'cursor-pointer' : 'cursor-default',
-                      isOpen && 'bg-hover has-aria-expanded:bg-hover',
-                    )}
-                    style={{ gridTemplateColumns: template }}
-                  >
-                    {row.getVisibleCells().map((cell, index) => {
-                      const source = sourceById.get(cell.column.id);
-                      return (
-                        <TableCell
-                          key={cell.id}
-                          role="cell"
-                          className={cn(
-                            'min-w-0 px-0 py-2 whitespace-normal wrap-anywhere [&_.truncate]:overflow-visible [&_.truncate]:whitespace-normal [&_.truncate]:text-clip',
-                            source?.numeric &&
-                              'text-right font-mono tabular-nums text-muted-foreground',
-                            source?.align === 'end' && 'text-right',
-                          )}
-                        >
-                          <div
-                            className={cn(index === 0 && interactive && 'flex items-center gap-1')}
-                          >
-                            {index === 0 && interactive && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                data-row=""
-                                aria-label={`${expandedContent !== null ? (isOpen ? '收起' : '展开') : '打开'} ${rowName}`}
-                                aria-expanded={expandedContent !== null ? isOpen : undefined}
-                                aria-controls={expandedContent !== null ? panelId : undefined}
-                                onKeyDown={onRowKeyDown}
-                                onClick={(event) => activate(event.currentTarget)}
-                              >
-                                {expandedContent !== null ? (
-                                  isOpen ? (
-                                    <ChevronDown aria-hidden="true" />
-                                  ) : (
-                                    <ChevronRight aria-hidden="true" />
-                                  )
-                                ) : (
-                                  <ArrowUpRight aria-hidden="true" />
-                                )}
-                              </Button>
-                            )}
-                            <div className="min-w-0">
-                              {source?.cell
-                                ? source.cell(row.original)
-                                : String(
-                                    (row.original as Record<string, unknown>)[cell.column.id] ?? '',
-                                  )}
-                            </div>
-                          </div>
-                        </TableCell>
-                      );
-                    })}
-                    <TableCell role="cell" className="min-w-0 p-0" />
-                  </TableRow>
-                  {expandedContent !== null && (
+            ) : (
+              table.getRowModel().rows.map((row, rowIndex) => {
+                const key = row.id;
+                const rowName = rowLabel?.(row.original) ?? key;
+                const expandedContent = renderExpanded?.(row.original) ?? null;
+                const isOpen = expanded === key && expandedContent !== null;
+                const interactive =
+                  (rowInteractive?.(row.original) ?? true) &&
+                  (expandedContent !== null || Boolean(onRowClick));
+                const panelId = `${tableId}-row-panel-${key}`;
+                const activate = (trigger: HTMLElement) => {
+                  if (expandedContent !== null) setExpanded(isOpen ? null : key);
+                  onRowClick?.(row.original, trigger);
+                };
+                return (
+                  <Fragment key={key}>
                     <TableRow
                       role="row"
-                      aria-hidden={isOpen ? undefined : true}
-                      className={cn('block border-0 hover:bg-transparent', isOpen && 'border-b')}
+                      onClick={
+                        interactive
+                          ? (event) => {
+                              const target = event.target as Element;
+                              if (!event.currentTarget.contains(target)) return;
+                              const control = target.closest(
+                                'a, button, input, select, textarea, label, [role="button"], [role="checkbox"], [contenteditable], [tabindex]',
+                              );
+                              if (control && event.currentTarget.contains(control)) return;
+                              event.currentTarget
+                                .querySelector<HTMLButtonElement>('button[data-row]')
+                                ?.click();
+                            }
+                          : undefined
+                      }
+                      className={cn(
+                        'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left transition-colors duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-transparent',
+                        interactive ? 'cursor-pointer' : 'cursor-default',
+                        isOpen && 'bg-hover has-aria-expanded:bg-hover',
+                      )}
+                      style={{ gridTemplateColumns: template }}
                     >
-                      <TableCell
-                        id={panelId}
-                        role="cell"
-                        colSpan={visible.length + 1}
-                        className="block p-0 whitespace-normal"
-                      >
-                        <Collapsible open={isOpen}>
-                          <CollapsibleContent animated>
-                            <div className={hasRowInteraction ? 'py-4 pl-10 pr-3' : 'px-3 py-4'}>
-                              {expandedContent}
+                      {row.getVisibleCells().map((cell, index) => {
+                        const source = sourceById.get(cell.column.id);
+                        return (
+                          <TableCell
+                            key={cell.id}
+                            role="cell"
+                            className={cn(
+                              'min-w-0 px-0 py-2 whitespace-normal wrap-anywhere [&_.truncate]:overflow-visible [&_.truncate]:whitespace-normal [&_.truncate]:text-clip',
+                              source?.numeric &&
+                                'text-right font-mono tabular-nums text-muted-foreground',
+                              source?.align === 'end' && 'text-right',
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                index === 0 && interactive && 'flex items-center gap-1',
+                              )}
+                            >
+                              {index === 0 && interactive && (
+                                <DataTableRowTrigger
+                                  value={key}
+                                  index={rowIndex}
+                                  data-row=""
+                                  data-variant="ghost"
+                                  data-size="icon-sm"
+                                  className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
+                                  aria-label={`${expandedContent !== null ? (isOpen ? '收起' : '展开') : '打开'} ${rowName}`}
+                                  aria-expanded={expandedContent !== null ? isOpen : undefined}
+                                  aria-controls={expandedContent !== null ? panelId : undefined}
+                                  onClick={(event) => activate(event.currentTarget)}
+                                >
+                                  {expandedContent !== null ? (
+                                    isOpen ? (
+                                      <ChevronDown aria-hidden="true" />
+                                    ) : (
+                                      <ChevronRight aria-hidden="true" />
+                                    )
+                                  ) : (
+                                    <ArrowUpRight aria-hidden="true" />
+                                  )}
+                                </DataTableRowTrigger>
+                              )}
+                              <div className="min-w-0">
+                                {source?.cell
+                                  ? source.cell(row.original)
+                                  : String(
+                                      (row.original as Record<string, unknown>)[cell.column.id] ??
+                                        '',
+                                    )}
+                              </div>
                             </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-                      </TableCell>
+                          </TableCell>
+                        );
+                      })}
+                      <TableCell role="cell" className="min-w-0 p-0" />
                     </TableRow>
-                  )}
-                </Fragment>
-              );
-            })
-          )}
-        </TableBody>
+                    {expandedContent !== null && (
+                      <TableRow
+                        role="row"
+                        aria-hidden={isOpen ? undefined : true}
+                        className={cn('block border-0 hover:bg-transparent', isOpen && 'border-b')}
+                      >
+                        <TableCell
+                          id={panelId}
+                          role="cell"
+                          colSpan={visible.length + 1}
+                          className="block p-0 whitespace-normal"
+                        >
+                          <Collapsible open={isOpen}>
+                            <CollapsibleContent animated>
+                              <div className={hasRowInteraction ? 'py-4 pl-10 pr-3' : 'px-3 py-4'}>
+                                {expandedContent}
+                              </div>
+                            </CollapsibleContent>
+                          </Collapsible>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                );
+              })
+            )}
+          </TableBody>
+        </DataTableRows>
       </Table>
     </div>
   );
