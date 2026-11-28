@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { Page, PageHeader, PageTopbar } from '../../components/page.js';
 import { homePath } from '../../lib/access.js';
-import { meQuery } from '../../lib/queries.js';
+import { meQuery } from '../../lib/queries/session.js';
 
 function HomeRedirect() {
   const me = useQuery(meQuery);

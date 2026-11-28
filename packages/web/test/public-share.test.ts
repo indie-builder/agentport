@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readShareToken, ShareView } from '../src/routes/s.$shareId.js';
+import { readShareToken, ShareView } from '../src/pages/public-share.js';
 
 const sha = 'a'.repeat(64);
 

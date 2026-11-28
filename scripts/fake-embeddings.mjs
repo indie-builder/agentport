@@ -1,11 +1,9 @@
-import { createHash } from 'node:crypto';
-
 const PORT = Number(process.env.FAKE_EMBEDDINGS_PORT ?? 4599);
 const MODEL = 'local-deterministic';
 const DIMENSIONS = 1024;
 
 function embed(text) {
-  let state = createHash('sha256').update(text).digest().readUInt32LE(0) || 1;
+  let state = new Bun.CryptoHasher('sha256').update(text).digest().readUInt32LE(0) || 1;
   const vector = [];
   let norm = 0;
   for (let index = 0; index < DIMENSIONS; index += 1) {

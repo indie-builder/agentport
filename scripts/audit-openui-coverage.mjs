@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const root = resolve(dirname(Bun.fileURLToPath(import.meta.url)), '..');
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
 const spec = readJson(resolve(root, 'packages/core/src/generated/openui.spec.json'));

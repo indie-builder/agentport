@@ -1,13 +1,12 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
 const LIMIT = 3000;
 const EXCLUDED_DIRS = ['packages/db/migrations/meta/', 'packages/core/src/generated/'];
 const EXCLUDED_FILES = ['packages/web/src/routeTree.gen.ts'];
 
-const listed = execFileSync(
-  'git',
+const listedRun = Bun.spawnSync(
   [
+    'git',
     'ls-files',
     '-z',
     '--cached',
@@ -20,8 +19,14 @@ const listed = execFileSync(
     '*.mjs',
     '*.json',
   ],
-  { encoding: 'utf8' },
+  { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
 );
+if (!listedRun.success) {
+  const reason = listedRun.signalCode ? `signal ${listedRun.signalCode}` : `exit ${listedRun.exitCode}`;
+  console.error(listedRun.stderr?.toString('utf8').trim() || `git ls-files failed (${reason})`);
+  process.exit(listedRun.exitCode || 1);
+}
+const listed = listedRun.stdout.toString('utf8');
 
 const files = listed
   .split('\0')
