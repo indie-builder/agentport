@@ -8,6 +8,7 @@
     ".": {
       "entry": [
         "scripts/*.{ts,mjs}",
+        "scripts/**/*.test.ts",
         "e2e*.config.ts",
         "tests/**/*.e2e.ts",
         "tests/support/*.test.ts",

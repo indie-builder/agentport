@@ -30,6 +30,7 @@ Options:
   --json             Print a single JSON report to stdout
   --verbose          Stream stage output live instead of buffering
   --e2e              Include e2e:suite stage
+  --security         Include audit:high dependency security audit stage
   -h, --help         Show this help message`;
 
 const runGit = async (args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> => {

@@ -123,10 +123,10 @@
 ## 5. 门禁策略（个人项目）
 
 - **不加 blocking 钩子**：不装 pre-commit 跑 typecheck/build/test。
-- **CI 在本地运行**：`bun run ci` 先并行跑各项 `lint:*`（含 `lint:docs` 文档链接/路径/索引与 `AGENTS.md` 字节上限校验、`lint:deadcode`、`lint:ratchet`、`lint:lines`）、`openui:audit`（OpenUI 改动触发的毫秒级覆盖审计）、`formal`、`scripts:test` 与全仓 `typecheck`（单进程 `tsc -b tsconfig.json packages/web` 合并检查并增量构建后端 7 包 `dist`）；`typecheck` 通过后并行跑 `typecheck:scripts`、`typecheck:e2e`、`typecheck:tests`、web 构建（`--filter @agentport/web build`）、`openui:check`（同轮已调度 `test` 时自动附带 `--no-tests` 去重，单独执行 `bun run openui:check` 仍保留行为测试）、`test:sharded` 与 `test:web`（两者独立直跑时都会先通过 `scripts/check-dist-fresh.ts` 做毫秒级 `dist` 过期预检，未构建时快速失败并提示 `--auto-build`）；上述已启用上游检查全部通过后才运行 `e2e`（`e2e:suite`，仅在开启 `--e2e` 时调度）。支持 `bun run ci:fast`（`--fast`，跳过 `build:web`、`openui:check`、`formal`、`test`、`test:web`、`e2e`）、`bun run ci:changed`（`--changed [base]`，按 git diff 与包依赖 DAG 仅运行受影响阶段）、`bun run ci:e2e`（`--e2e`，追加 `e2e:suite`），以及 `--json` / `--verbose`。不使用 GitHub CI（`ci.yml` 已删除），push 与 PR 不触发远端检查。
+- **CI 在本地运行**：`bun run ci` 先并行跑各项 `lint:*`（含 `lint:contract`、`lint:contract:test`、`lint:docs` 文档链接/路径/索引与 `AGENTS.md` 字节上限校验、`lint:deadcode`、`lint:ratchet`、`lint:lines`）、`openui:audit`（OpenUI 改动触发的毫秒级覆盖审计）、`formal`、`scripts:test` 与全仓 `typecheck`（单进程 `tsc -b tsconfig.json packages/web` 合并检查并增量构建后端 7 包 `dist`）；`typecheck` 通过后并行跑 `typecheck:scripts`、`typecheck:e2e`、`typecheck:tests`、`lint:db`（离线校验 Drizzle schema 与迁移文件一致性，在 `--fast` 下同样保留）、web 构建（`--filter @agentport/web build`）、`openui:check`（同轮已调度 `test` 时自动附带 `--no-tests` 去重，单独执行 `bun run openui:check` 仍保留行为测试）、`test:sharded` 与 `test:web`（两者独立直跑时都会先通过 `scripts/check-dist-fresh.ts` 做毫秒级 `dist` 过期预检，未构建时快速失败并提示 `--auto-build`）；上述已启用上游检查全部通过后才运行 `e2e`（`e2e:suite`，仅在开启 `--e2e` 时调度）。支持 `bun run ci:fast`（`--fast`，跳过 `build:web`、`openui:check`、`formal`、`test`、`test:web`、`e2e`）、`bun run ci:changed`（`--changed [base]`，按 git diff 与包依赖 DAG 仅运行受影响阶段）、`bun run ci:e2e`（`--e2e`，追加 `e2e:suite`）、`bun run ci:security`（`--security`，在默认离线 CI 之外显式追加 `audit:high` 高危依赖安全审计），以及 `--json` / `--verbose`。不使用 GitHub CI（`ci.yml` 已删除），push 与 PR 不触发远端检查。
 - **合并不等待 CI**：用户要求提交或合并时直接执行，不自动开启 PR 监控、冷却等待或远端检查门禁。只有用户明确要求时才监控 CI。
 - **本地验证按改动范围选择**：保留现有测试、类型检查和构建命令，不把全套检查固定绑定到每次修改或提交；需要完整检查时跑 `bun run ci`。发布工作流 `release.yml` 独立保留。
-- **机械检查按需跑**：`lint:docs`、`lint:focus`、`lint:design`、`lint:contract`、`lint:lines`、`lint:deadcode`、`lint:ratchet`、`bun run lint`、`openui:audit` 这类秒级脚本交给 review 阶段顺手执行；收紧行数或抑制注释基线用 `bun run ratchet:tighten`。
+- **机械检查按需跑**：`lint:docs`、`lint:focus`、`lint:design`、`lint:contract`（规则实现在 `scripts/contract/`，支持 `-- --list-rules` 与 `-- --rule <id>` 过滤单条规则；配套测试为 `lint:contract:test`）、`lint:db`、`lint:lines`、`lint:deadcode`、`lint:ratchet`、`bun run lint`、`bun run audit:high`、`openui:audit` 这类秒级或按需脚本交给 review 阶段顺手执行；收紧行数或抑制注释基线用 `bun run ratchet:tighten`；`scripts:test` 涵盖 `ci-planner.test.ts`、`check-ratchets.test.ts`、`check-dist-fresh.test.ts` 与 `check-db-migrations.test.ts`。
 - **判断类标准**交独立 review 代理：风格与跨文件一致性可按需做轻量初审，契约、架构与安全取舍交独立高能力只读评审子代理终审；规则不写进常驻上下文。
 
 ## 6. 依赖升级
@@ -142,24 +142,24 @@
 
 | 规则 / 错误类别 | 执行层级 | 唯一执行入口 |
 |---|---|---|
-| UI 原语只用 `@ui-sdk/react` + shadcn/ui，禁 `@radix-ui` / `@base-ui` | 架构 + Lint + CI | `packages/web/src/components/ui/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| 禁硬编码 hex、禁 `dark:` 变体类、禁逐个传 `strokeWidth`/`size`、禁直接拼接 `buttonVariants` | 架构 + Lint + CI | `packages/web/src/styles.css`、`packages/web/src/App.tsx`、`packages/web/src/components/ui/button.tsx` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| 前端本地存储走统一封装，禁直接访问 `localStorage` | 架构 + Lint + CI | `packages/web/src/lib/storage.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| UI 原语只用 `@ui-sdk/react` + shadcn/ui，禁 `@radix-ui` / `@base-ui` | 架构 + Lint + CI | `packages/web/src/components/ui/` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| 禁硬编码 hex、禁 `dark:` 变体类、禁逐个传 `strokeWidth`/`size`、禁直接拼接 `buttonVariants` | 架构 + Lint + CI | `packages/web/src/styles.css`、`packages/web/src/App.tsx`、`packages/web/src/components/ui/button.tsx` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| 前端本地存储走统一封装，禁直接访问 `localStorage` | 架构 + Lint + CI | `packages/web/src/lib/storage.ts` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
 | 焦点与边框单层契约（禁叠环、`outline-none`、slider 焦点态） | Lint + CI | `scripts/check-focus-contract.mjs`（`bun run lint:focus`） |
 | Tailwind 设计令牌、类名有效性、内联样式与组件样式契约（禁原始调色板与黑白字面色、未知类、非布局任意值、非 CSS 变量内联样式与 `<style>`、`no-restyle` 严格错误门禁） | Lint + CI | `packages/web/.oxlintrc.json`（`bun run lint:design`，已接入 `scripts/ci.ts`） |
-| 8 包跨包分层边界（`shared` / `contract` / `core` / `db` / `api` / `worker` / `web` / `sandbox` 单向依赖与纯子路径白名单） | 架构 + Lint + CI | `package.json`、`packages/*/package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| 文件级、API 模块级与 Worker 子域级循环依赖禁止 | 架构 + Lint + CI | `packages/api/src/modules/`、`packages/worker/src/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| API 内部单向分层（`http`/`lib`/`queue` 不反向依赖 `modules/*`、禁跨模块 `router` 导入、禁散落 `process.env` 与裸 `bodyLimit`） | 架构 + Lint + CI | `packages/api/src/config.ts`、`packages/api/src/http/body-limit.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| DB 层禁读 `process.env`（连接与池上限由调用方经 `createDb(url, { max })` 传入） | 架构 + Lint + CI | `packages/db/src/client.ts`、`packages/shared/src/config.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| Worker 单组合根（`createDb` 与 `DockerSandboxProvider` 收口于主入口，独立 CLI 脚本除外） | 架构 + Lint + CI | `packages/worker/src/index.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| 多包共享第三方依赖强制走 `workspaces.catalog` 单一版本源 | 架构 + Lint + CI | `package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| 请求校验只在 oRPC 契约完成，handler/router 禁 `safeParse` | 架构 + Lint + CI | `packages/api/src/http/orpc.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| API 业务模块禁直接抛 `new ORPCError()` / `new z.ZodError()`，统一走 `AppError` / `fail()` 与 `http/orpc.ts` 错误管道（`api-no-orpc-zod-throw`） | 架构 + Lint + CI | `packages/api/src/http/orpc.ts`、`packages/core/src/errors.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| API 层禁直接 Drizzle 表 DML（`.insert`/`.update`/`.delete`）及 `sql` 模板写操作，收口至 `packages/db/src/repo/`（`api-no-raw-dml`） | 架构 + Lint + CI | `packages/db/src/repo/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 8 包跨包分层边界（`shared` / `contract` / `core` / `db` / `api` / `worker` / `web` / `sandbox` 单向依赖与纯子路径白名单） | 架构 + Lint + CI | `package.json`、`packages/*/package.json` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| 文件级、API 模块级与 Worker 子域级循环依赖禁止 | 架构 + Lint + CI | `packages/api/src/modules/`、`packages/worker/src/` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| API 内部单向分层（`http`/`lib`/`queue` 不反向依赖 `modules/*`、禁跨模块 `router` 导入、禁散落 `process.env` 与裸 `bodyLimit`） | 架构 + Lint + CI | `packages/api/src/config.ts`、`packages/api/src/http/body-limit.ts` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| DB 层禁读 `process.env`（连接与池上限由调用方经 `createDb(url, { max })` 传入） | 架构 + Lint + CI | `packages/db/src/client.ts`、`packages/shared/src/config.ts` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| Worker 单组合根（`createDb` 与 `DockerSandboxProvider` 收口于主入口，独立 CLI 脚本除外） | 架构 + Lint + CI | `packages/worker/src/index.ts` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| 多包共享第三方依赖强制走 `workspaces.catalog` 单一版本源 | 架构 + Lint + CI | `package.json` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| 请求校验只在 oRPC 契约完成，handler/router 禁 `safeParse` | 架构 + Lint + CI | `packages/api/src/http/orpc.ts` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| API 业务模块禁直接抛 `new ORPCError()` / `new z.ZodError()`，统一走 `AppError` / `fail()` 与 `http/orpc.ts` 错误管道（`api-no-orpc-zod-throw`） | 架构 + Lint + CI | `packages/api/src/http/orpc.ts`、`packages/core/src/errors.ts` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| API 层禁直接 Drizzle 表 DML（`.insert`/`.update`/`.delete`）及 `sql` 模板写操作，收口至 `packages/db/src/repo/`（`api-no-raw-dml`） | 架构 + Lint + CI | `packages/db/src/repo/` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
 | 每条 oRPC 过程必须声明 `access` 元数据并经统一鉴权 | 架构 + 运行时 | `packages/api/src/http/orpc.ts`（`traverseContractProcedures`）+ `packages/api/src/http/middleware.ts`（`enforceAccess`） |
-| DB `LIKE`/`ILIKE` 必须转义通配符 | 架构 + Lint + CI | `packages/db/src/repo/like.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| DB 枚举列与 `CHECK` 约束从 `@agentport/shared` schema `.options` 派生 | 架构 + 类型 + Lint + CI | `packages/db/src/schema/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
-| 业务日志统一走 `@agentport/core/logger`，禁直接值导入 `pino` | 架构 + Lint + CI | `packages/core/src/logger.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| DB `LIKE`/`ILIKE` 必须转义通配符 | 架构 + Lint + CI | `packages/db/src/repo/like.ts` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| DB 枚举列与 `CHECK` 约束从 `@agentport/shared` schema `.options` 派生 | 架构 + 类型 + Lint + CI | `packages/db/src/schema/` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| 业务日志统一走 `@agentport/core/logger`，禁直接值导入 `pino` | 架构 + Lint + CI | `packages/core/src/logger.ts` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
 | 单文件物理行数上限（源码 800 / 测试 1500 默认上限 + `file-lines.json` 单向棘轮 + 3000 行硬顶） | Lint + CI | `scripts/check-file-lines.mjs`（`bun run lint:lines`，收紧用 `bun run ratchet:tighten`，已接入 `scripts/ci.ts`） |
 | 零死代码 / 未使用导出 / 未使用依赖（Knip 门禁） | Lint + CI | `knip.json`（`bun run lint:deadcode`，已接入 `scripts/ci.ts`） |
 | 抑制注释理由校验与单向棘轮（`suppressions.json` 基线） | Lint + CI | `bun run lint:ratchet`（收紧用 `bun run ratchet:tighten`，已接入 `scripts/ci.ts`） |
@@ -168,4 +168,7 @@
 | 核心文档链接/锚点/行内路径有效、禁 `pnpm`/`npm` 命令、`PITFALLS` 索引一致、`AGENTS.md`（≤ 16 KB）与 `packages/*/AGENTS.md`（≤ 12 KB）字节上限校验 | Lint + CI | `scripts/check-docs.mjs`（`bun run lint:docs`，已接入 `scripts/ci.ts`） |
 | 禁止显式 `any`、生产代码零警告契约（禁非空断言与缺失 hook 依赖等）、格式与 import 排序、全仓类型检查 | 类型 + Lint + CI | `biome.json`（`bun run lint`）+ `tsconfig.json` / `tsconfig.base.json` / `tsconfig.scripts.json` / `tsconfig.e2e.json` / `tsconfig.tests.json`（`bun run typecheck` 等）+ `scripts/ci.ts`（`bun run ci` / `ci:fast` / `ci:changed`） |
 | 并发/重放状态机不变量（Agent Run 生命周期、调度器 sync 单飞） | 形式化模型 + CI | `formal/agent-run-lifecycle/AgentRunLifecycle.tla`、`formal/scheduler-sync/SchedulerSync.tla`（`bun run verify:formal`，已接入 `scripts/ci.ts`） |
-| Node.js 与 `@types/node` 永久锁定 24.x（`node-version-lock`） | 架构 + Lint + CI | `package.json`、`Dockerfile` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| Node.js 与 `@types/node` 永久锁定 24.x（`node-version-lock`） | 架构 + Lint + CI | `package.json`、`Dockerfile` + `scripts/check-project-contract.mjs` → `scripts/contract/`（`bun run lint:contract`） |
+| `Dockerfile` 与工作区 `package.json` / manifest 复制列表同步（`dockerfile-workspace-sync`） | 架构 + Lint + CI | `Dockerfile`、`package.json`、`packages/*/package.json` + `scripts/contract/rules-manifests.ts`（`bun run lint:contract`） |
+| DB Schema ↔ Migration 一致性校验（防止只改 schema 漏跑 `db:generate`） | 架构 + Lint + CI | `packages/db/src/schema/`、`packages/db/migrations/` + `scripts/check-db-migrations.ts`（`bun run lint:db`，已接入 `scripts/ci.ts`） |
+| 依赖高危安全漏洞按需审计（离线 CI 默认不联网，显式 `--security` 触发） | 安全 + CI | `package.json`、`bun.lock` + `bun run audit:high` / `bun run ci --security`（`bun run ci:security`） |

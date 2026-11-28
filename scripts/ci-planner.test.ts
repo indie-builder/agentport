@@ -16,6 +16,7 @@ describe('parseCiArgs', () => {
       json: false,
       verbose: false,
       e2e: false,
+      security: false,
       help: false,
     });
   });
@@ -28,16 +29,18 @@ describe('parseCiArgs', () => {
       json: true,
       verbose: false,
       e2e: false,
+      security: false,
       help: false,
     });
 
-    expect(parseCiArgs(['--changed', '--verbose', '--e2e'])).toEqual({
+    expect(parseCiArgs(['--changed', '--verbose', '--e2e', '--security'])).toEqual({
       fast: false,
       changed: true,
       base: undefined,
       json: false,
       verbose: true,
       e2e: true,
+      security: true,
       help: false,
     });
 
@@ -48,6 +51,7 @@ describe('parseCiArgs', () => {
       json: false,
       verbose: false,
       e2e: false,
+      security: false,
       help: false,
     });
   });
@@ -450,6 +454,7 @@ describe('planCi', () => {
       './ci-planner.test.ts',
       './check-ratchets.test.ts',
       './check-dist-fresh.test.ts',
+      './check-db-migrations.test.ts',
     ]);
 
     const linesPlan = planCi({
@@ -466,5 +471,77 @@ describe('planCi', () => {
       changedFiles: ['scripts/check-dist-fresh.ts'],
     });
     expect(byName(distFreshPlan).get('scripts:test')?.enabled).toBe(true);
+  });
+
+  test('includes audit:high only when --security is passed and keeps it enabled in --fast', () => {
+    const defaultPlan = planCi({
+      options: parseCiArgs([]),
+      changedFiles: [],
+    });
+    expect(byName(defaultPlan).get('audit:high')).toBeUndefined();
+
+    const securityFastPlan = planCi({
+      options: parseCiArgs(['--security', '--fast']),
+      changedFiles: [],
+    });
+    const auditStage = byName(securityFastPlan).get('audit:high');
+    expect(auditStage).toEqual({
+      stage: 'audit:high',
+      args: ['run', 'audit:high'],
+      enabled: true,
+      skipReason: undefined,
+      fixHint: 'bun audit --registry https://registry.npmjs.org',
+      dependsOn: [],
+    });
+  });
+
+  test('activates lint:db with typecheck prerequisite across schema, migration and script triggers', () => {
+    for (const file of [
+      'packages/db/src/schema/agents.ts',
+      'packages/db/migrations/0109_bounded_document_titles.sql',
+      'scripts/check-db-migrations.ts',
+    ]) {
+      const plan = planCi({
+        options: parseCiArgs(['--changed', '--fast']),
+        changedFiles: [file],
+      });
+      const stages = byName(plan);
+      expect(stages.get('typecheck')?.enabled).toBe(true);
+      expect(stages.get('lint:db')).toEqual({
+        stage: 'lint:db',
+        args: ['run', 'lint:db'],
+        enabled: true,
+        skipReason: undefined,
+        fixHint: 'bun run db:generate',
+        dependsOn: ['typecheck'],
+      });
+    }
+
+    const dbScriptStages = byName(
+      planCi({
+        options: parseCiArgs(['--changed']),
+        changedFiles: ['scripts/check-db-migrations.ts'],
+      }),
+    );
+    expect(dbScriptStages.get('scripts:test')?.enabled).toBe(true);
+
+    const unrelatedStages = byName(
+      planCi({
+        options: parseCiArgs(['--changed']),
+        changedFiles: ['packages/web/src/App.tsx'],
+      }),
+    );
+    expect(unrelatedStages.get('lint:db')?.enabled).toBe(false);
+    expect(unrelatedStages.get('lint:db')?.skipReason).toBe('unchanged');
+  });
+
+  test('triggers both lint:contract and lint:contract:test for scripts/contract/ changes', () => {
+    const plan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['scripts/contract/rules-manifests.ts'],
+    });
+    const stages = byName(plan);
+    expect(stages.get('lint:contract')?.enabled).toBe(true);
+    expect(stages.get('lint:contract:test')?.enabled).toBe(true);
   });
 });

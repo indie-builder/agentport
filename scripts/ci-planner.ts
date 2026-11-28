@@ -19,6 +19,7 @@ export type StageName =
   | 'lint:design'
   | 'lint:contract'
   | 'lint:contract:test'
+  | 'lint:db'
   | 'lint:deadcode'
   | 'lint:ratchet'
   | 'lint:lines'
@@ -34,7 +35,8 @@ export type StageName =
   | 'test'
   | 'test:web'
   | 'scripts:test'
-  | 'e2e';
+  | 'e2e'
+  | 'audit:high';
 
 export type CiOptions = {
   fast: boolean;
@@ -43,6 +45,7 @@ export type CiOptions = {
   json: boolean;
   verbose: boolean;
   e2e: boolean;
+  security: boolean;
   help: boolean;
 };
 
@@ -128,6 +131,7 @@ export const parseCiArgs = (argv: readonly string[]): CiOptions => {
     json: false,
     verbose: false,
     e2e: false,
+    security: false,
     help: false,
   };
 
@@ -142,6 +146,8 @@ export const parseCiArgs = (argv: readonly string[]): CiOptions => {
       options.verbose = true;
     } else if (arg === '--e2e') {
       options.e2e = true;
+    } else if (arg === '--security') {
+      options.security = true;
     } else if (arg === '--help' || arg === '-h') {
       options.help = true;
     } else if (arg === '--changed') {
@@ -286,11 +292,20 @@ const isOpenuiCheckTriggerFile = (file: string): boolean =>
   file === 'scripts/check-openui.mjs' ||
   file === 'package.json';
 
+const isDbMigrationTriggerFile = (file: string): boolean =>
+  file.startsWith('packages/db/src/schema') ||
+  file.startsWith('packages/db/migrations/') ||
+  file === 'packages/db/drizzle.config.ts' ||
+  file === 'packages/db/package.json' ||
+  file.startsWith('packages/shared/src/') ||
+  file === 'scripts/check-db-migrations.ts';
+
 const isScriptsTestTriggerFile = (file: string): boolean =>
   /^scripts\/ci[^/]*\.ts$/.test(file) ||
   file === 'scripts/check-file-lines.mjs' ||
   file.startsWith('scripts/check-ratchets') ||
   file.startsWith('scripts/check-dist-fresh') ||
+  file.startsWith('scripts/check-db-migrations') ||
   file.startsWith('scripts/baselines/');
 
 const isJsOrTsFile = (file: string): boolean => /\.(?:[cm]?[jt]sx?)$/.test(file);
@@ -362,7 +377,9 @@ export const planCi = (input: CiPlanInput): CiPlan => {
     changedFiles.includes('packages/web/test/openui-coverage-registry.json') ||
     changedFiles.includes('scripts/audit-openui-coverage.mjs') ||
     deletedOrRenamedFiles.some((file) => file.startsWith('packages/web/test/'));
-  const typecheckActive = fullRun || anyPackageAffected || (openuiCheckActive && !options.fast);
+  const dbMigrationActive = fullRun || changedFiles.some(isDbMigrationTriggerFile);
+  const typecheckActive =
+    fullRun || anyPackageAffected || dbMigrationActive || (openuiCheckActive && !options.fast);
   const testSupportChanged = changedFiles.some((file) => file.startsWith('tests/support/'));
   const testActive = fullRun || anyBackendAffected || testSupportChanged;
   const testEnabled = testActive && !options.fast;
@@ -390,15 +407,21 @@ export const planCi = (input: CiPlanInput): CiPlan => {
       fullRun ||
         anyPackageAffected ||
         changedFiles.includes('Dockerfile') ||
-        changedFiles.includes('scripts/check-project-contract.mjs'),
+        changedFiles.includes('scripts/check-project-contract.mjs') ||
+        changedFiles.some((file) => file.startsWith('scripts/contract/')),
     ),
     stageFromFlag(
       'lint:contract:test',
       ['run', 'lint:contract:test'],
       fullRun ||
         changedFiles.includes('scripts/check-project-contract.mjs') ||
-        changedFiles.includes('scripts/check-project-contract.test.ts'),
+        changedFiles.includes('scripts/check-project-contract.test.ts') ||
+        changedFiles.some((file) => file.startsWith('scripts/contract/')),
     ),
+    stageFromFlag('lint:db', ['run', 'lint:db'], dbMigrationActive, {
+      fixHint: 'bun run db:generate',
+      dependsOn: ['typecheck'],
+    }),
     stageFromFlag(
       'lint:deadcode',
       ['run', 'lint:deadcode'],
@@ -499,6 +522,7 @@ export const planCi = (input: CiPlanInput): CiPlan => {
         './ci-planner.test.ts',
         './check-ratchets.test.ts',
         './check-dist-fresh.test.ts',
+        './check-db-migrations.test.ts',
       ],
       fullRun || changedFiles.some(isScriptsTestTriggerFile),
     ),
@@ -517,6 +541,14 @@ export const planCi = (input: CiPlanInput): CiPlan => {
           'test',
           'test:web',
         ],
+      }),
+    );
+  }
+
+  if (options.security) {
+    stages.push(
+      stageFromFlag('audit:high', ['run', 'audit:high'], true, {
+        fixHint: 'bun audit --registry https://registry.npmjs.org',
       }),
     );
   }
