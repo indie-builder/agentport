@@ -45,7 +45,7 @@
 - **主操作使用白底中性按钮。** 普通主操作 `default` 与显式 `solid`（发送、登录）共用白底、细 `line` 边线与 `fg` 深色文字，hover 与展开用 `hover #F0F0F0`，保留轻阴影与按压反馈；沿用现有 1px 边框、全部尺寸和图标。次操作 `outline`（白底细 `line` 边线、深色字）、`secondary`（`hover` 中性浅填充）、`ghost`（透明，hover/展开中性浅底）与 `plain` 保持各自职责；取消、过滤器、菜单触发器保持各自中性变体。链接用 `link` 中性 `fg #202B2E`，保留现有下划线、hover 与可访问名。焦点：输入族（Input / Textarea / Select / Combobox / InputGroup）用 `.cds-focus-glow` 的 1px 中性暖灰边（`subtle #898781`，对白 3.59:1，无光晕）；仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，按钮类用中性 `ring` `#202B2E`，输入框聚焦为中性暖灰，composer 用 `shadow-composer-focus`；状态允许小面积中性呼吸点（见 §11），状态与数据不借用动作色。
 - **分段与 line 页签。** 资源页分段控件为 CDS 胶囊轨道：容器 `sunken` 底 + `rounded-pill`、`p-0.5`；当前项为 `surface` 白 thumb + `fg` 字 + `shadow-sm`，非当前项 `muted-foreground`、hover `fg`，不再叠加 hover 底。页签类分段控件容器仍用 `hover`；当前 tab 用 `selected` + `fg`，1px 边框换 `line`，去掉当前 tab 的小阴影。line 页签与二级导航继续透明、不铺底，现有 2px 指示线改为 `primary` 深色，文字 `fg`，位置与宽度不变，focus 独立可见。
 - **卡片、表格与列表。** 适合卡片的内容沿用 DESIGN.md「共享卡片深度」：纯白 `surface`、常态 `shadow-panel` 与 hover `shadow-panel-hover`，必要边界由共享投影承担，不叠加装饰性 outline、ring 或边框；主侧栏选中项不参与该深度，按平面灰色胶囊执行。所有业务内容卡复用共享 `Card` 或 `.cds-card-surface`，hover 分三态（`static` 不设 `data-hover`、无变化；`shadow` 与 `lift` 用 `data-hover`）：`static` 无变化（表单详情卡、纯阅读卡、OpenUI 生成内容），`shadow` 只换投影（共享 `Card` 默认，覆盖记录卡、身份卡、指标卡、审批卡、问答卡），`lift` 换投影并上浮 1.5px（仅整卡可点的频道卡）。上浮只给整卡可点卡片；其余整卡不因视觉反馈新增点击、焦点或 `tabIndex`，内部真实控件与业务状态保留，导航几何保持不变。卡片网格与 `PageBody` 只用纵向 `pt-2` 预留投影绘制空间，不加横向 `p-2` / `px-*`，首排顶部不能裁切；卡片左右缘与页头标题共用外壳 24px 内容轴线，具体实现值以真实渲染核对。表格与列表继续使用纯白基底、`line` 分隔、行 hover `hover` 与行选中 `selected`（150ms `--ease-out-soft`，不位移、不加投影；表头与静态行不响应 hover），文字 `fg` / `muted-foreground`，不机械卡片化；输入沿用自身边界契约。Skeleton 用 `sunken`；当前没有共享 Progress 视觉原语，任务进度沿用真实实现；空态与加载态结构不变。
-- **可编辑边界单独可访问。** 输入框、Textarea、InputGroup、Select 可编辑触发器与 SourceEditor 使用白底 + 1px `input`（`rgba(0, 0, 0, 0.10)`，等同 `line`）边框；不新增 hover 加深。输入族（Input / Textarea / Select 触发器 / Combobox / InputGroup）聚焦用 `.cds-focus-glow`：1px 中性暖灰边（`subtle #898781`，无光晕）；SourceEditor 与 CodeMirror 搜索仍把边线换成 `input-focus` `#BDBDBD`；composer 文本聚焦由 InputGroup 外框保持 `input` 并换 `shadow-composer-focus`（1px 内环 + 外阴影），不叠加 2px 光环。invalid 保留单条 `danger` 边框；Input / Textarea / Select 静止与聚焦都只保留这条边框，不叠加 2px outline/ring。未选中的 checkbox/radio 用 `control-boundary`（`rgba(0, 0, 0, 0.35)`），checked/on 用墨色 `primary` 配白色勾/点/thumb，off switch 用 `control-boundary` 与白 thumb。`subtle #898781` 只用于输入族聚焦边，不承担默认可编辑边界；发丝边、`control-boundary` 与 `input-focus` 均低于 3:1，是已接受并公开记录的视觉限制；中性聚焦边对白约 3.59:1。错误、禁用、焦点优先级与形状、尺寸、状态属性不变。
+- **可编辑边界单独可访问。** 输入框、Textarea、InputGroup、Select 可编辑触发器与 SourceEditor 使用白底 + 1px `input`（`rgba(0, 0, 0, 0.10)`，等同 `line`）边框；不新增 hover 加深。输入族（Input / Textarea / Select 触发器 / Combobox / InputGroup）聚焦用 `.cds-focus-glow`：1px 中性暖灰边（`subtle #898781`，无光晕）；SourceEditor 与 CodeMirror 搜索把边线换成 `input-focus`（映射 `var(--color-subtle)` `#898781`）；composer 文本聚焦由 InputGroup 外框保持 `input` 并换 `shadow-composer-focus`（1px 内环 + 外阴影），不叠加 2px 光环。invalid 保留单条 `danger` 边框；Input / Textarea / Select 静止与聚焦都只保留这条边框，不叠加 2px outline/ring。未选中的 checkbox/radio 用 `control-boundary`（`rgba(0, 0, 0, 0.48)`），checked/on 用墨色 `primary` 配白色勾/点/thumb，off switch 用 `control-boundary` 与白 thumb。`subtle #898781` 只用于输入族聚焦边与 `input-focus`，不承担默认可编辑边界；发丝边低于 3:1，是已接受并公开记录的视觉限制；中性聚焦边与 `input-focus` 对白约 3.59:1，`control-boundary` 对白约 3.67:1、对 `selected` `#E6E6E6` 约 3.05:1，均满足 3:1。错误、禁用、焦点优先级与形状、尺寸、状态属性不变。
 - **消息。** 用户消息由浅蓝底改为 `selected` 中性浅底 + `fg`，保留现有胶囊形状、对齐与宽度；附件用中性 `outline`。助手正文仍在白底上无气泡。
 - **浮层与菜单。** 标准浮层使用白表面、`line` 边线与统一 overlay 阴影；菜单项 hover/键盘高亮用 `accent` + `accent-foreground`，危险项用 `danger` 且不被普通 hover 覆盖；菜单内搜索等可编辑边界用 `input`。Dialog、AlertDialog、Sheet、Popover、Tooltip、Toast 共用同一表面与阴影，遮罩用 `scrim`；tooltip 若既有反色则保留深底白字。确认框的 default 为白底中性主操作、取消用 `outline`，危险确认保持 `destructive`。Toast 操作按钮用显式 `outline` 中性次操作；Sonner 自带规则特异性更高，允许 toast 根与操作按钮用中性语义令牌做必要的 `!important` 覆盖，不保留旧的蓝色专用覆盖；关闭按钮白底、中性 hover，保留时长、位置、关闭与屏幕阅读器提示。
 - **状态与数据不借用动作色。** 成功、警告、失败继续用独立状态色；运行图表首系列用 `chart-runs` 数据蓝，失败用 `chart-failed`（即 `danger`）。OpenUI 图表只把首系列映射数据蓝，其余系列保留既有中性层级与纹理，不扩展分类色板；数据蓝不能蔓延回导航、按钮或焦点。「运行中」状态徽章的 `brand` tone 使用 `selected` 中性底与 `fg` 字，圆点使用 `fg`，保留状态文字与既有动效，不只依赖颜色。
@@ -74,11 +74,11 @@
 | `muted-foreground` / sidebar、sidebar-hover、sidebar-selected | 6.37 / 5.73 / 5.08:1 |
 | `badge-accent #3A7578` / 白、`badge-accent-soft #EDF4F4` | 5.26 / 4.72:1 |
 | `subtle #898781` / 白（输入族聚焦边） | 3.59:1 |
-| `control-boundary` `rgba(0,0,0,.35)` / 白、selected | 2.44 / 2.38:1（既有缺口，低于 3:1） |
+| `control-boundary` `rgba(0,0,0,.48)` / 白、selected | 3.67 / 3.05:1（满足 3:1） |
 | 输入默认 `input` `rgba(0,0,0,.10)` / 白 | 1.25:1（既有缺口，低于 3:1） |
 | `line-strong` `rgba(0,0,0,.20)` / 白 | 1.61:1（仅作较强分隔） |
 | `link #202B2E` / 白、selected | 14.52 / 11.63:1 |
-| `input-focus #BDBDBD` / 白（SourceEditor / CodeMirror 搜索聚焦） | 1.88:1（既有缺口，低于 3:1） |
+| `input-focus`（`var(--color-subtle) #898781`） / 白（SourceEditor / CodeMirror 搜索聚焦） | 3.59:1（满足 3:1） |
 | success / selected | 4.52:1 |
 | warning / selected | 4.93:1 |
 | danger / selected | 5.27:1 |
@@ -86,7 +86,7 @@
 | danger / danger-soft | 5.70:1 |
 | `code-syntax-accent #ACCAD0` / code-block | 11.22:1 |
 
-正文 `fg` 与辅助文字 `muted-foreground` 在 `surface`、`canvas`、`sunken`、`selected` 及三档侧栏底面上均不低于 4.5:1；状态色在 `surface`、`canvas`、`selected` 上不低于 4.5:1；工牌强调色对白与 `badge-accent-soft` 分别为 5.26 / 4.72:1。白底中性主按钮的深色文字超过 4.5:1，独立 `ring` 对白、画布、选中底与侧栏选中底均超过 3:1。浅色选中填充本身不承担唯一的状态信号，仍保留字重、文字与 ARIA。输入发丝边、`control-boundary` 与 `input-focus` 的既有低对比缺口保留记录，**不得宣称整页 WCAG AA 达标**。半透明边线分别在对应底色上合成，数值不代表浏览器渲染验收；源码再变时须重跑对应页。
+正文 `fg` 与辅助文字 `muted-foreground` 在 `surface`、`canvas`、`sunken`、`selected` 及三档侧栏底面上均不低于 4.5:1；状态色在 `surface`、`canvas`、`selected` 上不低于 4.5:1；工牌强调色对白与 `badge-accent-soft` 分别为 5.26 / 4.72:1。白底中性主按钮的深色文字超过 4.5:1，独立 `ring` 对白、画布、选中底与侧栏选中底均超过 3:1。浅色选中填充本身不承担唯一的状态信号，仍保留字重、文字与 ARIA。输入发丝边的既有低对比缺口保留记录，**不得宣称整页 WCAG AA 达标**；`control-boundary` 与 `input-focus`（`var(--color-subtle)`）均已满足非文字 3:1。半透明边线分别在对应底色上合成，数值不代表浏览器渲染验收；源码再变时须重跑对应页。
 
 ## 3. 圆角与实现值
 

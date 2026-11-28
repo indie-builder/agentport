@@ -1,5 +1,4 @@
 import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
-import { Toggle } from '@ui-sdk/react/toggle';
 import { Download, EllipsisVertical, Plus, Shuffle, Upload } from 'lucide-react';
 import { type RefObject, useState } from 'react';
 import { PageToolbar } from '../../components/page.js';
@@ -21,6 +20,11 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
 import { createFileInputController, FileInput } from '../../components/ui/file-input.js';
+import {
+  SegmentedControl,
+  SegmentedControlIndicator,
+  SegmentedControlItem,
+} from '../../components/ui/segmented-control.js';
 import { ApiError, type EvalCase } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { CaseInspector } from './case-inspector.js';
@@ -130,6 +134,7 @@ export function EvalCasesTab({
       <PageToolbar>
         <FileInput
           controller={importController}
+          aria-label="导入评估用例文件"
           accept=".json,application/json"
           disabled={importPending}
           className="contents"
@@ -146,26 +151,24 @@ export function EvalCasesTab({
           placeholder="搜索用例名称或 Prompt…"
           className="w-full sm:w-56"
         />
-        <fieldset
+        <SegmentedControl<CaseFilter>
           aria-label="筛选用例类型"
-          className="inline-flex items-center rounded-pill border-0 bg-sunken p-0.5"
+          value={filter}
+          onValueChange={(next) => {
+            if (next !== null) setFilter(next);
+          }}
         >
+          <SegmentedControlIndicator />
           {filterOptions.map((option) => (
-            <Toggle
+            <SegmentedControlItem
               key={option.value}
-              pressed={filter === option.value}
-              onPressedChange={() => setFilter(option.value)}
-              className={cn(
-                'rounded-pill px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                filter === option.value
-                  ? 'bg-surface text-fg shadow-sm'
-                  : 'text-muted-foreground hover:text-fg',
-              )}
+              value={option.value}
+              className="h-6 px-2.5 text-xs"
             >
               {option.label}
-            </Toggle>
+            </SegmentedControlItem>
           ))}
-        </fieldset>
+        </SegmentedControl>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {canManageEval && !casesEmpty ? (
             <Button

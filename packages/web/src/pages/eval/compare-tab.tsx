@@ -18,6 +18,7 @@ import {
   shortId,
 } from '../../lib/format.js';
 import { useEvalComparison } from '../../lib/queries.js';
+import { useOptimisticValue } from '../../lib/use-optimistic-value.js';
 import { CompareSide } from './compare-side.js';
 import type { EvalDiffFilter, EvalSearchPatch } from './shared.js';
 
@@ -55,6 +56,7 @@ export function EvalCompareTab({
     hasValidPair ? effectiveBaseId : '',
     hasValidPair ? effectiveHeadId : '',
   );
+  const [optimisticDiff, commitDiff] = useOptimisticValue(diff);
 
   if (!hasValidPair) {
     if (runsPending) return <LoadingState rows={3} />;
@@ -150,10 +152,11 @@ export function EvalCompareTab({
 
         <SegmentedControl<EvalDiffFilter>
           aria-label="筛选对比结果"
-          value={diff}
-          onValueChange={(next, details) => {
-            details.cancel();
-            if (next !== null && next !== diff) onChangeSearch({ diff: next });
+          value={optimisticDiff}
+          onValueChange={(next) => {
+            if (next !== null && next !== optimisticDiff) {
+              commitDiff(next, () => onChangeSearch({ diff: next }));
+            }
           }}
         >
           <SegmentedControlIndicator />
@@ -237,38 +240,40 @@ export function EvalCompareTab({
       ) : null}
 
       {comparison.isSuccess && visibleRows.length > 0 ? (
-        <div className="flex flex-col gap-3 pt-2">
+        <ul aria-label="对比结果列表" className="flex flex-col gap-3 pt-2">
           {visibleRows.map((row) => (
-            <Card key={`${effectiveBaseId}:${effectiveHeadId}:${row.key}`} hover="static" size="sm">
-              <CardHeader className="border-b">
-                <CardTitle className="flex flex-wrap items-center gap-2">
-                  <StatusBadge tone={evalComparisonStatusVariant[row.status]}>
-                    {evalComparisonStatusLabel[row.status]}
-                  </StatusBadge>
-                  <span className="min-w-0 break-words text-fg">
-                    {row.base?.name ?? row.head?.name ?? '—'}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <CompareSide
-                    title="基准"
-                    result={row.base}
-                    showPass={row.status !== 'changed_inputs' && row.status !== 'unverified'}
-                    defaultInputsOpen={row.status === 'changed_inputs'}
-                  />
-                  <CompareSide
-                    title="对比"
-                    result={row.head}
-                    showPass={row.status !== 'changed_inputs' && row.status !== 'unverified'}
-                    defaultInputsOpen={row.status === 'changed_inputs'}
-                  />
-                </div>
-              </CardContent>
-            </Card>
+            <li key={`${effectiveBaseId}:${effectiveHeadId}:${row.key}`}>
+              <Card hover="static" size="sm">
+                <CardHeader className="border-b">
+                  <CardTitle className="flex flex-wrap items-center gap-2">
+                    <StatusBadge tone={evalComparisonStatusVariant[row.status]}>
+                      {evalComparisonStatusLabel[row.status]}
+                    </StatusBadge>
+                    <span className="min-w-0 break-words text-fg">
+                      {row.base?.name ?? row.head?.name ?? '—'}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <CompareSide
+                      title="基准"
+                      result={row.base}
+                      showPass={row.status !== 'changed_inputs' && row.status !== 'unverified'}
+                      defaultInputsOpen={row.status === 'changed_inputs'}
+                    />
+                    <CompareSide
+                      title="对比"
+                      result={row.head}
+                      showPass={row.status !== 'changed_inputs' && row.status !== 'unverified'}
+                      defaultInputsOpen={row.status === 'changed_inputs'}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : null}
     </div>
   );

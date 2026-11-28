@@ -1120,6 +1120,7 @@ function ApprovalDialog({
                 <Button
                   disabled={pending}
                   aria-busy={pending}
+                  data-agent-confirm="批准这条外发审批请求"
                   onClick={() => void submit('approve')}
                 >
                   批准

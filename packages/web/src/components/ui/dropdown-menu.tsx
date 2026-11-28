@@ -29,7 +29,7 @@ function DropdownMenuContent({
       sideOffset={sideOffset}
       className={(state) =>
         cn(
-          'max-h-(--available-height) w-(--anchor-width) min-w-32 overflow-x-hidden overflow-y-auto overscroll-contain rounded-[var(--radius-popover)] bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-line cds-overlay-enter outline-none',
+          'max-h-(--available-height) min-w-32 max-w-(--available-width) overflow-x-hidden overflow-y-auto overscroll-contain rounded-[var(--radius-popover)] bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-line cds-overlay-enter outline-none',
           typeof className === 'function' ? className(state) : className,
         )
       }

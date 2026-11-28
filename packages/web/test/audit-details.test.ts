@@ -15,12 +15,37 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type AuditEntry, type AuditList, api } from '../src/lib/api.js';
 import { downloadBlob, downloadJson } from '../src/lib/browser-files.js';
 import { formatDateTime } from '../src/lib/format.js';
-import { toastError, toastSuccess } from '../src/lib/toast.js';
+import { toastError, toastPromise, toastSuccess } from '../src/lib/toast.js';
 import { AuditPage } from '../src/pages/audit.js';
 import { auditSearchSchema } from '../src/routes/-search.js';
 
+const toastMocks = vi.hoisted(() => ({
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastPromise: vi.fn(
+    async <Value>(
+      promise: Promise<Value> | (() => Promise<Value>),
+      messages: {
+        loading: string;
+        success?: string | ((value: Value) => string);
+      },
+    ) => {
+      try {
+        const value = await (typeof promise === 'function' ? promise() : promise);
+        const message =
+          typeof messages.success === 'function' ? messages.success(value) : messages.success;
+        if (typeof message === 'string') toastMocks.toastSuccess(message);
+        return value;
+      } catch (error) {
+        toastMocks.toastError(error);
+        throw error;
+      }
+    },
+  ),
+}));
+
 vi.mock('../src/lib/browser-files.js', () => ({ downloadJson: vi.fn(), downloadBlob: vi.fn() }));
-vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
+vi.mock('../src/lib/toast.js', () => toastMocks);
 
 const DIGEST = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
 
@@ -171,6 +196,7 @@ beforeEach(() => {
   vi.mocked(downloadBlob).mockClear();
   vi.mocked(downloadJson).mockClear();
   vi.mocked(toastError).mockClear();
+  vi.mocked(toastPromise).mockClear();
   vi.mocked(toastSuccess).mockClear();
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   container = document.createElement('div');

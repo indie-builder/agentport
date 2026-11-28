@@ -447,6 +447,7 @@ export function RunDetailPage() {
                               className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
                               disabled={deciding}
                               aria-busy={approving}
+                              data-agent-confirm={`批准 ${item.serverName ?? item.serverId} / ${item.toolName} 的工具调用`}
                               onClick={() => approve(item)}
                             >
                               <span className="min-w-0 [overflow-wrap:anywhere]">

@@ -20,6 +20,12 @@ export type UiAgentConfirmHandler = (message: string, signal: AbortSignal) => Pr
 
 export type UiAgentBridge = ReturnType<typeof createAgent>;
 
+declare global {
+  interface Window {
+    agent?: UiAgentBridge;
+  }
+}
+
 let confirmHandler: UiAgentConfirmHandler | null = null;
 
 export function setUiAgentConfirmHandler(handler: UiAgentConfirmHandler | null): () => void {
@@ -50,5 +56,8 @@ export function createUiAgent(confirm?: UiAgentConfirmHandler): UiAgentBridge {
 }
 
 export const uiAgent = createUiAgent();
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  window.agent = uiAgent;
+}
 export const uiAgentTools = agentTools;
 export { registerTools };

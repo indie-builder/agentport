@@ -267,12 +267,18 @@ export function ModelsPage() {
             align: 'end' as const,
             cell: (provider: ModelProvider) => (
               <div className="flex items-center justify-end gap-1">
-                <Button variant="ghost" size="sm" onClick={() => setEditing(provider)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`编辑供应商 ${provider.name}`}
+                  onClick={() => setEditing(provider)}
+                >
                   编辑
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
+                  aria-label={`测试供应商 ${provider.name} 连接`}
                   disabled={test.isPending && test.variables === provider.id}
                   onClick={() => runTest(provider)}
                 >
@@ -551,12 +557,18 @@ export function ModelsPage() {
                     </CardContent>
                     {canManage ? (
                       <CardFooter className="justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => setEditing(provider)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`编辑供应商 ${provider.name}`}
+                          onClick={() => setEditing(provider)}
+                        >
                           编辑
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`测试供应商 ${provider.name} 连接`}
                           disabled={test.isPending && test.variables === provider.id}
                           onClick={() => runTest(provider)}
                         >

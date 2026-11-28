@@ -1099,6 +1099,7 @@ function RunControls({
                     variant="default"
                     disabled={deciding}
                     aria-busy={approve.isPending && approve.variables === approval.id}
+                    data-agent-confirm={`批准 ${approval.serverName ?? approval.serverId} / ${approval.toolName} 的工具调用`}
                     onClick={() =>
                       approve.mutate(approval.id, {
                         onSuccess: () => toastSuccess('已批准'),

@@ -433,6 +433,7 @@ export function DataDomainIdentities({
                         <Button
                           variant="outline"
                           size="sm"
+                          aria-label={`编辑身份 ${name || identity.businessId}`}
                           onClick={(event) => {
                             rowTriggerRef.current = event.currentTarget;
                             setEditing(identity);
@@ -443,6 +444,7 @@ export function DataDomainIdentities({
                         <Button
                           variant="destructive"
                           size="sm"
+                          aria-label={`删除身份 ${name || identity.businessId}`}
                           onClick={(event) => {
                             removeTriggerRef.current = event.currentTarget;
                             setRemoving(identity);

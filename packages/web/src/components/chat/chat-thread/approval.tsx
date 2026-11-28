@@ -72,6 +72,7 @@ export const ApprovalCard = memo(function ApprovalCard({
             disabled={deciding}
             aria-busy={busy}
             aria-label={`批准 ${item.serverName ?? item.serverId} / ${item.toolName}`}
+            data-agent-confirm={`批准 ${item.serverName ?? item.serverId} / ${item.toolName} 的工具调用`}
             onClick={() => onApprove(item)}
           >
             {busy ? '批准中…' : '批准本次调用'}

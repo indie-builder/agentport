@@ -440,6 +440,7 @@ export function DocumentsTab({
                 </Button>
                 <FileInput
                   controller={uploadController}
+                  aria-label="上传文档文件"
                   multiple
                   disabled={uploading !== null}
                   className="contents"
@@ -450,6 +451,7 @@ export function DocumentsTab({
                 />
                 <FileInput
                   controller={folderController}
+                  aria-label="上传文档文件夹"
                   directory
                   disabled={uploading !== null}
                   className="contents"

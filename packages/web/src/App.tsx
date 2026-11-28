@@ -8,7 +8,15 @@ import {
   ToastRegion,
   ToastTitle,
 } from '@ui-sdk/react/toast';
-import { CircleAlert, CircleCheck, Info, LucideProvider, TriangleAlert, X } from 'lucide-react';
+import {
+  CircleAlert,
+  CircleCheck,
+  Info,
+  Loader2,
+  LucideProvider,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
 import { UiAgentHost } from './components/ui-agent-host.js';
 import { queryClient } from './lib/queries.js';
 import { toaster } from './lib/toast.js';
@@ -46,6 +54,12 @@ export function App() {
                     <CircleAlert
                       aria-hidden="true"
                       className="mt-0.5 size-4 shrink-0 text-danger"
+                    />
+                  )}
+                  {state.type === 'loading' && (
+                    <Loader2
+                      aria-hidden="true"
+                      className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground"
                     />
                   )}
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">

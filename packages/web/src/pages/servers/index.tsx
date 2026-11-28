@@ -407,6 +407,7 @@ export function ServersPage() {
             ) : (
               <Button
                 variant="ghost"
+                aria-label={`查看连接器 ${displayName}`}
                 className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium whitespace-normal text-fg"
                 onClick={(event) => openEdit(server, event.currentTarget)}
               >
@@ -502,6 +503,7 @@ export function ServersPage() {
         <>
           <FileInput
             controller={importController}
+            aria-label="导入连接器配置"
             accept="application/json,.json"
             disabled={importMcp.isPending}
             className="contents"
@@ -666,6 +668,7 @@ export function ServersPage() {
                           ) : (
                             <Button
                               variant="ghost"
+                              aria-label={`查看连接器 ${displayName}`}
                               className="h-auto w-full min-w-0 justify-start p-0 text-left text-sm font-medium text-fg"
                               onClick={(event) => openEdit(server, event.currentTarget)}
                             >

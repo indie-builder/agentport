@@ -445,7 +445,10 @@ export function MemoryReviews({
               }
             />
           ) : view === 'cards' ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2">
+            <ul
+              aria-label="记忆提案列表"
+              className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-0 pt-2"
+            >
               {visibleItems.map((review) => {
                 const target = targetDisplay(review.target, agents.data?.items);
                 const status = decisionDisplay(review, rolledBack(review));
@@ -459,61 +462,63 @@ export function MemoryReviews({
                     .filter(Boolean)
                     .join('、');
                 return (
-                  <Card key={review.runId} size="sm" className="h-full min-w-0">
-                    <CardHeader>
-                      <CardTitle className="min-w-0">
-                        <h2 className="break-words" title={target.detail ?? target.label}>
-                          {target.detail ?? target.label}
-                        </h2>
-                      </CardTitle>
-                      {target.detail ? (
-                        <CardDescription className="min-w-0 text-xs">
-                          {target.label}
-                        </CardDescription>
-                      ) : null}
-                      <CardAction>
-                        {status ? (
-                          <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+                  <li key={review.runId} className="min-w-0">
+                    <Card size="sm" className="h-full min-w-0">
+                      <CardHeader>
+                        <CardTitle className="min-w-0">
+                          <h2 className="break-words" title={target.detail ?? target.label}>
+                            {target.detail ?? target.label}
+                          </h2>
+                        </CardTitle>
+                        {target.detail ? (
+                          <CardDescription className="min-w-0 text-xs">
+                            {target.label}
+                          </CardDescription>
                         ) : null}
-                      </CardAction>
-                    </CardHeader>
-                    <CardContent className="flex flex-1 flex-col gap-3">
-                      {review.proposal ? (
-                        <p className="line-clamp-2 max-w-[75ch] text-sm text-muted-foreground">
-                          {review.proposal.summary}
-                        </p>
-                      ) : null}
-                      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-xs">
-                        <dt className="text-muted-foreground">运行状态</dt>
-                        <dd className="justify-self-end">
-                          <StatusBadge tone={runStatusVariant[review.status]}>
-                            {runStatusLabel[review.status]}
-                          </StatusBadge>
-                        </dd>
-                        {review.costUsd ? (
-                          <>
-                            <dt className="text-muted-foreground">成本</dt>
-                            <dd className="text-right font-mono text-muted-foreground">
-                              {formatCost(review.costUsd)}
-                            </dd>
-                          </>
+                        <CardAction>
+                          {status ? (
+                            <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+                          ) : null}
+                        </CardAction>
+                      </CardHeader>
+                      <CardContent className="flex flex-1 flex-col gap-3">
+                        {review.proposal ? (
+                          <p className="line-clamp-2 max-w-[75ch] text-sm text-muted-foreground">
+                            {review.proposal.summary}
+                          </p>
                         ) : null}
-                      </dl>
-                    </CardContent>
-                    <CardFooter className="justify-end">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        aria-label={`查看${accessibleTarget}提案：${summary || '提案'}（${shortId(review.runId)}）`}
-                        onClick={(event) => openDetail(review, event.currentTarget)}
-                      >
-                        查看
-                      </Button>
-                    </CardFooter>
-                  </Card>
+                        <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-xs">
+                          <dt className="text-muted-foreground">运行状态</dt>
+                          <dd className="justify-self-end">
+                            <StatusBadge tone={runStatusVariant[review.status]}>
+                              {runStatusLabel[review.status]}
+                            </StatusBadge>
+                          </dd>
+                          {review.costUsd ? (
+                            <>
+                              <dt className="text-muted-foreground">成本</dt>
+                              <dd className="text-right font-mono text-muted-foreground">
+                                {formatCost(review.costUsd)}
+                              </dd>
+                            </>
+                          ) : null}
+                        </dl>
+                      </CardContent>
+                      <CardFooter className="justify-end">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          aria-label={`查看${accessibleTarget}提案：${summary || '提案'}（${shortId(review.runId)}）`}
+                          onClick={(event) => openDetail(review, event.currentTarget)}
+                        >
+                          查看
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           ) : (
             <ul className="divide-y border-y">
               {visibleItems.map((review) => {

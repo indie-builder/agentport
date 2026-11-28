@@ -121,6 +121,9 @@ export function ConfirmDialog({
               variant={tone === 'default' ? 'default' : 'destructive'}
               disabled={pending || confirmDisabled}
               aria-busy={pending}
+              {...(!pending && !confirmLabel.startsWith('确认')
+                ? { 'aria-label': `确认${confirmLabel}` }
+                : {})}
               data-agent-confirm={description}
               onClick={() => void confirm()}
             >

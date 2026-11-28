@@ -44,7 +44,7 @@ function SheetContent<Payload = unknown>({
       <SheetContentPrimitive
         className={(state) =>
           cn(
-            'relative m-0 flex max-h-none flex-col gap-4 overflow-visible rounded-none border-0 bg-surface bg-clip-padding p-0 text-sm text-fg shadow-overlay outline-none data-[side=bottom]:h-auto data-[side=bottom]:w-full data-[side=bottom]:border-t data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:sm:max-w-sm data-[side=right]:ml-auto data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:sm:max-w-sm data-[side=top]:h-auto data-[side=top]:w-full data-[side=top]:border-b',
+            'relative m-0 flex flex-col gap-4 overflow-visible rounded-none border-0 bg-surface bg-clip-padding p-0 text-sm text-fg shadow-overlay outline-none data-[side=bottom]:h-auto data-[side=bottom]:max-h-[min(85dvh,var(--visual-viewport-height))] data-[side=bottom]:w-full data-[side=bottom]:border-t data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:sm:max-w-sm data-[side=right]:ml-auto data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:sm:max-w-sm data-[side=top]:h-auto data-[side=top]:max-h-[min(85dvh,var(--visual-viewport-height))] data-[side=top]:w-full data-[side=top]:border-b',
             typeof className === 'function' ? className(state) : className,
           )
         }
