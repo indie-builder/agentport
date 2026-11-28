@@ -1,4 +1,9 @@
-import type { OpenUiAction, OutputFile, PublicRunQuestion } from '@agentport/shared';
+import {
+  type OpenUiAction,
+  type OutputFile,
+  type PublicRunQuestion,
+  segmentOpenUi,
+} from '@agentport/shared';
 import { ArrowDown, GitBranch, LoaderCircle, RotateCcw } from 'lucide-react';
 import { useReducedMotion } from 'motion/react';
 import { type ReactNode, useEffect, useMemo, useRef } from 'react';
@@ -281,6 +286,8 @@ export function MessagePane({
                     : foldableToolRoots(turn.items, structure, approvalHosts, questionsByToolUseId);
                   const foldableIds = new Set(foldableRoots.map((tool) => tool.toolUseId));
                   let tracePlaced = false;
+                  let runningPreviousUiProgram =
+                    latest && streaming ? previousUiProgram : undefined;
                   return (
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
                       <div className={cn('group/turn message-fade-up', turnIndex > 0 && 'pt-2')}>
@@ -332,8 +339,43 @@ export function MessagePane({
                                 }
                                 const header = renderItemHeader?.(item);
                                 const footer = renderItemFooter?.(item);
-                                const turnOpenUiSnapshot =
-                                  latest && streaming ? latestOpenUiSnapshot : openUiSnapshot;
+                                const textUiState =
+                                  latest &&
+                                  streaming &&
+                                  item.kind === 'text' &&
+                                  item.parentToolUseId === undefined
+                                    ? openUiSegmentsState(item.text)
+                                    : 'none';
+                                const unresolvedPatch =
+                                  item.kind === 'text' &&
+                                  item.uiProgram === undefined &&
+                                  textUiState === 'patch';
+                                const itemStreaming =
+                                  latest &&
+                                  streaming &&
+                                  (!(item.kind === 'text' && item.closed === true) ||
+                                    unresolvedPatch);
+                                const turnOpenUiSnapshot = itemStreaming
+                                  ? runningPreviousUiProgram === previousUiProgram
+                                    ? latestOpenUiSnapshot
+                                    : runningPreviousUiProgram === undefined
+                                      ? openUiSnapshot
+                                      : {
+                                          ...openUiSnapshot,
+                                          previousUiProgram: runningPreviousUiProgram,
+                                        }
+                                  : openUiSnapshot;
+                                if (
+                                  latest &&
+                                  streaming &&
+                                  item.kind === 'text' &&
+                                  item.parentToolUseId === undefined
+                                ) {
+                                  const candidate =
+                                    item.uiProgram ??
+                                    (textUiState === 'complete' ? item.text : null);
+                                  if (candidate) runningPreviousUiProgram = candidate;
+                                }
                                 if (!header && !footer) {
                                   return (
                                     <MessagePart
@@ -341,7 +383,7 @@ export function MessagePane({
                                       key={`${index}-${item.kind}`}
                                       item={item}
                                       openUi={openUi}
-                                      streaming={latest && streaming}
+                                      streaming={itemStreaming}
                                       onAction={onAction}
                                       {...(turnOpenUiSnapshot
                                         ? { openUiSnapshot: turnOpenUiSnapshot }
@@ -359,7 +401,7 @@ export function MessagePane({
                                     <MessagePart
                                       item={item}
                                       openUi={openUi}
-                                      streaming={latest && streaming}
+                                      streaming={itemStreaming}
                                       onAction={onAction}
                                       {...(turnOpenUiSnapshot
                                         ? { openUiSnapshot: turnOpenUiSnapshot }
@@ -552,6 +594,14 @@ function anchoredOutputs(
     }
   }
   return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+const HAS_ROOT = /^\s*root\s*=/m;
+
+function openUiSegmentsState(text: string): 'none' | 'complete' | 'patch' {
+  const openUiSegments = segmentOpenUi(text).filter((segment) => segment.kind === 'openui');
+  if (openUiSegments.length === 0) return 'none';
+  return openUiSegments.every((segment) => HAS_ROOT.test(segment.text)) ? 'complete' : 'patch';
 }
 
 function messageTurns(items: ChatItem[], hasFooter: boolean) {

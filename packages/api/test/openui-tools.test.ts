@@ -359,6 +359,12 @@ describe.skipIf(!ready)('openui tools', () => {
       8 * 60 * 60 * 1000,
     );
 
+    const approvalRow = await app.client.unsafe<{ approved_by_business_id: string | null }[]>(
+      'select approved_by_business_id from approval_requests where id = $1',
+      [pending.approvalId],
+    );
+    expect(approvalRow[0]?.approved_by_business_id).toBe(ADMIN_BUSINESS_ID);
+
     const retry = await callTool(conversationId, toolName, { messageId });
     expect(retry.statusCode, retry.body).toBe(200);
     expect(retry.json()).toEqual({ status: 'ok', data: [{ id: 'inv_1', total: 42 }] });
@@ -919,6 +925,88 @@ describe.skipIf(!ready)('openui tools', () => {
 
     const res = await callTool(conversationId, `mcp__${server.name}__get-user`, {
       messageId: message.id,
+      args: { id: 1 },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({ status: 'ok', data: { id: 1, name: 'Fixture user' } });
+  });
+
+  it('resolves tools from the ancestor run snapshot for forked OpenUI messages', async () => {
+    const { agent, server } = await seedAgent();
+    const snapshot = await repo.agentDefinitions.loadLiveDefinition(app.db, agent.id);
+    expect(snapshot).not.toBeNull();
+
+    const parentConversationId = newId('conversation');
+    await repo.chat.createConversation(app.db, {
+      id: parentConversationId,
+      agentId: agent.id,
+      title: 'fork parent',
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
+    conversationIds.push(parentConversationId);
+    await app.client.unsafe('update conversations set sdk_session_id = $2 where id = $1', [
+      parentConversationId,
+      'sdk_sess_parent',
+    ]);
+
+    const runId = newId('run');
+    await repo.chat.createRun(app.db, {
+      id: runId,
+      conversationId: parentConversationId,
+      agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+      definitionSnapshot: snapshot ?? undefined,
+    });
+    const sourceUuid = 'sdk_msg_openui_fork_source';
+    const parentMessage = await repo.chat.appendMessage(app.db, {
+      id: newId('message'),
+      conversationId: parentConversationId,
+      role: 'assistant',
+      runId,
+      sdkMessageUuid: sourceUuid,
+      content: { type: 'text', text: '界面\n\n```openui-lang\nroot = Card([])\n```' },
+    });
+    await app.client.unsafe('update messages set ui_format = $2 where id = $1', [
+      parentMessage.id,
+      'openui',
+    ]);
+
+    const firstForkId = newId('conversation');
+    const firstFork = await repo.chat.branchConversation(app.db, {
+      id: firstForkId,
+      conversationId: parentConversationId,
+      fromMessageId: parentMessage.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
+    expect(firstFork).not.toBeNull();
+    conversationIds.push(firstForkId);
+    const firstForkMessageId = firstFork?.messageIds[parentMessage.id];
+    expect(firstForkMessageId).toEqual(expect.any(String));
+
+    const nestedForkId = newId('conversation');
+    const nestedFork = await repo.chat.branchConversation(app.db, {
+      id: nestedForkId,
+      conversationId: firstForkId,
+      fromMessageId: firstForkMessageId,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
+    expect(nestedFork).not.toBeNull();
+    conversationIds.push(nestedForkId);
+    const nestedForkMessageId = nestedFork?.messageIds[firstForkMessageId ?? ''];
+    expect(nestedForkMessageId).toEqual(expect.any(String));
+
+    await app.client.unsafe(
+      `update api_tools set enabled = false, method = 'POST', path_template = '/drifted/{id}'
+       where server_id = $1 and name = 'get-user'`,
+      [server.id],
+    );
+    await app.client.unsafe('delete from agent_servers where agent_id = $1 and server_id = $2', [
+      agent.id,
+      server.id,
+    ]);
+
+    const res = await callTool(nestedForkId, `mcp__${server.name}__get-user`, {
+      messageId: nestedForkMessageId,
       args: { id: 1 },
     });
     expect(res.statusCode, res.body).toBe(200);

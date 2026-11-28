@@ -12,20 +12,10 @@ import {
   useStateField,
   useTriggerAction,
 } from '@openuidev/react-lang';
-import { Toggle, ToggleGroup } from '@ui-sdk/react/toggle';
 import { CircleAlert } from 'lucide-react';
-import {
-  createContext,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-} from 'react';
-import { RequiredMark } from '../../components/required-mark.js';
+import { createContext, useContext, useEffect, useId, useMemo, useRef } from 'react';
 import { Button as UiButton } from '../../components/ui/button.js';
-import { Checkbox } from '../../components/ui/checkbox.js';
+import { Checkbox, CheckboxGroup } from '../../components/ui/checkbox.js';
 import {
   DatePicker,
   DatePickerClear,
@@ -36,6 +26,7 @@ import {
 } from '../../components/ui/date-picker.js';
 import {
   Field,
+  FieldContent,
   FieldError as FieldControlError,
   FieldDescription,
   FieldGroup,
@@ -62,6 +53,7 @@ import {
 import { Slider } from '../../components/ui/slider.js';
 import { Switch } from '../../components/ui/switch.js';
 import { Textarea } from '../../components/ui/textarea.js';
+import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.js';
 import { cn } from '../../lib/cn.js';
 import { childProps, isActionPlan, type RenderProps } from './shared.js';
 
@@ -70,6 +62,8 @@ type Rules = Record<string, string | number | boolean | undefined>;
 interface FieldWiring {
   controlId: string;
   labelId: string;
+  label: string;
+  required: boolean;
   describedBy: string | undefined;
 }
 
@@ -160,31 +154,6 @@ function useField(
   };
 }
 
-function RangeGroup({
-  labelledBy,
-  describedBy,
-  invalid,
-  className,
-  children,
-}: {
-  labelledBy: string | undefined;
-  describedBy: string | undefined;
-  invalid: boolean;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <fieldset
-      aria-labelledby={labelledBy}
-      aria-describedby={describedBy}
-      aria-invalid={invalid || undefined}
-      className={cn('m-0 min-w-0 border-0 p-0', className)}
-    >
-      {children}
-    </fieldset>
-  );
-}
-
 export function InputRenderer({
   props,
 }: RenderProps<{
@@ -196,6 +165,7 @@ export function InputRenderer({
 }>) {
   const field = useField(props.name, props.value, props.rules);
   const wiring = useFieldWiring();
+  const numberControlRef = useRef<HTMLInputElement | null>(null);
   if (props.type === 'number') {
     const trimmed = typeof field.value === 'string' ? field.value.trim() : '';
     const numericValue =
@@ -206,16 +176,34 @@ export function InputRenderer({
         : trimmed !== '' && Number.isFinite(Number(trimmed))
           ? Number(trimmed)
           : null;
+    const min =
+      typeof props.rules?.min === 'number' && Number.isFinite(props.rules.min)
+        ? props.rules.min
+        : undefined;
+    const max =
+      typeof props.rules?.max === 'number' && Number.isFinite(props.rules.max)
+        ? props.rules.max
+        : undefined;
     return (
       <NumberInput
         name={field.name}
         value={numericValue}
+        {...(min === undefined ? {} : { min })}
+        {...(max === undefined ? {} : { max })}
         format={{ useGrouping: false, maximumFractionDigits: 12 }}
         disabled={field.streaming}
         onValueChange={(next, details) => {
           if (details.reason === 'input-commit') {
-            details.cancel();
-            return;
+            const raw = numberControlRef.current?.value.trim() ?? '';
+            const parsed = raw !== '' ? Number(raw) : Number.NaN;
+            const inBounds =
+              Number.isFinite(parsed) &&
+              (min === undefined || parsed >= min) &&
+              (max === undefined || parsed <= max);
+            if (inBounds) {
+              details.cancel();
+              return;
+            }
           }
           field.setValue(next === null ? '' : String(next));
         }}
@@ -224,9 +212,11 @@ export function InputRenderer({
         <NumberInputGroup>
           <NumberInputDecrement />
           <NumberInputControl
+            ref={numberControlRef}
             id={wiring?.controlId ?? field.name}
             placeholder={props.placeholder ?? ''}
             aria-invalid={field.error ? true : undefined}
+            aria-required={wiring?.required ? true : undefined}
             onBlur={(event) => field.validate(event.currentTarget.value)}
           />
           <NumberInputIncrement />
@@ -243,7 +233,7 @@ export function InputRenderer({
       value={field.value == null ? '' : String(field.value)}
       disabled={field.streaming}
       aria-invalid={field.error ? true : undefined}
-      aria-describedby={wiring?.describedBy}
+      aria-required={wiring?.required ? true : undefined}
       onChange={(event) => field.setValue(event.target.value)}
       onBlur={(event) => field.validate(event.target.value)}
     />
@@ -270,7 +260,7 @@ export function TextAreaRenderer({
       value={field.value == null ? '' : String(field.value)}
       disabled={field.streaming}
       aria-invalid={field.error ? true : undefined}
-      aria-describedby={wiring?.describedBy}
+      aria-required={wiring?.required ? true : undefined}
       onChange={(event) => field.setValue(event.target.value)}
       onBlur={(event) => field.validate(event.target.value)}
     />
@@ -312,7 +302,7 @@ export function SelectRenderer({
         id={wiring?.controlId ?? field.name}
         size={props.size === 'small' ? 'sm' : 'default'}
         aria-invalid={field.error ? true : undefined}
-        aria-describedby={wiring?.describedBy}
+        aria-required={wiring?.required ? true : undefined}
         className="w-full"
       >
         <SelectValue placeholder={props.placeholder ?? '请选择...'} />
@@ -427,7 +417,7 @@ export function DatePickerRenderer({
           id={wiring?.controlId ?? field.name}
           placeholder={mode === 'range' ? '开始日期' : '选择日期'}
           aria-invalid={field.error ? true : undefined}
-          aria-describedby={wiring?.describedBy}
+          aria-required={wiring?.required ? true : undefined}
           onInput={(event) => handleInput(event.currentTarget.value)}
           onBlur={scheduleValidation}
           onKeyDown={(event) => {
@@ -442,8 +432,9 @@ export function DatePickerRenderer({
             <DatePickerInput
               end
               placeholder="结束日期"
-              aria-label="结束日期"
+              aria-label={wiring?.label ? `${wiring.label} 结束日期` : '结束日期'}
               aria-invalid={field.error ? true : undefined}
+              aria-required={wiring?.required ? true : undefined}
               aria-describedby={wiring?.describedBy}
               onInput={(event) => handleInput(event.currentTarget.value)}
               onBlur={scheduleValidation}
@@ -459,6 +450,28 @@ export function DatePickerRenderer({
       <DatePickerContent />
     </DatePicker>
   );
+}
+
+function resolveSliderValues(fieldValue: unknown, defaultValue: unknown, min: number): number[] {
+  if (fieldValue === undefined) {
+    const initial = Array.isArray(defaultValue)
+      ? defaultValue.filter(
+          (item): item is number => typeof item === 'number' && Number.isFinite(item),
+        )
+      : [];
+    return initial.length > 0 ? initial : [min];
+  }
+  if (fieldValue === null) return [min];
+  if (Array.isArray(fieldValue)) {
+    const filtered = fieldValue.filter(
+      (item): item is number => typeof item === 'number' && Number.isFinite(item),
+    );
+    return filtered.length > 0 ? filtered : [min];
+  }
+  if (typeof fieldValue === 'number' && Number.isFinite(fieldValue)) {
+    return [fieldValue];
+  }
+  return [min];
 }
 
 export function SliderRenderer({
@@ -479,19 +492,50 @@ export function SliderRenderer({
     defaultValue: props.defaultValue,
   });
   const wiring = useFieldWiring();
-  const values = Array.isArray(field.value)
-    ? field.value.filter((item): item is number => typeof item === 'number')
-    : (props.defaultValue ?? [props.min]);
-  const step = props.step ?? (props.variant === 'discrete' ? 1 : undefined);
+  const standaloneLabelId = useId();
+  const values = resolveSliderValues(field.value, props.defaultValue, props.min);
+  const isMulti = values.length > 1;
+  const step =
+    typeof props.step === 'number' && Number.isFinite(props.step) && props.step > 0
+      ? props.step
+      : props.variant === 'continuous'
+        ? Number((Math.abs(props.max - props.min) / 100).toPrecision(4)) || 0.01
+        : 1;
+  const trimmedLabel = props.label?.trim() ?? '';
+  const showStandaloneLabel = !wiring && trimmedLabel !== '';
+  const showSupplementLabel =
+    Boolean(wiring) && trimmedLabel !== '' && trimmedLabel !== wiring?.label.trim();
+  const contextLabel = trimmedLabel || wiring?.label.trim() || undefined;
+  const labelledBy = wiring
+    ? isMulti
+      ? wiring.labelId
+      : undefined
+    : showStandaloneLabel
+      ? standaloneLabelId
+      : undefined;
+  const sliderAriaLabel = isMulti
+    ? contextLabel
+    : !wiring && !showStandaloneLabel
+      ? contextLabel
+      : undefined;
   return (
     <div className="flex min-w-0 flex-col gap-2">
+      {showStandaloneLabel ? (
+        <span id={standaloneLabelId} className="text-sm font-medium text-fg">
+          {trimmedLabel}
+        </span>
+      ) : showSupplementLabel ? (
+        <span className="text-xs text-muted-foreground">{trimmedLabel}</span>
+      ) : null}
       <Slider
-        aria-labelledby={wiring?.labelId}
-        aria-describedby={wiring?.describedBy}
+        {...(sliderAriaLabel ? { 'aria-label': sliderAriaLabel } : {})}
+        {...(labelledBy ? { 'aria-labelledby': labelledBy } : {})}
         aria-invalid={field.error ? true : undefined}
+        aria-required={wiring?.required ? true : undefined}
+        {...(wiring?.required ? { required: true } : {})}
         min={props.min}
         max={props.max}
-        {...(step === undefined ? {} : { step })}
+        step={step}
         value={values}
         disabled={field.streaming}
         onValueChange={(next) => field.setValue(Array.isArray(next) ? next : [next])}
@@ -554,45 +598,54 @@ export function CheckBoxGroupRenderer({
       : { componentType: 'CheckBoxGroup', defaultValue: defaultMap },
   );
   const wiring = useFieldWiring();
-  const stored = (field.value ?? {}) as Record<string, unknown>;
+  const isCleared = field.value === null;
+  const stored =
+    typeof field.value === 'object' && field.value !== null
+      ? (field.value as Record<string, unknown>)
+      : undefined;
   const aggregate: Record<string, boolean> = Object.fromEntries(
-    items.map((item) => [item.name, Boolean(stored[item.name] ?? item.defaultChecked ?? false)]),
+    items.map((item) => [
+      item.name,
+      isCleared
+        ? false
+        : stored !== undefined
+          ? Boolean(stored[item.name] ?? item.defaultChecked ?? false)
+          : Boolean(item.defaultChecked ?? false),
+    ]),
   );
+  const selectedValues = items.filter((item) => aggregate[item.name]).map((item) => item.name);
 
   if (items.length === 0) return null;
   return (
-    <RangeGroup
-      labelledBy={wiring?.labelId}
-      describedBy={wiring?.describedBy}
-      invalid={!!field.error}
-      className="flex flex-col gap-2"
+    <CheckboxGroup
+      name={field.name}
+      aria-labelledby={wiring?.labelId}
+      aria-invalid={field.error ? true : undefined}
+      aria-required={wiring?.required ? true : undefined}
+      disabled={field.streaming}
+      value={selectedValues}
+      onValueChange={(nextValues) => {
+        const selected = new Set(nextValues);
+        const next = Object.fromEntries(items.map((item) => [item.name, selected.has(item.name)]));
+        field.setValue(next);
+        field.validate(next);
+      }}
     >
-      {items.map((item) => {
-        const id = `${wiring?.controlId ?? field.name}-${item.name}`;
-        return (
-          <div key={item.name} className="flex items-start gap-2">
-            <Checkbox
-              id={id}
-              checked={aggregate[item.name]}
-              disabled={field.streaming}
-              aria-invalid={field.error ? true : undefined}
-              aria-describedby={wiring?.describedBy}
-              onCheckedChange={(checked) => {
-                const next = { ...aggregate, [item.name]: checked === true };
-                field.setValue(next);
-                field.validate(next);
-              }}
-            />
-            <div className="flex min-w-0 flex-col">
-              <Label htmlFor={id}>{item.label}</Label>
-              {item.description ? (
-                <span className="text-sm text-muted-foreground">{item.description}</span>
-              ) : null}
-            </div>
-          </div>
-        );
-      })}
-    </RangeGroup>
+      {items.map((item) => (
+        <Field key={item.name} orientation="horizontal" className="items-start gap-2">
+          <Checkbox
+            value={item.name}
+            aria-invalid={field.error ? true : undefined}
+            aria-describedby={wiring?.describedBy}
+            className="mt-0.5"
+          />
+          <FieldContent className="gap-0">
+            <FieldLabel className="font-normal text-fg">{item.label}</FieldLabel>
+            {item.description ? <FieldDescription>{item.description}</FieldDescription> : null}
+          </FieldContent>
+        </Field>
+      ))}
+    </CheckboxGroup>
   );
 }
 
@@ -617,18 +670,25 @@ export function RadioGroupRenderer({
   const items = (props.items ?? [])
     .map((item) => childProps<{ label: string; description: string; value: string }>(item))
     .filter((item): item is { label: string; description: string; value: string } => !!item);
-  const value = typeof field.value === 'string' ? field.value : (props.defaultValue ?? '');
+  const value =
+    field.value === undefined
+      ? (props.defaultValue ?? '')
+      : typeof field.value === 'string'
+        ? field.value
+        : '';
   if (items.length === 0) return null;
   return (
     <RadioGroup
+      allowNull
       aria-labelledby={wiring?.labelId}
-      aria-describedby={wiring?.describedBy}
       aria-invalid={field.error ? true : undefined}
+      aria-required={wiring?.required ? true : undefined}
       value={value === '' ? null : value}
       disabled={field.streaming}
       onValueChange={(next) => {
-        field.setValue(next);
-        field.validate(next);
+        const selected = next ?? '';
+        field.setValue(selected);
+        field.validate(selected);
       }}
     >
       {items.map((item) => {
@@ -688,41 +748,56 @@ export function SwitchGroupRenderer({
       ? undefined
       : { componentType: 'SwitchGroup', defaultValue: defaultMap },
   );
-  const groupId = useId();
-  const stored = (field.value ?? {}) as Record<string, unknown>;
+  const wiring = useFieldWiring();
+  const isCleared = field.value === null;
+  const stored =
+    typeof field.value === 'object' && field.value !== null
+      ? (field.value as Record<string, unknown>)
+      : undefined;
   const aggregate: Record<string, boolean> = Object.fromEntries(
-    items.map((item) => [item.name, Boolean(stored[item.name] ?? item.defaultChecked ?? false)]),
+    items.map((item) => [
+      item.name,
+      isCleared
+        ? false
+        : stored !== undefined
+          ? Boolean(stored[item.name] ?? item.defaultChecked ?? false)
+          : Boolean(item.defaultChecked ?? false),
+    ]),
   );
   if (items.length === 0) return null;
   return (
+    /* biome-ignore lint/a11y/useSemanticElements: 标签由外层 FormControl 的 FieldTitle 承载，套无 legend 的 fieldset 反而违背语义。 */
     <div
+      role="group"
+      aria-labelledby={wiring?.labelId}
+      aria-describedby={wiring?.describedBy}
+      aria-invalid={field.error ? true : undefined}
       className={cn(
         'flex flex-col gap-2',
         props.variant === 'card' && 'cds-card-surface rounded-card bg-surface p-3',
         props.variant === 'sunk' && 'rounded-card bg-sunken p-3',
       )}
     >
-      {items.map((item) => {
-        const id = `${groupId}-${item.name}`;
-        return (
-          <div key={item.name} className="flex items-start justify-between gap-3">
-            <div className="flex min-w-0 flex-col">
-              <Label htmlFor={id}>{item.label ?? item.name}</Label>
-              {item.description ? (
-                <span className="text-sm text-muted-foreground">{item.description}</span>
-              ) : null}
-            </div>
-            <Switch
-              id={id}
-              {...(aggregate[item.name] === undefined ? {} : { checked: aggregate[item.name] })}
-              disabled={field.streaming}
-              onCheckedChange={(checked) =>
-                field.setValue({ ...aggregate, [item.name]: checked === true })
-              }
-            />
-          </div>
-        );
-      })}
+      {items.map((item) => (
+        <Field
+          key={item.name}
+          orientation="horizontal"
+          className="items-start justify-between gap-3"
+        >
+          <FieldContent className="gap-0">
+            <FieldLabel className="font-normal text-fg">{item.label ?? item.name}</FieldLabel>
+            {item.description ? <FieldDescription>{item.description}</FieldDescription> : null}
+          </FieldContent>
+          <Switch
+            checked={aggregate[item.name] ?? false}
+            disabled={field.streaming}
+            aria-invalid={field.error ? true : undefined}
+            onCheckedChange={(checked) =>
+              field.setValue({ ...aggregate, [item.name]: checked === true })
+            }
+          />
+        </Field>
+      ))}
     </div>
   );
 }
@@ -749,17 +824,19 @@ function useSelectionField(
     defaultValue: storedDefault,
   });
   const stored = field.value;
-  // 与官方 normalizeSelection 一致：空值代表「用户清空了选择」，不能回落 defaultValue。
   const selection = useMemo(() => {
+    if (stored === null) return [];
     if (type === 'single') {
       if (typeof stored === 'string') return stored ? [stored] : [];
       if (Array.isArray(stored) && typeof stored[0] === 'string')
         return stored[0] ? [stored[0]] : [];
+      if (stored !== undefined) return [];
       return typeof storedDefault === 'string' && storedDefault ? [storedDefault] : [];
     }
     if (Array.isArray(stored))
       return stored.filter((item): item is string => typeof item === 'string');
     if (typeof stored === 'string') return stored ? [stored] : [];
+    if (stored !== undefined) return [];
     if (Array.isArray(storedDefault))
       return storedDefault.filter((item): item is string => typeof item === 'string');
     return typeof storedDefault === 'string' && storedDefault ? [storedDefault] : [];
@@ -798,28 +875,27 @@ export function ChipsRenderer({
   if (items.length === 0) return null;
   return (
     <ToggleGroup
-      render={<fieldset />}
       aria-labelledby={wiring?.labelId}
       aria-describedby={wiring?.describedBy}
       aria-invalid={state.error ? true : undefined}
+      aria-required={wiring?.required ? true : undefined}
       disabled={state.streaming}
       multiple={type === 'multiple'}
       value={state.selection}
       onValueChange={(next) => state.setSelection(next)}
-      className="m-0 flex min-w-0 flex-wrap gap-1.5 border-0 p-0"
+      className="flex w-full min-w-0 flex-wrap gap-1.5"
     >
       {items.map((item) => {
         const selected = state.selection.includes(item.value);
         return (
-          <Toggle
+          <ToggleGroupItem
             key={item.value}
             value={item.value}
             aria-invalid={state.error ? true : undefined}
             aria-describedby={wiring?.describedBy}
             disabled={Boolean(item.disabled)}
             className={cn(
-              'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-colors duration-150 ease-out-soft',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'h-auto min-w-0 rounded-full border px-3 py-1 font-normal',
               selected
                 ? 'border-line-strong bg-selected text-selected-foreground'
                 : 'border-line bg-transparent text-muted-foreground hover:bg-hover',
@@ -828,7 +904,7 @@ export function ChipsRenderer({
           >
             {item.icon ? renderNode(item.icon) : null}
             {item.label}
-          </Toggle>
+          </ToggleGroupItem>
         );
       })}
     </ToggleGroup>
@@ -876,28 +952,27 @@ export function OptionCardsRenderer({
   if (items.length === 0) return null;
   return (
     <ToggleGroup
-      render={<fieldset />}
       aria-labelledby={wiring?.labelId}
       aria-describedby={wiring?.describedBy}
       aria-invalid={state.error ? true : undefined}
+      aria-required={wiring?.required ? true : undefined}
       disabled={state.streaming}
       multiple={type === 'multiple'}
       value={state.selection}
       onValueChange={(next) => state.setSelection(next)}
-      className="m-0 grid min-w-0 grid-cols-1 gap-2 border-0 p-0 sm:grid-cols-2"
+      className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 sm:grid-cols-2"
     >
       {items.map((item) => {
         const selected = state.selection.includes(item.value);
         return (
-          <Toggle
+          <ToggleGroupItem
             key={item.value}
             value={item.value}
             aria-invalid={state.error ? true : undefined}
             aria-describedby={wiring?.describedBy}
             disabled={Boolean(item.disabled)}
             className={cn(
-              'cds-card-surface flex min-w-0 items-start gap-2 rounded-card border p-3 text-left',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'cds-card-surface flex h-auto min-w-0 items-start justify-start gap-2 rounded-card border p-3 text-left font-normal whitespace-normal',
               selected
                 ? 'border-line-strong bg-selected text-selected-foreground'
                 : 'border-transparent bg-surface',
@@ -920,7 +995,7 @@ export function OptionCardsRenderer({
                 <span className="text-sm text-muted-foreground">{item.subtitle}</span>
               ) : null}
             </span>
-          </Toggle>
+          </ToggleGroupItem>
         );
       })}
     </ToggleGroup>
@@ -955,7 +1030,12 @@ export function FormControlRenderer({
 }: RenderProps<{ label: string; input: unknown; hint?: string }>) {
   const validation = useFormValidation();
   const streaming = useIsStreaming();
-  const inputProps = childProps<{ name?: string; rules?: Rules }>(props.input);
+  const inputProps = childProps<{
+    name?: string;
+    rules?: Rules;
+    value?: unknown;
+    defaultValue?: unknown;
+  }>(props.input);
   const fieldName = inputProps?.name;
   const error = fieldName ? validation?.errors[fieldName] : undefined;
   const required = inputProps?.rules?.required === true;
@@ -963,14 +1043,24 @@ export function FormControlRenderer({
   const labelId = `${controlId}-label`;
   const hintId = props.hint ? `${controlId}-hint` : undefined;
   const errorId = error ? `${controlId}-error` : undefined;
-  const labelable = LABELABLE_INPUTS.has(inputTypeName(props.input) ?? '');
+  const inputType = inputTypeName(props.input) ?? '';
+  const sliderField = useStateField(
+    inputType === 'Slider' ? (fieldName ?? '') : '',
+    inputType === 'Slider' ? inputProps?.value : undefined,
+  );
+  const isSingleSlider =
+    inputType === 'Slider' &&
+    resolveSliderValues(sliderField.value, inputProps?.defaultValue, 0).length <= 1;
+  const labelable = LABELABLE_INPUTS.has(inputType) || isSingleSlider;
   const wiring = useMemo<FieldWiring>(
     () => ({
       controlId,
       labelId,
+      label: props.label,
+      required,
       describedBy: [hintId, errorId].filter(Boolean).join(' ') || undefined,
     }),
-    [controlId, labelId, hintId, errorId],
+    [controlId, labelId, props.label, required, hintId, errorId],
   );
 
   return (
@@ -980,14 +1070,26 @@ export function FormControlRenderer({
       data-disabled={streaming ? 'true' : undefined}
     >
       {labelable ? (
-        <FieldLabel id={labelId} htmlFor={controlId} className="text-fg">
+        <FieldLabel
+          id={labelId}
+          {...(isSingleSlider ? {} : { htmlFor: controlId })}
+          className="text-fg"
+        >
           {props.label}
-          {required ? <RequiredMark /> : null}
+          {required ? (
+            <span className="ml-0.5 text-danger" aria-hidden="true">
+              *
+            </span>
+          ) : null}
         </FieldLabel>
       ) : (
         <FieldTitle id={labelId} className="text-fg">
           {props.label}
-          {required ? <RequiredMark /> : null}
+          {required ? (
+            <span className="ml-0.5 text-danger" aria-hidden="true">
+              *
+            </span>
+          ) : null}
         </FieldTitle>
       )}
       <FieldWiringContext.Provider value={wiring}>
@@ -1028,6 +1130,22 @@ const BUTTON_VARIANTS = {
   tertiary: 'ghost',
 } as const;
 
+const DESTRUCTIVE_BUTTON_STYLES = {
+  primary: {
+    variant: 'destructive' as const,
+    className:
+      'bg-destructive text-destructive-foreground shadow-[var(--shadow-2xs)] hover:bg-destructive/90',
+  },
+  secondary: {
+    variant: 'outline' as const,
+    className: 'border-destructive/40 text-destructive hover:bg-danger-soft hover:text-destructive',
+  },
+  tertiary: {
+    variant: 'ghost' as const,
+    className: 'text-destructive hover:bg-danger-soft hover:text-destructive',
+  },
+} as const;
+
 function needsFormValidation(action: unknown): boolean {
   if (!isActionPlan(action)) return true;
   return action.steps.some(
@@ -1053,11 +1171,14 @@ export function ButtonRenderer({
   const validation = useFormValidation();
   const variant = props.variant ?? 'primary';
   const size = props.size ?? 'medium';
+  const destructiveStyle =
+    props.type === 'destructive' ? DESTRUCTIVE_BUTTON_STYLES[variant] : undefined;
 
   return (
     <UiButton
       type="button"
-      variant={props.type === 'destructive' ? 'destructive' : BUTTON_VARIANTS[variant]}
+      variant={destructiveStyle ? destructiveStyle.variant : BUTTON_VARIANTS[variant]}
+      {...(destructiveStyle ? { className: destructiveStyle.className } : {})}
       size={
         size === 'extra-small'
           ? 'xs'

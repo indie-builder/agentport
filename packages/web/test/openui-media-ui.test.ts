@@ -220,6 +220,67 @@ describe('ImageGallery', () => {
     );
     expect(host.innerHTML).toBe('');
   });
+
+  it('opens preview dialog with prev/next navigation on click', async () => {
+    await mount(
+      createElement(ImageGallery, {
+        props: {
+          images: [
+            { src: 'https://example.com/1.png', alt: '第一张', details: '说明一' },
+            { src: 'https://example.com/2.png', alt: '第二张', details: '说明二' },
+          ],
+        },
+        renderNode,
+      }),
+    );
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="预览 第一张"]');
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger?.click());
+
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.textContent).toContain('第一张');
+    expect(dialog?.textContent).toContain('说明一');
+
+    const nextBtn = [...document.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('下一张'),
+    );
+    await act(async () => nextBtn?.click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('第二张');
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('说明二');
+  });
+
+  it('collapses >5 images behind a show-all button and handles load failures and duplicate URLs', async () => {
+    await mount(
+      createElement(ImageGallery, {
+        props: {
+          images: [
+            { src: 'https://example.com/same.png', alt: '图1' },
+            { src: 'https://example.com/same.png', alt: '图2' },
+            { src: 'https://example.com/3.png', alt: '图3' },
+            { src: 'https://example.com/4.png', alt: '图4' },
+            { src: 'https://example.com/5.png', alt: '图5' },
+            { src: 'https://example.com/6.png', alt: '图6' },
+          ],
+        },
+        renderNode,
+      }),
+    );
+    expect(host.querySelectorAll('figure')).toHaveLength(5);
+    const showAll = [...host.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('查看全部（6 张）'),
+    );
+    expect(showAll).toBeTruthy();
+    await act(async () => showAll?.click());
+    expect(host.querySelectorAll('figure')).toHaveLength(6);
+
+    const firstImg = host.querySelector('img');
+    await act(async () => {
+      firstImg?.dispatchEvent(new Event('error'));
+    });
+    expect(host.querySelectorAll('img')).toHaveLength(5);
+    expect(host.textContent).toContain('图1');
+  });
 });
 
 describe('ImageText', () => {

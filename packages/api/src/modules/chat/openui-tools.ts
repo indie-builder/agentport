@@ -207,10 +207,11 @@ export const chatToolsRouter = {
     if (!segmentExists) {
       return fail('INVALID_INPUT', `该消息没有 ${blockKey} 这个界面段；请刷新后重试`);
     }
-    const snapshot =
-      message.runId === null
-        ? null
-        : await repo.openui.getRunDefinitionSnapshot(context.db, message.runId);
+    const snapshot = await repo.openui.getRunDefinitionSnapshotForMessage(
+      context.db,
+      conversationId,
+      message,
+    );
     const catalog =
       snapshot !== null
         ? repo.openui.listOpenUiToolsFromSnapshot(snapshot.agent, snapshot.resources.servers)
@@ -355,10 +356,13 @@ export const chatToolsRouter = {
   approveOpenuiTool: os.approveOpenuiTool.handler(async ({ input, context }) => {
     const { conversationId, approvalId } = input.params;
     await loadOpenuiConversation(context, conversationId, 'runs.approve');
+    const approvedByBusinessId =
+      context.principal?.kind === 'user' ? context.principal.businessId : null;
     const approved = await repo.openui.approveOpenUiApproval(
       context.db,
       conversationId,
       approvalId,
+      approvedByBusinessId,
     );
     if (!approved) {
       notFound('approval', '没有这条待批准记录；它可能已批准或不属于该会话，请刷新后重试');

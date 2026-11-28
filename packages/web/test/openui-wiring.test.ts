@@ -294,15 +294,15 @@ describe('approval entry', () => {
     expect(host.textContent).toContain('需要批准');
     expect(host.textContent).toContain('8 小时');
 
-    const approveButton = buttonByText('批准工具调用');
+    const approveButton = buttonByText('批准 risky');
     expect(approveButton.getAttribute('data-agent-confirm')).toBe(
       '批准工具 risky 在本会话内调用（8 小时内有效）',
     );
     const approveSnap = createUiAgent()
       .snapshot()
-      .find((entry) => !entry.offPage && entry.label === '批准工具调用');
+      .find((entry) => !entry.offPage && entry.label === '批准 risky');
     expect(approveSnap).toMatchObject({
-      label: '批准工具调用',
+      label: '批准 risky',
       confirm: '批准工具 risky 在本会话内调用（8 小时内有效）',
     });
 

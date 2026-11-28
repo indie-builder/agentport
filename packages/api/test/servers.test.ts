@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { repo } from '@agentport/db';
 import { SECRET_MASK, type Server } from '@agentport/shared';
 import { buildApp } from '../src/app.js';
 import {
@@ -295,6 +296,62 @@ describe.skipIf(!ready)('servers', () => {
       payload: { kind: 'http' },
     });
     expect(bad.statusCode).toBe(400);
+  });
+
+  it('invalidates cached http toolCatalog when url or headers change', async () => {
+    const name = unique('http-catalog');
+    created.push(name);
+    const createdServer = (
+      await post(name, {
+        kind: 'http',
+        url: 'https://example.com/mcp-a',
+        headers: { Authorization: 'Bearer token-a' },
+      })
+    ).json<Server>();
+
+    const seedCatalog = () =>
+      repo.openui.cacheServerToolCatalog(app.db, createdServer.id, [
+        { name: 'list-items', description: 'List items' },
+      ]);
+
+    await seedCatalog();
+    const descOnly = await request(app, {
+      method: 'PATCH',
+      url: `/api/servers/${createdServer.id}`,
+      headers: auth(),
+      payload: { description: 'keep catalog' },
+    });
+    expect(descOnly.statusCode, descOnly.body).toBe(200);
+    expect((await repo.servers.getServer(app.db, createdServer.id))?.config.toolCatalog).toEqual([
+      {
+        name: 'list-items',
+        description: 'List items',
+        inputSchema: { type: 'object', properties: {} },
+      },
+    ]);
+
+    const urlChanged = await request(app, {
+      method: 'PATCH',
+      url: `/api/servers/${createdServer.id}`,
+      headers: auth(),
+      payload: { url: 'https://example.com/mcp-b' },
+    });
+    expect(urlChanged.statusCode, urlChanged.body).toBe(200);
+    expect(
+      (await repo.servers.getServer(app.db, createdServer.id))?.config.toolCatalog,
+    ).toBeUndefined();
+
+    await seedCatalog();
+    const headersChanged = await request(app, {
+      method: 'PATCH',
+      url: `/api/servers/${createdServer.id}`,
+      headers: auth(),
+      payload: { headers: { Authorization: 'Bearer token-b' } },
+    });
+    expect(headersChanged.statusCode, headersChanged.body).toBe(200);
+    expect(
+      (await repo.servers.getServer(app.db, createdServer.id))?.config.toolCatalog,
+    ).toBeUndefined();
   });
 
   it('serves CRUD on tools only for generated servers', async () => {

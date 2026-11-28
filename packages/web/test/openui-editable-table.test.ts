@@ -311,4 +311,61 @@ describe('EditableTable cell types', () => {
     await type(inputs()[0] as HTMLInputElement, '改左');
     expect(inputs().map((input) => input.value)).toEqual(['改左', '右']);
   });
+
+  it('handles duplicate or omitted column keys without clobbering sibling cells', async () => {
+    const onAction = vi.fn();
+    await render(
+      P([
+        'root = Card([table])',
+        'table = EditableTable("dup", cols, [{id: "r1", values: ["甲", "乙"]}])',
+        'cols = [{type: "text", header: "第一列"}, {type: "text", header: "第二列"}]',
+      ]),
+      { onAction },
+    );
+
+    expect(inputs().map((input) => input.value)).toEqual(['甲', '乙']);
+    await type(inputs()[1] as HTMLInputElement, '丙');
+    expect(inputs().map((input) => input.value)).toEqual(['甲', '丙']);
+
+    await click(buttonByText('Save Changes'));
+    const event = onAction.mock.calls.at(-1)?.[0] as {
+      formState: { dup: { dup: { value: Array<{ values: unknown[] }> } } };
+    };
+    expect(event.formState.dup.dup.value).toEqual([{ id: 'r1', values: ['甲', '丙'] }]);
+  });
+
+  it('saves blank number cells as empty string instead of zero', async () => {
+    const onAction = vi.fn();
+    await render(table('items', '[{id: "a", values: ["苹果", 3]}]'), { onAction });
+
+    await type(inputs()[1] as HTMLInputElement, '');
+    await click(buttonByText('Save Changes'));
+
+    const event = onAction.mock.calls.at(-1)?.[0] as {
+      formState: { items: { items: { value: Array<{ values: unknown[] }> } } };
+    };
+    expect(event.formState.items.items.value).toEqual([{ id: 'a', values: ['苹果', ''] }]);
+  });
+
+  it('parses slash dates, labels clear button with context, and validates url cells', async () => {
+    await render(
+      P([
+        'root = Card([table])',
+        'table = EditableTable("links", cols, [{id: "a", values: ["2030/06/15", "https://example.com/ok"]}])',
+        'cols = [{type: "date-single", key: "day", header: "日期"}, {type: "url", key: "site", header: "网站"}]',
+      ]),
+    );
+
+    const clear = host.querySelector<HTMLElement>('[data-slot="date-picker-clear"]');
+    expect(clear?.getAttribute('aria-label')).toBe('清除日期 第 1 行');
+
+    const link = host.querySelector<HTMLAnchorElement>('a[href="https://example.com/ok"]');
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute('target')).toBe('_blank');
+
+    const urlInput = inputs().find((input) => input.type === 'url') as HTMLInputElement;
+    await type(urlInput, 'javascript:alert(1)');
+    expect(host.querySelector('a')).toBeNull();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('http(s)');
+  });
 });

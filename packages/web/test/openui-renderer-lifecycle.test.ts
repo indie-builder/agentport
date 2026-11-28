@@ -116,11 +116,11 @@ describe('approval outside the query error slot', () => {
     await act(async () => buttonByText('保存记录').click());
     await settle();
 
-    expect(host.textContent).toContain('批准工具调用');
+    expect(host.textContent).toContain('批准 write_tool');
     expect(host.textContent).toContain('8 小时');
     expect(onToolCall).toHaveBeenCalledTimes(1);
 
-    await act(async () => buttonByText('批准工具调用').click());
+    await act(async () => buttonByText('批准 write_tool').click());
     await settle();
 
     expect(onApprove).toHaveBeenCalledWith({
@@ -166,7 +166,7 @@ describe('approval outside the query error slot', () => {
     await settle();
     expect(onToolCall).toHaveBeenCalledTimes(1);
 
-    await act(async () => buttonByText('批准工具调用').click());
+    await act(async () => buttonByText('批准 write_tool').click());
     await settle();
     expect(onApprove).toHaveBeenCalledTimes(1);
     expect(onToolCall).toHaveBeenCalledTimes(1);
@@ -180,9 +180,9 @@ describe('approval outside the query error slot', () => {
     await settle();
     expect(onToolCall).toHaveBeenCalledTimes(3);
     expect(host.textContent).toContain('需要批准后才能调用');
-    expect(() => buttonByText('批准工具调用')).not.toThrow();
+    expect(() => buttonByText('批准 write_tool')).not.toThrow();
 
-    await act(async () => buttonByText('批准工具调用').click());
+    await act(async () => buttonByText('批准 write_tool').click());
     await settle();
     expect(onApprove).toHaveBeenCalledTimes(2);
     expect(onApprove.mock.calls[1]?.[0]).toEqual({

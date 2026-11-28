@@ -1,7 +1,9 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MessagePane } from '../src/components/chat/chat-thread/message-pane.js';
 import { AssistantText } from '../src/components/chat/openui-message.js';
+import type { ChatItem } from '../src/lib/chat-state.js';
 
 // 让渲染器 chunk 真的挂起一次：预载 module 会让 Suspense 直接跳过 fallback，测不到等待态。
 // 放行后 React.lazy 与模块都会被缓存，所以「等待态」用例必须排在第一。
@@ -252,5 +254,105 @@ describe('AssistantText', () => {
     await render(patch, true, true);
     expect(host.textContent).toContain('正在更新界面…');
     expect(host.querySelector('[role="status"]')?.getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('unlocks closed text blocks and chains same-turn baseline in MessagePane', async () => {
+    const firstBlock = fence([
+      'root = Card([header, note, buttons])',
+      'header = CardHeader("同轮标题", "阶段一")',
+      'note = TextContent("旧正文")',
+      'buttons = Buttons([b1])',
+      'b1 = Button("可点按钮", @ToAssistant("点到了"), "primary")',
+    ]);
+    const secondPatch = fence(['note = TextContent("同轮补丁新正文")']);
+    const items: ChatItem[] = [
+      { id: 'u1', kind: 'user', text: '生成界面' },
+      { id: 'a1:0', kind: 'text', text: firstBlock, closed: true },
+      { id: 'a1:1', kind: 'tool', toolUseId: 't1', name: 'Read', input: '{}' },
+      { id: 'a1:2', kind: 'text', text: secondPatch },
+    ];
+    const onAction = vi.fn();
+    await act(async () => {
+      root.render(
+        createElement(MessagePane, {
+          items,
+          loading: false,
+          error: null,
+          onRetry: () => undefined,
+          hasOlder: false,
+          loadingOlder: false,
+          olderDisabled: false,
+          welcome: null,
+          approvalItems: [],
+          lastRun: null,
+          historyMetrics: new Map(),
+          currentRunId: 'run_1',
+          branchingMessageId: null,
+          running: true,
+          openUi: true,
+          streaming: true,
+          onAction,
+        }),
+      );
+    });
+    await settle();
+
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (b) => b.textContent === '可点按钮',
+    );
+    expect(buttons.length).toBeGreaterThanOrEqual(1);
+    expect(buttons[0]?.disabled).toBe(false);
+    expect(host.textContent).toContain('同轮标题');
+    expect(host.textContent).toContain('同轮补丁新正文');
+    expect(host.textContent).not.toContain('正在更新界面…');
+  });
+
+  it('keeps closed rootless patch blocks merged with baseline instead of degrading to source or clobbering baseline', async () => {
+    const firstBlock = fence([
+      'root = Card([header, note])',
+      'header = CardHeader("基线标题", "保留")',
+      'note = TextContent("初版内容")',
+    ]);
+    const closedPatch = fence(['note = TextContent("阶段二补丁")']);
+    const streamingPatch = fence(['note = TextContent("阶段三补丁")']);
+    const items: ChatItem[] = [
+      { id: 'u1', kind: 'user', text: '逐步更新' },
+      { id: 'a1:0', kind: 'text', text: firstBlock, closed: true },
+      { id: 'a1:1', kind: 'tool', toolUseId: 't1', name: 'Read', input: '{}' },
+      { id: 'a1:2', kind: 'text', text: closedPatch, closed: true },
+      { id: 'a1:3', kind: 'tool', toolUseId: 't2', name: 'Read', input: '{}' },
+      { id: 'a1:4', kind: 'text', text: streamingPatch },
+    ];
+
+    await act(async () => {
+      root.render(
+        createElement(MessagePane, {
+          items,
+          loading: false,
+          error: null,
+          onRetry: () => undefined,
+          hasOlder: false,
+          loadingOlder: false,
+          olderDisabled: false,
+          welcome: null,
+          approvalItems: [],
+          lastRun: null,
+          historyMetrics: new Map(),
+          currentRunId: 'run_2',
+          branchingMessageId: null,
+          running: true,
+          openUi: true,
+          streaming: true,
+          onAction: vi.fn(),
+        }),
+      );
+    });
+    await settle();
+
+    expect(host.textContent).toContain('基线标题');
+    expect(host.textContent).toContain('阶段二补丁');
+    expect(host.textContent).toContain('阶段三补丁');
+    expect(host.textContent).not.toContain('note = TextContent');
+    expect(host.textContent).not.toContain('正在更新界面…');
   });
 });

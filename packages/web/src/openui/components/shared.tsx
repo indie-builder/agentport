@@ -1,6 +1,6 @@
 import { ACTION_STEPS, BuiltinActionType } from '@openuidev/react-lang';
 import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
-import { Children, type CSSProperties, isValidElement, type ReactNode } from 'react';
+import { Children, type CSSProperties, createContext, isValidElement, type ReactNode } from 'react';
 import {
   Carousel,
   CarouselContent,
@@ -10,6 +10,14 @@ import {
   CarouselViewport,
 } from '../../components/ui/carousel.js';
 import { cn } from '../../lib/cn.js';
+
+export type CardSource = {
+  url?: string | undefined;
+  title: string;
+  sourceName: string;
+};
+
+export const CardSourceContext = createContext<readonly CardSource[]>([]);
 
 export interface RenderProps<P> {
   props: P;
@@ -225,9 +233,8 @@ export function BlockCard({
   className?: string;
 }) {
   const surface = cn(
-    'cds-card-surface flex h-full min-w-0 flex-col gap-3 rounded-card p-3 text-left',
+    'cds-card-surface flex h-full min-w-0 flex-col gap-3 rounded-card bg-surface p-3 text-left',
     className,
-    'bg-surface',
   );
   if (!clickable) {
     return (

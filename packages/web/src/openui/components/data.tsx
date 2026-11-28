@@ -1,10 +1,14 @@
+import { isSafeOpenUrl } from '@agentport/shared';
 import {
   useGetFieldValue,
+  useIsQueryLoading,
   useIsStreaming,
   useSetFieldValue,
   useTriggerAction,
 } from '@openuidev/react-lang';
+import { ExternalLink } from 'lucide-react';
 import { Fragment, useState } from 'react';
+import { Markdown } from '../../components/markdown.js';
 import { Button } from '../../components/ui/button.js';
 import {
   DatePicker,
@@ -28,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../components/ui/select.js';
+import { Skeleton } from '../../components/ui/skeleton.js';
 import {
   Table,
   TableBody,
@@ -49,23 +54,58 @@ import {
 type ColType = 'string' | 'number' | 'action';
 
 export function TableRenderer({ props, renderNode }: RenderProps<{ columns: unknown[] }>) {
+  const isQueryLoading = useIsQueryLoading();
   const columns = (props.columns ?? [])
     .map((column) => childProps<{ label: string; data: unknown; type?: ColType }>(column))
     .filter((column): column is { label: string; data: unknown; type?: ColType } => !!column);
-  if (columns.length === 0) return null;
-
   const rows = columns.map((column) => asArray(column.data ?? []));
   const rowCount = Math.max(...rows.map((row) => row.length), 0);
-  if (rowCount === 0) return null;
+
+  if (rowCount === 0) {
+    if (!isQueryLoading) return null;
+    const skeletonCols = Math.max(columns.length, 3);
+    const skeletonColKeys = Array.from({ length: skeletonCols }, (_, col) => `col-${col}`);
+    return (
+      <div
+        role="status"
+        aria-busy="true"
+        aria-label="表格数据加载中"
+        className="flex min-w-0 flex-col gap-2"
+      >
+        {['row-0', 'row-1', 'row-2'].map((rowKey) => (
+          <div
+            key={rowKey}
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(${skeletonCols}, minmax(0, 1fr))` }}
+          >
+            {skeletonColKeys.map((colKey) => (
+              <Skeleton key={colKey} className="h-6 w-full" />
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const seenHeaders = new Map<string, number>();
+  const columnKeys = columns.map((column) => {
+    const base = column.label || 'col';
+    const count = (seenHeaders.get(base) ?? 0) + 1;
+    seenHeaders.set(base, count);
+    return count === 1 ? base : `${base}-${count}`;
+  });
 
   return (
-    <Table className="text-sm">
-      <TableHeader>
-        <TableRow>
-          {columns.map((column) => {
-            return (
+    <div
+      aria-busy={isQueryLoading || undefined}
+      className={cn('min-w-0', isQueryLoading && 'opacity-70 transition-opacity')}
+    >
+      <Table className="text-sm">
+        <TableHeader>
+          <TableRow>
+            {columns.map((column, columnIndex) => (
               <TableHead
-                key={column.label}
+                key={columnKeys[columnIndex]}
                 className={cn(
                   'text-xs text-muted-foreground',
                   column.type === 'number' && 'text-right',
@@ -73,36 +113,35 @@ export function TableRenderer({ props, renderNode }: RenderProps<{ columns: unkn
               >
                 {column.label}
               </TableHead>
-            );
-          })}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {Array.from({ length: rowCount }, (_, rowIndex) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 行由模型按顺序生成
-          <TableRow key={rowIndex} className="hover:bg-transparent">
-            {columns.map((column, columnIndex) => {
-              const cell = rows[columnIndex]?.[rowIndex];
-              return (
-                <TableCell
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 单元格位置即身份
-                  key={columnIndex}
-                  className={cn(
-                    column.type === 'number'
-                      ? 'text-right font-mono tabular-nums whitespace-nowrap'
-                      : 'break-words whitespace-normal',
-                  )}
-                >
-                  {typeof cell === 'object' && cell !== null
-                    ? renderNode(cell)
-                    : String(cell ?? '')}
-                </TableCell>
-              );
-            })}
+            ))}
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {Array.from({ length: rowCount }, (_, rowIndex) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 行由模型按顺序生成
+            <TableRow key={rowIndex} className="hover:bg-transparent">
+              {columns.map((column, columnIndex) => {
+                const cell = rows[columnIndex]?.[rowIndex];
+                return (
+                  <TableCell
+                    key={columnKeys[columnIndex]}
+                    className={cn(
+                      column.type === 'number'
+                        ? 'text-right font-mono tabular-nums whitespace-nowrap'
+                        : 'break-words whitespace-normal',
+                    )}
+                  >
+                    {typeof cell === 'object' && cell !== null
+                      ? renderNode(cell)
+                      : String(cell ?? '')}
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -112,7 +151,7 @@ export function ColRenderer() {
 
 type EditableColumn = {
   type: 'text' | 'number' | 'date-single' | 'select' | 'url';
-  key: string;
+  key?: string;
   header: string;
   width?: number;
   options?: Array<{ value: string; label: string }>;
@@ -121,11 +160,49 @@ type EditableColumn = {
 type EditableRow = { id: string; values: Array<string | number> };
 
 type EditableDraft = {
-  tableName: string;
   keys: string[];
   rows: Array<{ id: string; values: string[] }>;
   baseline: string[][];
 };
+
+function formatDateParts(year: number, month: number, day: number): string | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const candidate = new Date(year, month - 1, day);
+  if (
+    candidate.getFullYear() !== year ||
+    candidate.getMonth() !== month - 1 ||
+    candidate.getDate() !== day
+  ) {
+    return null;
+  }
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function parseDateValue(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const isoMatch = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|T|\s)/.exec(trimmed);
+  if (isoMatch) {
+    return formatDateParts(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]));
+  }
+  const slashMatch = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:$|\s)/.exec(trimmed);
+  if (slashMatch) {
+    return formatDateParts(Number(slashMatch[1]), Number(slashMatch[2]), Number(slashMatch[3]));
+  }
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return formatDateParts(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
+}
+
+function uniqueColumnKeys(columns: EditableColumn[]): string[] {
+  const seen = new Map<string, number>();
+  return columns.map((column, index) => {
+    const base = column.key?.trim() || `col-${index}`;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return count === 1 ? base : `${base}__${count}`;
+  });
+}
 
 function EditableCell({
   column,
@@ -168,7 +245,7 @@ function EditableCell({
   }
 
   if (column.type === 'date-single') {
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(value.slice(0, 10)) ? value.slice(0, 10) : null;
+    const date = parseDateValue(value);
     return (
       <DatePicker
         value={date}
@@ -177,7 +254,7 @@ function EditableCell({
       >
         <DatePickerGroup className="border-transparent bg-transparent">
           <DatePickerInput aria-label={label} placeholder="选择日期" />
-          <DatePickerClear />
+          <DatePickerClear aria-label={`清除${label}`} />
           <DatePickerTrigger aria-label={`选择${label}`} />
         </DatePickerGroup>
         <DatePickerContent />
@@ -208,10 +285,47 @@ function EditableCell({
     );
   }
 
+  if (column.type === 'url') {
+    const trimmed = value.trim();
+    const validUrl = trimmed !== '' && isSafeOpenUrl(trimmed);
+    const invalidUrl = trimmed !== '' && !validUrl;
+    return (
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-1">
+          <Input
+            aria-label={label}
+            aria-invalid={invalidUrl || undefined}
+            type="url"
+            value={value}
+            disabled={disabled}
+            onChange={(event) => onChange(event.target.value)}
+            className="h-8 border-transparent bg-transparent"
+          />
+          {validUrl ? (
+            <a
+              href={trimmed}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`打开${label}`}
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-icon text-muted-foreground transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ExternalLink aria-hidden="true" className="size-3.5" />
+            </a>
+          ) : null}
+        </div>
+        {invalidUrl ? (
+          <span role="alert" className="px-2 text-xs text-danger">
+            请输入有效的 http(s) 链接
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <Input
       aria-label={label}
-      type={column.type === 'url' ? 'url' : 'text'}
+      type="text"
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
@@ -220,23 +334,24 @@ function EditableCell({
   );
 }
 
-export function EditableTableRenderer({
-  props,
-}: RenderProps<{ name: string; columns: EditableColumn[]; data: EditableRow[] }>) {
+type EditableTableProps = {
+  name: string;
+  columns: EditableColumn[];
+  data: EditableRow[];
+};
+
+function EditableTableBody({ props }: { props: EditableTableProps }) {
   const trigger = useTriggerAction();
   const streaming = useIsStreaming();
   const setFieldValue = useSetFieldValue();
   const getFieldValue = useGetFieldValue();
   const columns = props.columns ?? [];
   const tableName = props.name;
-  const columnKeys = columns.map((column) => column.key);
+  const columnKeys = uniqueColumnKeys(columns);
 
-  // 官方表字段按 tableName 命名空间读写；干净态直接渲染最新来源，流式补行与 initialState 恢复随之生效。
   const stored = getFieldValue(tableName, tableName) as EditableRow[] | undefined;
   const source = stored ?? props.data ?? [];
   const [draft, setDraft] = useState<EditableDraft | null>(null);
-  if (draft !== null && draft.tableName !== tableName) setDraft(null);
-  const activeDraft = draft?.tableName === tableName ? draft : null;
 
   if (columns.length === 0) return null;
 
@@ -245,30 +360,30 @@ export function EditableTableRenderer({
       id: row.id,
       values: columnKeys.map((_, index) => String(row.values[index] ?? '')),
     }));
-    return { tableName, keys: columnKeys, rows, baseline: rows.map((row) => [...row.values]) };
+    return { keys: columnKeys, rows, baseline: rows.map((row) => [...row.values]) };
   };
 
-  const draftOrSource = activeDraft ?? fromSource();
-  const cellValue = (rowIndex: number, column: EditableColumn): string => {
+  const draftOrSource = draft ?? fromSource();
+  const cellValue = (rowIndex: number, columnKey: string, columnIndex: number): string => {
     const row = draftOrSource.rows[rowIndex];
-    const index = draftOrSource.keys.indexOf(column.key);
-    return index === -1 ? '' : (row?.values[index] ?? '');
+    const index = draftOrSource.keys.indexOf(columnKey);
+    const resolved = index === -1 ? columnIndex : index;
+    return row?.values[resolved] ?? '';
   };
 
-  const dirtyCount = activeDraft
-    ? activeDraft.rows.reduce(
+  const dirtyCount = draft
+    ? draft.rows.reduce(
         (total, row, rowIndex) =>
           total +
-          row.values.filter(
-            (value, index) => value !== (activeDraft.baseline[rowIndex]?.[index] ?? ''),
-          ).length,
+          row.values.filter((value, index) => value !== (draft.baseline[rowIndex]?.[index] ?? ''))
+            .length,
         0,
       )
     : 0;
 
   const update = (rowId: string, columnKey: string, value: string) => {
     setDraft((previous) => {
-      const current = previous?.tableName === tableName ? previous : fromSource();
+      const current = previous ?? fromSource();
       const rows = current.rows.map((row) =>
         row.id === rowId
           ? {
@@ -290,12 +405,16 @@ export function EditableTableRenderer({
     const current = draftOrSource;
     const rows: EditableRow[] = current.rows.map((row) => ({
       id: row.id,
-      values: columns.map((column) => {
-        const index = current.keys.indexOf(column.key);
-        const cell = index === -1 ? '' : (row.values[index] ?? '');
+      values: columns.map((column, columnIndex) => {
+        const columnKey = columnKeys[columnIndex] ?? '';
+        const index = current.keys.indexOf(columnKey);
+        const resolved = index === -1 ? columnIndex : index;
+        const cell = row.values[resolved] ?? '';
         if (column.type !== 'number') return cell;
-        const parsed = Number(cell);
-        return Number.isNaN(parsed) ? 0 : parsed;
+        const trimmed = cell.trim();
+        if (trimmed === '') return '';
+        const parsed = Number(trimmed);
+        return Number.isFinite(parsed) ? parsed : '';
       }),
     }));
     setFieldValue(tableName, 'EditableTable', tableName, rows, true);
@@ -304,41 +423,42 @@ export function EditableTableRenderer({
   };
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <div className="min-w-0 overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-line">
-              {columns.map((column) => (
-                <th
-                  key={column.key}
-                  className="px-2 py-2 text-left text-xs font-normal text-muted-foreground"
-                  style={column.width ? { width: column.width } : undefined}
-                >
-                  {column.header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {draftOrSource.rows.map((row, rowIndex) => (
-              <tr key={row.id} className="border-b border-line">
-                {columns.map((column) => (
-                  <td key={column.key} className="p-1 align-middle">
+    <section aria-label={tableName || '可编辑表格'} className="flex min-w-0 flex-col gap-2">
+      <Table className="text-sm">
+        <TableHeader>
+          <TableRow>
+            {columns.map((column, columnIndex) => (
+              <TableHead
+                key={columnKeys[columnIndex]}
+                className="px-2 py-2 text-left text-xs font-normal text-muted-foreground"
+                style={column.width ? { width: column.width } : undefined}
+              >
+                {column.header}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {draftOrSource.rows.map((row, rowIndex) => (
+            <TableRow key={row.id} className="hover:bg-transparent">
+              {columns.map((column, columnIndex) => {
+                const columnKey = columnKeys[columnIndex] ?? `col-${columnIndex}`;
+                return (
+                  <TableCell key={columnKey} className="p-1 align-middle whitespace-normal">
                     <EditableCell
                       column={column}
                       rowIndex={rowIndex}
-                      value={cellValue(rowIndex, column)}
+                      value={cellValue(rowIndex, columnKey, columnIndex)}
                       disabled={streaming}
-                      onChange={(value) => update(row.id, column.key, value)}
+                      onChange={(value) => update(row.id, columnKey, value)}
                     />
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
       <div className="flex items-center justify-end gap-2">
         {dirtyCount > 0 ? (
           <span className="text-xs text-muted-foreground" role="status">
@@ -348,17 +468,28 @@ export function EditableTableRenderer({
         <Button
           size="sm"
           variant="outline"
+          aria-label={tableName ? `Reset ${tableName}` : 'Reset'}
           disabled={streaming || dirtyCount === 0}
           onClick={() => setDraft(null)}
         >
           Reset
         </Button>
-        <Button size="sm" variant="outline" disabled={streaming || dirtyCount === 0} onClick={save}>
+        <Button
+          size="sm"
+          variant="outline"
+          aria-label={tableName ? `Save Changes ${tableName}` : 'Save Changes'}
+          disabled={streaming || dirtyCount === 0}
+          onClick={save}
+        >
           Save Changes
         </Button>
       </div>
-    </div>
+    </section>
   );
+}
+
+export function EditableTableRenderer({ props }: RenderProps<EditableTableProps>) {
+  return <EditableTableBody key={props.name} props={props} />;
 }
 
 type Trend = { direction: 'up' | 'down'; value: number };
@@ -434,6 +565,13 @@ type LayoutProps = {
   gap?: number | string;
 };
 
+function withElementProps(node: unknown, overrides: Record<string, unknown>) {
+  if (typeof node !== 'object' || node === null) return node;
+  const element = node as { type?: unknown; props?: Record<string, unknown> };
+  if (element.type !== 'element') return node;
+  return { ...element, props: { ...(element.props ?? {}), ...overrides } };
+}
+
 export function SnippetCardBlockRenderer({
   props,
   renderNode,
@@ -451,6 +589,7 @@ export function SnippetCardBlockRenderer({
       {items.map((item, index) => {
         const itemProps = childProps<{ id?: string; lhs?: unknown; rhs?: unknown }>(item);
         const lhs = childProps<{ title?: string; subtitle?: string }>(itemProps?.lhs);
+        const rhs = childProps<{ value?: string; subtext?: string }>(itemProps?.rhs);
         const title = lhs?.title ?? itemProps?.id ?? `Item ${index + 1}`;
         return (
           <BlockCard
@@ -462,13 +601,16 @@ export function SnippetCardBlockRenderer({
                 itemId: itemProps?.id,
                 itemTitle: lhs?.title,
                 itemSubtitle: lhs?.subtitle,
+                itemValue: rhs?.value,
               })
             }
           >
             <div className="flex min-w-0 items-center justify-between gap-2">
               <div className="min-w-0">{renderNode(itemProps?.lhs)}</div>
               {itemProps?.rhs ? (
-                <div className="shrink-0 text-right">{renderNode(itemProps.rhs)}</div>
+                <div className="shrink-0 text-right">
+                  {renderNode(withElementProps(itemProps.rhs, { size: 'xs' }))}
+                </div>
               ) : null}
             </div>
           </BlockCard>
@@ -495,17 +637,26 @@ export function OverviewCardBlockRenderer({
     >
       {items.map((item, index) => {
         const itemProps = childProps<{ id?: string; top?: unknown; bottom?: unknown }>(item);
-        const title =
-          childProps<{ title?: string }>(itemProps?.top)?.title ??
-          childProps<{ value?: string }>(itemProps?.top)?.value ??
-          itemProps?.id ??
-          `Item ${index + 1}`;
+        const top = childProps<{
+          title?: string;
+          value?: string;
+          subtitle?: string;
+          subtext?: string;
+        }>(itemProps?.top);
+        const bottom = childProps<{ value?: string }>(itemProps?.bottom);
+        const title = top?.title ?? top?.value ?? itemProps?.id ?? `Item ${index + 1}`;
         return (
           <BlockCard
             key={itemProps?.id ?? index}
             clickable={clickable}
             onActivate={() =>
-              activate(title, { itemIndex: index, itemId: itemProps?.id, itemTitle: title })
+              activate(title, {
+                itemIndex: index,
+                itemId: itemProps?.id,
+                itemTitle: title,
+                itemSubtitle: top?.subtitle ?? top?.subtext,
+                itemMetricValue: bottom?.value,
+              })
             }
           >
             {renderNode(itemProps?.top)}
@@ -524,6 +675,7 @@ export function ContextCardBlockRenderer({
   renderNode,
 }: RenderProps<LayoutProps & { items: unknown[] }>) {
   const items = props.items ?? [];
+  const streaming = useIsStreaming();
   const { clickable, activate } = useBlockAction(props.action);
   if (items.length === 0) return null;
   return (
@@ -538,13 +690,15 @@ export function ContextCardBlockRenderer({
           id?: string;
           title?: string | unknown;
           body?: string;
+          bgColor?: string;
           bgImageSrc?: string;
           bgImageAlt?: string;
         }>(item);
-        const title =
-          typeof itemProps?.title === 'string'
-            ? itemProps.title
-            : (itemProps?.id ?? `Item ${index + 1}`);
+        const rawTitle = itemProps?.title;
+        const extractedTitle =
+          typeof rawTitle === 'string' ? rawTitle : childProps<{ text?: string }>(rawTitle)?.text;
+        const title = extractedTitle ?? itemProps?.id ?? `Item ${index + 1}`;
+        const tinted = itemProps?.bgColor === 'gray' || Boolean(itemProps?.bgImageSrc);
         return (
           <BlockCard
             key={itemProps?.id ?? index}
@@ -555,9 +709,12 @@ export function ContextCardBlockRenderer({
                 itemId: itemProps?.id,
                 itemTitle: title,
                 itemBody: itemProps?.body,
+                itemBgColor: itemProps?.bgColor,
+                itemBgImageSrc: itemProps?.bgImageSrc,
+                itemBgImageAlt: itemProps?.bgImageAlt,
               })
             }
-            className="relative overflow-hidden bg-sunken"
+            className={cn('relative overflow-hidden', tinted && 'bg-sunken')}
           >
             {itemProps?.bgImageSrc ? (
               <img
@@ -568,13 +725,15 @@ export function ContextCardBlockRenderer({
               />
             ) : null}
             <div className="relative flex min-w-0 flex-col gap-1">
-              {typeof itemProps?.title === 'string' ? (
-                <span className="text-base font-medium break-words text-fg">{itemProps.title}</span>
-              ) : itemProps?.title ? (
-                renderNode(itemProps.title)
+              {typeof rawTitle === 'string' ? (
+                <span className="text-base font-medium break-words text-fg">{rawTitle}</span>
+              ) : rawTitle ? (
+                renderNode(rawTitle)
               ) : null}
               {itemProps?.body ? (
-                <span className="text-sm break-words text-muted-foreground">{itemProps.body}</span>
+                <div className="min-w-0 text-sm break-words text-muted-foreground">
+                  <Markdown text={itemProps.body} streaming={streaming} presentation="inherit" />
+                </div>
               ) : null}
             </div>
           </BlockCard>
@@ -610,6 +769,7 @@ export function VisualCardBlockRenderer({
         const bodyProps = childProps<{ value?: string; subtext?: string }>(itemProps?.body);
         const tagProps = childProps<{ text?: string }>(itemProps?.tag);
         const label = bodyProps?.value ?? tagProps?.text ?? itemProps?.id ?? `Item ${index + 1}`;
+        const hasImage = Boolean(itemProps?.bgImageSrc);
         return (
           <BlockCard
             key={itemProps?.id ?? index}
@@ -621,22 +781,39 @@ export function VisualCardBlockRenderer({
                 itemBody: bodyProps?.value,
                 itemBodySubtext: bodyProps?.subtext,
                 itemTag: tagProps?.text,
+                itemBgImageSrc: itemProps?.bgImageSrc,
+                itemBgImageAlt: itemProps?.bgImageAlt,
               })
             }
             className="relative isolate min-h-40 justify-end overflow-hidden bg-sunken p-0"
           >
             {itemProps?.bgImageSrc ? (
-              <img
-                src={itemProps.bgImageSrc}
-                alt={itemProps.bgImageAlt ?? ''}
-                loading="lazy"
-                className="absolute inset-0 -z-10 h-full w-full object-cover"
-              />
+              <>
+                <img
+                  src={itemProps.bgImageSrc}
+                  alt={itemProps.bgImageAlt ?? ''}
+                  loading="lazy"
+                  className="absolute inset-0 -z-20 h-full w-full object-cover"
+                />
+                <div
+                  aria-hidden="true"
+                  data-slot="visual-card-scrim"
+                  className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-t from-black/75 via-black/35 to-transparent"
+                />
+              </>
             ) : null}
             <div className="flex min-w-0 flex-col gap-1.5 p-3">
               {itemProps?.tag ? <div className="relative">{renderNode(itemProps.tag)}</div> : null}
               {itemProps?.body ? (
-                <div className="relative">{renderNode(itemProps.body)}</div>
+                <div
+                  className={cn(
+                    'relative',
+                    hasImage &&
+                      'text-primary-foreground [&_.text-fg]:text-primary-foreground [&_.text-muted-foreground]:text-primary-foreground/85',
+                  )}
+                >
+                  {renderNode(itemProps.body)}
+                </div>
               ) : null}
             </div>
           </BlockCard>
@@ -644,6 +821,33 @@ export function VisualCardBlockRenderer({
       })}
     </CardBlockGrid>
   );
+}
+
+const INTERACTIVE_BODY_TYPES = new Set([
+  'AreaChart',
+  'BarChart',
+  'Button',
+  'Buttons',
+  'EditableTable',
+  'FollowUpBlock',
+  'Form',
+  'IconButton',
+  'LineChart',
+]);
+
+function hasInteractiveNode(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(hasInteractiveNode);
+  if (typeof node !== 'object' || node === null) return false;
+  const element = node as { type?: unknown; typeName?: unknown; props?: Record<string, unknown> };
+  if (element.type !== 'element') return false;
+  const typeName = String(element.typeName ?? '');
+  if (INTERACTIVE_BODY_TYPES.has(typeName)) return true;
+  if (typeName === 'ListItem') return element.props?.action != null;
+  if (typeName === 'ListBlock') {
+    const items = element.props?.items;
+    return Array.isArray(items) && items.some(hasInteractiveNode);
+  }
+  return false;
 }
 
 export function CompositeCardBlockRenderer({
@@ -668,10 +872,34 @@ export function CompositeCardBlockRenderer({
           body?: unknown[];
           footer?: { price?: unknown; button?: unknown };
         }>(item);
-        const label =
-          childProps<{ title?: string }>(itemProps?.header)?.title ??
-          itemProps?.id ??
-          `Item ${index + 1}`;
+        const headerProps = childProps<{
+          title?: string;
+          value?: string;
+          subtitle?: string;
+          subtext?: string;
+          alt?: string;
+        }>(itemProps?.header);
+        const headerTitle = headerProps?.title ?? headerProps?.value;
+        const headerSubtitle = headerProps?.subtitle ?? headerProps?.subtext;
+        const headerAlt = headerProps?.alt;
+        const label = headerTitle ?? headerAlt ?? itemProps?.id ?? `Item ${index + 1}`;
+        const footerPrice = childProps<{ value?: string }>(itemProps?.footer?.price)?.value;
+        const footerButtonLabel = childProps<{ label?: string }>(itemProps?.footer?.button)?.label;
+
+        const bodyItems = Array.isArray(itemProps?.body) ? itemProps.body : [];
+        const interactiveBody = hasInteractiveNode(bodyItems);
+        const headerNode = itemProps?.header ? (
+          <div className="min-w-0">{renderNode(itemProps.header)}</div>
+        ) : null;
+        const bodyNode =
+          bodyItems.length > 0 ? (
+            <div className="flex min-w-0 flex-col gap-2">
+              {bodyItems.map((node, bodyIndex) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 卡片内容由模型按顺序生成
+                <Fragment key={bodyIndex}>{renderNode(normalizeCompositeBodyNode(node))}</Fragment>
+              ))}
+            </div>
+          ) : null;
         const footerNode = itemProps?.footer ? (
           <div className="mt-auto flex min-w-0 flex-col gap-2 border-t border-line pt-2">
             <div className="min-w-0">{renderNode(itemProps.footer.price)}</div>
@@ -680,27 +908,52 @@ export function CompositeCardBlockRenderer({
             ) : null}
           </div>
         ) : null;
+
+        const cardContext = {
+          itemIndex: index,
+          itemId: itemProps?.id,
+          itemTitle: label,
+          itemHeaderSubtitle: headerSubtitle,
+          itemFooterPrice: footerPrice,
+          itemFooterButtonLabel: footerButtonLabel,
+        };
+
+        if (clickable && interactiveBody) {
+          if (headerNode) {
+            return (
+              <BlockCard
+                key={itemProps?.id ?? index}
+                clickable
+                onActivate={() => activate(label, cardContext)}
+                footer={
+                  <>
+                    {bodyNode}
+                    {footerNode}
+                  </>
+                }
+              >
+                {headerNode}
+              </BlockCard>
+            );
+          }
+          return (
+            <BlockCard key={itemProps?.id ?? index} clickable={false}>
+              {bodyNode}
+              {footerNode}
+            </BlockCard>
+          );
+        }
+
         const splitFooter = clickable && Boolean(itemProps?.footer?.button);
         return (
           <BlockCard
             key={itemProps?.id ?? index}
             clickable={clickable}
-            onActivate={() =>
-              activate(label, { itemIndex: index, itemId: itemProps?.id, itemTitle: label })
-            }
+            onActivate={() => activate(label, cardContext)}
             {...(splitFooter ? { footer: footerNode } : {})}
           >
-            {itemProps?.header ? (
-              <div className="min-w-0">{renderNode(itemProps.header)}</div>
-            ) : null}
-            {itemProps?.body ? (
-              <div className="flex min-w-0 flex-col gap-2">
-                {itemProps.body.map((node, bodyIndex) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 卡片内容由模型按顺序生成
-                  <Fragment key={bodyIndex}>{renderNode(withCardChartHeight(node))}</Fragment>
-                ))}
-              </div>
-            ) : null}
+            {headerNode}
+            {bodyNode}
             {splitFooter ? null : footerNode}
           </BlockCard>
         );
@@ -711,10 +964,20 @@ export function CompositeCardBlockRenderer({
 
 const CARD_CHART_TYPES = new Set(['BarChart', 'LineChart', 'AreaChart']);
 
-function withCardChartHeight(node: unknown) {
+function normalizeCompositeBodyNode(node: unknown) {
   if (typeof node !== 'object' || node === null) return node;
   const element = node as { type?: unknown; typeName?: unknown; props?: Record<string, unknown> };
-  if (element.type !== 'element' || !CARD_CHART_TYPES.has(String(element.typeName))) return node;
+  if (element.type !== 'element') return node;
+  const typeName = String(element.typeName ?? '');
   const props = element.props ?? {};
-  return { ...element, props: { ...props, height: props.height ?? 192 } };
+  if (CARD_CHART_TYPES.has(typeName)) {
+    return { ...element, props: { ...props, height: props.height ?? 192 } };
+  }
+  if (typeName === 'EntityList') {
+    return { ...element, props: { ...props, size: 'small', header: undefined, footer: undefined } };
+  }
+  if (typeName === 'ListBlock') {
+    return { ...element, props: { ...props, size: props.size ?? 'small' } };
+  }
+  return node;
 }
