@@ -18,7 +18,7 @@ FROM manifests AS deps
 RUN bun install --frozen-lockfile
 
 FROM deps AS source
-COPY tsconfig.base.json biome.json vitest.config.ts ./
+COPY tsconfig.base.json tsconfig.json biome.json vitest.config.ts ./
 COPY packages ./packages
 
 FROM source AS build

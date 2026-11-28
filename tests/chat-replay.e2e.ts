@@ -47,25 +47,29 @@ function installChatGate(browser: Browser): Promise<unknown> {
     const original = w.__agentportOriginalFetch;
     w.__agentportChatHeld = false;
     w.__agentportChatStatus = undefined;
-    window.fetch = async (
-      input: Parameters<typeof fetch>[0],
-      init?: Parameters<typeof fetch>[1],
-    ): Promise<Response> => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      const method = (
-        init?.method ?? (input instanceof Request ? input.method : 'GET')
-      ).toUpperCase();
-      const response = await original(input, init);
-      if (method === 'POST' && new URL(url, location.href).pathname === '/api/chat') {
-        w.__agentportChatStatus = response.status;
-        w.__agentportChatHeld = true;
-        await new Promise<void>((resolve) => {
-          w.__agentportReleaseChat = resolve;
-        });
-        w.__agentportChatHeld = false;
-      }
-      return response;
-    };
+    window.fetch = Object.assign(
+      async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        const method = (
+          init?.method ?? (input instanceof Request ? input.method : 'GET')
+        ).toUpperCase();
+        const response = await original(input, init);
+        if (method === 'POST' && new URL(url, location.href).pathname === '/api/chat') {
+          w.__agentportChatStatus = response.status;
+          w.__agentportChatHeld = true;
+          await new Promise<void>((resolve) => {
+            w.__agentportReleaseChat = resolve;
+          });
+          w.__agentportChatHeld = false;
+        }
+        return response;
+      },
+      { preconnect: original.preconnect },
+    );
     return true;
   });
 }

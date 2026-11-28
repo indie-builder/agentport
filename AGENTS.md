@@ -155,6 +155,6 @@
 | 单文件物理行数上限 3000 行 | Lint + CI | `scripts/check-file-lines.mjs`（`bun run lint:lines`，已接入 `scripts/ci.ts`） |
 | OpenUI 生成物 `openui.spec.json` 与组件库保持同步 | CI | `scripts/check-openui.mjs`（`bun run openui:check`） |
 | 文档链接/锚点/行内路径有效、禁 `pnpm`/`npm` 命令、`PITFALLS` 索引一致 | Lint + CI | `scripts/check-docs.mjs`（`bun run lint:docs`） |
-| 禁止显式 `any`、生产代码零警告契约（禁非空断言与缺失 hook 依赖等）、格式与 import 排序、全仓类型检查 | 类型 + Lint + CI | `biome.json`（`bun run lint`）+ `tsconfig.base.json`（`bun run typecheck`）+ `scripts/ci.ts`（`bun run ci`） |
+| 禁止显式 `any`、生产代码零警告契约（禁非空断言与缺失 hook 依赖等）、格式与 import 排序、全仓类型检查 | 类型 + Lint + CI | `biome.json`（`bun run lint`）+ `tsconfig.json` / `tsconfig.base.json` / `tsconfig.scripts.json` / `tsconfig.e2e.json` / `tsconfig.tests.json`（`bun run typecheck` 等）+ `scripts/ci.ts`（`bun run ci` / `ci:fast` / `ci:changed`） |
 | 并发/重放状态机不变量（Agent Run 生命周期、调度器 sync 单飞） | 形式化模型 + CI | `formal/agent-run-lifecycle/AgentRunLifecycle.tla`、`formal/scheduler-sync/SchedulerSync.tla`（`bun run verify:formal`，已接入 `scripts/ci.ts`） |
 | Node.js 与 `@types/node` 永久锁定 24.x（`node-version-lock`） | 架构 + Lint + CI | `package.json`、`Dockerfile` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |

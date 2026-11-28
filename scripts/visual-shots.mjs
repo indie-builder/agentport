@@ -93,7 +93,7 @@ function parseArgs(argv) {
     }
     const eq = arg.indexOf('=');
     const key = eq === -1 ? arg : arg.slice(0, eq);
-    let value = eq === -1 ? undefined : arg.slice(eq + 1);
+    const value = eq === -1 ? undefined : arg.slice(eq + 1);
     const take = () => {
       if (value !== undefined) return value;
       i += 1;
@@ -152,7 +152,8 @@ function parseArgs(argv) {
 
 function readDotEnv() {
   const path = join(ROOT, '.env');
-  if (!existsSync(path)) fail(`缺少 ${path}：需要 ADMIN_USER、ADMIN_PASSWORD，隔离模式还需要 DATABASE_URL`);
+  if (!existsSync(path))
+    fail(`缺少 ${path}：需要 ADMIN_USER、ADMIN_PASSWORD，隔离模式还需要 DATABASE_URL`);
   const env = {};
   for (const raw of readFileSync(path, 'utf8').split('\n')) {
     const line = raw.trim();
@@ -177,7 +178,7 @@ function readDotEnv() {
 }
 
 function isPortListening(port) {
-  const result = spawnSync('lsof', ['-tiTCP:' + port, '-sTCP:LISTEN'], { encoding: 'utf8' });
+  const result = spawnSync('lsof', [`-tiTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8' });
   return result.status === 0 && result.stdout.trim().length > 0;
 }
 
@@ -218,7 +219,9 @@ async function startRedis(state) {
   const id = created.stdout?.trim();
   if (/^[a-f0-9]{64}$/.test(id ?? '')) state.redisId = id;
   if (created.status !== 0 || !state.redisId) {
-    fail(`创建独享 Redis 失败：${created.stderr?.trim() || created.error?.message || '未返回容器 ID'}`);
+    fail(
+      `创建独享 Redis 失败：${created.stderr?.trim() || created.error?.message || '未返回容器 ID'}`,
+    );
   }
   console.log(`[visual-shots] 独享 Redis：${name}，容器 ID ${state.redisId}`);
   const started = spawnSync('docker', ['start', state.redisId], { encoding: 'utf8' });
@@ -889,7 +892,14 @@ async function run(opts, env, state) {
     const dbName = `pace_visual_${opts.timestamp.replace(/-/g, '')}_${randomBytes(3).toString('hex')}`;
     if (!/^[a-z0-9_]+$/.test(dbName)) fail(`生成的库名不合法：${dbName}`);
 
-    const create = runPsql(['-U', state.dbUser, '-d', 'postgres', '-c', `CREATE DATABASE "${dbName}"`]);
+    const create = runPsql([
+      '-U',
+      state.dbUser,
+      '-d',
+      'postgres',
+      '-c',
+      `CREATE DATABASE "${dbName}"`,
+    ]);
     if (create.status !== 0) {
       fail(
         `创建临时库失败：${dbName}\n${create.stderr?.trim() || create.stdout?.trim()}` +
@@ -899,7 +909,7 @@ async function run(opts, env, state) {
     state.dbName = dbName;
 
     const tempUrl = new URL(baseDbUrl);
-    tempUrl.pathname = '/' + state.dbName;
+    tempUrl.pathname = `/${state.dbName}`;
     const migrate = spawnSync('bun', ['run', '--filter', '@agentport/db', 'migrate'], {
       cwd: ROOT,
       env: { ...process.env, DATABASE_URL: tempUrl.toString() },
@@ -954,7 +964,7 @@ async function run(opts, env, state) {
     };
     if (state.dbName) {
       const url = new URL(env.DATABASE_URL);
-      url.pathname = '/' + state.dbName;
+      url.pathname = `/${state.dbName}`;
       devDataEnv.DATABASE_URL = url.toString();
     }
     if (state.redisUrl) devDataEnv.REDIS_URL = state.redisUrl;
@@ -1002,7 +1012,8 @@ async function run(opts, env, state) {
         shots.map((shot) => shot.path),
         { encoding: 'utf8' },
       );
-      if (opened.status !== 0) console.error(`[visual-shots] 打开截图失败：${opened.stderr?.trim()}`);
+      if (opened.status !== 0)
+        console.error(`[visual-shots] 打开截图失败：${opened.stderr?.trim()}`);
     } else {
       console.log('[visual-shots] 非 macOS，未自动打开；请手动查看上面的路径。');
     }

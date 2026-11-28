@@ -5,7 +5,9 @@ import { close } from './database.js';
 const requireFromShared = createRequire(
   new URL('../../../packages/shared/package.json', import.meta.url),
 );
-const { z } = requireFromShared('zod');
+const { z } = requireFromShared(
+  'zod',
+) as typeof import('../../../packages/shared/node_modules/zod/index.js');
 
 const request = z
   .object({

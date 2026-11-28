@@ -54,7 +54,9 @@ describe('uiFormat', () => {
 
   it('omits the OpenUI section for markdown or missing uiFormat', () => {
     expect(claudeMd()).not.toContain('## 生成式 UI');
-    expect(claudeMd({ uiFormat: undefined })).not.toContain('## 生成式 UI');
+    expect(
+      claudeMd({ uiFormat: undefined } as unknown as Partial<WorkspaceAgentRow>),
+    ).not.toContain('## 生成式 UI');
   });
 
   it('lists the caller-supplied tool catalog in CLAUDE.md', () => {

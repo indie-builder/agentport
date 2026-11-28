@@ -134,7 +134,11 @@ function assertLocalEntry(
 
 async function inflateRawCapped(data: Uint8Array, maxBytes: number): Promise<Uint8Array> {
   const output = new Uint8Array(maxBytes);
-  const reader = new Blob([data])
+  const blobBytes =
+    data.buffer instanceof ArrayBuffer
+      ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+      : new Uint8Array(data);
+  const reader = new Blob([blobBytes])
     .stream()
     .pipeThrough(new DecompressionStream('deflate-raw'))
     .getReader();

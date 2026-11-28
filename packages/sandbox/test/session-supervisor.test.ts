@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { PassThrough, Writable } from 'node:stream';
-import type { SupervisorInput, SupervisorOutput } from '@agentport/shared';
+import type { SupervisorInputFrame, SupervisorOutput } from '@agentport/shared';
 import { runSupervisor } from '../src/session-supervisor.js';
 
 const fixture = Bun.fileURLToPath(new URL('./fixtures/session-child.mjs', import.meta.url));
 const USER_UUID = '11111111-2222-4333-8444-555555555555';
 const GRACE_MS = 100;
 
-function start(runId: string, prompt: string, env: Record<string, string> = {}): SupervisorInput {
+function start(
+  runId: string,
+  prompt: string,
+  env: Record<string, string> = {},
+): SupervisorInputFrame {
   return {
     type: 'start',
     runId,
@@ -22,7 +26,7 @@ function start(runId: string, prompt: string, env: Record<string, string> = {}):
   };
 }
 
-function input(runId: string, requestId: string): SupervisorInput {
+function input(runId: string, requestId: string): SupervisorInputFrame {
   return {
     type: 'input',
     runId,
@@ -30,7 +34,7 @@ function input(runId: string, requestId: string): SupervisorInput {
   };
 }
 
-function cancel(runId: string): SupervisorInput {
+function cancel(runId: string): SupervisorInputFrame {
   return { type: 'cancel', runId };
 }
 
@@ -127,7 +131,7 @@ function harness(): Harness {
   return entry;
 }
 
-function send(stdin: PassThrough, message: SupervisorInput): void {
+function send(stdin: PassThrough, message: SupervisorInputFrame): void {
   stdin.write(`${JSON.stringify(message)}\n`);
 }
 

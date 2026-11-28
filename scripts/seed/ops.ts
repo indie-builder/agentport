@@ -1,6 +1,14 @@
-import { agentSchedules, budgetLimits, evalCases, evalRuns, newId, repo } from '@agentport/db';
+import {
+  agentSchedules,
+  budgetLimits,
+  evalCases,
+  evalRuns,
+  newId,
+  repo,
+  type Transaction,
+} from '@agentport/db';
 import { and, eq, isNotNull } from 'drizzle-orm';
-import type { DemoCatalog, SeedContext } from './types';
+import type { DemoCatalog, SeedContext } from './types.js';
 
 const EVAL_CASES = [
   {
@@ -97,6 +105,7 @@ export async function seedOps(ctx: SeedContext, catalog: DemoCatalog): Promise<v
         name: item.name,
         prompt: item.prompt,
         expectation: item.expectation,
+        judgeMode: 'contains',
         createdBy: businessId,
       });
     }),
@@ -109,17 +118,18 @@ export async function seedOps(ctx: SeedContext, catalog: DemoCatalog): Promise<v
     .limit(1);
   if (!completedRun) {
     const evalRunId = newId('evalRun');
-    await db.transaction(async (tx) => {
+    await db.transaction(async (tx: Transaction) => {
       await repo.evalRepo.createEvalRun(tx, {
         id: evalRunId,
         agentId: analyst.id,
         total: EVAL_CASES.length,
         createdBy: businessId,
-        caseSnapshot: cases.map(({ id, name, prompt, expectation }) => ({
+        caseSnapshot: cases.map(({ id, name, prompt, expectation, judgeMode }) => ({
           id,
           name,
           prompt,
           expectation,
+          judgeMode,
         })),
       });
       for (const [index, evalCase] of cases.entries()) {
@@ -132,6 +142,7 @@ export async function seedOps(ctx: SeedContext, catalog: DemoCatalog): Promise<v
             name: evalCase.name,
             prompt: evalCase.prompt,
             expectation: evalCase.expectation,
+            judgeMode: evalCase.judgeMode,
           },
           runId: null,
           passed: index < 2,

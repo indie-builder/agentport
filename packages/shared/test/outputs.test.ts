@@ -17,14 +17,14 @@ const file = {
 } as const;
 
 const manifest = {
-  version: 1,
+  version: 1 as const,
   runId: 'run_1',
   createdAt: '2026-10-28T00:00:00.000Z',
-  status: 'succeeded',
+  status: 'succeeded' as const,
   userMessageId: 'msg_u',
   afterMessageId: 'msg_a',
   files: [{ path: 'report.md', size: 4, sha256: sha, mediaType: 'text/markdown', changed: true }],
-} as const;
+};
 
 describe('output reference on chat requests', () => {
   it('accepts a published output reference', () => {

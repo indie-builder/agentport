@@ -488,13 +488,25 @@ describe('subagent project memory boundary', () => {
     for (const tool of ['Write', 'Edit']) {
       const denied = await readOnly(tool, existing);
       expect(denied, tool).toMatchObject(decision('deny'));
-      expect(denied.hookSpecificOutput?.permissionDecisionReason).toContain(
+      if (
+        !('hookSpecificOutput' in denied) ||
+        denied.hookSpecificOutput?.hookEventName !== 'PreToolUse'
+      ) {
+        throw new Error('expected PreToolUse hookSpecificOutput');
+      }
+      expect(denied.hookSpecificOutput.permissionDecisionReason).toContain(
         '当前策略不允许运行期写入子智能体记忆',
       );
     }
     const sibling = await readOnly('Write', join(projectMemory, 'sibling', 'MEMORY.md'));
     expect(sibling).toMatchObject(decision('deny'));
-    expect(sibling.hookSpecificOutput?.permissionDecisionReason).not.toContain(
+    if (
+      !('hookSpecificOutput' in sibling) ||
+      sibling.hookSpecificOutput?.hookEventName !== 'PreToolUse'
+    ) {
+      throw new Error('expected PreToolUse hookSpecificOutput');
+    }
+    expect(sibling.hookSpecificOutput.permissionDecisionReason).not.toContain(
       '当前策略不允许运行期写入子智能体记忆',
     );
 

@@ -1,7 +1,7 @@
 import { channelMessages, channels, newId, repo } from '@agentport/db';
 import { and, eq } from 'drizzle-orm';
-import { DEMO_CHANNELS } from './constants';
-import type { DemoCatalog, SeedContext } from './types';
+import { DEMO_CHANNELS } from './constants.js';
+import type { DemoCatalog, SeedContext } from './types.js';
 
 type ChannelKey = keyof typeof DEMO_CHANNELS;
 type AgentKey = 'analyst' | 'support';

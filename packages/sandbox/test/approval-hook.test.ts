@@ -59,7 +59,7 @@ describe('approval hook', () => {
     dirs.push(dir);
     const hook = await setup();
     const calls: Array<{ method: string; url: string }> = [];
-    globalThis.fetch = (async (request: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (request: string | URL | Request, init?: RequestInit) => {
       calls.push({ method: init?.method ?? 'GET', url: String(request) });
       if (calls.length === 1) {
         return Response.json({
@@ -87,7 +87,7 @@ describe('approval hook', () => {
     dirs.push(dir);
     const hook = await setup();
     const calls: Array<{ method: string; url: string }> = [];
-    globalThis.fetch = (async (request: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (request: string | URL | Request, init?: RequestInit) => {
       calls.push({ method: init?.method ?? 'GET', url: String(request) });
       return Response.json({
         status: 'pending',
@@ -111,7 +111,7 @@ describe('approval hook', () => {
     dirs.push(dir);
     const hook = await setup();
     const calls: Array<{ method: string; url: string }> = [];
-    globalThis.fetch = (async (request: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (request: string | URL | Request, init?: RequestInit) => {
       calls.push({ method: init?.method ?? 'GET', url: String(request) });
       if (calls.length === 1) {
         return Response.json({

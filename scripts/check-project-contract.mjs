@@ -248,7 +248,9 @@ function extractModuleImports(file) {
       const isTypeOnly =
         importKind === 'type' ||
         (specifiers.length > 0 &&
-          specifiers.every((spec) => spec.type === 'ImportSpecifier' && spec.importKind === 'type'));
+          specifiers.every(
+            (spec) => spec.type === 'ImportSpecifier' && spec.importKind === 'type',
+          ));
       push(source.value, loc.start.line, isTypeOnly, false);
     },
     ExportNamedDeclaration(path) {
@@ -295,7 +297,11 @@ function ruleIds(source) {
   const ids = new Set();
   traverse(parse(source, { sourceType: 'module' }), {
     'CallExpression|OptionalCallExpression'(path) {
-      const { callee, arguments: [id], loc } = path.node;
+      const {
+        callee,
+        arguments: [id],
+        loc,
+      } = path.node;
       if (callee.type === 'Identifier' && callee.name === 'report') {
         if (id?.type !== 'StringLiteral') {
           throw new Error(`report 缺少静态规则 ID（第 ${loc.start.line} 行）`);
@@ -358,7 +364,8 @@ for (const file of webFiles) {
     }
     if (
       forbiddenWebPackages.some((pkg) => matchesPackage(imp.specifier, pkg)) ||
-      (matchesPackage(imp.specifier, '@agentport/core') && !allowedWebCoreImports.has(imp.specifier))
+      (matchesPackage(imp.specifier, '@agentport/core') &&
+        !allowedWebCoreImports.has(imp.specifier))
     ) {
       report(
         'web-server-import',
@@ -539,7 +546,8 @@ for (const file of apiFiles) {
     if (
       isInfra &&
       targetRel &&
-      (targetRel === 'packages/api/src/modules' || targetRel.startsWith('packages/api/src/modules/'))
+      (targetRel === 'packages/api/src/modules' ||
+        targetRel.startsWith('packages/api/src/modules/'))
     ) {
       report(
         'api-http-no-module-import',
@@ -671,8 +679,10 @@ const fileAdj = new Map(allSrcFiles.map((file) => [file, new Set()]));
 const apiModuleAdj = new Map();
 const workerDomainAdj = new Map();
 
-const apiDomainOf = (displayPath) => /^packages\/api\/src\/modules\/([^/]+)\//.exec(displayPath)?.[1];
-const workerSubdomainOf = (displayPath) => /^packages\/worker\/src\/([^/]+)\//.exec(displayPath)?.[1];
+const apiDomainOf = (displayPath) =>
+  /^packages\/api\/src\/modules\/([^/]+)\//.exec(displayPath)?.[1];
+const workerSubdomainOf = (displayPath) =>
+  /^packages\/worker\/src\/([^/]+)\//.exec(displayPath)?.[1];
 
 for (const file of allSrcFiles) {
   const displayPath = rel(file);
@@ -755,15 +765,15 @@ function resolveExports(file, name, active = new Set()) {
     }
     return localBinding ? [localBinding] : [];
   }
-  const declarations = stars.flatMap((source) => resolveExports(resolveModule(file, source), name, next));
+  const declarations = stars.flatMap((source) =>
+    resolveExports(resolveModule(file, source), name, next),
+  );
   return [...new Set(declarations)];
 }
 
 function isPromiseShaped(node) {
   const type = unwrapExpression(node)?.type;
-  return (
-    type === 'CallExpression' || type === 'OptionalCallExpression' || type === 'NewExpression'
-  );
+  return type === 'CallExpression' || type === 'OptionalCallExpression' || type === 'NewExpression';
 }
 
 function staticMemberName(node) {
@@ -804,7 +814,11 @@ function isZodExpression(path, seen = new Set()) {
   const imported = importedBinding(binding);
   if (imported?.source === 'zod' && imported.name === 'z') return true;
   const declaration = binding.path;
-  if (!binding.constant || !declaration.isVariableDeclarator() || !declaration.get('id').isIdentifier()) {
+  if (
+    !binding.constant ||
+    !declaration.isVariableDeclarator() ||
+    !declaration.get('id').isIdentifier()
+  ) {
     return false;
   }
   if (seen.has(binding)) return false;
@@ -891,7 +905,8 @@ for (const file of errorFiles) {
             !binding?.scope.path.isProgram() ||
             !binding.path.isClassDeclaration() ||
             identifier !== 'AppError'
-          ) return;
+          )
+            return;
         } else if (imported.source !== '@agentport/core' || imported.name !== 'AppError') {
           const declarations = resolveExports(resolveModule(file, imported.source), imported.name);
           const declaration = declarations.length === 1 ? declarations[0]?.path : undefined;
@@ -899,7 +914,8 @@ for (const file of errorFiles) {
             !declaration?.isClassDeclaration() ||
             declaration.node.id?.name !== 'AppError' ||
             declaration.node.loc.filename !== coreErrors
-          ) return;
+          )
+            return;
         }
       } else if (identifier) {
         if (imported?.name === 'toolError') {
@@ -910,25 +926,33 @@ for (const file of errorFiles) {
             !declaration?.isFunctionDeclaration() ||
             declaration.node.id?.name !== 'toolError' ||
             declaration.node.loc.filename !== mcpErrors
-          ) return;
+          )
+            return;
         } else if (imported) {
           if (!errorFunctions.has(imported.name)) return;
           if (
             imported.source !== '@agentport/core' &&
-            !(displayPath.startsWith('packages/core/src/') &&
-              resolveModule(file, imported.source) === coreErrors)
-          ) return;
+            !(
+              displayPath.startsWith('packages/core/src/') &&
+              resolveModule(file, imported.source) === coreErrors
+            )
+          )
+            return;
         } else if (
           !errorFunctions.has(identifier) ||
           file !== coreErrors ||
           !binding?.scope.path.isProgram() ||
           !binding.path.isFunctionDeclaration()
-        ) return;
+        )
+          return;
       } else if (!isMember(callee, 'refine') || !isZodExpression(path.get('callee.object'))) {
         return;
       }
 
-      while (message.type === 'LogicalExpression' && (message.operator === '??' || message.operator === '||')) {
+      while (
+        message.type === 'LogicalExpression' &&
+        (message.operator === '??' || message.operator === '||')
+      ) {
         message = unwrapExpression(message.right);
       }
       let constant;
@@ -1018,7 +1042,9 @@ function resolveEnvRootSource(path, seen = new Set()) {
         : null;
     if (!target) return null;
     const obj = unwrapNodePath(path.get('object'));
-    return obj.isIdentifier() && obj.node.name === 'globalThis' && !obj.scope.getBinding('globalThis')
+    return obj.isIdentifier() &&
+      obj.node.name === 'globalThis' &&
+      !obj.scope.getBinding('globalThis')
       ? target
       : null;
   }
@@ -1225,7 +1251,12 @@ function resolvePackageRef(path, seen = new Set()) {
   }
   const imp = importedBinding(binding);
   if (imp) return { source: imp.source, path: [imp.name] };
-  if (binding.constant && impPath.isVariableDeclarator() && impPath.node.init && !seen.has(binding)) {
+  if (
+    binding.constant &&
+    impPath.isVariableDeclarator() &&
+    impPath.node.init &&
+    !seen.has(binding)
+  ) {
     seen.add(binding);
     if (impPath.get('id').isIdentifier()) {
       return resolvePackageRef(impPath.get('init'), seen);
@@ -1454,13 +1485,21 @@ for (const file of webFiles) {
   if (!m) continue;
   const names = m[1]
     .split(',')
-    .map((s) => s.trim().split(/\s+as\s+/).pop())
+    .map((s) =>
+      s
+        .trim()
+        .split(/\s+as\s+/)
+        .pop(),
+    )
     .filter(Boolean);
   for (const name of names) {
     const tag = new RegExp(`<${name}\\b[^>]*>`, 'g');
     for (const t of src.matchAll(tag)) {
       if (/\b(strokeWidth|size)=/.test(t[0])) {
-        report('lucide-icon-size', `${rel(file)}:${lineAt(src, t.index)}: lucide 图标 ${name} 逐个传 strokeWidth/size`);
+        report(
+          'lucide-icon-size',
+          `${rel(file)}:${lineAt(src, t.index)}: lucide 图标 ${name} 逐个传 strokeWidth/size`,
+        );
       }
     }
   }
@@ -1471,7 +1510,10 @@ for (const file of webFiles) {
   if (file.includes('/components/ui/')) continue;
   const src = read(file);
   for (const m of src.matchAll(hexRe)) {
-    report('web-hardcoded-hex', `${rel(file)}:${lineAt(src, m.index)}: 硬编码色值 ${m[0]}（用 @theme token）`);
+    report(
+      'web-hardcoded-hex',
+      `${rel(file)}:${lineAt(src, m.index)}: 硬编码色值 ${m[0]}（用 @theme token）`,
+    );
   }
 }
 
@@ -1532,7 +1574,10 @@ function findButtonVariantsConcatViolations(code) {
 for (const file of webFiles) {
   const code = stripComments(read(file));
   for (const line of findButtonVariantsConcatViolations(code)) {
-    report('button-variants-concat', `${rel(file)}:${line}: 拼接 buttonVariants 类名（${buttonVariantsFix}）`);
+    report(
+      'button-variants-concat',
+      `${rel(file)}:${line}: 拼接 buttonVariants 类名（${buttonVariantsFix}）`,
+    );
   }
 }
 
@@ -1596,7 +1641,7 @@ for (const file of dbSchemaFiles) {
       if (!DB_ENUM_CHECK_ALLOWLIST.has(key)) {
         report(
           'db-enum-check',
-          `${rel(file)}:${lineAt(code, m.index)}: DB check '${checkName}' 未从 @agentport/shared 的 *.options 派生（改用 ${'${schema}.options'} 派生枚举，或确认属 DB 内部约束后加入 DB_ENUM_CHECK_ALLOWLIST）`,
+          `${rel(file)}:${lineAt(code, m.index)}: DB check '${checkName}' 未从 @agentport/shared 的 *.options 派生（改用 \${schema}.options 派生枚举，或确认属 DB 内部约束后加入 DB_ENUM_CHECK_ALLOWLIST）`,
         );
       }
     }
@@ -1658,7 +1703,10 @@ for (const entry of coreBrowserEntrypoints) {
     }
   }
   for (const m of code.matchAll(/\bBuffer\b/g)) {
-    report('core-browser-node', `${entry}:${lineAt(code, m.index)}: 浏览器可达子路径禁引 Node 内建或 Buffer`);
+    report(
+      'core-browser-node',
+      `${entry}:${lineAt(code, m.index)}: 浏览器可达子路径禁引 Node 内建或 Buffer`,
+    );
   }
 }
 
@@ -1694,24 +1742,32 @@ function stripCssComments(src) {
 const stylesCode = stripCssComments(read(join(ROOT, 'packages/web/src/styles.css')));
 
 if (!stylesCode.includes('@custom-variant dark (&:where(.dark, .dark *));')) {
-  report('styles-dark-variant', 'packages/web/src/styles.css: 缺少 @custom-variant dark (&:where(.dark, .dark *));');
+  report(
+    'styles-dark-variant',
+    'packages/web/src/styles.css: 缺少 @custom-variant dark (&:where(.dark, .dark *));',
+  );
 }
 for (const m of stylesCode.matchAll(/\.dark(?![\w-])[^;{}]*\{/g)) {
-  report('styles-dark-block', `packages/web/src/styles.css:${lineAt(stylesCode, m.index)}: 禁止定义 .dark 主题块`);
+  report(
+    'styles-dark-block',
+    `packages/web/src/styles.css:${lineAt(stylesCode, m.index)}: 禁止定义 .dark 主题块`,
+  );
 }
 const readCssToken = (css, name) => {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = css.match(new RegExp(`${escaped}\\s*:\\s*([^;]+);`));
   return match ? { value: match[1].trim(), line: lineAt(css, match.index) } : null;
 };
-for (const m of stylesCode.matchAll(/--color-muted\s*:\s*var\(\s*--color-muted-foreground\s*\)\s*;/g)) {
+for (const m of stylesCode.matchAll(
+  /--color-muted\s*:\s*var\(\s*--color-muted-foreground\s*\)\s*;/g,
+)) {
   report(
     'styles-muted-token',
     `packages/web/src/styles.css:${lineAt(stylesCode, m.index)}: --color-muted 不得等于 var(--color-muted-foreground)`,
   );
 }
 const radius4xl = readCssToken(stylesCode, '--radius-4xl');
-if (!radius4xl || radius4xl.value !== 'var(--radius-tag)') {
+if (radius4xl?.value !== 'var(--radius-tag)') {
   report(
     'styles-radius-4xl',
     `packages/web/src/styles.css:${radius4xl?.line ?? 1}: --radius-4xl 必须等于 var(--radius-tag)`,
@@ -1719,7 +1775,7 @@ if (!radius4xl || radius4xl.value !== 'var(--radius-tag)') {
 }
 for (const shadowVar of ['--shadow-md', '--shadow-lg']) {
   const token = readCssToken(stylesCode, shadowVar);
-  if (!token || token.value !== 'var(--shadow-overlay)') {
+  if (token?.value !== 'var(--shadow-overlay)') {
     report(
       'styles-shadow',
       `packages/web/src/styles.css:${token?.line ?? 1}: ${shadowVar} 必须等于 var(--shadow-overlay)`,
@@ -1745,8 +1801,7 @@ for (const file of walk(join(ROOT, 'packages/web/src'), /\.css$/)) {
 const node24VersionRe =
   /^(?:[\^~]?24(?:\.(?:\d+(?:\.(?:\d+|x|X|\*))?|x|X|\*))?|>=24(?:\.\d+){0,2}\s+<25(?:\.0){0,2})$/;
 const dockerNodeFromRe = /^\s*FROM\s+(?:--\S+\s+)*(?:[^\s/]+\/)*node(?::|@|\s|$)/i;
-const dockerNode24FromRe =
-  /^\s*FROM\s+(?:--\S+\s+)*(?:[^\s/]+\/)*node:24(?:\.\d+)*(?:-|\s|@|$)/i;
+const dockerNode24FromRe = /^\s*FROM\s+(?:--\S+\s+)*(?:[^\s/]+\/)*node:24(?:\.\d+)*(?:-|\s|@|$)/i;
 const nodeLockReason = 'Node.js 与 @types/node 永久锁定 24.x，禁止升级到 26+';
 
 const dependencyFields = [

@@ -39,7 +39,7 @@ const SKILL_NAME = 'probe-skill-name';
 
 async function load(withPlugin = true): Promise<{
   version: string | undefined;
-  commands: { name: string; aliases?: string[] }[];
+  commands: { name: string; aliases: string[] | undefined }[];
   agents: string[];
   pluginsApplied: boolean | undefined;
 }> {

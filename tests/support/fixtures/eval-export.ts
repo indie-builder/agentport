@@ -46,6 +46,7 @@ export async function insertResults(runId: string, rows: ResultSeed[]): Promise<
         name: row.name,
         prompt: row.prompt,
         expectation: row.expectation,
+        judgeMode: 'contains' as const,
       },
       passed: row.passed,
       output: row.output,

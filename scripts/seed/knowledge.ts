@@ -8,12 +8,12 @@ import {
   segmentForSearch,
   sha256Hex,
 } from '@agentport/core';
-import { newId, repo, schema } from '@agentport/db';
+import { type DbHandle, newId, repo, schema, type Transaction } from '@agentport/db';
 import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
-import { DEMO_KNOWLEDGE } from './constants';
-import { storageDir } from './paths';
-import type { SeedContext } from './types';
+import { DEMO_KNOWLEDGE } from './constants.js';
+import { storageDir } from './paths.js';
+import type { SeedContext } from './types.js';
 
 const DEMO_KNOWLEDGE_DESCRIPTION = '演示用业务知识库：员工手册、采购流程与客服话术。';
 const PROFILE_NAME = '演示·本地向量';
@@ -107,7 +107,7 @@ const DOCUMENTS = [
 ] as const;
 
 async function findOrCreateKnowledgeServer(
-  ctx: SeedContext,
+  ctx: { db: DbHandle; businessId: string },
   requireNew = false,
 ): Promise<typeof schema.servers.$inferSelect> {
   const serverName = `kb-${DEMO_KNOWLEDGE.slug}`;
@@ -143,7 +143,7 @@ async function findOrCreateKnowledgeServer(
 }
 
 async function ensureKnowledgeServer(
-  ctx: SeedContext,
+  ctx: { db: DbHandle; businessId: string },
   base: typeof schema.knowledgeBases.$inferSelect,
 ): Promise<void> {
   const server = await findOrCreateKnowledgeServer(ctx);
@@ -226,8 +226,8 @@ export async function seedKnowledge(ctx: SeedContext): Promise<void> {
   }
   let base = existingBase ?? null;
   if (base === null) {
-    base = await db.transaction(async (tx) => {
-      const txCtx: SeedContext = { ...ctx, db: tx };
+    base = await db.transaction(async (tx: Transaction) => {
+      const txCtx = { db: tx, businessId: ctx.businessId };
       const embeddingProfile =
         existingProfile ??
         (await repo.knowledge.createModelProfile(tx, {

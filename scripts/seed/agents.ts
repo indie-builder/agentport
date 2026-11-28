@@ -1,7 +1,7 @@
 import { agents, repo, servers } from '@agentport/db';
 import { eq } from 'drizzle-orm';
-import { DEMO_AGENTS, DEMO_CONNECTOR } from './constants';
-import type { DemoAgent, DemoCatalog, SeedContext } from './types';
+import { DEMO_AGENTS, DEMO_CONNECTOR } from './constants.js';
+import type { DemoAgent, DemoCatalog, SeedContext } from './types.js';
 
 interface AgentSpec {
   slug: string;

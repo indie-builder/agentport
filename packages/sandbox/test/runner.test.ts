@@ -172,6 +172,9 @@ interface Event {
   requestId?: string;
   toolUseId?: string;
   questions?: unknown[];
+  error?: string;
+  failureKind?: string;
+  content?: string;
 }
 
 async function run(

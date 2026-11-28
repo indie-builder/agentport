@@ -45,7 +45,7 @@ describe('knowledge model profile selection wire', () => {
   const selection = {
     id: 'kmp_1',
     name: 'Whisper',
-    kind: 'asr',
+    kind: 'asr' as const,
     enabled: true,
     supportsImageVectors: false,
   };
@@ -186,7 +186,7 @@ describe('locator and read/list wire', () => {
 
   it('parses audio metadata with UTF-16 offsets and real segment timecodes', () => {
     const audio = {
-      protocol: 'openai_transcriptions',
+      protocol: 'openai_transcriptions' as const,
       profileName: '本地 whisper',
       model: 'whisper-1',
       durationMs: 3_500,
@@ -412,7 +412,7 @@ describe('job and sync item wire', () => {
 
 describe('knowledge source input types', () => {
   const uuid = '01234567-89ab-cdef-0123-456789abcdef';
-  const payloads: Record<string, Record<string, unknown>> = {
+  const payloads = {
     lark_wiki: {
       config: { appId: 'cli_a', syncDeletions: true },
       secrets: { appSecret: 's' },
@@ -465,10 +465,15 @@ describe('knowledge source input types', () => {
       ranges: [{ kind: 'nextcloud_path', externalId: '/Documents' }],
     },
   };
+  type PayloadType = keyof typeof payloads;
+  const payloadEntries = Object.entries(payloads) as Array<
+    [PayloadType, (typeof payloads)[PayloadType]]
+  >;
+  const payloadTypes = Object.keys(payloads) as PayloadType[];
 
   it('registers the nine new source types and range kinds', () => {
     const types = knowledgeSourceTypeSchema.options;
-    for (const type of Object.keys(payloads)) expect(types).toContain(type);
+    for (const type of payloadTypes) expect(types).toContain(type);
     for (const kind of [
       'notion_page',
       'notion_database',
@@ -481,7 +486,7 @@ describe('knowledge source input types', () => {
       'ima_kb',
       'seafile_repo',
       'nextcloud_path',
-    ]) {
+    ] as const) {
       expect(knowledgeSourceRangeInputSchema.parse({ kind, externalId: 'x' }).kind).toBe(kind);
     }
     expect(
@@ -489,16 +494,14 @@ describe('knowledge source input types', () => {
     ).toBe(false);
   });
 
-  it.each(Object.entries(payloads))(
+  it.each(payloadEntries)(
     'parses %s config/secrets/ranges without stripping fields',
     (type, payload) => {
       const parsed = knowledgeSourceInputSchema.parse({ type, name: type, ...payload });
       expect(parsed.type).toBe(type);
       expect(parsed.config.syncDeletions).toBe(true);
       expect(parsed.secrets).toEqual(payload.secrets);
-      expect(parsed.ranges[0]?.externalId).toBe(
-        (payload.ranges as Array<{ externalId: string }>)[0]?.externalId,
-      );
+      expect(parsed.ranges[0]?.externalId).toBe(payload.ranges[0]?.externalId);
     },
   );
 
@@ -526,8 +529,8 @@ describe('knowledge source input types', () => {
   });
 
   it('declares provider-reasonable range ID caps for every new source type', () => {
-    for (const type of Object.keys(payloads)) {
-      const cap = knowledgeSourceRangeExternalIdMax[type as keyof typeof payloads];
+    for (const type of payloadTypes) {
+      const cap = knowledgeSourceRangeExternalIdMax[type];
       expect(cap, type).toBeGreaterThan(0);
       expect(cap + 32, type).toBeLessThanOrEqual(500);
     }

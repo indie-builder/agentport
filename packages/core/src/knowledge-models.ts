@@ -378,10 +378,14 @@ export async function transcribeAudio(
   const audio = knowledgeAudioFromMime(input.mimeType);
   if (!audio) fail('UNSUPPORTED_MEDIA_TYPE', `不支持的音频 MIME: ${input.mimeType}`);
 
+  const audioBytes =
+    input.data.buffer instanceof ArrayBuffer
+      ? new Uint8Array(input.data.buffer, input.data.byteOffset, input.data.byteLength)
+      : new Uint8Array(input.data);
   const form = new FormData();
   form.append(
     'file',
-    new Blob([input.data], { type: audio.mimeType }),
+    new Blob([audioBytes], { type: audio.mimeType }),
     multipartFilename(input.filename, audio.format),
   );
   form.append('model', profile.model);

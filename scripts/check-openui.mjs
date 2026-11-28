@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 const root = resolve(dirname(Bun.fileURLToPath(import.meta.url)), '..');
+const skipTests = process.argv.includes('--no-tests');
 const committedSpecPath = resolve(root, 'packages/core/src/generated/openui.spec.json');
 const entry = resolve(root, 'packages/web/src/openui/library.tsx');
 const cli = resolve(root, 'node_modules/@openuidev/cli/dist/index.js');
@@ -21,8 +22,7 @@ function installedPackage(name) {
   for (const base of candidates) {
     try {
       return readJson(resolve(root, base, 'node_modules', name, 'package.json'));
-    } catch {
-    }
+    } catch {}
   }
   return null;
 }
@@ -46,10 +46,12 @@ function satisfiesRange(version, range) {
 const tsc = resolve(root, 'node_modules/typescript/bin/tsc');
 let dry = '';
 try {
-  const tscRun = Bun.spawnSync(
-    ['node', tsc, '-b', 'packages/shared', 'packages/core', '--dry'],
-    { cwd: root, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
-  );
+  const tscRun = Bun.spawnSync(['node', tsc, '-b', 'packages/shared', 'packages/core', '--dry'], {
+    cwd: root,
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
   if (!tscRun.success) {
     const detail = [tscRun.stdout?.toString('utf8'), tscRun.stderr?.toString('utf8')]
       .map((text) => text?.trim())
@@ -79,7 +81,16 @@ let regenerated = null;
 const scratch = mkdtempSync(join(tmpdir(), 'openui-check-'));
 try {
   const genRun = Bun.spawnSync(
-    ['node', cli, 'generate', entry, '--spec', '--out', join(scratch, 'spec.json'), '--no-telemetry'],
+    [
+      'node',
+      cli,
+      'generate',
+      entry,
+      '--spec',
+      '--out',
+      join(scratch, 'spec.json'),
+      '--no-telemetry',
+    ],
     { cwd: root, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
   );
   if (!genRun.success) {
@@ -176,40 +187,44 @@ check(
   promptOk,
 );
 
-const behaviorTests = [
-  'packages/core/test/openui-library.test.ts',
-  'packages/core/test/openui-reactive-query.test.ts',
-  'packages/core/test/openui-upgrade-guard.test.ts',
-];
-const backendRunner = resolve(root, 'scripts/test-backend.ts');
-try {
-  const testRun = Bun.spawnSync([process.execPath, backendRunner, ...behaviorTests], {
-    cwd: root,
-    stdin: 'ignore',
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  if (testRun.success) {
-    check('Zod/reactive 行为契约测试', `${behaviorTests.length} 个文件`, true);
-  } else {
-    const stdout = testRun.stdout?.toString('utf8') ?? '';
-    const failed = stdout
-      .split('\n')
-      .filter((line) => line.includes('FAIL') || line.includes('AssertionError'))
-      .slice(0, 6)
-      .join(' | ');
+if (skipTests) {
+  check('Zod/reactive 行为契约测试', '已跳过（--no-tests）', true);
+} else {
+  const behaviorTests = [
+    'packages/core/test/openui-library.test.ts',
+    'packages/core/test/openui-reactive-query.test.ts',
+    'packages/core/test/openui-upgrade-guard.test.ts',
+  ];
+  const backendRunner = resolve(root, 'scripts/test-backend.ts');
+  try {
+    const testRun = Bun.spawnSync([process.execPath, backendRunner, ...behaviorTests], {
+      cwd: root,
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    if (testRun.success) {
+      check('Zod/reactive 行为契约测试', `${behaviorTests.length} 个文件`, true);
+    } else {
+      const stdout = testRun.stdout?.toString('utf8') ?? '';
+      const failed = stdout
+        .split('\n')
+        .filter((line) => line.includes('FAIL') || line.includes('AssertionError'))
+        .slice(0, 6)
+        .join(' | ');
+      check(
+        'Zod/reactive 行为契约测试',
+        `未通过：${failed || testRun.stderr?.toString('utf8').trim() || formatRunStatus(testRun)}`,
+        false,
+      );
+    }
+  } catch (error) {
     check(
       'Zod/reactive 行为契约测试',
-      `未通过：${failed || testRun.stderr?.toString('utf8').trim() || formatRunStatus(testRun)}`,
+      `未通过：${error instanceof Error ? error.message : String(error)}`,
       false,
     );
   }
-} catch (error) {
-  check(
-    'Zod/reactive 行为契约测试',
-    `未通过：${error instanceof Error ? error.message : String(error)}`,
-    false,
-  );
 }
 
 const reactUi = installedPackage('@openuidev/react-ui');

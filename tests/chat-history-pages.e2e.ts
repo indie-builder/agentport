@@ -150,17 +150,17 @@ async function wheelChatToTop(browser: Browser): Promise<void> {
 async function waitForWheelScrollEnd(browser: Browser): Promise<void> {
   await browser.evaluate(
     () =>
-      new Promise<void>((resolve) => {
+      new Promise<null>((resolve) => {
         const viewport = document.querySelector('[data-slot="message-scroller-viewport"]');
         if (!(viewport instanceof HTMLElement)) {
-          resolve();
+          resolve(null);
           return;
         }
         let settled = false;
         const finish = () => {
           if (settled) return;
           settled = true;
-          resolve();
+          resolve(null);
         };
         viewport.addEventListener('scrollend', finish, { once: true });
         setTimeout(finish, 600);

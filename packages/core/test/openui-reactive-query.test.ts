@@ -6,6 +6,7 @@ import {
   createParser,
   createQueryManager,
   createStore,
+  type DefinedComponent,
   defineComponent,
   type EvaluationContext,
   evaluate,
@@ -19,7 +20,10 @@ const reactive = <T extends object>(schema: T): T => {
   return schema;
 };
 const definitions = createOpenUiDefinitions({ defineComponent, action, reactive }, {});
-const library = createLibrary({ root: definitions.root, components: definitions.components });
+const library = createLibrary({
+  root: definitions.root,
+  components: definitions.components as unknown as DefinedComponent[],
+});
 const parser = createParser(library.toJSONSchema(), 'Card');
 
 const PROGRAM = [
@@ -35,6 +39,7 @@ function queryNodes(result: ParseResult, ctx: EvaluationContext) {
     toolName: statement.toolAST ? String(evaluate(statement.toolAST, ctx)) : '',
     args: statement.argsAST ? evaluate(statement.argsAST, ctx) : null,
     defaults: statement.defaultsAST ? evaluate(statement.defaultsAST, ctx) : null,
+    deps: undefined,
     complete: statement.complete,
   }));
 }
@@ -57,8 +62,6 @@ describe('reactive bindings drive Query re-execution', () => {
     const ctx = (): EvaluationContext => ({
       getState: (name) => store.get(name),
       resolveRef: (name) => manager.getResult(name),
-      functions: undefined,
-      actions: undefined,
     });
 
     manager.evaluateQueries(queryNodes(result, ctx()));
