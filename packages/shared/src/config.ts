@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+export const DEFAULT_SANDBOX_API_URL = 'http://host.docker.internal:3000';
+export const DEFAULT_SANDBOX_MAX_FIELD_BYTES = 1024 * 1024;
+
 export const commonEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -21,6 +24,7 @@ export const serviceEnvShape = {
   KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
   MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
   WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 };
 
 export function parseEnv<S extends z.ZodType>(

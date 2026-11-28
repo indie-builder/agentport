@@ -69,4 +69,45 @@ export class SourceTruncatedError extends Error {
   }
 }
 
+const MAX_CURSOR_PAGES = 1000;
+
+export async function paginateCursor<T, C extends string | number = string>(options: {
+  label: string;
+  initialCursor: C;
+  maxPages?: number;
+  cursorName?: string;
+  fetchPage: (
+    cursor: C,
+    context: { page: number; collected: readonly T[] },
+  ) => Promise<{
+    items: readonly T[];
+    next?: C | undefined;
+    hasMore?: boolean | undefined;
+  }>;
+}): Promise<T[]> {
+  const maxPages = options.maxPages ?? MAX_CURSOR_PAGES;
+  const cursorName = options.cursorName ?? 'cursor';
+  const items: T[] = [];
+  const seen = new Set<C>(options.initialCursor === '' ? [] : [options.initialCursor]);
+  let cursor = options.initialCursor;
+  for (let page = 0; page < maxPages; page += 1) {
+    const result = await options.fetchPage(cursor, { page, collected: items });
+    items.push(...result.items);
+    if (result.hasMore === false) return items;
+    const next = result.next;
+    if (next === undefined || next === '') {
+      if (result.hasMore === true) {
+        throw new Error(`${options.label} set hasMore without a ${cursorName}`);
+      }
+      return items;
+    }
+    if (seen.has(next)) {
+      throw new Error(`${options.label} repeated ${cursorName} ${String(next)}`);
+    }
+    seen.add(next);
+    cursor = next;
+  }
+  throw new SourceTruncatedError(`${options.label} exceeded ${maxPages} pages`);
+}
+
 export const failureOf = makeSourceFailure((err) => err instanceof SourceTruncatedError);

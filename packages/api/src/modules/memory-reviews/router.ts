@@ -1,6 +1,7 @@
 import { memoryReviewsContract } from '@agentport/contract/memory-reviews';
 import {
   AGENT_SELECTION_MISSING_MESSAGE,
+  canonicalJson,
   fail,
   isAppError,
   notFound,
@@ -29,8 +30,8 @@ import {
   validateMemoryContent,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
-import type { RequestContext } from '../../http/context.js';
+import { authorizeObject, requireUser } from '../../http/access.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import {
@@ -55,18 +56,8 @@ interface SnapshotMessage {
   text: string;
 }
 
-function canonical(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`)
-    .join(',')}}`;
-}
-
 function requestHash(input: unknown): string {
-  return sha256Hex(canonical(input));
+  return sha256Hex(canonicalJson(input));
 }
 
 async function messagesInSource(

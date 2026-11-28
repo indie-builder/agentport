@@ -32,7 +32,7 @@ import {
 } from './knowledge-citations.js';
 import { contentKindLabel, locatorLabel, scoreKindLabel } from './knowledge-shared.js';
 
-export interface KnowledgeSearchState {
+interface KnowledgeSearchState {
   q?: string | undefined;
   folders?: string[] | undefined;
   tags?: string[] | undefined;
@@ -45,7 +45,7 @@ export interface KnowledgeSearchState {
   faqDirectAnswerThreshold?: number | undefined;
 }
 
-export interface FaqRetrievalOptions {
+interface FaqRetrievalOptions {
   onlyRecommended?: boolean | undefined;
   faqPriority?: boolean | undefined;
   faqDirectAnswerThreshold?: number | undefined;

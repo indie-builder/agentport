@@ -632,6 +632,28 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       },
     });
     expect(wrongBatch.statusCode, wrongBatch.body).toBe(409);
+    expect(wrongBatch.json()).toMatchObject({
+      code: 'CONFLICT_STALE',
+      status: 409,
+      retryable: false,
+      requestId: expect.any(String),
+      hint: expect.any(String),
+      results: [
+        {
+          row: 1,
+          status: 'failed',
+          operation: null,
+          documentId: body.results[0]?.documentId,
+          issues: [
+            {
+              field: 'batch',
+              code: 'CONFLICT_STALE',
+              message: expect.any(String),
+            },
+          ],
+        },
+      ],
+    });
     expect((await detail(documentId)).document.currentVersionId).toBe(first.draftVersion?.id);
 
     const published = await request(app, {

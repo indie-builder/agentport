@@ -29,7 +29,8 @@ interface WarnLogger {
 function digest(input: unknown): string | null {
   if (input === undefined || input === null) return null;
   try {
-    return new Bun.CryptoHasher('sha256').update(JSON.stringify(input)).digest('hex').slice(0, 32);
+    const encoded = JSON.stringify(input);
+    return encoded === undefined ? null : sha256Hex(encoded).slice(0, 32);
   } catch {
     return null;
   }

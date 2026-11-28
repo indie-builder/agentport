@@ -3,6 +3,7 @@ import { repo } from '@agentport/db';
 import { evaluateSloStatuses, type QueueSnapshot, type SloStatus } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Queue } from 'bullmq';
+import type { Config } from '../../config.js';
 import { requireUser } from '../../http/access.js';
 import { domainAudit } from '../../http/audit.js';
 import type { RequestContext } from '../../http/context.js';
@@ -17,10 +18,11 @@ const os = implement(observabilityContract).$context<RequestContext>();
 
 const audit = domainAudit('observability');
 
-async function queueSnapshot(queue: Queue): Promise<QueueSnapshot> {
+async function queueSnapshot(queue: Queue, log: RequestContext['log']): Promise<QueueSnapshot> {
   try {
     return { name: queue.name, ...(await jobCounts(queue)) };
-  } catch {
+  } catch (err) {
+    log.warn({ err, queue: queue.name }, 'observability queue snapshot failed');
     return {
       name: queue.name,
       waiting: 0,
@@ -33,12 +35,16 @@ async function queueSnapshot(queue: Queue): Promise<QueueSnapshot> {
   }
 }
 
-async function queueSnapshots(redisUrl: string): Promise<QueueSnapshot[]> {
+async function queueSnapshots(
+  redisUrl: string,
+  nodeEnv: Config['NODE_ENV'],
+  log: RequestContext['log'],
+): Promise<QueueSnapshot[]> {
   if (queueCache !== undefined && Date.now() - queueCache.at < QUEUE_CACHE_MS) {
     return queueCache.rows;
   }
-  const queues: Queue[] = getQueues(redisUrl);
-  const rows = await Promise.all(queues.map(queueSnapshot));
+  const queues: Queue[] = getQueues(redisUrl, nodeEnv);
+  const rows = await Promise.all(queues.map((queue) => queueSnapshot(queue, log)));
   queueCache = { at: Date.now(), rows };
   return rows;
 }
@@ -58,7 +64,7 @@ export const observabilityRouter = os.router({
       recentOpsAlerts,
     ] = await Promise.all([
       repo.observability.runWindowStats(context.db, since),
-      queueSnapshots(context.config.REDIS_URL),
+      queueSnapshots(context.config.REDIS_URL, context.config.NODE_ENV, context.log),
       repo.modelProviders.listModelProviders(context.db),
       repo.observability.providerWindowStats(context.db, since),
       repo.governance.getSloSettings(context.db),

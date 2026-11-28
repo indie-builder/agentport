@@ -4,7 +4,7 @@ import { CopyButton } from './copy-button.js';
 import { buttonVariants } from './ui/button.js';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group.js';
 
-export type ReaderMode = 'read' | 'source';
+type ReaderMode = 'read' | 'source';
 
 const MODES: ReadonlyArray<{ value: ReaderMode; label: string }> = [
   { value: 'read', label: '阅读' },

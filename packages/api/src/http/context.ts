@@ -4,14 +4,15 @@ import type { Context } from 'hono';
 import type { Logger } from 'pino';
 import type { z } from 'zod';
 import type { Config } from '../config.js';
-import type { Auth } from '../modules/auth/better-auth.js';
+import type { AuthService } from './auth.js';
 
 export type AppContext = {
   db: Database;
   client: ReturnType<typeof createDb>['client'];
   config: Config;
   log: Logger;
-  auth: Auth;
+  auth: AuthService;
+  authenticate: (context: RequestContext) => Promise<void>;
 };
 
 export type NativeHttpDependencies = { timeout: (request: Request, seconds: number) => void };

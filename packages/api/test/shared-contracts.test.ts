@@ -6,9 +6,9 @@ import {
   agentSchema,
   commonEnvSchema,
   idParams,
-  PREVIEW_SECRET,
   parseEnv,
   previewMcpEntry,
+  SECRET_MASK,
 } from '@agentport/shared';
 import { z } from 'zod';
 import { loadConfig as workerConfig } from '../../worker/src/config.js';
@@ -56,12 +56,12 @@ describe('shared MCP entry rendering', () => {
     expect(
       previewMcpEntry(
         { kind: 'stdio', config: { command: 7, args: ['ok', 3], env: { TOKEN: 'secret' } } },
-        { TOKEN: PREVIEW_SECRET },
+        { TOKEN: SECRET_MASK },
       ),
     ).toEqual({
       command: '',
       args: ['ok'],
-      env: { TOKEN: PREVIEW_SECRET },
+      env: { TOKEN: SECRET_MASK },
     });
     expect(
       previewMcpEntry({

@@ -129,6 +129,8 @@ export default {
   offlineAgent: (id: string): Promise<AgentWriteResult> => rpc.agents.offline({ params: { id } }),
   trialAgent: (id: string, prompt: string): Promise<{ runId: string; conversationId: string }> =>
     rpc.agents.trial({ params: { id }, body: { prompt } }),
+  subAgentFileUrl: (agentId: string, childId: string): string =>
+    `/api/agents/${agentId}/subagents/${childId}/file`,
   exportAgent: (
     id: string,
     signal?: AbortSignal,

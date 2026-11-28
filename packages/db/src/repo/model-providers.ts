@@ -1,4 +1,4 @@
-import { TERMINAL_RUN_STATUSES } from '@agentport/shared';
+import { TERMINAL_RUN_STATUSES, utcMonthStart } from '@agentport/shared';
 import { and, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
@@ -47,10 +47,6 @@ export interface ProviderRequestRecord {
 }
 
 const emptyUsage: ProviderUsage = { requests: 0, costUsd: 0, inputTokens: 0, outputTokens: 0 };
-
-function monthStart(now = new Date()) {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-}
 
 function providerAttribution() {
   return sql<
@@ -112,7 +108,7 @@ export async function listModelProviders(db: DbHandle) {
   const now = new Date();
   const [rows, usageRows] = await Promise.all([
     db.select().from(modelProviders).orderBy(modelProviders.priority, modelProviders.id),
-    providerUsageByPeriod(db, monthStart(now), now),
+    providerUsageByPeriod(db, utcMonthStart(now), now),
   ]);
   const usageByProvider = new Map(usageRows.map(({ providerId, ...usage }) => [providerId, usage]));
   return rows.map((row) => ({ ...row, usage: usageByProvider.get(row.id) ?? emptyUsage }));
@@ -297,7 +293,7 @@ export async function selectProviderForModel(
 ): Promise<string | null> {
   if (model === null) return null;
   const now = new Date();
-  const usage = providerUsageByPeriod(db, monthStart(now), now).as('provider_usage');
+  const usage = providerUsageByPeriod(db, utcMonthStart(now), now).as('provider_usage');
   const [row] = await db
     .select({ id: modelProviders.id })
     .from(modelProviders)

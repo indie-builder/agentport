@@ -8,7 +8,7 @@ import type { RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 import { SHARE_MISSING_MESSAGE } from '../../lib/outputs.js';
-import { auditShareRevoked, toOutputShare } from '../output-shares/router.js';
+import { auditShareRevoked, toOutputShare } from '../output-shares/shared.js';
 import { collectPersonalOutputs } from '../search/outputs.js';
 
 const os = implement(personalContract).$context<RequestContext>();

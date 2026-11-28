@@ -1,7 +1,6 @@
 import type { RouteAccess } from '@agentport/contract/access';
 import type { MiddlewareHandler } from 'hono';
 import { assertNever } from '../lib/assert-never.js';
-import { authenticate } from '../modules/auth/session.js';
 import { requirePermission, requireUser } from './access.js';
 import type { HttpEnv, RequestContext } from './context.js';
 import { requireTrustedOrigin } from './origin.js';
@@ -14,11 +13,11 @@ export async function enforceAccess(context: RequestContext, access: RouteAccess
     case 'service':
       return;
     case 'authenticated':
-      await authenticate(context);
+      await context.authenticate(context);
       requireUser(context);
       break;
     case 'permission':
-      await authenticate(context);
+      await context.authenticate(context);
       await requirePermission(context, access.permissionId);
       break;
     default:

@@ -11,7 +11,7 @@ services:
     image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
     restart: unless-stopped
     logging: *default-logging
-    command: ['postgres', '-c', 'log_min_duration_statement=200', '-c', 'log_lock_waits=on', '-c', 'log_temp_files=0']
+    command: ['postgres', '-c', 'max_connections=300', '-c', 'log_min_duration_statement=200', '-c', 'log_lock_waits=on', '-c', 'log_temp_files=0']
     environment:
       POSTGRES_USER: agentport
       POSTGRES_PASSWORD: agentport

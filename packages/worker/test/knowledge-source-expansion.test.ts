@@ -186,6 +186,7 @@ async function makeBase(parserUrl = PARSER_ORIGIN): Promise<FixtureBase> {
       connectors: knowledgeConnectors,
       decrypt: (payload) => decryptSecrets(payload, SECRET_KEY),
       allowLoopback: true,
+      nodeEnv: 'test',
       anthropicBaseUrl: undefined,
       trustedHosts: ['open.larksuite.com', 'api.notion.com'],
     },

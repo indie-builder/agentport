@@ -5,8 +5,8 @@ import { type Database, repo, type schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import type { Logger } from 'pino';
 import type { Config } from '../../../config.js';
-import { actorOf, requireUser } from '../../../http/access.js';
-import type { RequestContext } from '../../../http/context.js';
+import { requireUser } from '../../../http/access.js';
+import { actorOf, type RequestContext } from '../../../http/context.js';
 import { PAYLOAD_TOO_LARGE_MESSAGE } from '../../../http/errors.js';
 import { collectPages } from '../../../http/pagination.js';
 import {

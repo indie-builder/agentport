@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { fail, isAppError } from '@agentport/core';
 import { AGENT_PACKAGE_MAX_ENTRIES, AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES } from '@agentport/shared';
 import { zipSync } from 'fflate';
 
@@ -44,7 +44,7 @@ export function invalid(message: string, path?: string): never {
 
 export const PACKAGE_PATH_SEGMENT_MESSAGE = '包内路径不能包含空段、. 或 ..';
 export const ZIP_CORRUPT_MESSAGE = 'ZIP 内容损坏，无法解压';
-export const ZIP_CONTENT_TYPE_MESSAGE = '不支持的 Content-Type，请使用 application/zip';
+const ZIP_CONTENT_TYPE_MESSAGE = '不支持的 Content-Type，请使用 application/zip';
 
 export function assertPackagePath(path: string): void {
   if (path.length === 0 || path.length > MAX_PATH_LENGTH) {
@@ -401,15 +401,6 @@ async function readEntryData(
   }
 }
 
-export interface PackageEntry {
-  content: string;
-  executable: boolean;
-}
-
-export interface PackageFile extends PackageEntry {
-  path: string;
-}
-
 /** Unix 文件 mode 写进 external attributes 的高 16 位，并声明来源为 Unix。 */
 function unixAttributes(executable: boolean): { os: number; attrs: number } {
   return {
@@ -418,7 +409,9 @@ function unixAttributes(executable: boolean): { os: number; attrs: number } {
   };
 }
 
-export function encodePackageEntries(files: readonly PackageFile[]): Buffer {
+export function encodePackageEntries(
+  files: ReadonlyArray<{ path: string; content: string; executable: boolean }>,
+): Buffer {
   const entries: Record<string, [Uint8Array, { os: number; attrs: number }]> = {};
   const encoder = new TextEncoder();
   for (const file of files) {
@@ -434,17 +427,12 @@ export function encodePackage(files: Record<string, string>): Buffer {
   );
 }
 
-export interface ZipEntryInfo {
-  name: string;
-  originalSize: number;
-  compressedSize: number;
-  executable: boolean;
-}
-
 export async function inspectZipEntries(
   data: Buffer,
   limits: ZipReadLimits = AGENT_PACKAGE_LIMITS,
-): Promise<ZipEntryInfo[]> {
+): Promise<
+  Array<{ name: string; originalSize: number; compressedSize: number; executable: boolean }>
+> {
   return (await readCentralDirectory(data, limits)).entries.map(
     ({ name, originalSize, compressedSize, executable }) => ({
       name,
@@ -481,8 +469,10 @@ export async function decodeZipEntries(
   return files;
 }
 
-export async function decodePackageEntries(data: Buffer): Promise<Map<string, PackageEntry>> {
-  const files = new Map<string, PackageEntry>();
+export async function decodePackageEntries(
+  data: Buffer,
+): Promise<Map<string, { content: string; executable: boolean }>> {
+  const files = new Map<string, { content: string; executable: boolean }>();
   for (const [path, entry] of await decodeZipEntries(data)) {
     try {
       files.set(path, { content: strictUtf8.decode(entry.data), executable: entry.executable });
@@ -502,7 +492,7 @@ export async function decodePackage(data: Buffer): Promise<Map<string, string>> 
 export async function readZipUpload(
   request: Request,
   fallbackMessage: string,
-): Promise<Map<string, PackageEntry>> {
+): Promise<Map<string, { content: string; executable: boolean }>> {
   if (
     request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/zip'
   ) {
@@ -511,6 +501,7 @@ export async function readZipUpload(
   try {
     return await decodePackageEntries(Buffer.from(await request.arrayBuffer()));
   } catch (error) {
+    if (isAppError(error)) throw error;
     fail('INVALID_INPUT', error instanceof Error ? error.message : fallbackMessage);
   }
 }

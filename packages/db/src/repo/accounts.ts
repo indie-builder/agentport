@@ -255,6 +255,10 @@ export async function updateAccount(
   return accountFromRow(db, updated);
 }
 
+export async function revokeAuthUserSessions(db: DbHandle, authUserId: string): Promise<void> {
+  await db.delete(authSessions).where(eq(authSessions.userId, authUserId));
+}
+
 export async function setAccountStatus(
   db: DbHandle,
   businessId: string,
@@ -275,7 +279,7 @@ export async function setAccountStatus(
       .returning();
     if (!updated) return null;
     if (disabling) {
-      await tx.delete(authSessions).where(eq(authSessions.userId, row.id));
+      await revokeAuthUserSessions(tx, row.id);
     }
     return accountFromRow(tx, updated);
   });
@@ -295,7 +299,7 @@ export async function resetPassword(
       .where(and(eq(authAccounts.userId, row.id), eq(authAccounts.providerId, 'credential')))
       .returning({ id: authAccounts.id });
     if (updated.length === 0) return false;
-    await tx.delete(authSessions).where(eq(authSessions.userId, row.id));
+    await revokeAuthUserSessions(tx, row.id);
     return true;
   });
 }

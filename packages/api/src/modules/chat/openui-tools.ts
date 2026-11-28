@@ -12,8 +12,8 @@ import {
 } from '@modelcontextprotocol/client';
 import { fromJsonSchema } from '@modelcontextprotocol/server';
 import { implement } from '@orpc/server';
-import { actorOf, authorizeObject } from '../../http/access.js';
-import type { AppContext, RequestContext } from '../../http/context.js';
+import { authorizeObject } from '../../http/access.js';
+import { type AppContext, actorOf, type RequestContext } from '../../http/context.js';
 import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { buildGeneratedServer } from '../servers/generated.js';
 import { getServerWithSecrets, listTools } from '../servers/repo.js';

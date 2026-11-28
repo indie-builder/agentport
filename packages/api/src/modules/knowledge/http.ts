@@ -5,7 +5,7 @@ import type { Hono } from 'hono';
 import { z } from 'zod';
 import { attachmentResponse } from '../../http/attachment.js';
 import { requestBodyLimit } from '../../http/body-limit.js';
-import type { HttpContext, HttpEnv } from '../../http/context.js';
+import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { authorizeBase, authorizeVersion } from './access.js';
@@ -19,7 +19,7 @@ import {
   importPackage,
 } from './use-cases/binary.js';
 import { KNOWLEDGE_UPLOAD_BODY_LIMIT } from './use-cases/documents.js';
-import { exportFaqs } from './use-cases/faq.js';
+import { exportFaqs } from './use-cases/faq-commands.js';
 import { depsOf } from './use-cases/shared.js';
 
 const BATCH_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024;
@@ -32,7 +32,7 @@ const batchDownloadBodySchema = z.object({
     .refine((ids) => new Set(ids).size === ids.length, 'documentIds 不能重复'),
 });
 
-function safeZipName(filename: string): string {
+function uniqueZipName(filename: string, usedLower: Set<string>): string {
   const cleaned = [...filename]
     .map((character) =>
       character === '/' || character === '\\' || (character.codePointAt(0) ?? 0) < 0x20
@@ -41,33 +41,21 @@ function safeZipName(filename: string): string {
     )
     .join('')
     .trim();
-  const name = cleaned.length > 0 ? cleaned : 'document';
-  if (name === '.' || name === '..') return 'document';
-  if (name === '__proto__') return '___proto__';
+  let name = !cleaned || cleaned === '.' || cleaned === '..' ? 'document' : cleaned;
+  if (name === '__proto__') name = '___proto__';
   const dot = name.lastIndexOf('.');
-  const stem = dot > 0 ? name.slice(0, dot) : name;
-  return WINDOWS_RESERVED_ZIP_NAME.test(stem) ? `_${name}` : name;
-}
-
-function uniqueZipName(filename: string, usedLower: Set<string>): string {
-  const name = safeZipName(filename);
-  const dot = name.lastIndexOf('.');
-  const stem = dot > 0 ? name.slice(0, dot) : name;
+  let stem = dot > 0 ? name.slice(0, dot) : name;
   const extension = dot > 0 ? name.slice(dot) : '';
+  if (WINDOWS_RESERVED_ZIP_NAME.test(stem)) {
+    name = `_${name}`;
+    stem = `_${stem}`;
+  }
   let candidate = name;
   for (let index = 1; usedLower.has(candidate.toLowerCase()); index += 1) {
     candidate = `${stem} (${index})${extension}`;
   }
   usedLower.add(candidate.toLowerCase());
   return candidate;
-}
-
-function param(c: HttpContext, name: string): string {
-  const value = c.req.param(name);
-  if (value === undefined || value.length === 0) {
-    throw new AppError('INVALID_INPUT', '缺少路径参数');
-  }
-  return value;
 }
 
 export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
@@ -88,9 +76,9 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'knowledge.read' }),
     async (c) => {
       const context = requestContext(c);
-      const versionId = param(c, 'versionId');
+      const versionId = c.req.param('versionId');
       const { version } = await authorizeVersion(context, versionId, 'knowledge.read', 'read');
-      const name = param(c, 'name');
+      const name = c.req.param('name');
       const image = await getVersionImage(depsOf(context), version, name);
       const response = attachmentResponse(new Uint8Array(image.data), name, image.mimeType);
       response.headers.set('cache-control', 'private');
@@ -103,7 +91,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'knowledge.read' }),
     async (c) => {
       const context = requestContext(c);
-      const versionId = param(c, 'versionId');
+      const versionId = c.req.param('versionId');
       const { version } = await authorizeVersion(context, versionId, 'knowledge.read', 'read');
       const content = await getVersionContent(depsOf(context), version);
       return attachmentResponse(new Uint8Array(content.data), content.filename, content.mimeType);
@@ -115,7 +103,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'knowledge.read' }),
     async (c) => {
       const context = requestContext(c);
-      const versionId = param(c, 'versionId');
+      const versionId = c.req.param('versionId');
       const { version, document } = await authorizeVersion(
         context,
         versionId,
@@ -137,7 +125,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'knowledge.export' }),
     async (c) => {
       const context = requestContext(c);
-      const id = param(c, 'id');
+      const id = c.req.param('id');
       await authorizeBase(context, id, 'knowledge.export', 'read');
 
       const pkg = await exportPackage(depsOf(context), id);
@@ -150,7 +138,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'knowledge.read' }),
     async (c) => {
       const context = requestContext(c);
-      const id = param(c, 'id');
+      const id = c.req.param('id');
       const base = await authorizeBase(context, id, 'knowledge.read', 'read');
 
       const parsed = batchDownloadBodySchema.safeParse(await c.req.json().catch(() => null));
@@ -212,10 +200,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
       const context = requestContext(c);
       const body = Buffer.from(await c.req.arrayBuffer());
       const result = await importPackage(depsOf(context), body);
-      return new Response(JSON.stringify(result), {
-        status: 201,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
-      });
+      return c.json(result, 201);
     },
   );
 
@@ -224,7 +209,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'knowledge.export' }),
     async (c) => {
       const context = requestContext(c);
-      const id = param(c, 'id');
+      const id = c.req.param('id');
       await authorizeBase(context, id, 'knowledge.export', 'read');
 
       const format = c.req.query('format') === 'csv' ? 'csv' : 'json';

@@ -9,6 +9,7 @@ import {
 import { createBunRedisClient, DelayedError, type Job, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
+import type { Config } from '../config.js';
 import { knowledgeConnectors } from './connector-adapter.js';
 import type { ImageQueryFn } from './image-processing.js';
 import {
@@ -95,6 +96,7 @@ interface KnowledgeWorkerConfig {
   parser?: { url?: string | undefined; key?: string | undefined } | undefined;
   trustedHosts?: readonly string[] | undefined;
   allowLoopback?: boolean | undefined;
+  nodeEnv?: Config['NODE_ENV'] | undefined;
   queryFn?: WikiQueryFn | undefined;
   imageQueryFn?: ImageQueryFn | undefined;
   prefix?: string | undefined;

@@ -9,19 +9,12 @@ import {
 import { repo } from '@agentport/db';
 import type { DataDomainQueryApprovalStatus, PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import {
-  actorOf,
-  authorize,
-  authorizeResourceAccess,
-  resourceAccessFilter,
-} from '../../http/access.js';
-import type { RequestContext } from '../../http/context.js';
+import { authorize, authorizeResourceAccess, resourceAccessFilter } from '../../http/access.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import {
-  deleteDataDomainServer,
   enqueueDataDomainBuild,
   enqueueDataDomainEnrichment,
-  ensureDataDomainServer,
   generateDataDomainMdl,
   testDataDomainConnection,
 } from './use-cases.js';
@@ -209,8 +202,9 @@ export const dataDomainsRouter = os.router({
         createdBy: ownerBusinessId,
         ownerBusinessId,
       });
-      await ensureDataDomainServer(tx, {
-        id: created.id,
+      await repo.servers.upsertManagedServer(tx, {
+        kind: 'data_domain',
+        resourceId: created.id,
         slug: created.slug,
         ownerBusinessId: created.ownerBusinessId,
       });
@@ -252,8 +246,9 @@ export const dataDomainsRouter = os.router({
             }),
       });
       if (!updated) return null;
-      await ensureDataDomainServer(tx, {
-        id: updated.id,
+      await repo.servers.upsertManagedServer(tx, {
+        kind: 'data_domain',
+        resourceId: updated.id,
         slug: updated.slug,
         ownerBusinessId: updated.ownerBusinessId,
       });
@@ -268,7 +263,10 @@ export const dataDomainsRouter = os.router({
     await authorizeDomain(context, 'data_domains.delete', existing, 'manage');
     const ok = await context.db.transaction(async (tx) => {
       if (!(await domains.deleteDataDomain(tx, input.params.id))) return false;
-      await deleteDataDomainServer(tx, existing.id);
+      await repo.servers.deleteManagedServer(tx, {
+        kind: 'data_domain',
+        resourceId: existing.id,
+      });
       return true;
     });
     if (!ok) fail('NOT_FOUND', NOT_FOUND_MESSAGES.dataDomain);
@@ -387,25 +385,16 @@ export const dataDomainsRouter = os.router({
       note: input.body.note,
     });
     if (!updated) fail('CONFLICT', '审批不存在或已处理');
-    await repo.audit.writeAudit(
-      context.db,
-      {
-        warn: () =>
-          context.log.warn(
-            { approvalId: input.params.approvalId },
-            'data domain approval audit write failed',
-          ),
-      },
-      {
-        actor: actorOf(context),
-        actorKind: 'user',
-        action: 'data_domain.query.approval_decided',
-        target: updated.id,
-        status: 'ok',
-        durationMs: 0,
-        input: { dataDomainId: input.params.id, status, note: input.body.note.slice(0, 200) },
-      },
-    );
+    await repo.audit.writeAudit(context.db, context.log, {
+      actor: actorOf(context),
+      actorKind: 'user',
+      action: 'data_domain.query.approval_decided',
+      target: updated.id,
+      status: 'ok',
+      durationMs: 0,
+      requestId: context.requestId,
+      input: { dataDomainId: input.params.id, status, note: input.body.note.slice(0, 200) },
+    });
     return toApproval(updated);
   }),
 

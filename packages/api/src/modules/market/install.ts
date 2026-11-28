@@ -1,6 +1,5 @@
-import { fail, isAppError, type ParsedSkill, parseSkillMd } from '@agentport/core';
+import { fail, isAppError, type ParsedSkill, parseSkillMd, readCappedText } from '@agentport/core';
 import { type MarketInstallInput, skillFileInputSchema, slugSchema } from '@agentport/shared';
-import { readCappedText } from './fetch-body.js';
 
 const DOWNLOAD_URL = 'https://skills.sh/api/download';
 const TIMEOUT_MS = 30_000;
@@ -93,7 +92,10 @@ export async function installFromMarket(input: MarketInstallInput): Promise<{
   }
   let body: { files?: unknown };
   try {
-    const text = await readCappedText(response, '技能快照超过大小限制，无法安装');
+    const text = await readCappedText(response, 20 * 1024 * 1024, 'market', {
+      onExceeded: () => fail('INVALID_INPUT', '技能快照超过大小限制，无法安装'),
+      checkContentLength: false,
+    });
     body = JSON.parse(text) as { files?: unknown };
   } catch (err) {
     if (isAppError(err)) throw err;

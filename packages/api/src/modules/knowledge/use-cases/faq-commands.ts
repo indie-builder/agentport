@@ -851,7 +851,7 @@ export async function importFaqs(
     mode: 'append' | 'replace';
     dryRun: boolean;
   },
-) {
+): Promise<KnowledgeFaqImportResponse> {
   const base = await activeFaqBase(deps, id);
   assertBodyBytes(input.content, FAQ_IMPORT_BODY_LIMIT);
   const rows = await parseFaqImport({ format: input.format, content: input.content });
@@ -926,7 +926,7 @@ export async function importFaqs(
     return item
       ? { ...result, expectedVersionId: item.expectedVersionId, jobId: item.jobId }
       : result;
-  });
+  }) as unknown as KnowledgeFaqImportResult[];
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.faq.imported',

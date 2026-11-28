@@ -6,6 +6,7 @@ import { useDialogClose } from '../../lib/dialog-guard.js';
 import { formatRelative } from '../../lib/format.js';
 import { useKnowledgeImages } from '../../lib/queries.js';
 import { useDebouncedValue } from '../../lib/use-debounced-value.js';
+import { CursorListFooter } from '../cursor-list-footer.js';
 import { DialogShell } from '../dialog-shell.js';
 import { PageToolbar } from '../page.js';
 import { SearchInput } from '../search-input.js';
@@ -134,25 +135,12 @@ export function ImagesTab({
         </ul>
       ) : null}
 
-      {images.hasNextPage ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="self-start"
-          disabled={images.isFetchingNextPage}
-          aria-busy={images.isFetchingNextPage}
-          onClick={() => void images.fetchNextPage()}
-        >
-          {images.isFetchingNextPage ? '加载中…' : '加载更多图片'}
-        </Button>
-      ) : null}
-      {images.isFetchNextPageError ? (
-        <ErrorState
-          error={images.error}
-          title="更多图片没有加载出来"
-          onRetry={() => void images.fetchNextPage()}
-        />
-      ) : null}
+      <CursorListFooter
+        query={images}
+        label="图片"
+        errorTitle="更多图片没有加载出来"
+        className="justify-start"
+      />
 
       {active === null ? null : (
         <ImageDialog

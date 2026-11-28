@@ -9,6 +9,7 @@ import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-route
 import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { Download, EllipsisVertical, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterPopover } from '../../components/filter-popover.js';
 import { FilterSelect } from '../../components/filter-select.js';
@@ -603,30 +604,12 @@ export function RunsPage() {
                 }
               />
             )}
-            {runs.isFetchNextPageError ? (
-              <PageNote
-                tone="danger"
-                title="更多运行没有加载出来"
-                description={errorMessage(runs.error)}
-                action={
-                  <Button variant="outline" size="sm" onClick={() => void runs.fetchNextPage()}>
-                    重试
-                  </Button>
-                }
-              />
-            ) : runs.hasNextPage ? (
-              <div className="flex justify-center pt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={runs.isFetchingNextPage}
-                  aria-busy={runs.isFetchingNextPage}
-                  onClick={() => void runs.fetchNextPage()}
-                >
-                  {runs.isFetchingNextPage ? '加载中…' : '加载更多'}
-                </Button>
-              </div>
-            ) : null}
+            <CursorListFooter
+              className="pt-2"
+              query={runs}
+              errorVariant="note"
+              errorTitle="更多运行没有加载出来"
+            />
           </>
         )}
       </PageBody>

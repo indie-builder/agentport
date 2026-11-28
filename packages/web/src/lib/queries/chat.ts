@@ -1,12 +1,17 @@
 import type { OutputContent, OutputFile } from '@agentport/shared';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef } from 'react';
 import {
+  ApiError,
   api,
   type ConversationDetail,
   type ConversationSearchOptions,
   type OutputShareList,
 } from '../api.js';
+import type { SharePreviewKind } from '../output-preview.js';
 import { useCursorList } from './client.js';
+import { OVERVIEW_QUERY_KEY } from './overview.js';
+import { runKeys } from './runs.js';
 
 export const chatKeys = {
   conversations: (...ids: [] | [string | null]) => ['conversations', ...ids] as const,
@@ -30,6 +35,13 @@ export const chatKeys = {
   outputShares: (conversationId: string | null, runId: string | null, path: string | null) =>
     ['output-shares', conversationId, runId, path] as const,
   outputSharesAll: ['output-shares'] as const,
+  publicOutputShare: (shareId: string, token: string | null) =>
+    ['public-output-share', shareId, token] as const,
+  publicOutputSharePreview: (
+    shareId: string,
+    token: string,
+    kind: Exclude<SharePreviewKind, 'none'>,
+  ) => ['public-output-share-preview', shareId, token, kind] as const,
 };
 
 export function useConversations(agentId: string | null) {
@@ -182,5 +194,107 @@ export function useRevokeOutputShare() {
   return useMutation({
     mutationFn: (id: string) => api.revokeOutputShare(id),
     onSuccess: () => void client.invalidateQueries({ queryKey: chatKeys.outputSharesAll }),
+  });
+}
+
+export function useBranchConversation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, fromMessageId }: { id: string; fromMessageId?: string }) =>
+      api.branchConversation(id, fromMessageId),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: chatKeys.conversations() });
+    },
+  });
+}
+
+export function useRenameConversation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; title: string }) =>
+      api.renameConversation(input.id, input.title),
+    onSuccess: (_conversation, input) => {
+      void client.invalidateQueries({ queryKey: chatKeys.conversations() });
+      void client.invalidateQueries({ queryKey: chatKeys.conversation(input.id) });
+    },
+  });
+}
+
+export function useDeleteConversation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteConversation(id),
+    onSuccess: (_data, id) => {
+      void client.invalidateQueries({ queryKey: chatKeys.conversations() });
+      void client.invalidateQueries({ queryKey: chatKeys.conversation(id) });
+      void client.invalidateQueries({ queryKey: runKeys.all });
+      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
+    },
+  });
+}
+
+export function useConversationSearch(q: string, enabled: boolean, limit = 20) {
+  const client = useQueryClient();
+  const queryKey = useMemo(() => chatKeys.search({ ...(q ? { q } : {}), limit }), [q, limit]);
+  const previousKey = useRef(queryKey);
+  useEffect(() => {
+    const previous = previousKey.current;
+    if (previous === queryKey) return;
+    previousKey.current = queryKey;
+    void client.cancelQueries({ queryKey: previous });
+  }, [client, queryKey]);
+
+  return useCursorList({
+    queryKey,
+    queryFn: (cursor, signal) =>
+      api.searchConversations(
+        {
+          ...(q ? { q } : {}),
+          limit,
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        signal,
+      ),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+export function usePublicOutputShare(shareId: string, token: string | null) {
+  const query = useQuery({
+    queryKey: chatKeys.publicOutputShare(shareId, token),
+    queryFn: () => api.publicOutputShare(shareId, token ?? ''),
+    enabled: token !== null,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const isInvalid =
+    token === null ||
+    (query.isError && query.error instanceof ApiError && query.error.status === 404);
+  return { ...query, isInvalid };
+}
+
+type PublicOutputSharePreviewData =
+  | { kind: 'blob'; blob: Blob }
+  | { kind: 'text'; content: string };
+
+export function usePublicOutputSharePreview(
+  shareId: string,
+  token: string,
+  kind: Exclude<SharePreviewKind, 'none'>,
+) {
+  return useQuery<PublicOutputSharePreviewData>({
+    queryKey: chatKeys.publicOutputSharePreview(shareId, token, kind),
+    queryFn: async () => {
+      if (kind === 'image' || kind === 'pdf') {
+        return { kind: 'blob', blob: await api.publicOutputShareDownload(shareId, token) };
+      }
+      const data = await api.publicOutputShareContent(shareId, token);
+      return { kind: 'text', content: data.content };
+    },
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
   });
 }

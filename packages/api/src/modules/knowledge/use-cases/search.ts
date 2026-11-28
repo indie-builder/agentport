@@ -175,68 +175,23 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
     );
     const tags =
       (await repo.knowledge.getDocumentTagNames(deps.db, [document.id])).get(document.id) ?? [];
-    await deps.db.transaction(async (tx) => {
-      await tx.insert(schema.knowledgeDocuments).values({
-        id: newDocumentId,
-        baseId: document.baseId,
-        folderId: document.folderId,
-        title: document.title,
-        sourceType: 'manual',
-        sourceId: null,
-        sourceUrl: null,
-        sourcePath: null,
-        mimeType: document.mimeType,
-        sizeBytes: document.sizeBytes,
-        status:
-          document.status === 'disabled' ? 'disabled' : chunks.length > 0 ? 'ready' : 'pending',
-        contentKind: document.contentKind,
-        disabledReason: document.status === 'disabled' ? document.disabledReason : null,
-        sourceConnectionId: null,
-        currentVersionId: newVersionId,
-        contentHash: version.blobSha256,
-        metadata: { originalFilename: version.originalFilename },
-        lastSyncedAt: null,
-      });
-      await tx.insert(schema.knowledgeDocumentVersions).values({
-        id: newVersionId,
-        documentId: newDocumentId,
-        version: 1,
-        blobSha256: version.blobSha256,
-        markdownSha256: sha256Hex(Buffer.from(markdown, 'utf8')),
-        originalFilename: version.originalFilename,
-        mimeType: version.mimeType,
-        sizeBytes: version.sizeBytes,
-        sourceRevision: null,
-        parseStatus: version.parseStatus,
-        pageMap: version.pageMap,
-        images: version.images,
-        embeddingProfileId: version.embeddingProfileId,
-        origin: 'manual',
-        parentVersionId: null,
-        metadata: version.metadata,
-        faq: version.faq,
-      });
-      await repo.knowledge.insertChunks(tx, {
-        baseId: document.baseId,
-        documentId: newDocumentId,
-        versionId: newVersionId,
-        folderId: document.folderId,
-        chunks: chunks.map(cloneChunk),
-      });
-      if (tags.length > 0) {
-        const rows = await repo.knowledge.upsertTags(tx, document.baseId, tags);
-        await tx
-          .insert(schema.knowledgeDocumentTags)
-          .values(rows.map((tag) => ({ documentId: newDocumentId, tagId: tag.id })));
-      }
-      await repo.audit.writeAuditInTx(tx, {
-        actor: deps.actor,
-        action: 'knowledge.document.copied',
-        target: newDocumentId,
-        input: { baseId: document.baseId, sourceDocumentId: document.id },
-        status: 'ok',
-        requestId: deps.requestId,
-      });
+    await repo.knowledge.copyDocumentSnapshot(deps.db, {
+      newDocumentId,
+      newVersionId,
+      sourceDocumentId: document.id,
+      baseId: document.baseId,
+      folderId: document.folderId,
+      title: document.title,
+      mimeType: document.mimeType,
+      sizeBytes: document.sizeBytes,
+      status: document.status === 'disabled' ? 'disabled' : chunks.length > 0 ? 'ready' : 'pending',
+      contentKind: document.contentKind,
+      disabledReason: document.status === 'disabled' ? document.disabledReason : null,
+      markdownSha256: sha256Hex(Buffer.from(markdown, 'utf8')),
+      sourceVersion: version,
+      chunks: chunks.map(cloneChunk),
+      tags,
+      audit: { actor: deps.actor, requestId: deps.requestId },
     });
   } catch (err) {
     await rm(knowledgeDocumentDir(deps.config.KNOWLEDGE_DIR, newDocumentId), {

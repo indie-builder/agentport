@@ -1,3 +1,4 @@
+import { isRecord } from '@agentport/core/record';
 import type { CursorPage } from '@agentport/shared';
 import { and, eq, gt, lt, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
 import type { AnyPgColumn, AnyPgTable } from 'drizzle-orm/pg-core';
@@ -55,8 +56,7 @@ export function decodeJsonCursor(raw: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
-  return parsed as Record<string, unknown>;
+  return isRecord(parsed) ? parsed : null;
 }
 
 function encodeValueCursor(value: string, id: string): string {

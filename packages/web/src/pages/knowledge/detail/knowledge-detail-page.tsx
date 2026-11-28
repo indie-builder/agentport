@@ -98,6 +98,7 @@ export function KnowledgeDetailPage() {
           {
             panel: next === 'documents' ? undefined : next,
             ...(next === 'jobs' ? {} : { document: undefined }),
+            ...(tab === 'search' || next === 'search' ? { q: undefined } : {}),
           },
           true,
         );
@@ -151,7 +152,10 @@ export function KnowledgeDetailPage() {
                           <DropdownMenuItem
                             onSelect={() =>
                               go(
-                                { panel: 'overview' },
+                                {
+                                  panel: 'overview',
+                                  ...(tab === 'search' ? { q: undefined } : {}),
+                                },
                                 tab === 'overview',
                                 'knowledge-expert-usage',
                               )
@@ -210,7 +214,7 @@ export function KnowledgeDetailPage() {
                   canReadAgents={canReadAgents}
                   onOpenJobs={() => go({ panel: 'jobs', document: undefined })}
                   onOpenDocuments={() => go({ panel: 'documents' })}
-                  onOpenSearch={() => go({ panel: 'search' })}
+                  onOpenSearch={() => go({ panel: 'search', q: undefined })}
                   onDuplicated={(nextBaseId) =>
                     void navigate({
                       to: '/knowledge/$baseId',
@@ -230,6 +234,11 @@ export function KnowledgeDetailPage() {
                   onFolderChange={(folderId) => go({ folder: folderId }, true)}
                   documentId={search.document}
                   onDocumentChange={(document) => go({ document }, true)}
+                  query={search.q ?? ''}
+                  status={search.status ?? 'all'}
+                  tag={search.tag ?? 'all'}
+                  sort={search.sort}
+                  onSearchChange={(patch, replace = true) => go(patch, replace)}
                   onViewJobs={(documentId) => go({ panel: 'jobs', document: documentId })}
                 />
               </TabsContent>

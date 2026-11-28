@@ -10,6 +10,7 @@ import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
@@ -283,26 +284,7 @@ export function RuntimeEnvironmentsPage() {
           </ul>
         ) : null}
 
-        {environments.isFetchNextPageError ? (
-          <div className="flex justify-center">
-            <ErrorState
-              error={environments.error}
-              title="列表没有加载完"
-              onRetry={() => void environments.fetchNextPage()}
-            />
-          </div>
-        ) : environments.hasNextPage ? (
-          <div className="flex justify-center">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={environments.isFetchingNextPage}
-              onClick={() => void environments.fetchNextPage()}
-            >
-              {environments.isFetchingNextPage ? '加载中…' : '加载更多'}
-            </Button>
-          </div>
-        ) : null}
+        <CursorListFooter query={environments} errorTitle="列表没有加载完" />
       </PageBody>
 
       {creating ? (

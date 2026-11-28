@@ -1,7 +1,6 @@
-import { fail } from '@agentport/core';
+import { fail, readCappedText } from '@agentport/core';
 import type { MarketSkill, MarketView } from '@agentport/shared';
 import { LRUCache } from 'lru-cache';
-import { readCappedText } from './fetch-body.js';
 
 const BASE_URL = 'https://www.skills.sh';
 const TIMEOUT_MS = 10_000;
@@ -121,7 +120,10 @@ export async function fetchLeaderboard(view: MarketView): Promise<MarketSkill[]>
       throw new Error(`skills.sh responded ${response.status}`);
     }
     const data = await parseLeaderboard(
-      await readCappedText(response, '技能市场榜单响应超过大小限制'),
+      await readCappedText(response, 20 * 1024 * 1024, 'market', {
+        onExceeded: () => fail('INVALID_INPUT', '技能市场榜单响应超过大小限制'),
+        checkContentLength: false,
+      }),
     );
     cache.set(view, data);
     return data;

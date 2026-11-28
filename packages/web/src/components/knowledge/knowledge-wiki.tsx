@@ -33,6 +33,7 @@ import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 import { CodeBlock } from '../code-block.js';
 import { ConfirmDialog } from '../confirm-dialog.js';
+import { CursorListFooter } from '../cursor-list-footer.js';
 import { DialogShell } from '../dialog-shell.js';
 import { Markdown } from '../markdown.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../motion-collapsible.js';
@@ -64,6 +65,7 @@ import { Textarea } from '../ui/textarea.js';
 import {
   DraftGuardDialogs,
   jobStatusLabel,
+  LineDiffColumns,
   pageStatusLabel,
   useDraftGuard,
 } from './knowledge-shared.js';
@@ -169,14 +171,10 @@ export function WikiTab({
           </div>
         </div>
         {pages.isPending ? <LoadingState rows={3} /> : null}
-        {pages.isError ? (
+        {pages.isError && !pages.isFetchNextPageError ? (
           <ErrorState error={pages.error} onRetry={() => void pages.refetch()} />
         ) : null}
-        {pages.isFetchNextPageError ? (
-          <Button variant="outline" size="sm" onClick={() => void pages.fetchNextPage()}>
-            重试加载其余页面
-          </Button>
-        ) : null}
+        <CursorListFooter query={pages} autoDrain label="其余页面" className="justify-start" />
         {pages.data && pageItems.length === 0 ? (
           <EmptyState
             variant="idle"
@@ -965,37 +963,7 @@ function WikiDiffDialog({
 function DiffBody({ diff }: { diff: KnowledgeWikiDiff }) {
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-1">
-          <span className="text-xs font-medium text-success">新增行</span>
-          {diff.addedLines.length === 0 ? (
-            <span className="text-xs text-muted-foreground">无</span>
-          ) : (
-            <ul className="flex flex-col gap-0.5 font-mono text-2xs">
-              {diff.addedLines.map((line, index) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 差异行按原顺序展示
-                <li key={`added-${index}`} className="whitespace-pre-wrap break-words text-success">
-                  + {line}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="flex min-w-0 flex-col gap-1">
-          <span className="text-xs font-medium text-danger">删除行</span>
-          {diff.removedLines.length === 0 ? (
-            <span className="text-xs text-muted-foreground">无</span>
-          ) : (
-            <ul className="flex flex-col gap-0.5 font-mono text-2xs">
-              {diff.removedLines.map((line) => (
-                <li key={`removed-${line}`} className="whitespace-pre-wrap break-words text-danger">
-                  − {line}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
+      <LineDiffColumns addedLines={diff.addedLines} removedLines={diff.removedLines} />
       <div className="flex flex-wrap gap-4 text-2xs">
         <div className="flex flex-col gap-1">
           <span className="font-medium text-fg">新增来源</span>

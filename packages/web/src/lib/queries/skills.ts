@@ -3,6 +3,7 @@ import type {
   MarketInstallInput,
   MarketView,
   Skill,
+  SkillFile,
   SkillInput,
   SkillWithAgentCount,
 } from '@agentport/shared';
@@ -152,6 +153,47 @@ export function useDeleteSkill() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: skillKeys.all });
       void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
+    },
+  });
+}
+
+export function useSkillFiles(skillId: string, enabled = true) {
+  return useQuery({
+    queryKey: skillKeys.files(skillId),
+    queryFn: () => api.skillFiles(skillId),
+    enabled,
+  });
+}
+
+export function useWriteSkillFile(skillId: string) {
+  const client = useQueryClient();
+  const filesKey = skillKeys.files(skillId);
+  return useMutation({
+    mutationFn: (vars: { path: string; content: string }) =>
+      api.writeSkillFile(skillId, vars.path, vars.content),
+    onSuccess: (saved) => {
+      client.setQueryData<SkillFile[]>(filesKey, (current) =>
+        current
+          ? current.some((file) => file.path === saved.path)
+            ? current.map((file) => (file.path === saved.path ? saved : file))
+            : [...current, saved]
+          : current,
+      );
+      void client.invalidateQueries({ queryKey: filesKey, refetchType: 'none' });
+    },
+  });
+}
+
+export function useDeleteSkillFile(skillId: string) {
+  const client = useQueryClient();
+  const filesKey = skillKeys.files(skillId);
+  return useMutation({
+    mutationFn: (path: string) => api.deleteSkillFile(skillId, path),
+    onSuccess: (_data, path) => {
+      client.setQueryData<SkillFile[]>(filesKey, (current) =>
+        current ? current.filter((file) => file.path !== path) : current,
+      );
+      void client.invalidateQueries({ queryKey: filesKey, refetchType: 'active' });
     },
   });
 }

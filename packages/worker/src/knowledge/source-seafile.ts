@@ -9,6 +9,7 @@ import {
   parseJsonResponse,
   readBytesCapped,
   rethrowAuth,
+  type SourceUrlOptions,
   sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
@@ -42,7 +43,7 @@ type Auth = {
   token: string;
   network: Network;
 };
-type Network = { allowLoopback?: boolean; trustedHosts?: readonly string[] };
+type Network = Pick<SourceUrlOptions, 'allowLoopback' | 'trustedHosts' | 'nodeEnv'>;
 
 function normalizeRelativePath(value: string): string {
   const trimmed = value.replace(/^\/+|\/+$/g, '');

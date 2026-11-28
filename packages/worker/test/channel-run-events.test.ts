@@ -4,12 +4,12 @@ import { type ChannelEvent, channelStreamKey, runStreamKey } from '@agentport/sh
 import { RedisClient } from 'bun';
 import { eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
+import { finalizeRun, publishRunFinished, type RunFinishedEvent } from '../src/run-finish.js';
 import {
   closeRunnerClient,
   configureRunnerClient,
   publishChannelEventSafely,
 } from '../src/runner-client.js';
-import { finalizeRun, publishRunFinished, type RunFinishedEvent } from '../src/runs/run-finish.js';
 
 const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 const redisUrl = process.env.REDIS_URL ?? '';

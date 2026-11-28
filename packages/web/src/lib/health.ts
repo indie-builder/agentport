@@ -2,7 +2,7 @@ import type { HealthMetrics } from './api.js';
 
 const QUEUE_WAITING_LIMIT = 10;
 
-export interface QueueHealth {
+interface QueueHealth {
   condition: 'unavailable' | 'backlog' | 'waiting-without-active' | 'failed' | 'ok';
   message: string;
   hint: string | null;

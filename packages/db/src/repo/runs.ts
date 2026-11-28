@@ -1,12 +1,12 @@
-import { AppError } from '@agentport/core';
+import { AppError, mergeToolSteps, toStep } from '@agentport/core';
 import type {
   AccessFilter,
   AgentDefinition,
   AgentDefinitionServer,
-  PublicRunQuestion,
   ResolvedRuntimeEnvironment,
   RunErrorKind,
   RunStatus,
+  RunStep,
   RunTrigger,
 } from '@agentport/shared';
 import {
@@ -47,10 +47,10 @@ import { getAuthUserForPrincipal } from './accounts.js';
 import { getAgentVersion } from './agent-versions.js';
 import { getAgentsByIds, getBoundServersByAgentIds } from './agents.js';
 import { getRunChannelAccess } from './channels.js';
-import { messageText } from './chat/messages.js';
 import { enqueueWebhookEvent } from './integrations.js';
 import { markBySource } from './notifications.js';
 import { type CursorPage, cursorValueSql, isCanonicalTimestamp, keysetPage } from './pagination.js';
+import { requeueUndeliveredInstructionWakes } from './run-instructions.js';
 import { neverStartedFailureFilter } from './run-predicates.js';
 
 export interface RunListItem {
@@ -78,42 +78,6 @@ export interface RunDetailRow extends RunListItem {
   sessionId: string | null;
   sandboxId: string | null;
   runtimeEnvironment: ResolvedRuntimeEnvironment | null;
-}
-
-export type RunStep =
-  | { kind: 'user'; at: string; text: string; messageId?: string }
-  | { kind: 'assistant'; at: string; text: string; messageId?: string }
-  | {
-      kind: 'tool';
-      at: string;
-      name: string | null;
-      toolUseId: string | null;
-      content: unknown;
-      result?: unknown;
-      parentToolUseId: string | null;
-      question?: PublicRunQuestion;
-    };
-
-export function mergeToolSteps(steps: RunStep[]): RunStep[] {
-  const merged: RunStep[] = [];
-  const byToolUse = new Map<string, Extract<RunStep, { kind: 'tool' }>>();
-  for (const step of steps) {
-    if (step.kind !== 'tool' || step.toolUseId === null) {
-      merged.push(step);
-      continue;
-    }
-    const existing = byToolUse.get(step.toolUseId);
-    if (!existing) {
-      const copy = { ...step };
-      byToolUse.set(step.toolUseId, copy);
-      merged.push(copy);
-      continue;
-    }
-    if (step.result !== undefined) existing.result = step.result;
-    if (step.content !== null && step.content !== undefined) existing.content = step.content;
-    if (step.question !== undefined) existing.question = step.question;
-  }
-  return merged;
 }
 
 export interface RunDetail {
@@ -350,62 +314,6 @@ export async function personalUsageSummary(
   };
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
-}
-
-function questionOf(content: Record<string, unknown>): PublicRunQuestion | undefined {
-  const question = content.question;
-  return typeof question === 'object' && question !== null
-    ? (question as PublicRunQuestion)
-    : undefined;
-}
-
-export function toStep(message: {
-  id?: string;
-  role: string;
-  content: unknown;
-  createdAt: Date;
-}): RunStep | null {
-  const content = asRecord(message.content);
-  const at = message.createdAt.toISOString();
-  const text = messageText(message.content);
-  const messageId = message.id === undefined ? {} : { messageId: message.id };
-
-  if (message.role === 'user' && text !== null) {
-    return { kind: 'user', at, text, ...messageId };
-  }
-  if (message.role === 'assistant' && content?.type === 'text' && text !== null) {
-    return { kind: 'assistant', at, text, ...messageId };
-  }
-  if (message.role === 'tool' && content?.type === 'tool_use') {
-    const question = questionOf(content);
-    return {
-      kind: 'tool',
-      at,
-      name: typeof content.name === 'string' ? content.name : null,
-      toolUseId: typeof content.id === 'string' ? content.id : null,
-      content: content.input,
-      parentToolUseId: typeof content.parentToolUseId === 'string' ? content.parentToolUseId : null,
-      ...(question === undefined ? {} : { question }),
-    };
-  }
-  if (message.role === 'tool' && content?.type === 'tool_result') {
-    const question = questionOf(content);
-    return {
-      kind: 'tool',
-      at,
-      name: typeof content.name === 'string' ? content.name : null,
-      toolUseId: typeof content.toolUseId === 'string' ? content.toolUseId : null,
-      content: null,
-      result: content.content,
-      parentToolUseId: typeof content.parentToolUseId === 'string' ? content.parentToolUseId : null,
-      ...(question === undefined ? {} : { question }),
-    };
-  }
-  return null;
-}
-
 export async function isRunActive(db: Database, runId: string): Promise<boolean> {
   const [row] = await db
     .select({ status: agentRuns.status })
@@ -606,6 +514,39 @@ export async function failUnstartedRun(
       });
     }
     return failed;
+  });
+}
+
+export async function cancelQueuedRun(
+  db: DbHandle,
+  runId: string,
+): Promise<FailedUnstartedRunRow | undefined> {
+  return db.transaction(async (tx) => {
+    const [queued] = await tx
+      .update(agentRuns)
+      .set({ status: 'cancelled', endedAt: new Date() })
+      .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, 'queued')))
+      .returning({
+        id: agentRuns.id,
+        agentId: agentRuns.agentId,
+        conversationId: agentRuns.conversationId,
+        channelId: agentRuns.channelId,
+        initiatedBy: agentRuns.initiatedBy,
+      });
+    if (queued === undefined) return undefined;
+    if (queued.channelId !== null) {
+      await requeueUndeliveredInstructionWakes(tx, {
+        runId: queued.id,
+        agentId: queued.agentId,
+      });
+    }
+    if (queued.initiatedBy !== null) {
+      await enqueueWebhookEvent(tx, {
+        ...buildRunWebhookEvent({ status: 'cancelled', error: null }, queued),
+        ownerBusinessId: queued.initiatedBy,
+      });
+    }
+    return queued;
   });
 }
 

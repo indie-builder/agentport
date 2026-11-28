@@ -10,7 +10,7 @@ import {
 } from '@agentport/shared';
 import { and, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { clearRunCancel, publishChannelEventSafely, publishRun } from '../runner-client.js';
+import { clearRunCancel, publishChannelEventSafely, publishRun } from './runner-client.js';
 
 export type RunFinishedEvent = Extract<ChatEvent, { type: 'run_finished' }>;
 
@@ -34,7 +34,7 @@ interface RunFinishValues {
   errorKind?: RunErrorKind | null;
 }
 
-export interface RunTerminalRow {
+interface RunTerminalRow {
   id: string;
   agentId: string;
   conversationId: string;

@@ -16,6 +16,7 @@ import {
   agentInstructions as instructionItems,
   agentTabs as tabItems,
 } from '../../lib/detail-tabs.js';
+import { withFieldMessages } from '../../lib/form.js';
 
 /**
  * 模型名由部署的网关决定，不是平台常量：直连 Anthropic 时是 claude-*，
@@ -25,23 +26,6 @@ import {
 export const models = ['group/flash', 'auto/deepseek-v4.1-flash', 'workbuddy/kimi-k3-2'];
 
 export const roleOptions = AGENT_ROLES.map((role) => ({ value: role, label: role }));
-
-const badgeTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  timeZoneName: 'short',
-});
-
-export function badgeCreatedAt(value: string | undefined): { label: string; iso: string | null } {
-  if (!value) return { label: '未记录', iso: null };
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? { label: '未记录', iso: null }
-    : { label: badgeTimeFormatter.format(date), iso: value };
-}
 
 export const agentDefaults = agentInputSchema.parse({ slug: 'default', name: 'default' });
 
@@ -146,52 +130,57 @@ export function inputFromDraft(draft: AgentDraft): AgentInput {
   };
 }
 
+const agentShape = agentInputSchema.shape;
+
 export const agentFormSchema = agentInputSchema
   .omit({ allowedTools: true })
   .extend({
-    name: z
-      .string()
-      .trim()
-      .min(1, '不能为空，请填写后再保存')
-      .max(128, '最多 128 个字符，请精简后再保存'),
-    description: z.string().max(300, '最多 300 个字符，请精简后再保存').default(''),
+    name: withFieldMessages(z.string().trim(), agentShape.name, {
+      tooSmall: '不能为空，请填写后再保存',
+      tooBig: '最多 128 个字符，请精简后再保存',
+    }),
+    description: withFieldMessages(z.string(), agentShape.description.unwrap(), {
+      tooBig: '最多 300 个字符，请精简后再保存',
+    }).default(''),
     allowedTools: z.string().default(''),
     tags: z
       .string()
       .default('')
       .superRefine((value, ctx) => {
-        const tags = tagList(value);
-        if (tags.length > 10) {
+        const parsed = agentShape.tags.unwrap().safeParse(tagList(value));
+        if (parsed.success) return;
+        if (parsed.error.issues.some((issue) => issue.path.length === 0)) {
           ctx.addIssue({ code: 'custom', message: '最多 10 个标签，请精简后再保存' });
         }
-        if (tags.some((tag) => tag.length > 24)) {
+        if (parsed.error.issues.some((issue) => issue.path.length > 0)) {
           ctx.addIssue({ code: 'custom', message: '单个标签最多 24 个字符，请精简后再保存' });
         }
       }),
-    maxTurns: z
-      .number({ error: invalidNumberMessage })
-      .int(invalidNumberMessage)
-      .positive(positiveIntMessage)
-      .default(agentDefaults.maxTurns),
-    maxBudgetUsd: z
-      .number({ error: invalidNumberMessage })
-      .positive(positiveIntMessage)
-      .default(agentDefaults.maxBudgetUsd),
-    monthlyBudgetUsd: z
-      .number({ error: invalidNumberMessage })
-      .min(0.01, '至少 0.01 美元，留空表示不限')
-      .nullable()
-      .default(agentDefaults.monthlyBudgetUsd),
-    budgetAlertRatio: z
-      .number({ error: invalidNumberMessage })
-      .min(0.001, '至少 0.1%')
-      .max(1, '最多 100%')
-      .default(agentDefaults.budgetAlertRatio),
-    timeoutMs: z
-      .number({ error: invalidNumberMessage })
-      .int(invalidNumberMessage)
-      .positive(positiveIntMessage)
-      .default(agentDefaults.timeoutMs),
+    maxTurns: withFieldMessages(
+      z.number({ error: invalidNumberMessage }),
+      agentShape.maxTurns.unwrap(),
+      { invalidType: invalidNumberMessage, tooSmall: positiveIntMessage },
+    ).default(agentDefaults.maxTurns),
+    maxBudgetUsd: withFieldMessages(
+      z.number({ error: invalidNumberMessage }),
+      agentShape.maxBudgetUsd.unwrap(),
+      { invalidType: invalidNumberMessage, tooSmall: positiveIntMessage },
+    ).default(agentDefaults.maxBudgetUsd),
+    monthlyBudgetUsd: withFieldMessages(
+      z.number({ error: invalidNumberMessage }).nullable(),
+      agentShape.monthlyBudgetUsd.unwrap(),
+      { invalidType: invalidNumberMessage, tooSmall: '至少 0.01 美元，留空表示不限' },
+    ).default(agentDefaults.monthlyBudgetUsd),
+    budgetAlertRatio: withFieldMessages(
+      z.number({ error: invalidNumberMessage }),
+      agentShape.budgetAlertRatio.unwrap(),
+      { invalidType: invalidNumberMessage, tooSmall: '至少 0.1%', tooBig: '最多 100%' },
+    ).default(agentDefaults.budgetAlertRatio),
+    timeoutMs: withFieldMessages(
+      z.number({ error: invalidNumberMessage }),
+      agentShape.timeoutMs.unwrap(),
+      { invalidType: invalidNumberMessage, tooSmall: positiveIntMessage },
+    ).default(agentDefaults.timeoutMs),
   })
   .superRefine((value, ctx) => {
     if (!toolLines(value.allowedTools).every((tool) => !/\s/.test(tool))) {
@@ -204,28 +193,22 @@ export const agentFormSchema = agentInputSchema
   });
 
 export const agentCreateFormSchema = agentFormSchema.safeExtend({
-  name: z
-    .string()
-    .trim()
-    .min(1, '不能为空，请填写后再保存')
-    .max(128, '最多 128 个字符，请精简后再保存'),
   slug: z
     .string()
     .trim()
-    .pipe(z.union([z.literal(''), agentInputSchema.shape.slug])),
+    .pipe(z.union([z.literal(''), agentShape.slug])),
 });
 
 export const duplicateFormSchema = agentDuplicateInputSchema.extend({
-  slug: z
-    .string()
-    .min(1, '不能为空，请填写后再保存')
-    .max(64, '最多 64 个字符，请精简后再保存')
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '格式不正确，请检查后重新填写'),
-  name: z
-    .string()
-    .trim()
-    .min(1, '不能为空，请填写后再保存')
-    .max(128, '最多 128 个字符，请精简后再保存'),
+  slug: withFieldMessages(z.string(), agentDuplicateInputSchema.shape.slug, {
+    tooSmall: '不能为空，请填写后再保存',
+    tooBig: '最多 64 个字符，请精简后再保存',
+    invalidFormat: '格式不正确，请检查后重新填写',
+  }),
+  name: withFieldMessages(z.string().trim(), agentDuplicateInputSchema.shape.name, {
+    tooSmall: '不能为空，请填写后再保存',
+    tooBig: '最多 128 个字符，请精简后再保存',
+  }),
 });
 
 export type SectionId = AgentSection;

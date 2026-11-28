@@ -1,4 +1,9 @@
-import type { ContentPolicy, ContentPolicyDirection } from '@agentport/shared';
+import {
+  type ContentPolicy,
+  type ContentPolicyDirection,
+  escapeRegExp,
+  SECRET_PATTERNS,
+} from '@agentport/shared';
 import { sha256Hex } from './hash.js';
 
 type ContentPolicyRule = Pick<
@@ -36,10 +41,13 @@ export const CONTENT_BLOCKED_MESSAGE = '内容命中安全策略，已阻止外�
 const SNIPPET_LENGTH = 160;
 const DEFAULT_REPLACEMENT_PRIORITY = 1;
 
-const SECRET_PATTERNS: ReadonlyArray<{ pattern: RegExp; replacement: string; priority: number }> = [
-  { pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, replacement: 'Bearer ***', priority: 0 },
-  { pattern: /\bsk-[A-Za-z0-9_-]{10,}\b/g, replacement: '[REDACTED]', priority: 1 },
-  { pattern: /\bghp_[A-Za-z0-9]{20,}\b/g, replacement: '[REDACTED]', priority: 1 },
+const SECRET_RULES: ReadonlyArray<{ pattern: RegExp; replacement: string; priority: number }> = [
+  { pattern: SECRET_PATTERNS.bearer, replacement: 'Bearer ***', priority: 0 },
+  ...SECRET_PATTERNS.providerKeys.map((pattern) => ({
+    pattern,
+    replacement: '[REDACTED]',
+    priority: 1,
+  })),
 ];
 
 const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})?/g;
@@ -49,10 +57,6 @@ const PII_PATTERNS: ReadonlyArray<RegExp> = [
   /(?<!\d)\d{17}[\dXx](?!\d)/g,
   /(?<!\d)\d{16,19}(?!\d)/g,
 ];
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 function patternSpans(
   pattern: RegExp,
@@ -82,7 +86,7 @@ function policySpans(policy: ContentPolicyRule, text: string): Span[] {
         '[REDACTED]',
       );
     case 'secret':
-      return SECRET_PATTERNS.flatMap(({ pattern, replacement, priority }) =>
+      return SECRET_RULES.flatMap(({ pattern, replacement, priority }) =>
         patternSpans(pattern, text, replacement, priority),
       );
     case 'pii': {

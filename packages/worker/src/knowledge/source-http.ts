@@ -1,13 +1,15 @@
 import { isIP } from 'node:net';
 import { readCappedBytes, readCappedText } from '@agentport/core';
 import { isLoopbackAddress, isPrivateAddress } from '@agentport/core/net-guard';
-import { commonEnvSchema, errorText } from '@agentport/shared';
+import { errorText } from '@agentport/shared';
 import type { z } from 'zod';
+import type { Config } from '../config.js';
 import type { SourceFailure } from './source-types.js';
 
 export type SourceUrlOptions = {
   allowLoopback?: boolean;
   trustedHosts?: readonly string[];
+  nodeEnv?: Config['NODE_ENV'];
 };
 
 function hostKey(url: URL): string {
@@ -38,7 +40,11 @@ export async function validateSourceUrl(raw: string, options: SourceUrlOptions =
   }
 
   const host = stripBrackets(url.hostname);
-  if (options.allowLoopback && process.env.NODE_ENV !== 'production' && isLoopbackAddress(host)) {
+  if (
+    options.allowLoopback &&
+    (options.nodeEnv === 'development' || options.nodeEnv === 'test') &&
+    isLoopbackAddress(host)
+  ) {
     return url;
   }
   if (options.trustedHosts?.includes(hostKey(url))) return url;
@@ -53,10 +59,9 @@ export async function validateSourceUrl(raw: string, options: SourceUrlOptions =
       throw new Error(`cannot resolve source host: ${host}`);
     }
   }
-  const nodeEnv = commonEnvSchema.shape.NODE_ENV.parse(process.env.NODE_ENV);
   if (
     addresses.length === 0 ||
-    addresses.some((address) => isPrivateAddress(address, nodeEnv === 'development'))
+    addresses.some((address) => isPrivateAddress(address, options.nodeEnv === 'development'))
   ) {
     throw new Error(`source host resolves to a private address: ${host}`);
   }
@@ -88,6 +93,7 @@ export type FetchOptions = {
   authFailure?: 'source' | 'item';
   allowLoopback?: boolean;
   trustedHosts?: readonly string[];
+  nodeEnv?: Config['NODE_ENV'];
   signal?: AbortSignal;
 };
 
@@ -157,10 +163,7 @@ export async function fetchChecked(raw: string, options: FetchOptions): Promise<
   let authTainted = false;
   const timeout = requestSignal(options.signal);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    await validateSourceUrl(current.href, {
-      ...(options.allowLoopback === undefined ? {} : { allowLoopback: options.allowLoopback }),
-      ...(options.trustedHosts?.length ? { trustedHosts: options.trustedHosts } : {}),
-    });
+    await validateSourceUrl(current.href, sourceNetworkOptions(options));
     if (options.authOrigin !== undefined && current.origin !== options.authOrigin) {
       authTainted = true;
     }
@@ -275,10 +278,12 @@ export async function fetchJson<T>(
 export function sourceNetworkOptions(config: {
   allowLoopback?: boolean | undefined;
   trustedHosts?: readonly string[] | undefined;
-}): Pick<SourceUrlOptions, 'allowLoopback' | 'trustedHosts'> {
+  nodeEnv?: Config['NODE_ENV'] | undefined;
+}): Pick<SourceUrlOptions, 'allowLoopback' | 'trustedHosts' | 'nodeEnv'> {
   return {
     ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
     ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
+    ...(config.nodeEnv === undefined ? {} : { nodeEnv: config.nodeEnv }),
   };
 }
 

@@ -87,6 +87,7 @@ function config(
     credentials,
     settings,
     allowLoopback: true,
+    nodeEnv: 'test',
   };
 }
 

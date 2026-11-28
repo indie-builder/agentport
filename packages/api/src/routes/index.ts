@@ -1,15 +1,13 @@
 import { apiContract, type authNativeContract } from '@agentport/contract';
-import { AppError } from '@agentport/core';
 import type { Router } from '@orpc/server';
 import type { Hono } from 'hono';
-import { bodyLimit } from 'hono/body-limit';
+import { requestBodyLimit } from '../http/body-limit.js';
 import type {
   AppContext,
   HttpEnv,
   NativeHttpDependencies,
   RequestContext,
 } from '../http/context.js';
-import { PAYLOAD_TOO_LARGE_MESSAGE } from '../http/errors.js';
 import { healthOpenAPIPaths } from '../http/health-openapi.js';
 import { nativeOpenAPIPaths } from '../http/native-openapi.js';
 import { registerOpenApi } from '../http/openapi.js';
@@ -47,7 +45,8 @@ import { overviewRouter } from '../modules/overview/router.js';
 import { personalRouter } from '../modules/personal/router.js';
 import { registerPluginsHttp } from '../modules/plugins/http.js';
 import { pluginsRouter } from '../modules/plugins/router.js';
-import { registerRunExportHttp, runsRouter } from '../modules/runs/router.js';
+import { registerRunExportHttp } from '../modules/runs/http.js';
+import { runsRouter } from '../modules/runs/router.js';
 import { runtimeEnvironmentsRouter } from '../modules/runtime-environments/router.js';
 import { searchRouter } from '../modules/search/router.js';
 import { securityRouter } from '../modules/security/router.js';
@@ -117,12 +116,7 @@ export function registerRoutes(
   registerRunExportHttp(app);
   registerOpenApi(app, apiContract, { ...healthOpenAPIPaths, ...nativeOpenAPIPaths });
   const handler = createOpenAPIHandler(apiRouter);
-  const apiBodyLimit = bodyLimit({
-    maxSize: JSON_BODY_LIMIT,
-    onError: () => {
-      throw new AppError('PAYLOAD_TOO_LARGE', PAYLOAD_TOO_LARGE_MESSAGE);
-    },
-  });
+  const apiBodyLimit = requestBodyLimit(JSON_BODY_LIMIT);
   app.use('/api/*', (c, next) =>
     c.get('bodyLimitApplied') === true ? next() : apiBodyLimit(c, next),
   );

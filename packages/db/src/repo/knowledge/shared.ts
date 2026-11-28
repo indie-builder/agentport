@@ -1,4 +1,8 @@
-import { KNOWLEDGE_DOCUMENT_TITLE_MAX_CHARS } from '@agentport/shared';
+import {
+  ADMIN_PAGE_LIMIT_MAX,
+  KNOWLEDGE_DOCUMENT_TITLE_MAX_CHARS,
+  PAGE_LIMIT_DEFAULT,
+} from '@agentport/shared';
 import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../../client.js';
 import {
@@ -63,7 +67,7 @@ export interface PageOptions {
 }
 
 export function pageLimit(options: PageOptions): number {
-  return Math.min(Math.max(options.limit ?? 50, 1), 200);
+  return Math.min(Math.max(options.limit ?? PAGE_LIMIT_DEFAULT, 1), ADMIN_PAGE_LIMIT_MAX);
 }
 
 export function readableDocumentSql(alias: string): SQL {
@@ -77,6 +81,20 @@ export function readableDocumentSql(alias: string): SQL {
       sourceConnectionId: sql`${d}.source_connection_id`,
       sourcePath: sql`${d}.source_path`,
     })})`;
+}
+
+export function rangeCoversPathSql(sourcePath: SQL, paths: SQL = sql`r.paths`): SQL {
+  return sql`(
+    jsonb_array_length(${paths}) = 0
+    or (
+      ${sourcePath} is not null
+      and exists (
+        select 1 from jsonb_array_elements_text(${paths}) p
+        where ${sourcePath} = p
+          or left(${sourcePath}, char_length(p) + 1) = p || '/'
+      )
+    )
+  )`;
 }
 
 function sourceScopeSql(document: {
@@ -96,14 +114,7 @@ function sourceScopeSql(document: {
         where dsr.document_id = ${document.id}
           and r.source_id = s.id
           and r.enabled
-          and (
-            jsonb_array_length(r.paths) = 0
-            or (${document.sourcePath} is not null and exists (
-              select 1 from jsonb_array_elements_text(r.paths) p
-              where ${document.sourcePath} = p
-                or left(${document.sourcePath}, char_length(p) + 1) = p || '/'
-            ))
-          )
+          and ${rangeCoversPathSql(document.sourcePath)}
       )
   )`;
 }

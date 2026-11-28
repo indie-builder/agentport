@@ -1,28 +1,26 @@
 import type { KnowledgeBase, KnowledgeBaseSettings } from '@agentport/shared';
 import {
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
   knowledgeEmbeddingProtocolSchema,
   knowledgeImageProcessingSchema,
-  knowledgeModelProfileKindSchema,
 } from '@agentport/shared';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Cpu } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import { Controller } from 'react-hook-form';
-import { z } from 'zod';
+import { useRef, useState } from 'react';
 import { can } from '../../lib/access.js';
-import { api, errorMessage, type KnowledgeModelProfile } from '../../lib/api.js';
+import { errorMessage, type KnowledgeModelProfile } from '../../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import {
-  knowledgeKeys,
   meQuery,
-  useCreateKnowledgeModelProfile,
+  useDeleteKnowledgeModelProfile,
   useKnowledgeModelProfileSelections,
   useKnowledgeModelProfiles,
   usePreviewKnowledgeChunks,
+  useRebuildKnowledgeBase,
+  useTestKnowledgeModelProfile,
   useUpdateKnowledgeBase,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
-import { useZodForm } from '../../lib/use-zod-form.js';
 import { ConfirmDialog } from '../confirm-dialog.js';
 import { DialogShell } from '../dialog-shell.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../motion-collapsible.js';
@@ -33,7 +31,6 @@ import { Checkbox } from '../ui/checkbox.js';
 import { Dialog } from '../ui/dialog.js';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '../ui/field.js';
 import { Input } from '../ui/input.js';
-import { PasswordInput, PasswordInputControl, PasswordInputToggle } from '../ui/password-input.js';
 import {
   Select,
   SelectContent,
@@ -45,6 +42,7 @@ import {
 import { Switch } from '../ui/switch.js';
 import { Textarea } from '../ui/textarea.js';
 import { DraftGuardDialogs, useDraftGuard } from './knowledge-shared.js';
+import { ProfileForm } from './profile-form.js';
 
 const FAILURE_TEXT: Record<string, string> = {
   auth: '凭证被端点拒绝，请检查 API Key',
@@ -114,10 +112,10 @@ export function KnowledgeSettingsDialog({
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
   const update = useUpdateKnowledgeBase();
+  const rebuild = useRebuildKnowledgeBase(base.id);
   const profiles = useKnowledgeModelProfileSelections();
   const me = useQuery(meQuery);
   const canExecute = can(me.data, 'knowledge.execute');
-  const client = useQueryClient();
   const [settings, setSettings] = useState<KnowledgeBaseSettings>(() => ({
     ...base.settings,
     imageProcessing: base.settings.imageProcessing ?? knowledgeImageProcessingSchema.parse({}),
@@ -142,8 +140,7 @@ export function KnowledgeSettingsDialog({
     imageVectorMinScore?: string;
   }>({});
   const [confirming, setConfirming] = useState(false);
-  const [rebuilding, setRebuilding] = useState(false);
-  const pending = update.isPending || rebuilding;
+  const pending = update.isPending || rebuild.isPending;
   const initialSignature = useRef(
     JSON.stringify({
       settings,
@@ -680,10 +677,10 @@ export function KnowledgeSettingsDialog({
                   variant="outline"
                   size="sm"
                   disabled={pending || dirty}
-                  aria-busy={rebuilding}
+                  aria-busy={rebuild.isPending}
                   onClick={() => setConfirming(true)}
                 >
-                  {rebuilding ? '重建中…' : '重建全部索引'}
+                  {rebuild.isPending ? '重建中…' : '重建全部索引'}
                 </Button>
               </div>
               <FieldDescription>
@@ -703,17 +700,11 @@ export function KnowledgeSettingsDialog({
           confirmLabel="确认重建"
           onClose={() => setConfirming(false)}
           onConfirm={async () => {
-            setRebuilding(true);
-            try {
-              await api.rebuildKnowledgeBase(base.id, {
-                chunksOnly: false,
-                confirmOverwriteManualChunks: true,
-              });
-              void client.invalidateQueries({ queryKey: knowledgeKeys.all });
-              toastSuccess('已开始重建全部索引');
-            } finally {
-              setRebuilding(false);
-            }
+            await rebuild.mutateAsync({
+              chunksOnly: false,
+              confirmOverwriteManualChunks: true,
+            });
+            toastSuccess('已开始重建全部索引');
           }}
         />
       ) : null}
@@ -730,8 +721,9 @@ export function KnowledgeProfilesDialog({
 }) {
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
-  const client = useQueryClient();
   const profiles = useKnowledgeModelProfiles();
+  const deleteProfile = useDeleteKnowledgeModelProfile();
+  const testProfile = useTestKnowledgeModelProfile();
   const [editing, setEditing] = useState<KnowledgeModelProfile | 'new' | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeModelProfile | null>(null);
   const [results, setResults] = useState<Record<string, string>>({});
@@ -749,14 +741,10 @@ export function KnowledgeProfilesDialog({
     else apply();
   };
 
-  const refresh = (): void => {
-    void client.invalidateQueries({ queryKey: knowledgeKeys.all });
-  };
-
   const test = async (profile: KnowledgeModelProfile): Promise<void> => {
     setResults((prev) => ({ ...prev, [profile.id]: '测试中…' }));
     try {
-      const result = await api.testKnowledgeModelProfile(profile.id);
+      const result = await testProfile.mutateAsync(profile.id);
       setResults((prev) => ({
         ...prev,
         [profile.id]: result.ok
@@ -797,7 +785,6 @@ export function KnowledgeProfilesDialog({
                   setFormPending(false);
                   setFormDirty(false);
                   setEditing(null);
-                  refresh();
                 }}
                 onDirtyChange={setFormDirty}
                 onPendingChange={setFormPending}
@@ -843,7 +830,7 @@ export function KnowledgeProfilesDialog({
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {profile.kind === 'embedding'
-                          ? `维度固定 1024 · ${profile.embeddingProtocol === 'cohere_v2' ? 'Cohere v2' : 'OpenAI'}`
+                          ? `维度固定 ${KNOWLEDGE_EMBEDDING_DIMENSIONS} · ${profile.embeddingProtocol === knowledgeEmbeddingProtocolSchema.enum.cohere_v2 ? 'Cohere v2' : 'OpenAI'}`
                           : profile.kind === 'rerank'
                             ? '无维度'
                             : 'OpenAI 转录（段级时间） · 请通过上传音频验证'}{' '}
@@ -918,284 +905,11 @@ export function KnowledgeProfilesDialog({
           confirmLabel="确认删除"
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
-            await api.deleteKnowledgeModelProfile(deleting.id);
-            refresh();
+            await deleteProfile.mutateAsync(deleting.id);
             toastSuccess('模型 profile 已删除');
           }}
         />
       ) : null}
     </>
-  );
-}
-
-const profileFormSchema = z.object({
-  kind: knowledgeModelProfileKindSchema,
-  name: z.string().superRefine((value, ctx) => {
-    if (value.trim() === '') ctx.addIssue({ code: 'custom', message: '请填写 profile 名称' });
-  }),
-  endpointUrl: z.string().superRefine((value, ctx) => {
-    if (value.trim() === '') ctx.addIssue({ code: 'custom', message: '请填写 Endpoint URL' });
-  }),
-  model: z.string().superRefine((value, ctx) => {
-    if (value.trim() === '') ctx.addIssue({ code: 'custom', message: '请填写模型 ID' });
-  }),
-  apiKey: z.string(),
-  protocol: knowledgeEmbeddingProtocolSchema,
-  imageInput: z.boolean(),
-  enabled: z.boolean(),
-});
-type ProfileFormValues = z.infer<typeof profileFormSchema>;
-
-function ProfileForm({
-  profile,
-  onCancel,
-  onSaved,
-  onDirtyChange,
-  onPendingChange,
-}: {
-  profile: KnowledgeModelProfile | null;
-  onCancel: () => void;
-  onSaved: () => void;
-  onDirtyChange: (dirty: boolean) => void;
-  onPendingChange: (pending: boolean) => void;
-}) {
-  const create = useCreateKnowledgeModelProfile();
-  const { register, control, handleSubmit, watch, formState } = useZodForm(profileFormSchema, {
-    defaultValues: {
-      kind: profile?.kind ?? 'embedding',
-      name: profile?.name ?? '',
-      endpointUrl: profile?.endpointUrl ?? '',
-      model: profile?.model ?? '',
-      apiKey: '',
-      protocol: profile?.embeddingProtocol ?? 'openai',
-      imageInput: profile?.imageInputEnabled ?? false,
-      enabled: profile?.enabled ?? true,
-    },
-  });
-  const { errors, dirtyFields, isSubmitting } = formState;
-  const {
-    name: apiKeyName,
-    ref: apiKeyRef,
-    onChange: onApiKeyChange,
-    onBlur: onApiKeyBlur,
-  } = register('apiKey');
-  const [kind, protocol, model] = watch(['kind', 'protocol', 'model']);
-  const busy = isSubmitting;
-  const imageCapable = kind === 'embedding' && protocol === 'cohere_v2' && model === 'embed-v4.0';
-  const dirty =
-    Object.entries(dirtyFields).some(([key, value]) => key !== 'enabled' && Boolean(value)) ||
-    (kind === 'asr' && Boolean(dirtyFields.enabled));
-  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
-  useEffect(() => onPendingChange(isSubmitting), [isSubmitting, onPendingChange]);
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
-
-  const save = handleSubmit(async (values: ProfileFormValues) => {
-    const imgCapable =
-      values.kind === 'embedding' &&
-      values.protocol === 'cohere_v2' &&
-      values.model === 'embed-v4.0';
-    const input = {
-      name: values.name.trim(),
-      endpointUrl: values.endpointUrl.trim(),
-      model: values.model.trim(),
-      ...(values.kind === 'embedding'
-        ? { embeddingProtocol: values.protocol, imageInputEnabled: imgCapable && values.imageInput }
-        : {}),
-      ...(values.kind === 'asr' ? { enabled: values.enabled } : {}),
-      ...(values.apiKey === '' ? {} : { apiKey: values.apiKey }),
-    };
-    try {
-      if (profile === null) {
-        await create.mutateAsync({ kind: values.kind, ...input });
-      } else {
-        await api.updateKnowledgeModelProfile(profile.id, input);
-      }
-      toastSuccess(profile === null ? '模型 profile 已创建' : '模型 profile 已保存');
-      onSaved();
-    } catch (error) {
-      toastError(error);
-    }
-  });
-
-  return (
-    <form className="flex flex-col gap-3 rounded-item border border-line p-3" onSubmit={save}>
-      <FieldGroup className="grid gap-3 sm:grid-cols-2">
-        {profile === null ? (
-          <Field className="gap-1.5">
-            <FieldLabel htmlFor="knowledge-profile-kind">类型</FieldLabel>
-            <Controller
-              control={control}
-              name="kind"
-              render={({ field }) => (
-                <Select
-                  value={field.value}
-                  disabled={busy}
-                  onValueChange={(next) => {
-                    if (next === 'embedding' || next === 'rerank' || next === 'asr') {
-                      field.onChange(next);
-                    }
-                  }}
-                  items={[
-                    { value: 'embedding', label: 'Embedding' },
-                    { value: 'rerank', label: '重排' },
-                    { value: 'asr', label: 'ASR 转录' },
-                  ]}
-                >
-                  <SelectTrigger id="knowledge-profile-kind" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="embedding">Embedding</SelectItem>
-                      <SelectItem value="rerank">重排</SelectItem>
-                      <SelectItem value="asr">ASR 转录</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </Field>
-        ) : null}
-        <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
-          <FieldLabel htmlFor="knowledge-profile-name">
-            名称 <RequiredMark />
-          </FieldLabel>
-          <Input
-            id="knowledge-profile-name"
-            {...register('name')}
-            disabled={busy}
-            aria-invalid={Boolean(errors.name)}
-          />
-          <FieldError id="knowledge-profile-name-error">{errors.name?.message}</FieldError>
-        </Field>
-        <Field className="gap-1.5 sm:col-span-2" data-invalid={Boolean(errors.endpointUrl)}>
-          <FieldLabel htmlFor="knowledge-profile-endpoint">
-            Endpoint URL <RequiredMark />
-          </FieldLabel>
-          <Input
-            id="knowledge-profile-endpoint"
-            {...register('endpointUrl')}
-            disabled={busy}
-            placeholder="https://…"
-            aria-invalid={Boolean(errors.endpointUrl)}
-          />
-          <FieldError id="knowledge-profile-endpoint-error">
-            {errors.endpointUrl?.message}
-          </FieldError>
-        </Field>
-        <Field className="gap-1.5" data-invalid={Boolean(errors.model)}>
-          <FieldLabel htmlFor="knowledge-profile-model">
-            模型 <RequiredMark />
-          </FieldLabel>
-          <Input
-            id="knowledge-profile-model"
-            {...register('model')}
-            disabled={busy}
-            className="font-mono"
-            aria-invalid={Boolean(errors.model)}
-          />
-          <FieldError id="knowledge-profile-model-error">{errors.model?.message}</FieldError>
-        </Field>
-        <Field className="gap-1.5">
-          <FieldLabel htmlFor="knowledge-profile-key">API Key</FieldLabel>
-          <PasswordInput name={apiKeyName} autoComplete="off" disabled={busy}>
-            <PasswordInputControl
-              id="knowledge-profile-key"
-              ref={apiKeyRef}
-              onChange={onApiKeyChange}
-              onBlur={onApiKeyBlur}
-              placeholder={profile?.hasSecret ? '留空保持原密钥' : '可选'}
-            />
-            <PasswordInputToggle />
-          </PasswordInput>
-        </Field>
-        {kind === 'embedding' ? (
-          <Field className="gap-1.5">
-            <FieldLabel htmlFor="knowledge-profile-protocol">Embedding 协议</FieldLabel>
-            <Controller
-              control={control}
-              name="protocol"
-              render={({ field }) => (
-                <Select
-                  value={field.value}
-                  disabled={busy}
-                  onValueChange={(next) => {
-                    if (next === 'openai' || next === 'cohere_v2') field.onChange(next);
-                  }}
-                  items={[
-                    { value: 'openai', label: 'OpenAI' },
-                    { value: 'cohere_v2', label: 'Cohere v2' },
-                  ]}
-                >
-                  <SelectTrigger id="knowledge-profile-protocol" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="openai">OpenAI</SelectItem>
-                      <SelectItem value="cohere_v2">Cohere v2</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </Field>
-        ) : null}
-      </FieldGroup>
-      {kind === 'asr' ? (
-        <div className="flex flex-col gap-3">
-          <FieldDescription>协议固定为 OpenAI 转录（段级时间）。</FieldDescription>
-          <Field orientation="horizontal" className="items-center gap-2">
-            <Controller
-              control={control}
-              name="enabled"
-              render={({ field }) => (
-                <Switch
-                  id="knowledge-profile-enabled"
-                  checked={field.value}
-                  disabled={busy}
-                  aria-label="启用"
-                  onCheckedChange={field.onChange}
-                />
-              )}
-            />
-            <FieldLabel htmlFor="knowledge-profile-enabled">启用</FieldLabel>
-          </Field>
-        </div>
-      ) : null}
-      {kind === 'embedding' ? (
-        <>
-          <Field orientation="horizontal" className="items-center gap-2">
-            <Controller
-              control={control}
-              name="imageInput"
-              render={({ field }) => (
-                <Switch
-                  id="knowledge-profile-image-input"
-                  checked={imageCapable && field.value}
-                  disabled={busy || !imageCapable}
-                  aria-label="图片输入"
-                  onCheckedChange={field.onChange}
-                />
-              )}
-            />
-            <FieldLabel htmlFor="knowledge-profile-image-input">图片输入</FieldLabel>
-          </Field>
-          <FieldDescription>
-            {imageCapable
-              ? 'Embedding 维度固定 1024，不可配置。'
-              : '仅 Cohere v2 协议的 embed-v4.0 支持图片输入；维度固定 1024。'}
-          </FieldDescription>
-        </>
-      ) : null}
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onCancel}>
-          取消
-        </Button>
-        <Button type="submit" size="sm" disabled={busy} aria-busy={busy}>
-          {busy ? '保存中…' : '保存'}
-        </Button>
-      </div>
-    </form>
   );
 }

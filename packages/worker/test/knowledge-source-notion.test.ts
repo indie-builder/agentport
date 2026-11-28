@@ -99,6 +99,7 @@ function config(rangeKind: string, resourceId: string): SourceConfig {
     credentials: { apiKey: TOKEN },
     settings: { rangeKind, resourceId },
     allowLoopback: true,
+    nodeEnv: 'test',
   };
 }
 

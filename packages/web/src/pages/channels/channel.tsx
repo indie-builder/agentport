@@ -5,7 +5,7 @@ import {
   type ChannelMember,
   type ChannelMessage,
 } from '@agentport/shared';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
   ArrowLeft,
@@ -33,7 +33,6 @@ import { readFileBase64 } from '../../lib/browser-files.js';
 import {
   applyMention,
   mentionQueryAt,
-  mergeChannelMessages,
   pruneMentions,
   visibleReadSeq,
 } from '../../lib/channel-state.js';
@@ -43,7 +42,6 @@ import { cn } from '../../lib/cn.js';
 import { shortId } from '../../lib/format.js';
 import {
   CHANNEL_MESSAGES_PAGE_SIZE,
-  channelKeys,
   meQuery,
   useAgents,
   useApproveChannelApproval,
@@ -53,7 +51,9 @@ import {
   useChannels,
   useDenyChannelApproval,
   useDrainPages,
+  useLoadOlderChannelMessages,
   useMarkChannelRead,
+  usePostChannelMessage,
   useRespondToChannelQuestion,
   useStopChannelRun,
 } from '../../lib/queries.js';
@@ -129,7 +129,8 @@ function ChannelWorkspace({
   const approve = useApproveChannelApproval(channel.id);
   const deny = useDenyChannelApproval(channel.id);
   const { mutate: markRead } = useMarkChannelRead(channel.id);
-  const client = useQueryClient();
+  const loadOlderMutation = useLoadOlderChannelMessages(channel.id);
+  const postMessage = usePostChannelMessage(channel.id);
   const user = authenticated(me.data);
   const businessId = user?.user.businessId ?? null;
   const selfMember = channel.members.find((item) => item.businessId === businessId);
@@ -156,7 +157,6 @@ function ChannelWorkspace({
   const [confirmingNotifyAll, setConfirmingNotifyAll] = useState(false);
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
   const [olderExhausted, setOlderExhausted] = useState(false);
-  const [loadingOlder, setLoadingOlder] = useState(false);
   const [runSheetId, setRunSheetId] = useState<string | null>(null);
   const [handoff, setHandoff] = useState<{ runId: string; sourceAgentId: string } | null>(null);
 
@@ -350,37 +350,22 @@ function ChannelWorkspace({
     [markRead, selfMember?.lastReadSeq, stream.messages, timeline.items],
   );
 
-  const setMessages = (update: (previous: readonly ChannelMessage[]) => ChannelMessage[]): void => {
-    client.setQueryData<ChannelMessage[]>(channelKeys.messages(channel.id), (previous) =>
-      update(previous ?? []),
-    );
-  };
-
   const persistedCount = stream.messages.filter(
     (message) => !message.id.startsWith('local-'),
   ).length;
   const hasOlder = !olderExhausted && persistedCount >= CHANNEL_MESSAGES_PAGE_SIZE;
 
   const loadOlder = useCallback(async (): Promise<void> => {
-    if (loadingOlder) return;
+    if (loadOlderMutation.isPending) return;
     const first = stream.messages.find((message) => !message.id.startsWith('local-'));
     if (first === undefined) return;
-    setLoadingOlder(true);
     try {
-      const page = await api.channelMessages(channel.id, {
-        before: first.seq,
-        limit: CHANNEL_MESSAGES_PAGE_SIZE,
-      });
-      client.setQueryData<ChannelMessage[]>(channelKeys.messages(channel.id), (previous) =>
-        mergeChannelMessages(previous ?? [], page),
-      );
+      const page = await loadOlderMutation.mutateAsync(first.seq);
       if (page.length < CHANNEL_MESSAGES_PAGE_SIZE) setOlderExhausted(true);
     } catch (error) {
       toastError(error);
-    } finally {
-      setLoadingOlder(false);
     }
-  }, [channel.id, client, loadingOlder, stream.messages]);
+  }, [loadOlderMutation.isPending, loadOlderMutation.mutateAsync, stream.messages]);
 
   const sendMessage = async (mentionAll: boolean): Promise<void> => {
     const body = input.trim();
@@ -424,37 +409,38 @@ function ChannelWorkspace({
           : [{ id: '', sha256: '', filename: file.name, mimeType, size: file.size }];
       }),
     };
-    setMessages((previous) => mergeChannelMessages(previous, [optimistic]));
     setInput('');
     inputRef.current = '';
     setMentions([]);
     setMention(null);
     setNotifyAll(false);
     try {
-      const payload =
-        files.length === 0
-          ? []
-          : await Promise.all(
-              files.map(async (file) => ({
-                filename: file.name,
-                dataBase64: await readFileBase64(file),
-              })),
-            );
-      const saved = await api.postChannelMessage(channel.id, {
-        ...(body === '' ? {} : { body }),
-        clientMessageId,
-        ...(payload.length === 0 ? {} : { attachments: payload }),
-        ...(mentionIds.length === 0 ? {} : { mentions: mentionIds }),
-        ...(mentionAll ? { mentionAll: true } : {}),
+      await postMessage.mutateAsync({
+        optimistic,
+        createInput: async () => {
+          const payload =
+            files.length === 0
+              ? []
+              : await Promise.all(
+                  files.map(async (file) => ({
+                    filename: file.name,
+                    dataBase64: await readFileBase64(file),
+                  })),
+                );
+          return {
+            ...(body === '' ? {} : { body }),
+            clientMessageId,
+            ...(payload.length === 0 ? {} : { attachments: payload }),
+            ...(mentionIds.length === 0 ? {} : { mentions: mentionIds }),
+            ...(mentionAll ? { mentionAll: true } : {}),
+          };
+        },
       });
       if (pendingSend.current?.clientMessageId === clientMessageId) pendingSend.current = null;
-      setMessages((previous) => mergeChannelMessages(previous, [saved]));
       if (files.length > 0 && useChatStore.getState().pendingAttachments === files) {
         useChatStore.getState().setPendingAttachments([]);
       }
-      void client.invalidateQueries({ queryKey: channelKeys.all });
     } catch (error) {
-      setMessages((previous) => previous.filter((item) => item.id !== optimistic.id));
       if (inputRef.current === '') {
         setInput(body);
         inputRef.current = body;
@@ -694,8 +680,8 @@ function ChannelWorkspace({
           onRetry={() => void stream.messagesQuery.refetch()}
           onLoadOlder={loadOlder}
           hasOlder={hasOlder}
-          loadingOlder={loadingOlder}
-          olderDisabled={loadingOlder}
+          loadingOlder={loadOlderMutation.isPending}
+          olderDisabled={loadOlderMutation.isPending}
           welcome={
             <EmptyState
               variant="stage"

@@ -1,8 +1,10 @@
+import { errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { PageNote } from './page.js';
 import { ErrorState } from './states.js';
 import { Button } from './ui/button.js';
 
-export type CursorListFooterQuery = {
+type CursorListFooterQuery = {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   isFetchNextPageError: boolean;
@@ -14,16 +16,50 @@ export function CursorListFooter({
   query,
   label = '',
   errorTitle,
+  errorVariant = 'state',
   showEndLabel = false,
+  disabled = false,
+  autoDrain = false,
+  drainingLabel,
+  retryLabel,
   className,
 }: {
   query: CursorListFooterQuery;
   label?: string;
   errorTitle?: string;
+  errorVariant?: 'state' | 'note';
   showEndLabel?: boolean;
+  disabled?: boolean;
+  autoDrain?: boolean;
+  drainingLabel?: string;
+  retryLabel?: string;
   className?: string;
 }) {
   if (query.isFetchNextPageError) {
+    if (drainingLabel !== undefined && errorTitle === undefined) {
+      return (
+        <div className={cn('flex flex-wrap items-center gap-3', className)}>
+          <span className="text-xs text-muted-foreground">{drainingLabel}</span>
+          <Button variant="outline" size="sm" onClick={() => void query.fetchNextPage()}>
+            {retryLabel ?? `重试加载${label}`}
+          </Button>
+        </div>
+      );
+    }
+    if (errorVariant === 'note') {
+      return (
+        <PageNote
+          tone="danger"
+          title={errorTitle ?? `更多${label}没有加载出来`}
+          {...(query.error == null ? {} : { description: errorMessage(query.error) })}
+          action={
+            <Button variant="outline" size="sm" onClick={() => void query.fetchNextPage()}>
+              {retryLabel ?? '重试'}
+            </Button>
+          }
+        />
+      );
+    }
     if (errorTitle !== undefined) {
       return (
         <div className={cn('flex justify-center', className)}>
@@ -38,18 +74,28 @@ export function CursorListFooter({
     return (
       <div className={cn('flex justify-center', className)}>
         <Button variant="outline" size="sm" onClick={() => void query.fetchNextPage()}>
-          重试加载{label}
+          {retryLabel ?? `重试加载${label}`}
         </Button>
       </div>
     );
   }
   if (query.hasNextPage) {
+    if (autoDrain) {
+      if (drainingLabel !== undefined) {
+        return (
+          <div className={cn('flex flex-wrap items-center gap-3', className)}>
+            <span className="text-xs text-muted-foreground">{drainingLabel}</span>
+          </div>
+        );
+      }
+      return null;
+    }
     return (
       <div className={cn('flex justify-center', className)}>
         <Button
           variant="outline"
           size="sm"
-          disabled={query.isFetchingNextPage}
+          disabled={disabled || query.isFetchingNextPage}
           aria-busy={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >

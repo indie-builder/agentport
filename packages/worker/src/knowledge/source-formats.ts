@@ -50,10 +50,10 @@ export function mimeOf(name: string, declared: string | undefined): string | und
   const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? TEXT_MIME_BY_EXTENSION[extension];
   if (byExtension) return byExtension;
   const mime = declaredMime(declared);
-  return mime && EXTENSION_BY_MIME[mime] ? mime : undefined;
+  return extensionForMime(mime) ? mime : undefined;
 }
 
-export const EXTENSION_BY_MIME: Record<string, string> = {};
+const EXTENSION_BY_MIME: Record<string, string> = {};
 
 export const MIME_BY_EXTENSION: Record<string, string> = {
   ...TEXT_MIME_BY_EXTENSION,
@@ -73,6 +73,9 @@ const EXTENSION_BY_MIME_EXTENSIONS = new Set([
   '.pptx',
   '.xls',
   '.xlsx',
+  '.odt',
+  '.ods',
+  '.odp',
   '.rtf',
   '.epub',
   '.png',
@@ -85,11 +88,22 @@ const EXTENSION_BY_MIME_EXTENSIONS = new Set([
   '.md',
   '.json',
   '.xml',
+  '.yaml',
 ]);
 
 for (const extension of EXTENSION_BY_MIME_EXTENSIONS) {
   const mime = mimeForExtension(extension);
   if (mime) EXTENSION_BY_MIME[mime] = extension.slice(1);
+}
+
+export function extensionForMime(
+  mime: string | undefined,
+  options?: { dot?: boolean },
+): string | undefined {
+  if (!mime) return undefined;
+  const extension = EXTENSION_BY_MIME[mime];
+  if (!extension) return undefined;
+  return options?.dot ? `.${extension}` : extension;
 }
 
 export const MIME_ALIASES: Record<string, string> = {

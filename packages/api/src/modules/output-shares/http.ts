@@ -4,7 +4,7 @@ import { attachmentResponse } from '../../http/attachment.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { SHARE_MISSING_MESSAGE, safeMediaType } from '../../lib/outputs.js';
-import { resolveSharedFile } from './router.js';
+import { resolveSharedFile } from './shared.js';
 
 export function registerOutputSharesHttp(app: Hono<HttpEnv>): void {
   app.get(

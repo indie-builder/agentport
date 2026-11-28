@@ -1,80 +1,34 @@
 import type {
-  CursorPage,
+  EvalComparison,
   EvalDataset,
   EvalDatasetImportResult,
   EvalRunExport,
-  EvalComparison as SharedEvalComparison,
-  EvalJudgeMode as SharedEvalJudgeMode,
-  EvalRunPage as SharedEvalRunPage,
-  EvalRunStatus as SharedEvalRunStatus,
+  EvalRunPage,
 } from '@agentport/shared';
 import type { ApiClient } from '../orpc.js';
 import { rpc } from '../orpc.js';
 import type { ApiOutput } from './shared.js';
 import { clientOptions, nativeRequest } from './shared.js';
 
-export type EvalRunStatus = SharedEvalRunStatus;
+export type { EvalComparison, EvalRun, EvalRunPage, EvalRunStatus } from '@agentport/shared';
 
-export type EvalTarget = 'published' | 'draft';
+export type EvalTarget = NonNullable<
+  Parameters<ApiClient['eval']['runs']['create']>[0]['body']['target']
+>;
 
-type EvalJudgeMode = SharedEvalJudgeMode;
+type EvalCasePage = ApiOutput<ApiClient['eval']['cases']['list']>;
 
-export interface EvalCase {
-  id: string;
-  agentId: string;
-  name: string;
-  prompt: string;
-  expectation: string;
-  judgeMode: EvalJudgeMode;
-  expectedTools: string[] | null;
-  forbiddenTools: string[] | null;
-  createdAt: string;
-}
+export type EvalCase = EvalCasePage['items'][number];
 
-export type EvalCasePage = CursorPage<EvalCase>;
+export type EvalCaseInput = Parameters<ApiClient['eval']['cases']['create']>[0]['body'];
 
-export interface EvalCaseInput {
-  agentId: string;
-  name: string;
-  prompt: string;
-  expectation: string;
-  judgeMode: EvalJudgeMode;
-  expectedTools?: string[];
-  forbiddenTools?: string[];
-}
-
-export interface EvalCaseFromRunInput {
-  runId: string;
-  name?: string;
-  expectation: string;
-  judgeMode: EvalJudgeMode;
-  confirmed: true;
-  feedbackId?: string;
-}
+export type EvalCaseFromRunInput = Parameters<ApiClient['eval']['cases']['fromRun']>[0]['body'];
 
 export type EvalSampleCandidate = ApiOutput<ApiClient['eval']['cases']['sampleCandidates']>[number];
 
-export interface EvalRun {
-  id: string;
-  agentId: string;
-  status: EvalRunStatus;
-  total: number;
-  passed: number;
-  error: string | null;
-  createdAt: string;
-  finishedAt: string | null;
-}
+export type EvalRunDetail = ApiOutput<ApiClient['eval']['runs']['detail']>;
 
-export type EvalRunPage = SharedEvalRunPage;
-
-export type EvalResult = ApiOutput<ApiClient['eval']['runs']['detail']>['results'][number];
-
-export interface EvalRunDetail {
-  evalRun: EvalRun;
-  results: EvalResult[];
-}
-
-export type EvalComparison = SharedEvalComparison;
+export type EvalResult = EvalRunDetail['results'][number];
 
 export default {
   evalCases: (

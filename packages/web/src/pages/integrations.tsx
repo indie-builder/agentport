@@ -20,6 +20,7 @@ import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { CopyButton } from '../components/copy-button.js';
+import { CursorListFooter } from '../components/cursor-list-footer.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
@@ -27,7 +28,6 @@ import {
   Page,
   PageBody,
   PageHeader,
-  PageNote,
   PageSection,
   PageToolbar,
   PageTopbar,
@@ -131,47 +131,6 @@ function tokenStatus(token: ApiToken): { label: string; tone: 'success' | 'warn'
     return { label: '已过期', tone: 'warn' };
   }
   return { label: '有效', tone: 'success' };
-}
-
-function ListFooter({
-  query,
-  label,
-}: {
-  query: {
-    hasNextPage: boolean;
-    isFetchingNextPage: boolean;
-    isFetchNextPageError: boolean;
-    fetchNextPage: () => Promise<unknown>;
-  };
-  label: string;
-}) {
-  if (query.isFetchNextPageError) {
-    return (
-      <PageNote
-        tone="danger"
-        title={`更多${label}没有加载出来`}
-        action={
-          <Button variant="outline" size="sm" onClick={() => void query.fetchNextPage()}>
-            重试
-          </Button>
-        }
-      />
-    );
-  }
-  if (!query.hasNextPage) return null;
-  return (
-    <div className="flex justify-center pt-2">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={query.isFetchingNextPage}
-        aria-busy={query.isFetchingNextPage}
-        onClick={() => void query.fetchNextPage()}
-      >
-        {query.isFetchingNextPage ? '加载中…' : '加载更多'}
-      </Button>
-    </div>
-  );
 }
 
 export function IntegrationsPage() {
@@ -435,7 +394,12 @@ function ApiTokensSection({
         </ul>
       ) : null}
 
-      <ListFooter query={tokens} label="令牌" />
+      <CursorListFooter
+        className="pt-2"
+        query={tokens}
+        errorVariant="note"
+        errorTitle="更多令牌没有加载出来"
+      />
 
       {revoking ? (
         <ConfirmDialog
@@ -840,7 +804,12 @@ function WebhookEndpointsSection({
         </ul>
       ) : null}
 
-      <ListFooter query={endpoints} label="端点" />
+      <CursorListFooter
+        className="pt-2"
+        query={endpoints}
+        errorVariant="note"
+        errorTitle="更多端点没有加载出来"
+      />
 
       <Collapsible open={inboundDocOpen} onOpenChange={setInboundDocOpen} className="border-t pt-4">
         <div className="flex items-center justify-between gap-2">

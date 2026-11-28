@@ -1,8 +1,26 @@
-import type { AccessFilter, AgentDefinition, AgentResourceVersions } from '@agentport/shared';
+import {
+  AGENT_SELECTION_MISSING_MESSAGE,
+  compareResults,
+  type EvalComparisonRow,
+  type EvalComparisonStatus,
+  type EvalResultRow,
+  fail,
+  type StoredEvalResult,
+  toPublicResult,
+} from '@agentport/core';
+import type {
+  AccessFilter,
+  AgentDefinition,
+  AgentResourceVersions,
+  EvalDataset,
+  EvalDatasetImportResult,
+} from '@agentport/shared';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
+import { newId } from '../id.js';
 import {
   agentRuns,
+  agents,
   conversations,
   type EvalCaseSnapshot,
   evalCases,
@@ -12,8 +30,15 @@ import {
   runFeedback,
 } from '../schema.js';
 import { maintainedAgentScopeWhere, ownerScopeWhere } from './access.js';
+import { loadLiveDefinition } from './agent-definitions.js';
+import {
+  assertDefinitionResources,
+  getAgentVersion,
+  latestAgentVersion,
+} from './agent-versions.js';
 import { messageText } from './chat/messages.js';
 import { type CursorPage, keysetPage } from './pagination.js';
+import { isPgCode } from './pg-errors.js';
 
 export type EvalCase = typeof evalCases.$inferSelect;
 export type EvalRun = typeof evalRuns.$inferSelect;
@@ -114,6 +139,53 @@ export async function createCase(
     .returning();
   if (!row) throw new Error('eval case insert returned no row');
   return row;
+}
+
+export async function importCases(
+  db: Database,
+  agentId: string,
+  cases: EvalDataset['cases'],
+  createdBy: string,
+): Promise<EvalDatasetImportResult> {
+  const warnings: string[] = [];
+
+  return db.transaction(async (tx): Promise<EvalDatasetImportResult> => {
+    const [agent] = await tx
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .for('update');
+    if (!agent) fail('NOT_FOUND', AGENT_SELECTION_MISSING_MESSAGE);
+
+    const existing = await tx
+      .select({ name: evalCases.name })
+      .from(evalCases)
+      .where(
+        and(
+          eq(evalCases.agentId, agentId),
+          inArray(
+            evalCases.name,
+            cases.map((evalCase) => evalCase.name),
+          ),
+        ),
+      );
+    const taken = new Set(existing.map((row) => row.name));
+
+    const rows: Array<typeof evalCases.$inferInsert> = [];
+    let skipped = 0;
+    for (const evalCase of cases) {
+      if (taken.has(evalCase.name)) {
+        skipped += 1;
+        warnings.push(`用例「${evalCase.name}」已存在，已跳过`);
+        continue;
+      }
+      taken.add(evalCase.name);
+      rows.push({ id: newId('evalCase'), agentId, createdBy, ...evalCase });
+    }
+    if (rows.length > 0) await tx.insert(evalCases).values(rows);
+
+    return { imported: rows.length, skipped, warnings };
+  });
 }
 
 export interface EvalSampleCandidate {
@@ -245,6 +317,115 @@ export async function createEvalRun(
   return row;
 }
 
+export async function startRun(
+  db: Database,
+  agentId: string,
+  createdBy: string,
+  target: 'published' | 'draft' = 'published',
+): Promise<EvalRun | undefined> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [lockedAgent] = await tx
+        .select({ id: agents.id, publishedVersion: agents.publishedVersion })
+        .from(agents)
+        .where(eq(agents.id, agentId))
+        .for('update');
+      if (!lockedAgent) fail('NOT_FOUND', AGENT_SELECTION_MISSING_MESSAGE);
+      const cases = await tx
+        .select({
+          id: evalCases.id,
+          name: evalCases.name,
+          prompt: evalCases.prompt,
+          expectation: evalCases.expectation,
+          judgeMode: evalCases.judgeMode,
+          expectedTools: evalCases.expectedTools,
+          forbiddenTools: evalCases.forbiddenTools,
+        })
+        .from(evalCases)
+        .where(eq(evalCases.agentId, agentId))
+        .orderBy(asc(evalCases.createdAt), asc(evalCases.id));
+      if (cases.length === 0) fail('INVALID_INPUT', '该智能体还没有用例');
+      const [running] = await tx
+        .select({ id: evalRuns.id })
+        .from(evalRuns)
+        .where(and(eq(evalRuns.agentId, agentId), eq(evalRuns.status, 'running')))
+        .limit(1);
+      if (running) return undefined;
+      const definition =
+        target === 'draft'
+          ? await loadLiveDefinition(tx, agentId)
+          : lockedAgent.publishedVersion === null
+            ? null
+            : ((await getAgentVersion(tx, agentId, lockedAgent.publishedVersion))?.definition ??
+              null);
+      if (target === 'draft' && definition) {
+        await assertDefinitionResources(tx, definition);
+      }
+      const agentVersion =
+        target === 'draft' ? await latestAgentVersion(tx, agentId) : lockedAgent.publishedVersion;
+      const [created] = await tx
+        .insert(evalRuns)
+        .values({
+          id: newId('evalRun'),
+          agentId,
+          createdBy,
+          total: cases.length,
+          caseSnapshot: cases.map(({ expectedTools, forbiddenTools, ...rest }) => ({
+            ...rest,
+            ...(expectedTools === null ? {} : { expectedTools }),
+            ...(forbiddenTools === null ? {} : { forbiddenTools }),
+          })),
+          agentVersion,
+          definitionSnapshot: definition,
+          resourceVersions:
+            definition === null
+              ? null
+              : {
+                  servers: definition.resources.servers.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  skills: definition.resources.skills.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  plugins: definition.resources.plugins.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  subAgents: definition.resources.subAgents.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  runtimeEnvironment: definition.resources.runtimeEnvironment,
+                },
+        })
+        .returning();
+      return created;
+    });
+  } catch (err) {
+    if (!isPgCode(err, '23505')) throw err;
+    return undefined;
+  }
+}
+
+export async function failUnclaimedEvalRun(
+  db: Database,
+  id: string,
+  error: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(evalRuns)
+    .set({ status: 'failed', error, finishedAt: new Date() })
+    .where(and(eq(evalRuns.id, id), eq(evalRuns.status, 'running'), isNull(evalRuns.claimedAt)))
+    .returning({ id: evalRuns.id });
+  return rows.length > 0;
+}
+
 export async function claimEvalRun(db: Database, id: string): Promise<boolean> {
   const rows = await db
     .update(evalRuns)
@@ -322,37 +503,7 @@ export async function listRuns(
   });
 }
 
-export interface EvalResultRow {
-  caseId: string | null;
-  name: string;
-  prompt: string;
-  expectation: string;
-  passed: boolean;
-  output: string;
-  judgeReason: string | null;
-  runId: string | null;
-}
-
-interface StoredEvalResult extends EvalResultRow {
-  id: string;
-  caseSnapshot: EvalCaseSnapshot | null;
-}
-
-export type EvalComparisonStatus =
-  | 'improved'
-  | 'regressed'
-  | 'unchanged'
-  | 'changed_inputs'
-  | 'base_only'
-  | 'head_only'
-  | 'unverified';
-
-export interface EvalComparisonRow {
-  key: string;
-  status: EvalComparisonStatus;
-  base: EvalResultRow | null;
-  head: EvalResultRow | null;
-}
+export type { EvalComparisonRow, EvalComparisonStatus, EvalResultRow };
 
 export async function addResult(
   db: DbHandle,
@@ -411,19 +562,6 @@ export async function getRunDetail(
   return { evalRun, results: (await selectRunResults(db, id, limit)).map(toPublicResult) };
 }
 
-function toPublicResult(row: StoredEvalResult): EvalResultRow {
-  return {
-    caseId: row.caseId,
-    name: row.name,
-    prompt: row.prompt,
-    expectation: row.expectation,
-    passed: row.passed,
-    output: row.output,
-    judgeReason: row.judgeReason,
-    runId: row.runId,
-  };
-}
-
 async function selectRunResults(
   db: Database,
   runId: string,
@@ -447,140 +585,6 @@ async function selectRunResults(
     .where(eq(evalResults.evalRunId, runId))
     .orderBy(asc(evalResults.createdAt), asc(evalResults.id));
   return limit === undefined ? query : query.limit(limit);
-}
-
-function snapshotInputs(row: StoredEvalResult): {
-  prompt: string;
-  expectation: string;
-  judgeMode: 'contains' | 'llm';
-  expectedTools: string[];
-  forbiddenTools: string[];
-} | null {
-  return row.caseSnapshot === null
-    ? null
-    : {
-        prompt: row.caseSnapshot.prompt,
-        expectation: row.caseSnapshot.expectation,
-        judgeMode: row.caseSnapshot.judgeMode ?? 'contains',
-        expectedTools: [...new Set(row.caseSnapshot.expectedTools ?? [])].sort(),
-        forbiddenTools: [...new Set(row.caseSnapshot.forbiddenTools ?? [])].sort(),
-      };
-}
-
-function compareResults(
-  baseRows: StoredEvalResult[],
-  headRows: StoredEvalResult[],
-): EvalComparisonRow[] {
-  const keyOf = (row: StoredEvalResult): string | null => row.caseSnapshot?.id ?? row.caseId;
-
-  const group = (rows: StoredEvalResult[]) => {
-    const groups = new Map<string, StoredEvalResult[]>();
-    const loose: StoredEvalResult[] = [];
-    for (const row of rows) {
-      const key = keyOf(row);
-      if (key === null) loose.push(row);
-      else {
-        const existing = groups.get(key);
-        if (existing) existing.push(row);
-        else groups.set(key, [row]);
-      }
-    }
-    return { groups, loose };
-  };
-  const base = group(baseRows);
-  const head = group(headRows);
-
-  const rows: EvalComparisonRow[] = [];
-
-  for (const row of base.loose) {
-    rows.push({
-      key: `base:${row.id}`,
-      status: 'unverified',
-      base: toPublicResult(row),
-      head: null,
-    });
-  }
-  for (const [key, baseGroup] of base.groups) {
-    const headGroup = head.groups.get(key) ?? [];
-    if (baseGroup.length > 1 || headGroup.length > 1) {
-      for (const result of baseGroup) {
-        rows.push({
-          key: `base:${result.id}`,
-          status: 'unverified',
-          base: toPublicResult(result),
-          head: null,
-        });
-      }
-      for (const result of headGroup) {
-        rows.push({
-          key: `head:${result.id}`,
-          status: 'unverified',
-          base: null,
-          head: toPublicResult(result),
-        });
-      }
-      continue;
-    }
-    const [baseResult] = baseGroup;
-    const [headResult] = headGroup;
-    if (baseResult === undefined) continue;
-    rows.push(
-      headResult === undefined
-        ? { key, status: 'base_only', base: toPublicResult(baseResult), head: null }
-        : comparePair(key, baseResult, headResult),
-    );
-  }
-  for (const row of head.loose) {
-    rows.push({
-      key: `head:${row.id}`,
-      status: 'unverified',
-      base: null,
-      head: toPublicResult(row),
-    });
-  }
-  for (const [key, headGroup] of head.groups) {
-    if (base.groups.has(key)) continue;
-    const status = headGroup.length > 1 ? 'unverified' : 'head_only';
-    for (const result of headGroup) {
-      rows.push({
-        key: headGroup.length > 1 ? `head:${result.id}` : key,
-        status,
-        base: null,
-        head: toPublicResult(result),
-      });
-    }
-  }
-
-  return rows;
-}
-
-function comparePair(
-  key: string,
-  base: StoredEvalResult,
-  head: StoredEvalResult,
-): EvalComparisonRow {
-  const baseInputs = snapshotInputs(base);
-  const headInputs = snapshotInputs(head);
-  if (baseInputs === null || headInputs === null) {
-    return { key, status: 'unverified', base: toPublicResult(base), head: toPublicResult(head) };
-  }
-  if (
-    baseInputs.prompt !== headInputs.prompt ||
-    baseInputs.expectation !== headInputs.expectation ||
-    baseInputs.judgeMode !== headInputs.judgeMode ||
-    baseInputs.expectedTools.join('\u0000') !== headInputs.expectedTools.join('\u0000') ||
-    baseInputs.forbiddenTools.join('\u0000') !== headInputs.forbiddenTools.join('\u0000')
-  ) {
-    return {
-      key,
-      status: 'changed_inputs',
-      base: toPublicResult(base),
-      head: toPublicResult(head),
-    };
-  }
-  const status: EvalComparisonStatus =
-    base.passed === head.passed ? 'unchanged' : head.passed ? 'improved' : 'regressed';
-  return { key, status, base: toPublicResult(base), head: toPublicResult(head) };
 }
 
 export async function getComparison(

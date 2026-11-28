@@ -14,6 +14,17 @@ export {
 } from './attachments.js';
 export { canonicalJson } from './canonical-json.js';
 export {
+  comparePair,
+  compareResults,
+  type EvalCaseSnapshot,
+  type EvalComparisonRow,
+  type EvalComparisonStatus,
+  type EvalResultRow,
+  type StoredEvalResult,
+  snapshotInputs,
+  toPublicResult,
+} from './comparison.js';
+export {
   ACTION_RANK,
   CONTENT_BLOCKED_MESSAGE,
   type ContentPolicyDecision,
@@ -42,7 +53,7 @@ export {
 } from './domain-messages.js';
 export { DbError, isRetryableFailure, RunFailure, runProgram } from './effect-runtime.js';
 export { AppError, fail, isAppError, notFound } from './errors.js';
-export { sha256Hex } from './hash.js';
+export { hashMcpToken, sha256Hex } from './hash.js';
 export { readCappedBytes, readCappedText } from './http-body.js';
 export { inspectKnowledgeAudio } from './knowledge-audio.js';
 export { ensureKnowledgeBlob, writeKnowledgeBlob } from './knowledge-blobs.js';
@@ -86,7 +97,6 @@ export {
 } from './knowledge-paths.js';
 export { visibleDocumentSummary } from './knowledge-summary.js';
 export { parseMcpJson } from './mcp-json.js';
-export { hashMcpToken } from './mcp-token.js';
 export { reviewAnchorMissingMessage, selectReviewWindow } from './memory-review-window.js';
 export {
   parseChildAgentMd,
@@ -121,6 +131,7 @@ export {
   providerRouteDestination,
   providerRouteMatches,
 } from './provider-route.js';
+export { mergeToolSteps, messageText, toStep } from './run-steps.js';
 export { appendStreamEvent } from './run-stream.js';
 export { segmentForSearch } from './search-segment.js';
 export { decryptSecrets, encryptSecrets } from './secrets.js';

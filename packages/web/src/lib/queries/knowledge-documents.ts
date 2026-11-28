@@ -1,8 +1,14 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
-import { api, type KnowledgeBaseInput, type KnowledgeBatchInput } from '../api.js';
+import {
+  api,
+  type KnowledgeBaseInput,
+  type KnowledgeBatchInput,
+  type KnowledgeDocumentVersion,
+} from '../api.js';
 import { useCursorList, useDrainPages } from './client.js';
 import {
+  findPagedVersion,
   isTerminalKnowledgeJob,
   KNOWLEDGE_PAGE_SIZE,
   knowledgeJobQuery,
@@ -615,4 +621,39 @@ export function useKnowledgeDocumentJob(baseId: string, documentId: string, jobI
     void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
   }, [jobId, job.data?.status, client, documentId, baseId]);
   return job;
+}
+
+export function useRebuildKnowledgeBase(baseId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof api.rebuildKnowledgeBase>[1] = {}) =>
+      api.rebuildKnowledgeBase(baseId, input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.all }),
+  });
+}
+
+export function useKnowledgeOriginalBlob(versionId: string, enabled = true) {
+  return useQuery({
+    queryKey: knowledgeKeys.original(versionId),
+    queryFn: ({ signal }) => api.knowledgeOriginalBlob(versionId, signal),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useKnowledgeFaqCitationVersion(
+  documentId: string,
+  versionId: string,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: knowledgeKeys.faqCitationVersion(documentId, versionId),
+    queryFn: ({ signal }): Promise<KnowledgeDocumentVersion | null> =>
+      findPagedVersion(
+        (cursor) => api.knowledgeDocumentVersions(documentId, cursor, signal),
+        versionId,
+      ),
+    enabled,
+    staleTime: 60_000,
+  });
 }

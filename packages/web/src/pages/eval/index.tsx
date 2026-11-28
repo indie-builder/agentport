@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleStop, Play } from 'lucide-react';
 import { useRef, useState } from 'react';
+import type { z } from 'zod';
 import { FilterSelect } from '../../components/filter-select.js';
 import { Page, PageBody, PageHeader, PageTopbar } from '../../components/page.js';
 import { EvalFromRunDialog } from '../../components/run/eval-from-run-dialog.js';
@@ -35,6 +36,7 @@ import {
 } from '../../lib/queries.js';
 import { toast, toastError, toastSuccess } from '../../lib/toast.js';
 import { useOptimisticValue } from '../../lib/use-optimistic-value.js';
+import type { evalSearchSchema } from '../../routes/-search.js';
 import { CaseDialog } from './case-dialog.js';
 import { EvalCasesTab } from './cases-tab.js';
 import { EvalCompareTab } from './compare-tab.js';
@@ -42,6 +44,9 @@ import { DeleteCaseDialog } from './delete-case-dialog.js';
 import { EvalRunsTab } from './runs-tab.js';
 import { SampleRunsDialog } from './sample-runs-dialog.js';
 import type { EvalSearchPatch, EvalTab } from './shared.js';
+
+type EvalSearch = z.infer<typeof evalSearchSchema>;
+type EvalSearchUpdate = EvalSearchPatch & Partial<Pick<EvalSearch, 'q' | 'filter'>>;
 
 export function EvalPage() {
   const agents = useExperts();
@@ -77,10 +82,14 @@ export function EvalPage() {
   const [optimisticTab, commitTab] = useOptimisticValue(activeTab);
   const diffFilter = search.diff ?? 'changed';
 
-  const setSearch = (patch: EvalSearchPatch): void => {
+  const setSearch = (patch: EvalSearchUpdate, replace = false): void => {
+    const next = Object.fromEntries(
+      Object.entries({ ...search, ...patch }).filter(([, value]) => value !== undefined),
+    ) as EvalSearch;
     void navigate({
       to: '/eval',
-      search: { ...search, ...patch },
+      search: next,
+      replace,
     });
   };
 
@@ -459,6 +468,9 @@ export function EvalPage() {
                 caseItems={caseItems}
                 selectedCaseId={selectedCaseId}
                 onSelectCase={selectCase}
+                query={search.q ?? ''}
+                filter={search.filter ?? 'all'}
+                onSearchChange={(patch) => setSearch(patch, true)}
                 canManageEval={canManageEval}
                 canReadEval={canReadEval}
                 canReadRuns={canReadRuns}

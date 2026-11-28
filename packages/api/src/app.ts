@@ -3,13 +3,14 @@ import { createDb } from '@agentport/db';
 import { Hono } from 'hono';
 import { requestId } from 'hono/request-id';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import type { Config } from './config.js';
-import type { HttpEnv, RequestContext } from './http/context.js';
+import { type Config, resolveRuntimeFlags } from './config.js';
+import type { AppContext, HttpEnv, RequestContext } from './http/context.js';
 import { AppError, errorProblem } from './http/errors.js';
 import { closeHealth, registerHealthHttp } from './http/health.js';
 import { createSecurity } from './http/security.js';
 import { createAuth } from './modules/auth/better-auth.js';
 import { ensureBootstrap, ensureDefaultAssistant } from './modules/auth/bootstrap.js';
+import { authenticate } from './modules/auth/session.js';
 import { configureQueueProducer } from './queue/producer.js';
 import { closeScheduleQueue, configureScheduleLogger } from './queue/schedule.js';
 import { registerRoutes } from './routes/index.js';
@@ -32,9 +33,17 @@ export async function buildApp(
   });
   configureQueueProducer(config.REDIS_URL, log);
   configureScheduleLogger(log);
-  const { db, client } = createDb(config.DATABASE_URL);
+  const { db, client } = createDb(config.DATABASE_URL, { max: config.DB_POOL_MAX });
   const app = new Hono<HttpEnv>();
-  const context = { db, client, config, log, auth: createAuth(config, db) };
+  const runtimeFlags = resolveRuntimeFlags(config);
+  const context: AppContext = {
+    db,
+    client,
+    config,
+    log,
+    auth: createAuth(config, db),
+    authenticate,
+  };
   const security = createSecurity(context);
   let closing: Promise<void> | undefined;
   const runtime: AppRuntime = {
@@ -60,12 +69,11 @@ export async function buildApp(
   app.use('*', requestId());
   app.use('*', async (c, next) => {
     const id = c.get('requestId');
-    const remoteAddress =
-      process.env.TRUST_PROXY === '1'
-        ? (c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-          c.env?.remoteAddress ??
-          'unknown')
-        : (c.env?.remoteAddress ?? 'unknown');
+    const remoteAddress = runtimeFlags.trustProxy
+      ? (c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
+        c.env?.remoteAddress ??
+        'unknown')
+      : (c.env?.remoteAddress ?? 'unknown');
     const request: RequestContext = {
       ...context,
       log: requestScopedLogger(log, id),

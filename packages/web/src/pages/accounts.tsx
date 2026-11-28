@@ -1,4 +1,9 @@
-import { isValidBusinessId } from '@agentport/shared';
+import {
+  accountNameSchema,
+  isValidBusinessId,
+  passwordSchema,
+  usernameSchema,
+} from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
@@ -68,6 +73,7 @@ import { can } from '../lib/access.js';
 import { type Account, ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
+import { withFieldMessages } from '../lib/form.js';
 import { formatDate } from '../lib/format.js';
 import {
   meQuery,
@@ -650,16 +656,33 @@ function RoleChecks({
   );
 }
 
+const usernameField = withFieldMessages(z.string(), usernameSchema, {
+  tooSmall: '请填写用户名。',
+});
+
+const nameField = z.string().superRefine((value, ctx) => {
+  const parsed = accountNameSchema.safeParse(value.trim().length === 0 ? '' : value);
+  if (parsed.success) return;
+  for (const issue of parsed.error.issues) {
+    ctx.addIssue({
+      code: 'custom',
+      message: issue.code === 'too_small' ? '请填写姓名。' : issue.message,
+    });
+  }
+});
+
+const passwordField = withFieldMessages(z.string(), passwordSchema, {
+  tooSmall: '密码至少 8 个字符。',
+});
+
 const accountFormSchema = z.object({
   businessId: z.string().superRefine((value, ctx) => {
     const message = validateBusinessId(value);
     if (message) ctx.addIssue({ code: 'custom', message });
   }),
-  username: z.string().min(1, '请填写用户名。'),
-  name: z.string().superRefine((value, ctx) => {
-    if (value.trim().length === 0) ctx.addIssue({ code: 'custom', message: '请填写姓名。' });
-  }),
-  password: z.string().min(8, '密码至少 8 个字符。'),
+  username: usernameField,
+  name: nameField,
+  password: passwordField,
   roleIds: z.array(z.string()),
 });
 type AccountFormValues = z.infer<typeof accountFormSchema>;
@@ -887,10 +910,8 @@ function CreateAccountDialog({
 }
 
 const accountEditFormSchema = z.object({
-  username: z.string().min(1, '请填写用户名。'),
-  name: z.string().superRefine((value, ctx) => {
-    if (value.trim().length === 0) ctx.addIssue({ code: 'custom', message: '请填写姓名。' });
-  }),
+  username: usernameField,
+  name: nameField,
 });
 type AccountEditFormValues = z.infer<typeof accountEditFormSchema>;
 
@@ -997,7 +1018,7 @@ function EditAccountDialog({
 
 const resetPasswordFormSchema = z
   .object({
-    password: z.string().min(8, '密码至少 8 个字符。'),
+    password: passwordField,
     confirm: z.string(),
   })
   .refine((values) => values.confirm === values.password, {

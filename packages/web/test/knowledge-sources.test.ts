@@ -77,7 +77,11 @@ describe('knowledge source skipped-only runs', () => {
     );
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('产品仓库'));
-    await waitFor(() => document.body.textContent?.includes('逐项结果') === true);
+    await waitFor(
+      () =>
+        document.body.textContent?.includes('逐项结果') === true &&
+        document.body.textContent?.includes('unsupported.bin') === true,
+    );
     expect(document.body.textContent).toContain('逐项结果');
     expect(document.body.textContent).toContain('unsupported.bin');
     expect(document.body.textContent).toContain('跳过');

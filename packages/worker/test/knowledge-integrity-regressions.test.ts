@@ -544,6 +544,7 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     const fixtureBase = await makeBase();
     fixtureBase.deps.connectors = { feed: knowledgeConnectors.feed };
     fixtureBase.deps.allowLoopback = true;
+    fixtureBase.deps.nodeEnv = 'test';
     const { sourceId } = await makeSource(fixtureBase, knowledgeConnectors.feed, 'feed');
 
     await runSyncJob(fixtureBase, sourceId);
@@ -680,6 +681,7 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     const fixtureBase = await makeBase();
     fixtureBase.deps.connectors = { feed: knowledgeConnectors.feed };
     fixtureBase.deps.allowLoopback = true;
+    fixtureBase.deps.nodeEnv = 'test';
     const { sourceId } = await makeSource(fixtureBase, knowledgeConnectors.feed, 'feed');
 
     articleFails = true;

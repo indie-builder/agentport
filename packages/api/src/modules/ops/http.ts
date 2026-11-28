@@ -12,7 +12,7 @@ const BASE_PATH = '/api/ops/queues';
 function createBoard(context: AppContext): Hono<HttpEnv> {
   const serverAdapter = new HonoAdapter(serveStatic).setBasePath(BASE_PATH);
   createBullBoard({
-    queues: getQueues(context.config.REDIS_URL).map(
+    queues: getQueues(context.config.REDIS_URL, context.config.NODE_ENV).map(
       (queue) => new BullMQAdapter(queue, { readOnlyMode: true }),
     ),
     serverAdapter,

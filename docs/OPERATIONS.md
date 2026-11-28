@@ -4,7 +4,7 @@
 
 ## 1. 环境变量
 
-所有变量从进程环境读取；本地开发由 `bun --env-file=../../.env` 或 compose 的 `env_file` 注入（`--env-file` 指向的文件缺失时 Bun 静默跳过，随后由下方必填变量校验失败退出）。下表的「必填」指进程启动时校验失败会直接退出。启动时校验的 schema 只有两个：`packages/api/src/config.ts`（api）与 `packages/worker/src/config.ts`（worker）；表里「读取方」列为「未被 schema 读取」的变量由代码直接读 `process.env` 或只由 compose/脚本使用。
+所有变量从进程环境读取；本地开发由 `bun --env-file=../../.env` 或 compose 的 `env_file` 注入（`--env-file` 指向的文件缺失时 Bun 静默跳过，随后由下方必填变量校验失败退出）。下表的「必填」指进程启动时校验失败会直接退出。启动时校验的 schema 只有两个：`packages/api/src/config.ts`（api）与 `packages/worker/src/config.ts`（worker）；不在两者 schema 中的变量（如仅由 compose 使用的 `REDIS_PASSWORD`、`DOCKER_GID`）会在下方单独标明读取方。
 
 ### 1.1 通用（api schema）
 
@@ -14,6 +14,7 @@
 | `LOG_LEVEL` | 否 | `info` | api、worker | `fatal` / `error` / `warn` / `info` / `debug` / `trace` |
 | `PORT` | 否 | `3000` | api | HTTP 监听端口，绑定 `0.0.0.0` |
 | `DATABASE_URL` | 是 | — | api、worker、db 迁移、备份 | PostgreSQL 连接串 |
+| `DB_POOL_MAX` | 否 | `10` | api、worker | 每个 `createDb(url, { max })` 的 Bun SQL 连接上限（由 `packages/shared/src/config.ts` 统一校验定义，默认 10，范围 1–100）；由 `api`/`worker` 读取配置后显式传入，不再由 `createDb()` 直接读取 `process.env`。不是 node-postgres 连接池；连接预算按各池上限求和，见 §7 |
 | `REDIS_URL` | 否 | `redis://localhost:6379` | api、worker | 队列、事件流、取消、限流共用；用 compose 的 Redis 时连接串需带 `REDIS_PASSWORD` |
 | `APP_SECRET_KEY` | 是 | — | api、worker | MCP 密钥加密主密钥，≥32 字符。**api 与 worker 必须一致**，否则 worker 无法解密 |
 | `ADMIN_USER` | 否 | `admin` | api | 首次初始化创建的管理员用户名；已初始化后不再代表唯一账户，也不覆盖已有账户 |
@@ -22,19 +23,18 @@
 | `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥（历史命名，不是 JWT），≥32 字符 |
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问域名（如 `https://agentport.example.com`），不要用 `*`。本机 Portless 可加通配符 `https://*.agentport.localhost`（仅 HTTPS 默认端口），一次覆盖变化的 worktree 子域名，精确的 `https://agentport.localhost` 仍保留；生产只有确实要覆盖子域名时才用通配符 |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
+| `APPROVAL_WAIT_MS` | 否 | `300000` | api | 工具审批有效期（毫秒，上限 `355000`）；`0` 表示立即拒绝，超出上限时 api 启动直接报错 |
+| `WEB_DIST` | 否 | 未设置 | api | 设置（空白串按未设置处理）且目录存在时托管 SPA；compose 中为 `/app/web` |
+| `PLATFORM_MCP_TOKEN` | 否 | 未设置 | api | `/mcp` 平台端点的 Bearer token，≥16 字符；未设置或不足 16 字符则端点不注册 |
+| `RATE_LIMIT_DISABLED` | 否 | 未设置 | api | 值为 `1` 时关闭限流；仅用于测试/排障 |
+| `TRUST_PROXY` | 否 | 未设置 | api | 值为 `1` 时信任 `X-Forwarded-For`（反向代理之后必须开启，否则限流按代理 IP 计数） |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 与 `sandbox-probes` 队列并发数；对 runs 只限制同时执行的 run，热空闲的会话容器不计入该并发 |
 | `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | **不是执行超时**。真实执行超时取该智能体的 `timeoutMs`（默认 `600000`）；本变量只作为孤儿 run 对账的时间窗口：queued run 超过 `AGENT_TIMEOUT_MS` + 5 分钟宽限后先探测队列，job 消失或已终态才置 failed；running run 从 `startedAt` 按该智能体当前配置的 `timeout_ms` + 5 分钟宽限判定。两者每 5 分钟扫描，通常 15–20 分钟收敛，不是保证期限 |
 
-以下变量不在 schema 中，由代码直接读 `process.env` 或只由 compose 使用：
+以下变量不在 api/worker schema 中，仅由 compose 使用：
 
 | 变量 | 默认 | 读取方 | 说明 |
 |---|---|---|---|
-| `WEB_DIST` | 未设置 | api | 设置且目录存在时托管 SPA；compose 中为 `/app/web` |
-| `PLATFORM_MCP_TOKEN` | 未设置 | api | `/mcp` 平台端点的 Bearer token，≥16 字符；未设置则端点不注册 |
-| `RATE_LIMIT_DISABLED` | 未设置 | api | 值为 `1` 时关闭限流；仅用于测试/排障 |
-| `TRUST_PROXY` | 未设置 | api | 值为 `1` 时信任 `X-Forwarded-For`（反向代理之后必须开启，否则限流按代理 IP 计数） |
-| `DB_POOL_MAX` | `10` | api、worker | 每个 `createDb()` 的 Bun SQL 连接上限（`createDb` 传给 `new SQL(..., { max })`）；worker 主池之外，`sandbox-probe` 另调一次 `createDb`。不是 node-postgres 连接池；连接预算按各池上限求和，见 §7 |
-| `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | 未设置 | worker | 仅 `SANDBOX_EGRESS=proxy` 时透传给沙盒，loopback 自动改写 |
 | `REDIS_PASSWORD` | `agentport-dev` | compose | redis 服务密码，同时拼进 api/worker 的 `REDIS_URL`；不是应用变量 |
 | `DOCKER_GID` | `0` | compose | worker 容器加入的组 GID，用于访问宿主 Docker socket |
 
@@ -70,10 +70,11 @@
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
 | `SANDBOX_IMAGE` | 否 | `agentport/sandbox:dev` | worker、api | 平台沙盒基座：worker 首次启动时本地缺失会先拉取，再用真实本地 image ID 登记默认环境的首个线上版本，并作为之后所有环境构建的基座；默认环境已存在时不再 inspect/pull。api 入队构建时记录该值。它不自动推进线上指针，也不是每次创建容器的直接来源（容器用环境线上版本的 image ID） |
-| `WORKSPACES_DIR` | 否 | `./data/workspaces` | worker | 工作区根目录。相对路径统一按仓库根解析，API、worker 与种子看到同一目录；Compose 下为 `/workspaces`，绝对路径按原值使用 |
+| `WORKSPACES_DIR` | 否 | `./data/workspaces` | api、worker | 工作区根目录。相对路径统一按仓库根解析，API、worker 与种子看到同一目录；Compose 下为 `/workspaces`，绝对路径按原值使用 |
 | `HOST_WORKSPACES_DIR` | 否 | 同 `WORKSPACES_DIR` | worker | 宿主视角的工作区路径，`docker -v` 的源路径；compose 默认 `/var/lib/docker/volumes/agentport_workspaces/_data` |
-| `SANDBOX_API_URL` | 否 | `http://host.docker.internal:3000` | worker、api（预览） | 沙盒视角的平台地址，写入 generated server 的 `.mcp.json` |
+| `SANDBOX_API_URL` | 否 | `http://host.docker.internal:3000` | worker、api（预览） | 沙盒视角的平台地址，写入 generated server 的 `.mcp.json`（api 中空白串回退默认值） |
 | `SANDBOX_EGRESS` | 否 | `open` | worker | `open` = bridge 直连（不隔离出站）；`proxy` = bridge + 容器内 `HTTPS_PROXY`；`none` = `--network none`。**fail-closed**：`proxy` 未设置 `HTTPS_PROXY`/`HTTP_PROXY` 时启动直接报错退出，不会降级为 `open` |
+| `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | 否 | 未设置 | worker | 仅 `SANDBOX_EGRESS=proxy` 时透传给沙盒，loopback 自动改写；同时兼容小写 `no_proxy`（`NO_PROXY` 优先） |
 | `SANDBOX_MEMORY` | 否 | `1g` | worker | 容器内存上限（Docker 格式，如 `1g`、`512m`） |
 | `SANDBOX_CPUS` | 否 | `1` | worker | CPU 核数上限 |
 | `SANDBOX_PIDS` | 否 | `128` | worker | PID 上限 |
@@ -144,7 +145,7 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 | `GENERATED_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api | 逗号分隔的精确 `host` 或 `host:port`；仅让显式声明的企业内网 HTTP 服务被 generated 连接器访问，未命中的私网、回环与 link-local 目标仍拒绝，开发环境允许本机回环；不是用户可配置的通用私网开关 |
 | `WEBHOOK_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api、worker | 逗号分隔的精确 `host` 或 `host:port`；仅对 webhook 出站目标放行显式声明的私网地址，默认拒绝私网与回环，不是用户可配置的通用私网开关 |
 
-`.env.example` 与本表一致；schema 之外可用的变量（`PLATFORM_MCP_TOKEN`、`RATE_LIMIT_DISABLED` 等）已在上方「不在 schema 中」表中列出。
+`.env.example` 与本表一致；`WEB_DIST`、`PLATFORM_MCP_TOKEN`、`RATE_LIMIT_DISABLED`、`TRUST_PROXY` 已纳入 `api` schema 并在 1.1 节列出，`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`（含 `no_proxy`）已纳入 `worker` schema 并在 1.3 节列出，仅 `REDIS_PASSWORD` 与 `DOCKER_GID` 属于 schema 外仅由 compose 使用的变量。
 
 图片多模态复用 worker 的现有 `ANTHROPIC_*` 凭据/网关；在知识库「设置」启用图片处理，填写网关支持视觉输入的模型 ID，并开启 OCR 和/或图片描述，不新增独立视觉服务环境变量。默认将识别文字/描述纳入普通检索；独立 PNG/JPEG/GIF/WebP 不必先经 Docling。文档内插图仍依赖 Docling 实际返回图片字节，需用目标解析服务验收。
 
@@ -582,7 +583,7 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 ## 7. 性能备注
 
 - **运行索引**：`agent_runs(started_at DESC NULLS LAST, id DESC)` 与 `agent_runs(agent_id, started_at DESC NULLS LAST, id DESC)`（0009 迁移）服务 `/api/runs` 的分页排序。概览最近 20 条运行按 `started_at DESC NULLS FIRST` 排序，使用独立的 `agent_runs_recent_idx(started_at DESC NULLS FIRST)`，让数据库按顺序读取并连接专家名称，满足 20 条后提前停止；本人范围仍按 `initiated_by` 过滤，最近运行不受 `days` 窗口限制。查询没有额外的 `id` 排序，同一时间及 NULL 时间之间的顺序未定义。`messages(run_id)` 服务 run trace 查询；`messages(conversation_id, created_at, id)` 让会话消息免排序。定义见 `packages/db/src/schema.ts`，重新生成用 `bun run db:generate`。
-- **连接上限与预算**：`packages/db/src/client.ts` 的 `createDb()` 读 `DB_POOL_MAX`（默认 10），作为 Bun SQL 的 `max`。api 一个池；worker 主入口一个池，启动的 `sandbox-probe` 又单独 `createDb` 一个池，因此单 API + 单 worker 按 `3 × DB_POOL_MAX` 计峰值预算（48 时为 144），这是上限预算，不是常驻实际连接。每进程副本、额外脚本与预留管理连接都要计入数据库 `max_connections`，按各池配置求和；Bun 可能在首次查询时启动整池，预算不能只按构造瞬间连接数算。原生 env 已支持调节，但当前没有部署容量、连接余量与目标并发证据，不推荐直接把默认值全局扩到 48；扩池在更高并发仍会遇边界，不是该有限池调度问题的一般修复。`/api/overview` 的 counts SQL 在一条运行聚合中计算 running/runs 等指标，并含 servers/agents 计数子查询，真正并行的是 counts、agents、recent 三条；单个请求仍会执行多条 SQL。
+- **连接上限与预算**：`DB_POOL_MAX` 由 `packages/shared/src/config.ts` 统一校验定义（默认 10，范围 1–100），由 `api`/`worker` 读取配置后经 `createDb(url, { max })` 显式传入 `packages/db/src/client.ts`（不再由 `createDb()` 直接读取 `process.env`），作为 Bun SQL 的 `max`。api 一个池（`packages/api/src/app.ts`）；worker 主入口一个池（`packages/worker/src/index.ts`，`sandbox-probe` 复用该 `db` 实例，仅独立运行 `maintenance` 脚本时另建短时连接），因此单 API + 单常驻 worker 按 `2 × DB_POOL_MAX` 计峰值预算（48 时为 96），这是上限预算，不是常驻实际连接。每进程副本、额外脚本与预留管理连接都要计入数据库 `max_connections`，按各池配置求和；Bun 可能在首次查询时启动整池，预算不能只按构造瞬间连接数算。原生 env 已支持调节，但当前没有部署容量、连接余量与目标并发证据，不推荐直接把默认值全局扩到 48；扩池在更高并发仍会遇边界，不是该有限池调度问题的一般修复。`/api/overview` 的 counts SQL 在一条运行聚合中计算 running/runs 等指标，并含 servers/agents 计数子查询，真正并行的是 counts、agents、recent 三条；单个请求仍会执行多条 SQL。
 - **会话列表**：`/api/conversations` 的 `lastMessage` 只返回截断到 280 字的 `text`，不再回传整块 jsonb；`limit` 默认 50、上限 100（契约 `pageQuerySchema`）。
 - **概览页**：`/api/overview` 已含 servers/agents 计数，前端不再额外请求 `/api/servers`、`/api/agents`；`/api/overview` 返回 404 时才回退到列表接口。
 - **本机基线（迁移前 Node/Fastify 环境，历史数据）**（20 次 curl，改前 → 改后，p50/p95）：`/api/overview` 8.0/9.7 → 6.9/8.8 ms；`/api/runs` 3.1/4.9 → 3.1/4.0 ms；`/api/conversations` 3.4/5.3 → 3.0/5.1 ms（响应 8009 → 6820 B）。数据量很小时数据库耗时不占主导，收益主要来自索引在数据增长后避免全表扫描 + 排序。
@@ -660,7 +661,7 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 ### 8.4 建议参数
 
 1. **读接口查询形态**（历史建议的现状）：`/api/overview` 的 counts（servers/agents/running/runs）已合并为一条 SQL 内的子查询，并与 agents、recent 两条查询并行（见 §7）；`/api/agents` 列表当前是一条列表查询。原建议预期的「200 并发下 p95 从约 100 ms 降到 40–50 ms、吞吐约翻倍」是迁移前 Node/Fastify 查询形态下的历史估计，不是当前 Bun 原生栈的验证结果；后续 SQL 优化须独立实测，不把该数值作为提速承诺。
-2. **连接上限可配置（已实现）**：`packages/db/src/client.ts` 的 `createDb()` 读取 `DB_POOL_MAX`（默认 10），作为 Bun SQL 的 `max`；池数量与总预算见 §7。当前没有部署容量、连接余量与目标并发证据，不推荐直接把默认值扩到 48；扩池在更高并发仍会遇边界，不是该有限池调度问题的一般修复。成本应按每个成功请求比较：同负载跨系列抽样估算 Bun pool48 相对 pool10 约 +5% 应用、+6% DB CPU-ms/请求（应用 1.97→2.07、DB 18.33→19.51），属近似抽样，不作严格因果。
+2. **连接上限可配置（已实现）**：`DB_POOL_MAX` 由 `packages/shared/src/config.ts` 统一校验定义（默认 10，范围 1–100），由 `api`/`worker` 读取配置后经 `createDb(url, { max })` 显式传入 `packages/db/src/client.ts`（不再由 `createDb()` 直接读取 `process.env`），作为 Bun SQL 的 `max`；池数量与总预算见 §7。当前没有部署容量、连接余量与目标并发证据，不推荐直接把默认值扩到 48；扩池在更高并发仍会遇边界，不是该有限池调度问题的一般修复。成本应按每个成功请求比较：同负载跨系列抽样估算 Bun pool48 相对 pool10 约 +5% 应用、+6% DB CPU-ms/请求（应用 1.97→2.07、DB 18.33→19.51），属近似抽样，不作严格因果。
 3. **读接口限流已落地**：压测当时 `global: false`，读接口完全不计流；现在 `hono-rate-limiter` 的 RedisStore 对 `/api/*` 统一按 600/min/IP 计数，静态资源、SPA 回退与 `/health/*` 不计入，登录、chat、`/mcp`、连接测试与评估发起仍保留各自的更低配额。单管理员场景下 chat 的 20 次/分仍偏紧（两次突发落在同一分钟就会 429，压测曾复现 2/10 被拒）；是否提到 60 次/分或改为按登录用户计数，等真实使用数据再定。
 4. **worker 并发按资源定**：每个沙盒受 `SANDBOX_MEMORY=1g` 上限约束，把 `AGENT_MAX_CONCURRENT` 从 2 提到 4 可把 10 个 run 的 p95 排队从约 10.5 s 降到约 5 s，代价是活跃沙盒按该上限占用的内存与更多宿主 CPU。以上是一次性容器压测数据；会话复用后，正常完成或成功取消的容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内热空闲并继续占用资源，实际容器总数可能高于活跃 run 数。本机未实测热空闲容器的内存，也不据此给出新的并发上限；扩容前按容器数（含热空闲）观察资源水位。同会话复用减少容器创建/启动，但不跳过每轮 SDK query 启动，不算 SDK 冷启动优化。
 5. **观测告警线**：当时的 node-postgres 池字段（`db.waiting`/`db.total`）已不存在；当前 `/health/metrics` 只给 `db.connected`、`db.pingMs` 与 `db.maxConnections`。继续用 `db.pingMs` 升高、队列 `waiting > 10` 和宿主连接数作为进入本次瓶颈区的信号，不要照抄旧字段名。

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Browser } from '@e2e-dev/web';
-import { encodePackage } from '../../packages/api/src/modules/agents/package-zip.js';
+import { encodePackage } from '../../packages/api/src/lib/package-zip.js';
 import { browserFetch } from './browser-api.js';
 
 export const DATASET_ID = 'devdata-qinghe-v1';

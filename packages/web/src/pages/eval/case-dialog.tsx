@@ -1,4 +1,4 @@
-import { evalToolNamesSchema } from '@agentport/shared';
+import { evalCaseFieldsSchema, evalToolNamesSchema } from '@agentport/shared';
 import type { ComponentProps } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -26,6 +26,7 @@ import {
 import { Textarea } from '../../components/ui/textarea.js';
 import type { EvalCase } from '../../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
+import { withFieldMessages } from '../../lib/form.js';
 import { useCreateEvalCase, useUpdateEvalCase } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
@@ -59,11 +60,20 @@ function toolListTextSchema(initial: string) {
 }
 
 function evalCaseFormSchema(initial: { expectedTools: string; forbiddenTools: string }) {
+  const fields = evalCaseFieldsSchema.shape;
   return z.object({
-    name: z.string().trim().min(1, '名称需要填写。').max(128, '名称不能超过 128 字。'),
-    prompt: z.string().min(1, '输入需要填写。').max(20_000, '输入不能超过 20,000 字。'),
-    expectation: z.string().max(5_000, '期望不能超过 5,000 字。'),
-    judgeMode: z.enum(['contains', 'llm']),
+    name: withFieldMessages(z.string().trim(), fields.name, {
+      tooSmall: '名称需要填写。',
+      tooBig: '名称不能超过 128 字。',
+    }),
+    prompt: withFieldMessages(z.string(), fields.prompt, {
+      tooSmall: '输入需要填写。',
+      tooBig: '输入不能超过 20,000 字。',
+    }),
+    expectation: withFieldMessages(z.string(), fields.expectation.unwrap(), {
+      tooBig: '期望不能超过 5,000 字。',
+    }),
+    judgeMode: fields.judgeMode.unwrap(),
     expectedTools: toolListTextSchema(initial.expectedTools),
     forbiddenTools: toolListTextSchema(initial.forbiddenTools),
   });

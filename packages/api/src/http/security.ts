@@ -5,12 +5,12 @@ import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 import { RedisStore, rateLimiter } from 'hono-rate-limiter';
-import { getTrustedOrigins, isTrustedOrigin } from '../config.js';
+import { getTrustedOrigins, isTrustedOrigin, resolveRuntimeFlags } from '../config.js';
 import type { AppContext, HttpContext, HttpEnv } from './context.js';
 import { SERVICE_UNAVAILABLE_MESSAGE } from './errors.js';
 
 export function createSecurity(context: AppContext) {
-  const disabled = process.env.RATE_LIMIT_DISABLED === '1';
+  const disabled = resolveRuntimeFlags(context.config).rateLimitDisabled;
   const redis = disabled
     ? undefined
     : new RedisClient(context.config.REDIS_URL, {

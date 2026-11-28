@@ -17,8 +17,12 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
-import { KnowledgeCancelled, requireOneShotSuccess } from './ingestion.js';
+import {
+  hermeticQueryOptions,
+  requireOneShotSuccess,
+  runOneShotSdkQuery,
+} from '../one-shot-sdk.js';
+import { KnowledgeCancelled } from './ingestion.js';
 
 type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
 type JobRow = typeof schema.knowledgeJobs.$inferSelect;
@@ -352,7 +356,7 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
           }),
         }),
     });
-    requireOneShotSuccess(outcome);
+    requireOneShotSuccess(outcome, () => new KnowledgeCancelled());
     if (savedVersions.length === 0) throw new Error('模型没有保存任何草稿');
   } catch (err) {
     if (signal.aborted || err instanceof KnowledgeCancelled) {

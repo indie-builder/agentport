@@ -1,14 +1,10 @@
 import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
+import type { RuntimeEnvironmentResolver } from '../sandbox/sessions.js';
 
 type ResolveOnlineRuntimeEnvironment = (
   environmentId: string | null,
   versionId?: string | null,
 ) => Promise<ResolvedRuntimeEnvironment | null>;
-
-export type RuntimeEnvironmentResolver = (
-  environmentId: string | null,
-  versionId?: string | null,
-) => Promise<ResolvedRuntimeEnvironment>;
 
 export function createRuntimeEnvironmentResolver(
   resolveOnline: ResolveOnlineRuntimeEnvironment,

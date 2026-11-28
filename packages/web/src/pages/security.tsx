@@ -1653,10 +1653,10 @@ function ViolationsSection() {
   );
 }
 
-const violationFormSchema = violationCaseUpdateSchema.pick({ resolution: true }).extend({
+const violationFormSchema = z.object({
   status: violationCaseStatusSchema,
   assigneeBusinessId: z.string().max(160),
-  resolution: z.string().max(1000),
+  resolution: violationCaseUpdateSchema.shape.resolution.unwrap().unwrap(),
 });
 
 type ViolationFormValues = z.infer<typeof violationFormSchema>;

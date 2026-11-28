@@ -1,7 +1,9 @@
-import type {
-  KnowledgeJobPayload,
-  KnowledgeSourceProbeResult,
-  ResourceAccessFilter,
+import { AppError } from '@agentport/core';
+import {
+  DOCUMENT_JOB_IN_PROGRESS_MESSAGE,
+  type KnowledgeJobPayload,
+  type KnowledgeSourceProbeResult,
+  type ResourceAccessFilter,
 } from '@agentport/shared';
 import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
@@ -9,6 +11,7 @@ import { newId } from '../../id.js';
 import {
   knowledgeBases,
   knowledgeDocuments,
+  knowledgeDocumentVersions,
   knowledgeJobs,
   knowledgeSources,
   knowledgeSyncRuns,
@@ -38,6 +41,68 @@ export async function createJob(db: DbHandle, input: CreateJobInput): Promise<Kn
     .returning();
   if (!row) throw new Error('knowledge job insert returned no row');
   return row;
+}
+
+export async function createDocumentRetryJob(
+  db: Database,
+  input: {
+    baseId: string | null;
+    documentId: string;
+    sourceId: string | null;
+    payload: KnowledgeJobPayload;
+    faqDraftBinding?: { versionId: string; jobKey: 'indexingJobId' | 'faqImportJobId' } | null;
+  },
+): Promise<KnowledgeJobRow | null> {
+  return db.transaction(async (tx) => {
+    if (input.baseId !== null) {
+      const [base] = await tx
+        .select({ id: knowledgeBases.id })
+        .from(knowledgeBases)
+        .where(eq(knowledgeBases.id, input.baseId))
+        .limit(1)
+        .for('key share');
+      if (!base) return null;
+    }
+    const [document] = await tx
+      .select({ id: knowledgeDocuments.id })
+      .from(knowledgeDocuments)
+      .where(eq(knowledgeDocuments.id, input.documentId))
+      .limit(1)
+      .for('update');
+    if (!document) return null;
+    if ((await findActiveReprocessJobId(tx, input.documentId)) !== null) {
+      throw new AppError('CONFLICT', DOCUMENT_JOB_IN_PROGRESS_MESSAGE);
+    }
+    const created = await createJob(tx, {
+      type: input.payload.type,
+      baseId: input.baseId,
+      documentId: input.documentId,
+      sourceId: input.sourceId,
+      payload: input.payload,
+    });
+    if (input.faqDraftBinding) {
+      const { versionId, jobKey } = input.faqDraftBinding;
+      const rebind =
+        jobKey === 'indexingJobId'
+          ? sql`jsonb_build_object('indexingJobId', ${created.id}::text)`
+          : sql`jsonb_build_object('faqImportJobId', ${created.id}::text)`;
+      const [bound] = await tx
+        .update(knowledgeDocumentVersions)
+        .set({ metadata: sql`${knowledgeDocumentVersions.metadata} || ${rebind}` })
+        .where(
+          and(
+            eq(knowledgeDocumentVersions.id, versionId),
+            sql`${knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
+            jobKey === 'indexingJobId'
+              ? sql`${knowledgeDocumentVersions.metadata} -> 'faqImport' is null`
+              : sql`${knowledgeDocumentVersions.metadata} -> 'faqImport' is not null`,
+          ),
+        )
+        .returning({ id: knowledgeDocumentVersions.id });
+      if (!bound) throw new AppError('CONFLICT', '目标 FAQ 草稿已变化，请刷新后重试');
+    }
+    return created;
+  });
 }
 
 export async function getJob(db: Database, id: string): Promise<KnowledgeJobRow | null> {

@@ -11,14 +11,13 @@ import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './
 import {
   encodePathSegments,
   failureOf,
+  paginateCursor,
   parseInitialCursor,
-  SourceTruncatedError,
   snapshotOf,
 } from './source-utils.js';
 
 const YUQUE_API = 'https://www.yuque.com';
 const PAGE_SIZE = 100;
-const MAX_PAGES = 1000;
 
 const safePositiveInteger = z.number().int().safe().positive();
 
@@ -114,51 +113,46 @@ function sourceUrlOf(ctx: YuqueContext, detail: Detail, summary: Summary): strin
 }
 
 async function listDocuments(ctx: YuqueContext): Promise<Summary[]> {
-  const docs: Summary[] = [];
   const ids = new Set<number>();
   let total: number | undefined;
-  let offset = 0;
-
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const response = await fetchJson(
-      `${ctx.base}/api/v2/repos/${ctx.repoId}/docs?offset=${offset}&limit=${PAGE_SIZE}`,
-      listSchema,
-      ctx.options,
-      'yuque docs',
-    );
-    const pageTotal = response.meta?.total;
-    if (pageTotal !== undefined) {
-      if (total !== undefined && pageTotal !== total) {
-        throw new Error(`yuque meta.total changed from ${total} to ${pageTotal}`);
+  return paginateCursor<Summary, number>({
+    label: 'yuque docs pagination',
+    cursorName: 'offset',
+    initialCursor: 0,
+    fetchPage: async (offset, { collected }) => {
+      const response = await fetchJson(
+        `${ctx.base}/api/v2/repos/${ctx.repoId}/docs?offset=${offset}&limit=${PAGE_SIZE}`,
+        listSchema,
+        ctx.options,
+        'yuque docs',
+      );
+      const pageTotal = response.meta?.total;
+      if (pageTotal !== undefined) {
+        if (total !== undefined && pageTotal !== total) {
+          throw new Error(`yuque meta.total changed from ${total} to ${pageTotal}`);
+        }
+        total = pageTotal;
       }
-      total = pageTotal;
-    }
-    for (const doc of response.data) {
-      if (ids.has(doc.id)) throw new Error(`yuque docs repeated id ${doc.id}`);
-      ids.add(doc.id);
-      docs.push(doc);
-    }
-    if (total !== undefined && docs.length > total) {
-      throw new Error(`yuque returned ${docs.length} docs but meta.total is ${total}`);
-    }
-    if (response.data.length === 0) {
-      if (total !== undefined && docs.length !== total) {
-        throw new Error(`yuque docs ended at ${docs.length} before meta.total ${total}`);
+      for (const doc of response.data) {
+        if (ids.has(doc.id)) throw new Error(`yuque docs repeated id ${doc.id}`);
+        ids.add(doc.id);
       }
-      return docs;
-    }
-    if (total !== undefined) {
-      // total 是权威计数：短页可能只是 API 分块方式不同，继续读到 total 或空页。
-      if (docs.length === total) return docs;
-    } else if (response.data.length < PAGE_SIZE) {
-      return docs;
-    }
-    offset += response.data.length;
-    if (page === MAX_PAGES - 1) {
-      throw new SourceTruncatedError(`yuque docs pagination exceeded ${MAX_PAGES} pages`);
-    }
-  }
-  throw new SourceTruncatedError(`yuque docs pagination exceeded ${MAX_PAGES} pages`);
+      const totalCollected = collected.length + response.data.length;
+      if (total !== undefined && totalCollected > total) {
+        throw new Error(`yuque returned ${totalCollected} docs but meta.total is ${total}`);
+      }
+      if (response.data.length === 0) {
+        if (total !== undefined && totalCollected !== total) {
+          throw new Error(`yuque docs ended at ${totalCollected} before meta.total ${total}`);
+        }
+        return { items: response.data, hasMore: false };
+      }
+      if (total !== undefined ? totalCollected === total : response.data.length < PAGE_SIZE) {
+        return { items: response.data, hasMore: false };
+      }
+      return { items: response.data, next: offset + response.data.length, hasMore: true };
+    },
+  });
 }
 
 function itemFor(

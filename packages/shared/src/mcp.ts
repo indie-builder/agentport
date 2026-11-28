@@ -19,7 +19,6 @@ export function toolApprovalPath(serverId: string, runId: string, tool: string):
 }
 
 export const SECRET_MASK = '••••';
-export const PREVIEW_SECRET = SECRET_MASK;
 
 export function maskSecret(value: string | null | undefined): string {
   return value ? SECRET_MASK : '';

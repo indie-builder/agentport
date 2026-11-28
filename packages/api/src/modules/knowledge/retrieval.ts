@@ -22,11 +22,15 @@ import type {
   KnowledgeSearchWarning,
   KnowledgeTarget,
 } from '@agentport/shared';
-import { knowledgeImageChunkMetadataSchema, knowledgeLocatorSchema } from '@agentport/shared';
+import {
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
+  knowledgeImageChunkMetadataSchema,
+  knowledgeLocatorSchema,
+  supportsKnowledgeImageVectors,
+} from '@agentport/shared';
 import { type SQL, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { normalizeFaqQuestion } from './faq.js';
-import { supportsImageVectors } from './service.js';
 
 type Db = Database;
 
@@ -58,7 +62,7 @@ type SearchQuery = Omit<
 
 export type SearchKnowledgeResult = KnowledgeSearchResult;
 
-export interface SearchKnowledgeOptions {
+interface SearchKnowledgeOptions {
   secretKey: string;
   signal?: AbortSignal;
 }
@@ -529,7 +533,7 @@ export async function searchKnowledge(
     const embeddingProfile = {
       endpointUrl: profile.endpointUrl,
       model: profile.model,
-      dimensions: 1024 as const,
+      dimensions: KNOWLEDGE_EMBEDDING_DIMENSIONS,
       embeddingProtocol: profile.embeddingProtocol,
       imageInputEnabled: profile.imageInputEnabled,
       ...(profile.secretsEncrypted
@@ -556,7 +560,11 @@ export async function searchKnowledge(
         if (
           imageProcessing?.imageVectorEnabled === true &&
           imageProcessing.enabled &&
-          supportsImageVectors(embeddingProfile)
+          supportsKnowledgeImageVectors({
+            protocol: embeddingProfile.embeddingProtocol,
+            model: embeddingProfile.model,
+            supportsImageInput: embeddingProfile.imageInputEnabled,
+          })
         ) {
           imageVector = await imageVectorSearch(
             db,

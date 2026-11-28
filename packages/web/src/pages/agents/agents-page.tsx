@@ -24,6 +24,7 @@ import { useMemo, useRef, useState } from 'react';
 import digitalTwinPortrait from '../../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../../components/agent/agent-avatar.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterPopover } from '../../components/filter-popover.js';
 import { FilterSelect } from '../../components/filter-select.js';
@@ -67,6 +68,7 @@ import { can } from '../../lib/access.js';
 import { api } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
+import { badgeCreatedAt, formatLastUsed } from '../../lib/format.js';
 import {
   AGENTS_QUERY_KEY,
   meQuery,
@@ -84,7 +86,6 @@ import {
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { CreateAgentDialog } from './create-agent-dialog.js';
-import { badgeCreatedAt } from './shared.js';
 
 export function AgentsPage() {
   const me = useQuery(meQuery);
@@ -867,26 +868,7 @@ export function AgentsPage() {
             })}
           </ul>
         ) : null}
-        {agents.isFetchNextPageError ? (
-          <div className="flex justify-center">
-            <ErrorState
-              error={agents.error}
-              title="列表没有加载完"
-              onRetry={() => void agents.fetchNextPage()}
-            />
-          </div>
-        ) : agents.hasNextPage ? (
-          <div className="flex justify-center">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={agents.isFetchingNextPage}
-              onClick={() => void agents.fetchNextPage()}
-            >
-              {agents.isFetchingNextPage ? '加载中…' : '加载更多'}
-            </Button>
-          </div>
-        ) : null}
+        <CursorListFooter query={agents} errorTitle="列表没有加载完" />
       </PageBody>
       <Dialog
         open={badgeAgent !== null}
@@ -1059,19 +1041,6 @@ function ImportAgentDialog({
       </DialogShell>
     </Dialog>
   );
-}
-
-const lastUsedFormatter = new Intl.DateTimeFormat('zh-CN', {
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-});
-
-function formatLastUsed(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : lastUsedFormatter.format(date);
 }
 
 function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {

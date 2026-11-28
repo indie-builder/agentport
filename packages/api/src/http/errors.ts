@@ -1,7 +1,7 @@
 import { errorCodeForStatus } from '@agentport/contract/errors';
 import { AppError, fail, isAppError } from '@agentport/core';
 import { isPgCode } from '@agentport/db';
-import { ERROR_META, type ErrorCode, type Problem } from '@agentport/shared';
+import { ERROR_META, type ErrorCode, type Problem, problemSchema } from '@agentport/shared';
 import { ORPCError, ValidationError } from '@orpc/contract';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
@@ -96,13 +96,25 @@ function issuePath(path: readonly PropertyKey[]): string {
   return `/${path.map((part) => String(part).replaceAll('~', '~0').replaceAll('/', '~1')).join('/')}`;
 }
 
-export function problem(requestId: string, error: AppError, extra?: Partial<Problem>): Problem {
+const PROBLEM_CORE_FIELDS = new Set<string>(Object.keys(problemSchema.shape));
+
+export function publicErrorMessage(error: AppError): string {
+  return error.status >= 500 && error.status !== 502 && error.status !== 503
+    ? 'Internal server error'
+    : error.message;
+}
+
+function problem(requestId: string, error: AppError, extra?: Partial<Problem>): Problem {
+  const extraFields =
+    error.extra === undefined
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(error.extra).filter(([key]) => !PROBLEM_CORE_FIELDS.has(key)),
+        );
   return {
+    ...extraFields,
     code: error.code,
-    message:
-      error.status >= 500 && error.status !== 502 && error.status !== 503
-        ? 'Internal server error'
-        : error.message,
+    message: publicErrorMessage(error),
     status: error.status,
     requestId,
     retryable: error.retryable,

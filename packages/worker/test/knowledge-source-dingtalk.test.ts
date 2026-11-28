@@ -82,6 +82,7 @@ function config(settings: Record<string, unknown>): SourceConfig {
     },
     trustedHosts: ['api.dingtalk.com'],
     allowLoopback: true,
+    nodeEnv: 'test',
   };
 }
 

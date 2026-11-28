@@ -169,7 +169,7 @@ async function runTlc(javaBin: string, jarPath: string, check: CheckSpec) {
         jarPath,
         'tlc2.TLC',
         '-workers',
-        'auto',
+        '2',
         '-metadir',
         metaDir,
         '-config',
@@ -189,13 +189,38 @@ async function runTlc(javaBin: string, jarPath: string, check: CheckSpec) {
   }
 }
 
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      const item = items[index];
+      if (item !== undefined) {
+        results[index] = await fn(item);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
+}
+
 const started = performance.now();
 const javaBin = await resolveJava17();
 const jarPath = await ensureTlaJar();
 
+const outcomes = await mapLimit(CHECKS, 3, async (check) => ({
+  check,
+  ...(await runTlc(javaBin, jarPath, check)),
+}));
+
 let failed = false;
-for (const check of CHECKS) {
-  const { exitCode, output } = await runTlc(javaBin, jarPath, check);
+for (const { check, exitCode, output } of outcomes) {
   const summary = summarizeTlc(output);
   if (check.kind === 'pass') {
     if (exitCode !== 0) {

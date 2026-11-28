@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EXTENSION_BY_MIME, extensionWithDot, mimeOf } from './source-formats.js';
+import { extensionForMime, extensionWithDot, mimeOf } from './source-formats.js';
 import {
   type FetchOptions,
   fetchBytes,
@@ -9,16 +9,16 @@ import {
   parseJsonResponse,
   readBytesCapped,
   rethrowAuth,
+  type SourceUrlOptions,
   sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, trimSlash, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
-import { failureOf, parseInitialCursor, snapshotOf } from './source-utils.js';
+import { failureOf, paginateCursor, parseInitialCursor, snapshotOf } from './source-utils.js';
 
 const PAGE_SIZE = 250;
 const DC_PAGE_SIZE = 100;
-const MAX_PAGES = 1000;
 
 const settingsSchema = z.object({
   authMode: z.enum(['cloud_basic', 'cloud_scoped', 'dc_pat']),
@@ -31,10 +31,7 @@ const settingsSchema = z.object({
 
 type Settings = z.infer<typeof settingsSchema>;
 
-type Network = {
-  allowLoopback?: boolean;
-  trustedHosts?: readonly string[];
-};
+type Network = Pick<SourceUrlOptions, 'allowLoopback' | 'trustedHosts' | 'nodeEnv'>;
 
 type Auth = {
   settings: Settings;
@@ -261,22 +258,22 @@ async function collect<T>(
   read: (url: string) => Promise<Envelope<T>>,
 ): Promise<T[]> {
   const base = new URL(checkedNextUrl(first, auth, label));
-  const out: T[] = [];
-  const seen = new Set<string>();
-  let next: string | undefined = base.href;
-  for (let page = 0; next !== undefined; page += 1) {
-    if (page >= MAX_PAGES) throw new Error(`${label} exceeded ${MAX_PAGES} pages`);
-    const url = next;
-    if (seen.has(url)) throw new Error(`${label} pagination repeated a page`);
-    seen.add(url);
-    const envelope = await read(url);
-    out.push(...envelope.results);
-    next = envelope.next === undefined ? undefined : nextPageUrl(envelope.next, base, auth, label);
-    if (next !== undefined && envelope.results.length === 0) {
-      throw new Error(`${label} returned an empty page before the end`);
-    }
-  }
-  return out;
+  return paginateCursor<T>({
+    label,
+    cursorName: 'page',
+    initialCursor: base.href,
+    fetchPage: async (url) => {
+      const envelope = await read(url);
+      const next =
+        envelope.next === undefined ? undefined : nextPageUrl(envelope.next, base, auth, label);
+      if (next !== undefined && envelope.results.length === 0) {
+        throw new Error(`${label} returned an empty page before the end`);
+      }
+      return next === undefined
+        ? { items: envelope.results, hasMore: false }
+        : { items: envelope.results, next, hasMore: true };
+    },
+  });
 }
 
 function nextFromLinkHeader(headers: Headers): string | undefined {
@@ -309,7 +306,7 @@ async function fetchJsonWithNext<T>(
 function filenameOf(title: string | undefined, id: string, mime: string | undefined): string {
   const clean = sanitizeSegment(title ?? '', `attachment-${id}`);
   if (extensionWithDot(clean)) return clean;
-  const extension = mime ? EXTENSION_BY_MIME[mime] : undefined;
+  const extension = extensionForMime(mime);
   return extension ? `${clean}.${extension}` : clean;
 }
 

@@ -1,5 +1,4 @@
 import type { AgentSummary, ConversationSearchItem, OutputRef } from '@agentport/shared';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   createResizableController,
@@ -21,21 +20,21 @@ import { Page, PageHeader } from '../../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Sheet, SheetContent, SheetTitle } from '../../components/ui/sheet.js';
-import { type ApprovalRequest, api } from '../../lib/api.js';
+import type { ApprovalRequest } from '../../lib/api.js';
 import { mergeOlderHistory, titleFromDetail } from '../../lib/chat-state.js';
 import { isActivePhase, useChatStore } from '../../lib/chat-store.js';
 import { useFormBlocker } from '../../lib/form.js';
 import {
-  chatKeys,
-  OVERVIEW_QUERY_KEY,
-  runKeys,
   useAgents,
   useAgentsTruncated,
   useApproveRun,
+  useBranchConversation,
   useCancelRun,
   useConversation,
   useConversations,
+  useDeleteConversation,
   useDenyRun,
+  useRenameConversation,
   useRunApprovals,
   useRunQuestions,
 } from '../../lib/queries.js';
@@ -222,7 +221,6 @@ function ChatWorkspace({
   const historyOpen = useChatStore((state) => state.historyOpen);
   const setInput = useChatStore((state) => state.setInput);
   const setHistoryOpen = useChatStore((state) => state.setHistoryOpen);
-  const client = useQueryClient();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const workspaceToggleRef = useRef<HTMLButtonElement>(null);
   const [renaming, setRenaming] = useState<{
@@ -301,33 +299,8 @@ function ChatWorkspace({
   const approveMutation = useApproveRun();
   const denyMutation = useDenyRun();
 
-  const branchMutation = useMutation({
-    mutationFn: ({
-      id,
-      fromMessageId,
-    }: {
-      id: string;
-      fromMessageId?: string;
-      ownsRequest: () => boolean;
-    }) => api.branchConversation(id, fromMessageId),
-    onSuccess: (conversation, { ownsRequest }) => {
-      if (ownsRequest()) openConversation(conversation.id);
-      void client.invalidateQueries({ queryKey: chatKeys.conversations() });
-    },
-    onError: (error, { ownsRequest }) => {
-      if (ownsRequest()) toastError(error);
-    },
-  });
-
-  const renameMutation = useMutation({
-    mutationFn: (input: { id: string; title: string }) =>
-      api.renameConversation(input.id, input.title),
-    onSuccess: (_conversation, input) => {
-      void client.invalidateQueries({ queryKey: chatKeys.conversations() });
-      void client.invalidateQueries({ queryKey: chatKeys.conversation(input.id) });
-    },
-    onError: (error) => toastError(error),
-  });
+  const branchMutation = useBranchConversation();
+  const renameMutation = useRenameConversation();
 
   const renameDirty = renaming ? renaming.draft.trim() !== renaming.entry.title : false;
   const renameBlocker = useRenameBlocker(renameDirty, renameMutation.isPending);
@@ -336,17 +309,7 @@ function ChatWorkspace({
     renameBlocker.proceed?.();
   }, [renaming, renameMutation.isPending, renameBlocker]);
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.deleteConversation(id),
-    onSuccess: (_data, id) => {
-      void client.invalidateQueries({ queryKey: chatKeys.conversations() });
-      void client.invalidateQueries({ queryKey: chatKeys.conversation(id) });
-      void client.invalidateQueries({ queryKey: runKeys.all });
-      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
-      if (id === conversationId) setDeletedConversation(id);
-      toastSuccess('会话已删除');
-    },
-  });
+  const deleteMutation = useDeleteConversation();
   const deleteBlocker = useFormBlocker(false, deleteMutation.isPending);
 
   const cancel = (): void => {
@@ -429,12 +392,23 @@ function ChatWorkspace({
     newConversation(true);
   }, [deletedConversation, deleteMutation.isPending, deleteBlocker, newConversation]);
 
-  const branch = (id: string, fromMessageId?: string): void =>
-    branchMutation.mutate({
-      id,
-      ...(fromMessageId === undefined ? {} : { fromMessageId }),
-      ownsRequest: stream.captureRequest(),
-    });
+  const branch = (id: string, fromMessageId?: string): void => {
+    const ownsRequest = stream.captureRequest();
+    branchMutation.mutate(
+      {
+        id,
+        ...(fromMessageId === undefined ? {} : { fromMessageId }),
+      },
+      {
+        onSuccess: (conversation) => {
+          if (ownsRequest()) openConversation(conversation.id);
+        },
+        onError: (error) => {
+          if (ownsRequest()) toastError(error);
+        },
+      },
+    );
+  };
 
   useEffect(() => {
     if (useChatStore.getState().conversationId === conversationId) return;
@@ -621,7 +595,12 @@ function ChatWorkspace({
       blocker={renameBlocker}
       onTitleChange={(draft) => setRenaming({ ...renaming, draft })}
       onClose={() => setRenaming(null)}
-      onRename={(title) => renameMutation.mutateAsync({ id: renaming.entry.id, title })}
+      onRename={(title) =>
+        renameMutation.mutateAsync(
+          { id: renaming.entry.id, title },
+          { onError: (error) => toastError(error) },
+        )
+      }
       // 菜单项随菜单卸载；触发器还在就回到它，否则交给 ui-sdk 的默认落点。
       finalFocus={() => (renaming.trigger.isConnected ? renaming.trigger : null)}
     />
@@ -634,7 +613,14 @@ function ChatWorkspace({
       title="删除会话？"
       description={`「${deleteTarget.title}」及其消息、运行记录会被永久删除，无法恢复。`}
       confirmLabel="删除会话"
-      onConfirm={() => deleteMutation.mutateAsync(deleteTarget.id)}
+      onConfirm={() =>
+        deleteMutation.mutateAsync(deleteTarget.id, {
+          onSuccess: () => {
+            if (deleteTarget.id === conversationId) setDeletedConversation(deleteTarget.id);
+            toastSuccess('会话已删除');
+          },
+        })
+      }
       finalFocus={() =>
         deleteTarget.trigger.isConnected && !deleteTarget.trigger.matches(':disabled')
           ? deleteTarget.trigger

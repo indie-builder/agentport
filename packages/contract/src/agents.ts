@@ -28,6 +28,7 @@ import {
   outputStyleSchema,
   pageQuerySchema,
   permissionIdSchema,
+  ruleInputSchema,
   ruleSchema,
   slugSchema,
   workspaceFilesSchema,
@@ -48,10 +49,9 @@ const memoryFileParams = z.object({
 const memoryWriteBody = z.object({ content: z.string() });
 const ruleParams = z.object({ id: z.string().min(1), slug: slugSchema });
 const outputStyleParams = z.object({ id: z.string().min(1), slug: slugSchema });
-const ruleBody = z.object({
-  content: z.string().max(100000),
-  globs: z.string().max(1000).default(''),
-});
+const ruleBody = ruleInputSchema
+  .pick({ content: true, globs: true })
+  .extend({ content: ruleInputSchema.shape.content.removeDefault() });
 const outputStyleWriteBody = outputStyleInputSchema.pick({
   description: true,
   keepCodingInstructions: true,

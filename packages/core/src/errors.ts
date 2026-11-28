@@ -1,6 +1,16 @@
 import { ERROR_META, type ErrorCode } from '@agentport/shared';
 import { NOT_FOUND_MESSAGES, type NotFoundResource } from './domain-messages.js';
 
+export interface AppErrorOptions {
+  path?: string | undefined;
+  resource?: string | undefined;
+  resourceId?: string | undefined;
+  hint?: string | undefined;
+  cause?: unknown;
+  retryable?: boolean | undefined;
+  extra?: Record<string, unknown> | undefined;
+}
+
 export class AppError extends Error {
   readonly code: ErrorCode;
   readonly status: number;
@@ -10,19 +20,9 @@ export class AppError extends Error {
   readonly resourceId?: string;
   readonly hint?: string;
   readonly cause?: unknown;
+  readonly extra?: Record<string, unknown>;
 
-  constructor(
-    code: ErrorCode,
-    message: string,
-    options?: {
-      path?: string;
-      resource?: string;
-      resourceId?: string;
-      hint?: string;
-      cause?: unknown;
-      retryable?: boolean;
-    },
-  ) {
+  constructor(code: ErrorCode, message: string, options?: AppErrorOptions) {
     super(message);
     this.name = 'AppError';
     this.code = code;
@@ -33,21 +33,11 @@ export class AppError extends Error {
     if (options?.resourceId !== undefined) this.resourceId = options.resourceId;
     if (options?.hint !== undefined) this.hint = options.hint;
     if (options?.cause !== undefined) this.cause = options.cause;
+    if (options?.extra !== undefined) this.extra = options.extra;
   }
 }
 
-export function fail(
-  code: ErrorCode,
-  message: string,
-  options?: {
-    path?: string;
-    resource?: string;
-    resourceId?: string;
-    hint?: string;
-    cause?: unknown;
-    retryable?: boolean;
-  },
-): never {
+export function fail(code: ErrorCode, message: string, options?: AppErrorOptions): never {
   throw new AppError(code, message, options);
 }
 

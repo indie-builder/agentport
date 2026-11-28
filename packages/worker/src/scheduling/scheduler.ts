@@ -1,7 +1,7 @@
 import { type createDb, newId, repo, schema } from '@agentport/db';
 import {
-  AGENT_RUNS_BACKLOG_LIMIT,
   type AgentRunJob,
+  RUN_QUEUE_MAX_WAITING,
   RUNS_QUEUE,
   type RunErrorKind,
   runEnqueueOptions,
@@ -183,7 +183,7 @@ export async function processScheduleTrigger(
     }
 
     const backlog = await input.runsQueue.getWaitingCount();
-    if (backlog > AGENT_RUNS_BACKLOG_LIMIT) {
+    if (backlog > RUN_QUEUE_MAX_WAITING) {
       await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
         reason: 'backlog',
         waiting: backlog,

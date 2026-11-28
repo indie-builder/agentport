@@ -73,6 +73,7 @@ function config(repoId = REPO, paths: string[] = []): SourceConfig {
     credentials: { apiToken: '{{SECRET_vyfaoqfj}}' },
     settings: { repoId, paths },
     allowLoopback: true,
+    nodeEnv: 'test',
   };
 }
 

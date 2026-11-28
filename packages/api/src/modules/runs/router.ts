@@ -2,22 +2,16 @@ import { runsContract } from '@agentport/contract/runs';
 import { buildSkillDraft, fail, isAppError, notFound } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
-import type { Hono } from 'hono';
-import { z } from 'zod';
-import { accessFilter, actorOf, requireUser } from '../../http/access.js';
-import { attachmentResponse } from '../../http/attachment.js';
-import type { HttpEnv, RequestContext } from '../../http/context.js';
-import { parseRequest, requestContext } from '../../http/context.js';
+import { accessFilter, requireUser } from '../../http/access.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { isPgCode, RUN_NOT_FOUND_MESSAGE } from '../../http/errors.js';
-import { access } from '../../http/middleware.js';
-import { runExportQuerySchema } from '../../http/native-schemas.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 import { readWorkspaceOutput } from '../../lib/outputs.js';
-import { recheckRunApproval } from '../servers/approval-policy.js';
 import { toApi as toApiSkill } from '../skills/api.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from './access.js';
-import { toRunDetail } from './events.js';
+import { recheckRunApproval } from './approval-policy.js';
+import { toRunDetail, toRunItem } from './events.js';
 import { runsQuestionsRouter } from './questions.js';
 
 const runsRepo = repo.runs;
@@ -54,9 +48,6 @@ async function decideRunApproval(
   return result;
 }
 
-function toItem(run: repo.runs.RunListItem) {
-  return { ...run, startedAt: toIso(run.startedAt), endedAt: toIso(run.endedAt) };
-}
 function toFeedback(row: repo.runFeedback.RunFeedbackRow) {
   return { ...row, createdAt: row.createdAt.toISOString() };
 }
@@ -75,7 +66,7 @@ const runsMainRouter = {
         access: accessFilter(context, 'runs.read'),
       }),
     );
-    return { items: page.items.map(toItem), nextCursor: page.nextCursor };
+    return { items: page.items.map(toRunItem), nextCursor: page.nextCursor };
   }),
   detail: os.detail.handler(async ({ input, context }) => {
     await authorizeRun(context, input.params.id, 'runs.read');
@@ -229,61 +220,5 @@ const runsMainRouter = {
     }
   }),
 };
-
-export function registerRunExportHttp(app: Hono<HttpEnv>): void {
-  app.get(
-    '/api/runs/export',
-    access({ kind: 'permission', permissionId: 'runs.export' }),
-    async (c) => {
-      const context = requestContext(c);
-      const input = parseRequest(
-        c,
-        z.object({
-          query: runExportQuerySchema,
-        }),
-      );
-      const { agentId, status, trigger, since, limit } = input.query;
-      const page = requireCursorPage(
-        await runsRepo.listRuns(context.db, {
-          ...(agentId === undefined ? {} : { agentId }),
-          ...(status === undefined ? {} : { status }),
-          ...(trigger === undefined ? {} : { trigger }),
-          ...(since === undefined ? {} : { since: new Date(since) }),
-          limit,
-          access: accessFilter(context, 'runs.export'),
-        }),
-      );
-      if (page.nextCursor !== null) {
-        return fail('CONFLICT', `运行记录超过 ${limit} 条，请先按智能体或状态缩小范围后再导出`);
-      }
-      return attachmentResponse(
-        JSON.stringify({
-          format: 'agentport/runs@1',
-          exportedAt: new Date().toISOString(),
-          items: page.items.map(toItem),
-        }),
-        'runs.json',
-        'application/json',
-      );
-    },
-  );
-  app.get(
-    '/api/runs/:id/export',
-    access({ kind: 'permission', permissionId: 'runs.export' }),
-    async (c) => {
-      const context = requestContext(c);
-      const id = c.req.param('id');
-      await authorizeRun(context, id, 'runs.export');
-      const detail = await runsRepo.getRunDetail(context.db, id);
-      if (!detail) notFound('run', RUN_MISSING);
-      const body = JSON.stringify({
-        format: 'agentport/run-trajectory@1',
-        exportedAt: new Date().toISOString(),
-        ...toRunDetail(detail),
-      });
-      return attachmentResponse(body, `run-${id}.json`, 'application/json');
-    },
-  );
-}
 
 export const runsRouter = { ...runsMainRouter, ...runsQuestionsRouter };

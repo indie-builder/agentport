@@ -2,12 +2,19 @@ import { isRecord } from '@agentport/core/record';
 import { z } from 'zod';
 import { fetchDownload } from './source-download.js';
 import { BINARY_MIME_BY_EXTENSION, declaredMime } from './source-formats.js';
-import { fetchJson, SourceItemError as ItemError, rethrowAuth } from './source-http.js';
+import {
+  fetchJson,
+  SourceItemError as ItemError,
+  rethrowAuth,
+  type SourceUrlOptions,
+  sourceNetworkOptions,
+} from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import {
   failureOf,
   isAbort,
+  paginateCursor,
   parseInitialCursor,
   signalOption,
   snapshotOf,
@@ -16,7 +23,6 @@ import {
 } from './source-utils.js';
 
 const BASE = 'https://api.dingtalk.com';
-const MAX_PAGES = 1000;
 const BLOCK_PAGE_SIZE = 100;
 
 const SUPPORTED_BINARY_MIME: Record<string, string | undefined> = {
@@ -103,15 +109,19 @@ const blocksSchema = z.object({
 type Settings = z.infer<typeof settingsSchema>;
 type Node = z.infer<typeof nodeSchema>;
 
+type Network = Pick<SourceUrlOptions, 'allowLoopback' | 'trustedHosts' | 'nodeEnv'>;
+
 type Auth = {
   settings: Settings;
   headers: Record<string, string>;
+  network: Network;
 };
 
 function apiOptions(auth: Auth, signal: AbortSignal | undefined) {
   return {
     headers: auth.headers,
     authOrigin: new URL(BASE).origin,
+    ...auth.network,
     ...signalOption(signal),
   };
 }
@@ -120,6 +130,7 @@ async function authenticate(config: SourceConfig, signal: AbortSignal | undefine
   const settings = settingsSchema.parse(config.settings);
   const secret = config.credentials.clientSecret?.trim();
   if (!secret) throw new Error('dingtalk credentials.clientSecret is required');
+  const network = sourceNetworkOptions(config);
 
   const response = await fetchJson(
     `${BASE}/v1.0/oauth2/accessToken`,
@@ -129,6 +140,7 @@ async function authenticate(config: SourceConfig, signal: AbortSignal | undefine
       body: JSON.stringify({ appKey: settings.clientId, appSecret: secret }),
       headers: { 'content-type': 'application/json; charset=utf-8' },
       authOrigin: new URL(BASE).origin,
+      ...network,
       ...signalOption(signal),
     },
     'dingtalk access token',
@@ -142,6 +154,7 @@ async function authenticate(config: SourceConfig, signal: AbortSignal | undefine
       'x-acs-dingtalk-access-token': token,
       'content-type': 'application/json; charset=utf-8',
     },
+    network,
   };
 }
 
@@ -186,34 +199,33 @@ async function listChildren(
   signal: AbortSignal | undefined,
   firstPageOnly = false,
 ): Promise<Node[]> {
-  const nodes: Node[] = [];
-  const seen = new Set<string>();
-  let nextToken = '';
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const params = new URLSearchParams({
-      parentNodeId,
-      operatorId: auth.settings.operatorUnionId,
-      maxResults: '50',
-    });
-    if (nextToken) params.set('nextToken', nextToken);
-    const response = await fetchJson(
-      `${BASE}/v2.0/wiki/nodes?${params.toString()}`,
-      nodeListSchema,
-      apiOptions(auth, signal),
-      'dingtalk wiki nodes',
-    );
-    nodes.push(...response.nodes);
-    const next = response.nextToken?.trim() ?? '';
-    if (response.nodes.length === 0 && next) {
-      throw new Error('dingtalk wiki nodes returned an empty page with a nextToken');
-    }
-    if (firstPageOnly) return nodes;
-    if (!next) return nodes;
-    if (seen.has(next)) throw new Error(`dingtalk wiki pagination repeated nextToken ${next}`);
-    seen.add(next);
-    nextToken = next;
-  }
-  throw new Error(`dingtalk wiki pagination exceeded ${MAX_PAGES} pages`);
+  return paginateCursor<Node>({
+    label: 'dingtalk wiki pagination',
+    cursorName: 'nextToken',
+    initialCursor: '',
+    fetchPage: async (nextToken) => {
+      const params = new URLSearchParams({
+        parentNodeId,
+        operatorId: auth.settings.operatorUnionId,
+        maxResults: '50',
+      });
+      if (nextToken) params.set('nextToken', nextToken);
+      const response = await fetchJson(
+        `${BASE}/v2.0/wiki/nodes?${params.toString()}`,
+        nodeListSchema,
+        apiOptions(auth, signal),
+        'dingtalk wiki nodes',
+      );
+      const next = response.nextToken?.trim() ?? '';
+      if (response.nodes.length === 0 && next) {
+        throw new Error('dingtalk wiki nodes returned an empty page with a nextToken');
+      }
+      if (firstPageOnly || !next) {
+        return { items: response.nodes, hasMore: false };
+      }
+      return { items: response.nodes, next, hasMore: true };
+    },
+  });
 }
 
 async function getNode(auth: Auth, nodeId: string, signal: AbortSignal | undefined): Promise<Node> {
@@ -330,10 +342,6 @@ async function readUploadedDocument(
 
 type Block = Record<string, unknown>;
 
-function recordOf(value: unknown): Block | undefined {
-  return isRecord(value) ? value : undefined;
-}
-
 function levelOf(value: unknown): number {
   const raw = typeof value === 'number' ? value : Number(textOf(value));
   if (!Number.isFinite(raw)) return 0;
@@ -378,10 +386,10 @@ function renderInlines(value: unknown): string {
   }
   let result = '';
   for (const child of value) {
-    const inline = recordOf(child);
-    if (!inline) {
+    if (!isRecord(child)) {
       throw new ItemError('dingtalk inline element was not an object', 'unsupported_block', false);
     }
+    const inline = child;
     if (typeof inline.blockType === 'string') {
       throw new ItemError(
         `unsupported nested block ${inline.blockType} inside inline content`,
@@ -389,7 +397,7 @@ function renderInlines(value: unknown): string {
         false,
       );
     }
-    const properties = recordOf(inline.properties);
+    const properties = isRecord(inline.properties) ? inline.properties : undefined;
     const elementType = textOf(inline.elementType).toLowerCase();
     switch (elementType) {
       case '':
@@ -432,11 +440,10 @@ function cellText(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) return value.map(cellText).join('');
-  const record = recordOf(value);
-  if (!record) return '';
-  const text = textOf(record.text);
+  if (!isRecord(value)) return '';
+  const text = textOf(value.text);
   if (text) return text;
-  return record.children ? cellText(record.children) : '';
+  return value.children ? cellText(value.children) : '';
 }
 
 function tableRows(value: unknown): string[][] {
@@ -460,13 +467,15 @@ function renderTable(value: unknown): string {
 }
 
 function renderList(block: Block, ordered: boolean): string {
-  const list = recordOf(ordered ? block.orderedList : block.unorderedList);
+  const rawList = ordered ? block.orderedList : block.unorderedList;
+  const list = isRecord(rawList) ? rawList : undefined;
   // 文档形态把条目正文放在 children 的 inline 元素里；上游实测也把同一正文放在 text。
   const text = renderInlines(block.children) || escapeText(textOf(list?.text));
   if (!text) {
     throw new ItemError('dingtalk list block had no readable text', 'unsupported_block', false);
   }
-  const level = levelOf(recordOf(list?.list)?.level);
+  const listProps = isRecord(list?.list) ? list.list : undefined;
+  const level = levelOf(listProps?.level);
   const indent = '  '.repeat(level);
   const marker = ordered ? '1. ' : '- ';
   const lines = text.split('\n');
@@ -479,24 +488,26 @@ function renderList(block: Block, ordered: boolean): string {
 }
 
 function renderBlock(value: unknown): string {
-  const block = recordOf(value);
-  if (!block) throw new ItemError('dingtalk block was not an object', 'invalid_response', false);
+  if (!isRecord(value)) {
+    throw new ItemError('dingtalk block was not an object', 'invalid_response', false);
+  }
+  const block = value;
   const blockType = textOf(block.blockType).toLowerCase();
   switch (blockType) {
     case 'paragraph': {
-      const text =
-        renderInlines(block.children) || escapeText(textOf(recordOf(block.paragraph)?.text));
+      const paragraph = isRecord(block.paragraph) ? block.paragraph : undefined;
+      const text = renderInlines(block.children) || escapeText(textOf(paragraph?.text));
       return text ? `${text}\n\n` : '';
     }
     case 'heading': {
-      const heading = recordOf(block.heading);
+      const heading = isRecord(block.heading) ? block.heading : undefined;
       const text = renderInlines(block.children) || escapeText(textOf(heading?.text));
       if (!text) return '';
       return `${'#'.repeat(Math.max(1, levelOf(heading?.level)))} ${text}\n\n`;
     }
     case 'blockquote': {
-      const text =
-        renderInlines(block.children) || escapeText(textOf(recordOf(block.blockquote)?.text));
+      const blockquote = isRecord(block.blockquote) ? block.blockquote : undefined;
+      const text = renderInlines(block.children) || escapeText(textOf(blockquote?.text));
       if (!text) return '';
       return `${text
         .split('\n')
@@ -508,7 +519,7 @@ function renderBlock(value: unknown): string {
     case 'unorderedlist':
       return renderList(block, false);
     case 'code': {
-      const code = recordOf(block.code);
+      const code = isRecord(block.code) ? block.code : undefined;
       const text = textOf(code?.text);
       if (!text) throw new ItemError('dingtalk code block was empty', 'unsupported_block', false);
       const title = textOf(code?.title)
@@ -523,9 +534,9 @@ function renderBlock(value: unknown): string {
       }${fence}\n\n`;
     }
     case 'table':
-      return renderTable(recordOf(block.table)?.cells);
+      return renderTable(isRecord(block.table) ? block.table.cells : undefined);
     case 'attachment': {
-      const attachment = recordOf(block.attachment);
+      const attachment = isRecord(block.attachment) ? block.attachment : undefined;
       const name = textOf(attachment?.name)
         .replace(/[\r\n]+/g, ' ')
         .trim();
@@ -562,45 +573,50 @@ async function readBlocks(
   signal: AbortSignal | undefined,
   firstPageOnly = false,
 ): Promise<unknown[]> {
-  const blocks: unknown[] = [];
   const seenIds = new Set<string>();
   const seenPages = new Set<string>();
 
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const start = page * BLOCK_PAGE_SIZE;
-    const params = new URLSearchParams({
-      operatorId: auth.settings.operatorUnionId,
-      startIndex: String(start),
-      endIndex: String(start + BLOCK_PAGE_SIZE - 1),
-    });
-    const response = await fetchJson(
-      `${BASE}/v1.0/doc/suites/documents/${encodeURIComponent(docKey)}/blocks?${params.toString()}`,
-      blocksSchema,
-      apiOptions(auth, signal),
-      'dingtalk document blocks',
-    );
-    if (response.success !== true || !response.result) {
-      throw new Error('dingtalk document blocks request was unsuccessful');
-    }
-    const data = response.result.data;
-    if (data.length === 0) return blocks;
+  return paginateCursor<unknown, number>({
+    label: 'dingtalk document block pagination',
+    cursorName: 'page',
+    initialCursor: 0,
+    fetchPage: async (page) => {
+      const start = page * BLOCK_PAGE_SIZE;
+      const params = new URLSearchParams({
+        operatorId: auth.settings.operatorUnionId,
+        startIndex: String(start),
+        endIndex: String(start + BLOCK_PAGE_SIZE - 1),
+      });
+      const response = await fetchJson(
+        `${BASE}/v1.0/doc/suites/documents/${encodeURIComponent(docKey)}/blocks?${params.toString()}`,
+        blocksSchema,
+        apiOptions(auth, signal),
+        'dingtalk document blocks',
+      );
+      if (response.success !== true || !response.result) {
+        throw new Error('dingtalk document blocks request was unsuccessful');
+      }
+      const data = response.result.data;
+      if (data.length === 0) return { items: [], hasMore: false };
 
-    const signature = JSON.stringify(data);
-    if (seenPages.has(signature)) {
-      throw new Error('dingtalk document block pagination repeated a page');
-    }
-    seenPages.add(signature);
+      const signature = JSON.stringify(data);
+      if (seenPages.has(signature)) {
+        throw new Error('dingtalk document block pagination repeated a page');
+      }
+      seenPages.add(signature);
 
-    for (const block of data) {
-      const id = asString(recordOf(block)?.id);
-      if (!id) continue;
-      if (seenIds.has(id)) throw new Error(`dingtalk document repeated block id ${id}`);
-      seenIds.add(id);
-    }
-    blocks.push(...data);
-    if (firstPageOnly || data.length < BLOCK_PAGE_SIZE) return blocks;
-  }
-  throw new Error(`dingtalk document block pagination exceeded ${MAX_PAGES} pages`);
+      for (const block of data) {
+        const id = asString(isRecord(block) ? block.id : undefined);
+        if (!id) continue;
+        if (seenIds.has(id)) throw new Error(`dingtalk document repeated block id ${id}`);
+        seenIds.add(id);
+      }
+      if (firstPageOnly || data.length < BLOCK_PAGE_SIZE) {
+        return { items: data, hasMore: false };
+      }
+      return { items: data, next: page + 1, hasMore: true };
+    },
+  });
 }
 
 async function readOnlineDocument(

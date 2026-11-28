@@ -401,7 +401,7 @@ docker compose exec -T postgres psql -U agentport -d agentport -c 'SHOW max_conn
 grep '^DB_POOL_MAX=' .env
 ```
 
-对照：api 一个池；worker 主入口一个池，`sandbox-probe` 另建一个池，故单 API + 单 worker 按 `3 × DB_POOL_MAX` 计上限预算（48 时为 144），这是上限而非常驻连接。每进程副本、额外脚本与管理预留都要计入 `max_connections`，按各池配置求和；`pg_stat_activity` 连接长期打满且请求排队表明连接或查询处理能力受限，结合慢查询记录中的执行耗时、`wait_event_type` / `wait_event` 与数据库 CPU、内存、IO 余量判断是扩池还是先优化查询；`now()-state_change` 表示当前状态持续时间，不能无条件当作 SQL 执行时长；大量 `idle in transaction` 则是代码层长事务。
+对照：api 一个池；worker 主入口一个池（`sandbox-probe` 复用该主池，仅独立执行 `maintenance` 脚本时另建短时连接），故单 API + 单常驻 worker 按 `2 × DB_POOL_MAX` 计上限预算（48 时为 96），这是上限而非常驻连接。每进程副本、额外脚本与管理预留都要计入 `max_connections`，按各池配置求和；`pg_stat_activity` 连接长期打满且请求排队表明连接或查询处理能力受限，结合慢查询记录中的执行耗时、`wait_event_type` / `wait_event` 与数据库 CPU、内存、IO 余量判断是扩池还是先优化查询；`now()-state_change` 表示当前状态持续时间，不能无条件当作 SQL 执行时长；大量 `idle in transaction` 则是代码层长事务。
 
 ### 处置
 

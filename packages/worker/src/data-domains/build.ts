@@ -10,6 +10,7 @@ import {
   DATA_DOMAIN_BUILDS_QUEUE,
   type DataDomainBuildJob,
   dataDomainBuildJobSchema,
+  escapeRegExp,
 } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { z } from 'zod';
@@ -46,10 +47,6 @@ const buildResponseSchema = z.discriminatedUnion('ok', [
   }),
 ]);
 
-function regexEscape(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function hexCi(byte: number): string {
   return byte
     .toString(16)
@@ -66,7 +63,7 @@ function percentPattern(secret: string): RegExp {
       const percent = Array.from(new TextEncoder().encode(char), (byte) => `%${hexCi(byte)}`).join(
         '',
       );
-      return `(?:${percent}|${regexEscape(char)})`;
+      return `(?:${percent}|${escapeRegExp(char)})`;
     }).join(''),
     'g',
   );

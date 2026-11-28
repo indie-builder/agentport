@@ -2,8 +2,8 @@ import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { AppContext } from '../../http/context.js';
 import { isRunCancelRequested, publishChannelEventSafely } from '../../queue/producer.js';
-import { evaluateLockedApproval, getRunApprovalTool } from './approval-policy.js';
-import { summarizeToolArguments } from './tool-arguments.js';
+import { evaluateLockedApproval, getRunApprovalTool } from '../runs/approval-policy.js';
+import { summarizeToolArguments } from '../runs/tool-arguments.js';
 
 export async function requestToolApproval(
   app: AppContext,

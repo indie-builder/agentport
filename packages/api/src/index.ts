@@ -21,7 +21,7 @@ const stopChannelWakeSweeper = startChannelWakeSweeper({
   anthropicBaseUrl: config.ANTHROPIC_BASE_URL,
 });
 const { app } = runtime;
-const webDist = process.env.WEB_DIST ? resolve(process.env.WEB_DIST) : undefined;
+const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : undefined;
 if (webDist && existsSync(webDist)) {
   app.get('*', async (c, next) => {
     if (/^\/(api|mcp|health)(\/|$)/.test(c.req.path)) return c.notFound();

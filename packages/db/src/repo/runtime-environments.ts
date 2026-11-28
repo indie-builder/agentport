@@ -32,6 +32,7 @@ import { newId } from '../id.js';
 import { agents, runtimeEnvironments, runtimeEnvironmentVersions } from '../schema.js';
 import { resourceScopeWhere } from './access.js';
 import { lockDefaultRuntimeEnvironment } from './locks.js';
+import { logTailFields } from './log-tail.js';
 import { type CursorPage, paginate } from './pagination.js';
 import { isPgCode } from './pg-errors.js';
 
@@ -476,11 +477,17 @@ export async function appendRuntimeEnvironmentBuildLog(
   chunk: string,
 ): Promise<void> {
   if (chunk === '') return;
+  const { tail, truncated } = logTailFields({
+    tailColumn: runtimeEnvironmentVersions.buildLog,
+    truncatedColumn: runtimeEnvironmentVersions.logTruncated,
+    chunk,
+    limitBytes: RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT,
+  });
   await db
     .update(runtimeEnvironmentVersions)
     .set({
-      buildLog: sql`right(${runtimeEnvironmentVersions.buildLog} || ${chunk}, ${RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT})`,
-      logTruncated: sql`${runtimeEnvironmentVersions.logTruncated} or length(${runtimeEnvironmentVersions.buildLog} || ${chunk}) > ${RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT}`,
+      buildLog: tail,
+      logTruncated: truncated,
     })
     .where(
       and(

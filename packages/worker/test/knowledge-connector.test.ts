@@ -38,7 +38,7 @@ function feed(title: string, ids: string[]): string {
 
 let fixture: Awaited<ReturnType<typeof startServer>>;
 let fixtureUrl = '';
-const network: ConnectorNetwork = { allowLoopback: true };
+const network: ConnectorNetwork = { allowLoopback: true, nodeEnv: 'test' };
 
 beforeAll(async () => {
   fixture = await startServer((request, response) => {
@@ -587,6 +587,7 @@ describe('connector item sourceId limit', () => {
   });
   const imaConfig = { clientId: 'client-id' };
   const imaSecrets = { apiKey: 'api-key' };
+  const imaNetwork: ConnectorNetwork = { ...network, trustedHosts: ['ima.qq.com'] };
 
   function installImaFetch(lists: Record<string, string[]>): void {
     stubFetch(
@@ -641,7 +642,7 @@ describe('connector item sourceId limit', () => {
       imaConfig,
       [imaRange('kb-a'), imaRange('kb-b')],
       {},
-      network,
+      imaNetwork,
       imaSecrets,
     );
 
@@ -661,7 +662,7 @@ describe('connector item sourceId limit', () => {
     const prefix = withConnection('ima:media:kb-1:');
     const overlong = 'm'.repeat(501 - prefix.length);
     installImaFetch({ 'kb-1': [overlong] });
-    const result = await run('ima', imaConfig, [imaRange('kb-1')], {}, network, imaSecrets);
+    const result = await run('ima', imaConfig, [imaRange('kb-1')], {}, imaNetwork, imaSecrets);
 
     expect(result.items.filter((item) => !item.failure)).toEqual([]);
     expect(result.items).toHaveLength(1);
@@ -682,7 +683,7 @@ describe('connector item sourceId limit', () => {
     const prefix = withConnection('ima:media:kb-1:');
     const overlong = 'm'.repeat(501 - prefix.length);
     installImaFetch({ 'kb-1': ['m-ok', overlong] });
-    const result = await run('ima', imaConfig, [imaRange('kb-1')], {}, network, imaSecrets);
+    const result = await run('ima', imaConfig, [imaRange('kb-1')], {}, imaNetwork, imaSecrets);
 
     expect(result.items.filter((item) => !item.failure).map((item) => item.sourceId)).toEqual([
       withConnection('ima:media:kb-1:m-ok'),
@@ -695,7 +696,7 @@ describe('connector item sourceId limit', () => {
     const prefix = withConnection('ima:media:kb-1:');
     const exact = 'm'.repeat(500 - prefix.length);
     installImaFetch({ 'kb-1': [exact] });
-    const accepted = await run('ima', imaConfig, [imaRange('kb-1')], {}, network, imaSecrets);
+    const accepted = await run('ima', imaConfig, [imaRange('kb-1')], {}, imaNetwork, imaSecrets);
 
     expect(accepted.items).toHaveLength(1);
     expect(accepted.items[0]?.failure).toBeUndefined();

@@ -771,3 +771,141 @@ describe('background refresh errors keep cached editors', () => {
     expect(view.state.doc.toString()).toBe('# 风格草稿');
   });
 });
+
+describe('memory, rule and style RHF validation and persistence', () => {
+  async function editInput(id: string, value: string) {
+    const element = document.getElementById(id) as HTMLInputElement | null;
+    if (!element) throw new Error(`Missing input: ${id}`);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        element,
+        value,
+      );
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+  }
+
+  it('validates new memory file name, enforces MEMORY.md line limits, and preserves failed save drafts', async () => {
+    vi.mocked(api.agentMemory).mockResolvedValue({
+      files: [
+        { name: 'MEMORY.md', size: 4, updatedAt: '2026-01-01T00:00:00Z' },
+        { name: 'topic.md', size: 8, updatedAt: '2026-01-01T00:00:00Z' },
+      ],
+      initialized: true,
+    });
+    const write = vi.spyOn(api, 'writeAgentMemoryFile');
+    await mountFiles();
+
+    await waitFor(() => editorView('memory-content'));
+    await click(button('新建记忆文件'));
+    const nameInput = document.querySelector<HTMLInputElement>('input[aria-label="记忆文件名"]');
+    if (!nameInput) throw new Error('Missing new file input');
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        nameInput,
+        'topic.md',
+      );
+      nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(button('创建'));
+    await waitFor(() => document.getElementById('memory-new-file-error')?.textContent !== '');
+    expect(nameInput.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById('memory-new-file-error')?.textContent).toContain('已存在');
+    expect(write).not.toHaveBeenCalled();
+
+    await click(button('取消'));
+    await replaceContent(
+      'memory-content',
+      Array.from({ length: 201 }, (_, index) => `line-${index}`).join('\n'),
+    );
+    await click(button('记忆保存'));
+    await waitFor(() => document.getElementById('memory-content-error')?.textContent !== '');
+    expect(document.getElementById('memory-content')?.getAttribute('aria-invalid')).toBe('true');
+    expect(write).not.toHaveBeenCalled();
+
+    write.mockRejectedValueOnce(new Error('保存失败'));
+    await replaceContent('memory-content', '# 失败保留草稿');
+    await click(button('记忆保存'));
+    await waitFor(() => write.mock.calls.length === 1);
+    expect(editorView('memory-content').state.doc.toString()).toBe('# 失败保留草稿');
+    expect(button('记忆保存').disabled).toBe(false);
+  });
+
+  it('validates rule slugs, resets dirty state after save, and keeps draft on failed save', async () => {
+    const onDirtyChange = vi.fn();
+    const write = vi.spyOn(api, 'writeAgentRule');
+    mount(createElement(RulesPanel, { agentId: 'expert', onDirtyChange }));
+
+    await waitFor(() => editorView('rule-content'));
+    await click(button('新建规则'));
+    await editInput('rule-slug', 'Bad Slug');
+    await click(button('保存规则'));
+    await waitFor(() => document.getElementById('rule-slug-error')?.textContent !== '');
+    expect(document.getElementById('rule-slug')?.getAttribute('aria-invalid')).toBe('true');
+    expect(write).not.toHaveBeenCalled();
+
+    await click(button('no-console'));
+    await click(button('放弃并继续'));
+    await waitFor(() => editorView('rule-content').state.doc.toString() === '# 规则');
+    await editInput('rule-globs', 'packages/web/**');
+    await replaceContent('rule-content', '# 更新后规则');
+
+    write.mockRejectedValueOnce(new Error('规则保存失败'));
+    await click(button('保存规则'));
+    await waitFor(() => write.mock.calls.length === 1);
+    expect(button('保存规则').disabled).toBe(false);
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+
+    write.mockResolvedValueOnce({
+      ...rule,
+      globs: 'packages/web/**',
+      content: '# 更新后规则',
+    });
+    await click(button('保存规则'));
+    await waitFor(() => button('保存规则').disabled === true);
+    expect(write).toHaveBeenLastCalledWith('expert', 'no-console', {
+      globs: 'packages/web/**',
+      content: '# 更新后规则',
+    });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('validates output style slug, updates fields cleanly, and resets dirty after save', async () => {
+    const onDirtyChange = vi.fn();
+    const write = vi.spyOn(api, 'writeAgentOutputStyle').mockResolvedValue({
+      ...style,
+      description: '更清晰',
+      keepCodingInstructions: true,
+      body: '# 更新风格',
+    });
+    mount(createElement(OutputStylesPanel, { agentId: 'expert', onDirtyChange }));
+
+    await waitFor(() => editorView('output-style-body'));
+    await click(button('新建风格'));
+    await editInput('output-style-slug', 'Bad Style');
+    await click(button('风格保存'));
+    await waitFor(() => document.getElementById('output-style-slug-error')?.textContent !== '');
+    expect(document.getElementById('output-style-slug')?.getAttribute('aria-invalid')).toBe('true');
+    expect(write).not.toHaveBeenCalled();
+
+    await click(itemButton('concise'));
+    await click(button('放弃并继续'));
+    await waitFor(() => editorView('output-style-body').state.doc.toString() === '# 风格');
+    await editInput('output-style-description', '更清晰');
+    const keepCoding = document.getElementById('output-style-keep-coding');
+    if (!keepCoding) throw new Error('Missing keep coding checkbox');
+    await click(keepCoding);
+    await replaceContent('output-style-body', '# 更新风格');
+
+    await click(button('风格保存'));
+    await waitFor(() => button('风格保存').disabled === true);
+    expect(write).toHaveBeenCalledWith('expert', 'concise', {
+      description: '更清晰',
+      keepCodingInstructions: true,
+      body: '# 更新风格',
+    });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+});

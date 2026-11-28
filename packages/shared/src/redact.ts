@@ -5,8 +5,16 @@ function mask(secret: string): string {
   return secret.length > 4 ? `${secret.slice(0, 4)}***` : '***';
 }
 
-const BEARER = /(\bBearer\s+)(?=[A-Za-z0-9._~+/=-]{8})([A-Za-z0-9._~+/=-]+)/gi;
-const PROVIDER_KEY = /\b(?:sk-|ghp_)[A-Za-z0-9_-]+/g;
+export const BEARER_TOKEN_PATTERN = /(\bBearer\s+)(?=[A-Za-z0-9._~+/=-]{8})([A-Za-z0-9._~+/=-]+)/gi;
+export const PROVIDER_KEY_PATTERNS = [
+  /\bsk-(?=[A-Za-z0-9_-]{10})[A-Za-z0-9_-]+/g,
+  /\bghp_(?=[A-Za-z0-9_-]{16})[A-Za-z0-9_-]+/g,
+] as const;
+export const SECRET_PATTERNS = {
+  bearer: BEARER_TOKEN_PATTERN,
+  providerKeys: PROVIDER_KEY_PATTERNS,
+} as const;
+
 const ASSIGNMENT =
   /\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|KEY)[A-Za-z0-9_]*)=("[^"\n]*"|'[^'\n]*'|[^\s,;&]+)/gi;
 const BASE64URL = /[A-Za-z0-9_-]+/g;
@@ -16,12 +24,15 @@ function looksRandom(token: string): boolean {
 }
 
 export function redactSecrets(text: string): string {
-  return text
-    .replace(BEARER, (_match, prefix: string, token: string) => `${prefix}${mask(token)}`)
-    .replace(PROVIDER_KEY, (match) => {
-      const prefixLength = match.startsWith('sk-') ? 3 : 4;
-      return match.length - prefixLength >= 16 ? mask(match) : match;
-    })
+  const withBearer = text.replace(
+    BEARER_TOKEN_PATTERN,
+    (_match, prefix: string, token: string) => `${prefix}${mask(token)}`,
+  );
+  const withProviderKeys = PROVIDER_KEY_PATTERNS.reduce(
+    (acc, pattern) => acc.replace(pattern, mask),
+    withBearer,
+  );
+  return withProviderKeys
     .replace(ASSIGNMENT, (_match, key: string, value: string) => {
       const quote = value[0] === '"' || value[0] === "'" ? value[0] : '';
       const body = quote ? value.slice(1, -1) : value;

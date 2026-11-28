@@ -1,12 +1,10 @@
 import { knowledgeSearchHitSchema, knowledgeSearchResultSchema } from '@agentport/shared';
-import { useQuery } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   ApiError,
   api,
   type KnowledgeContentKind,
-  type KnowledgeDocumentVersion,
   type KnowledgeLocator,
   type KnowledgeSearchDirectAnswer,
   type KnowledgeSearchHit,
@@ -15,10 +13,12 @@ import {
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { fetchResponse, responseApiError } from '../../lib/orpc.js';
 import {
-  knowledgeKeys,
   useKnowledgeFaq,
+  useKnowledgeFaqCitationVersion,
   useKnowledgeMarkdown,
+  useKnowledgeOriginalBlob,
   useKnowledgeVersionDetails,
+  useKnowledgeWikiCitationVersion,
 } from '../../lib/queries.js';
 import { DialogShell } from '../dialog-shell.js';
 import { Markdown } from '../markdown.js';
@@ -543,12 +543,7 @@ function DocumentCitationBody({ citation }: { citation: KnowledgeCitation }) {
   const markdown = useKnowledgeMarkdown(versionId);
   const details = useKnowledgeVersionDetails(versionId);
   const isPdf = details.data?.mimeType === 'application/pdf';
-  const original = useQuery({
-    queryKey: knowledgeKeys.original(versionId),
-    queryFn: ({ signal }) => api.knowledgeOriginalBlob(versionId, signal),
-    enabled: isPdf,
-    staleTime: 60_000,
-  });
+  const original = useKnowledgeOriginalBlob(versionId, isPdf);
 
   if (details.isPending) return <LoadingState rows={2} />;
   if (details.isError) {
@@ -581,22 +576,6 @@ function ErrorText({ children }: { children: string }) {
   );
 }
 
-async function findPagedVersion<T extends { id: string }>(
-  load: (cursor: string | undefined) => Promise<{ items: T[]; nextCursor: string | null }>,
-  versionId: string,
-): Promise<T | null> {
-  const seen = new Set<string>();
-  let cursor: string | undefined;
-  for (;;) {
-    const page = await load(cursor);
-    const found = page.items.find((item) => item.id === versionId);
-    if (found) return found;
-    if (page.nextCursor === null || seen.has(page.nextCursor)) return null;
-    seen.add(page.nextCursor);
-    cursor = page.nextCursor;
-  }
-}
-
 function FaqCitationBody({ documentId, versionId }: { documentId: string; versionId: string }) {
   const detail = useKnowledgeFaq(documentId);
   const knownVersion =
@@ -605,16 +584,11 @@ function FaqCitationBody({ documentId, versionId }: { documentId: string; versio
       : [detail.data.publishedVersion, detail.data.draftVersion].find(
           (version) => version?.id === versionId,
         );
-  const exact = useQuery({
-    queryKey: knowledgeKeys.faqCitationVersion(documentId, versionId),
-    queryFn: ({ signal }): Promise<KnowledgeDocumentVersion | null> =>
-      findPagedVersion(
-        (cursor) => api.knowledgeDocumentVersions(documentId, cursor, signal),
-        versionId,
-      ),
-    enabled: detail.data !== undefined && knownVersion === undefined,
-    staleTime: 60_000,
-  });
+  const exact = useKnowledgeFaqCitationVersion(
+    documentId,
+    versionId,
+    detail.data !== undefined && knownVersion === undefined,
+  );
   if (detail.isPending) return <LoadingState rows={3} />;
   if (detail.isError) return <ErrorText>FAQ 没有加载出来。</ErrorText>;
   const version = knownVersion ?? exact.data;
@@ -647,12 +621,7 @@ function FaqCitationBody({ documentId, versionId }: { documentId: string; versio
 }
 
 function WikiCitationBody({ pageId, versionId }: { pageId: string; versionId: string }) {
-  const exact = useQuery({
-    queryKey: knowledgeKeys.wikiCitationVersion(pageId, versionId),
-    queryFn: () =>
-      findPagedVersion((cursor) => api.knowledgeWikiVersions(pageId, cursor), versionId),
-    staleTime: 60_000,
-  });
+  const exact = useKnowledgeWikiCitationVersion(pageId, versionId);
   if (exact.isPending) return <LoadingState rows={3} />;
   if (exact.isError) return <ErrorText>Wiki 页面没有加载出来。</ErrorText>;
   if (!exact.data) return <ErrorText>该版本已不可读。</ErrorText>;

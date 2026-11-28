@@ -1,5 +1,10 @@
 import { fail } from '@agentport/core';
-import type { AgentDefinition, BudgetInput, BudgetScopeKind } from '@agentport/shared';
+import {
+  type AgentDefinition,
+  type BudgetInput,
+  type BudgetScopeKind,
+  utcMonthStart,
+} from '@agentport/shared';
 import { and, count, desc, eq, getTableColumns, gte, lt, or, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
@@ -22,9 +27,10 @@ import { listAlertRecipientBusinessIds } from './reporting.js';
 import { resourceTables } from './resources.js';
 
 function monthWindow(now = new Date()) {
+  const since = utcMonthStart(now);
   return {
-    since: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
-    until: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)),
+    since,
+    until: new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth() + 1, 1)),
     key: now.toISOString().slice(0, 7),
   };
 }

@@ -28,14 +28,14 @@ interface SandboxTaskOptions<TOutput> {
   lateCleanupLog: string;
 }
 
-export type SandboxTaskExit =
+type SandboxTaskExit =
   | { kind: 'closing' }
   | { kind: 'startup_timeout' }
   | { kind: 'timeout' }
   | { kind: 'output_too_large' }
   | { kind: 'exited'; detail: string };
 
-export type SandboxTaskOutcome<TOutput> =
+type SandboxTaskOutcome<TOutput> =
   | { started: false; exit: SandboxTaskExit; stderr: string }
   | { started: true; result: TOutput; stderr: string }
   | { started: true; result: undefined; exit: SandboxTaskExit; stderr: string };

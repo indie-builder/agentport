@@ -1,17 +1,15 @@
 import { AppError } from '@agentport/core';
-import { repo, schema, type Transaction } from '@agentport/db';
+import { repo } from '@agentport/db';
 import {
-  DOCUMENT_JOB_IN_PROGRESS_MESSAGE,
   type KnowledgeJob,
   knowledgeFaqImportMetadataSchema,
   knowledgeJobPayloadSchema,
   type ResourceAccessFilter,
   SUMMARY_CANCELLED_MESSAGE,
 } from '@agentport/shared';
-import { and, eq, sql } from 'drizzle-orm';
 import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
 import { publishKnowledgeCancel } from '../../../queue/producer.js';
-import { createJob, enqueueKnowledgeJobAfterCommit } from '../service.js';
+import { enqueueKnowledgeJobAfterCommit } from '../service.js';
 import { enqueue, enqueueSourceSync, type KnowledgeDeps, notFound } from './shared.js';
 
 function toJob(
@@ -64,28 +62,6 @@ export async function listJobs(
 
 type JobRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getJob>>>;
 
-async function assertDocumentIdle(tx: Transaction, baseId: string | null, documentId: string) {
-  if (baseId !== null) {
-    const [base] = await tx
-      .select({ id: schema.knowledgeBases.id })
-      .from(schema.knowledgeBases)
-      .where(eq(schema.knowledgeBases.id, baseId))
-      .limit(1)
-      .for('key share');
-    if (!base) notFound('文档');
-  }
-  const [document] = await tx
-    .select({ id: schema.knowledgeDocuments.id })
-    .from(schema.knowledgeDocuments)
-    .where(eq(schema.knowledgeDocuments.id, documentId))
-    .limit(1)
-    .for('update');
-  if (!document) notFound('文档');
-  if ((await repo.knowledge.findActiveReprocessJobId(tx, documentId)) !== null) {
-    throw new AppError('CONFLICT', DOCUMENT_JOB_IN_PROGRESS_MESSAGE);
-  }
-}
-
 export function getJob(row: JobRow) {
   return toJob(row);
 }
@@ -121,51 +97,27 @@ export async function retryJob(deps: KnowledgeDeps, row: JobRow) {
     }
   }
   if (faqDraftBinding) {
-    const { versionId, jobKey } = faqDraftBinding;
     const documentId = row.documentId;
     if (documentId === null) notFound('文档');
-    const job = await deps.db.transaction(async (tx) => {
-      await assertDocumentIdle(tx, row.baseId, documentId);
-      const created = await createJob(tx, {
-        baseId: row.baseId,
-        documentId,
-        sourceId: row.sourceId,
-        payload,
-      });
-      const rebind =
-        jobKey === 'indexingJobId'
-          ? sql`jsonb_build_object('indexingJobId', ${created.id}::text)`
-          : sql`jsonb_build_object('faqImportJobId', ${created.id}::text)`;
-      const [bound] = await tx
-        .update(schema.knowledgeDocumentVersions)
-        .set({ metadata: sql`${schema.knowledgeDocumentVersions.metadata} || ${rebind}` })
-        .where(
-          and(
-            eq(schema.knowledgeDocumentVersions.id, versionId),
-            sql`${schema.knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
-            jobKey === 'indexingJobId'
-              ? sql`${schema.knowledgeDocumentVersions.metadata} -> 'faqImport' is null`
-              : sql`${schema.knowledgeDocumentVersions.metadata} -> 'faqImport' is not null`,
-          ),
-        )
-        .returning({ id: schema.knowledgeDocumentVersions.id });
-      if (!bound) throw new AppError('CONFLICT', '目标 FAQ 草稿已变化，请刷新后重试');
-      return created;
+    const job = await repo.knowledge.createDocumentRetryJob(deps.db, {
+      baseId: row.baseId,
+      documentId,
+      sourceId: row.sourceId,
+      payload,
+      faqDraftBinding,
     });
+    if (!job) notFound('文档');
     await enqueueKnowledgeJobAfterCommit(deps.log, job);
     return { jobId: job.id };
   }
   if ((payload.type === 'ingest' || payload.type === 'reindex') && row.documentId !== null) {
-    const documentId = row.documentId;
-    const job = await deps.db.transaction(async (tx) => {
-      await assertDocumentIdle(tx, row.baseId, documentId);
-      return createJob(tx, {
-        baseId: row.baseId,
-        documentId,
-        sourceId: row.sourceId,
-        payload,
-      });
+    const job = await repo.knowledge.createDocumentRetryJob(deps.db, {
+      baseId: row.baseId,
+      documentId: row.documentId,
+      sourceId: row.sourceId,
+      payload,
     });
+    if (!job) notFound('文档');
     await enqueueKnowledgeJobAfterCommit(deps.log, job);
     return { jobId: job.id };
   }

@@ -1,14 +1,32 @@
 import { workflowsContract } from '@agentport/contract/workflows';
 import { fail, NOT_FOUND_MESSAGES, parseWorkflowMeta } from '@agentport/core';
 import { repo as allRepo } from '@agentport/db';
+import { type AgentWorkflow, agentWorkflowInputSchema } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { actorOf } from '../../http/access.js';
-import type { RequestContext } from '../../http/context.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { rethrowConflict } from '../../http/errors.js';
 import { authorizedAgent } from '../agents/access.js';
-import { toApi, toWorkflowWrite } from './api.js';
 
 const repo = allRepo.workflows;
+type WorkflowRow = NonNullable<Awaited<ReturnType<typeof repo.getWorkflow>>>;
+
+function toApi(row: WorkflowRow): AgentWorkflow {
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    content: row.content,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toWorkflowWrite(slug: string, content: string) {
+  const meta = parseWorkflowMeta(content);
+  return agentWorkflowInputSchema.parse({ slug, ...meta, content });
+}
 function assertRootAgent(agent: { parentId: string | null }): void {
   if (agent.parentId !== null) {
     fail('INVALID_INPUT', '子智能体不能拥有工作流；工作流是 project 级能力，请在主智能体上配置');

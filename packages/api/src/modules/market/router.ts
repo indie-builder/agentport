@@ -1,7 +1,7 @@
 import { marketContract } from '@agentport/contract/market';
 import { implement } from '@orpc/server';
-import { actorOf, requireUser } from '../../http/access.js';
-import type { RequestContext } from '../../http/context.js';
+import { requireUser } from '../../http/access.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { fetchLeaderboard } from './leaderboard.js';
 import { searchMarket } from './search.js';
 import { installMarketSkill } from './use-cases.js';

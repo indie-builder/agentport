@@ -136,8 +136,22 @@ export const knowledgeBaseSettingsSchema = z.object({
 export const knowledgeBaseStatusSchema = z.enum(['active', 'disabled']);
 export type KnowledgeBaseStatus = z.infer<typeof knowledgeBaseStatusSchema>;
 
+export const KNOWLEDGE_EMBEDDING_DIMENSIONS = 1024 as const;
+
 export const knowledgeEmbeddingProtocolSchema = z.enum(['openai', 'cohere_v2']);
 export type KnowledgeEmbeddingProtocol = z.infer<typeof knowledgeEmbeddingProtocolSchema>;
+
+export function supportsKnowledgeImageVectors(profile: {
+  protocol?: string | null | undefined;
+  model?: string | null | undefined;
+  supportsImageInput?: boolean | null | undefined;
+}): boolean {
+  return (
+    profile.protocol === knowledgeEmbeddingProtocolSchema.enum.cohere_v2 &&
+    profile.model === 'embed-v4.0' &&
+    profile.supportsImageInput === true
+  );
+}
 
 export const knowledgeBaseInputSchema = z.object({
   slug: slugSchema,

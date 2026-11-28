@@ -225,7 +225,7 @@ export function useDataDomainQueryLogs(id: string, query: DataDomainQueryLogList
   });
 }
 
-export function dataDomainApprovalsShouldPoll(
+function dataDomainApprovalsShouldPoll(
   query: DataDomainQueryApprovalListQuery,
   pages: DataDomainQueryApprovalPage[] | undefined,
 ): boolean {

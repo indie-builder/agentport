@@ -15,6 +15,7 @@ import {
 import { useRef, useState } from 'react';
 import { BackLink } from '../../components/back-link.js';
 import { CopyButton } from '../../components/copy-button.js';
+import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { Metric } from '../../components/metric-label.js';
 import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
 import { EvalFromRunDialog } from '../../components/run/eval-from-run-dialog.js';
@@ -582,13 +583,13 @@ export function RunDetailPage() {
         </div>
 
         <PageSection title="交付验收">
-          {outputs.isFetchNextPageError ? (
-            <ErrorState
-              title="后续成果没有加载完整"
-              error={outputs.error}
-              onRetry={() => void outputs.fetchNextPage()}
-            />
-          ) : outputs.isError ? (
+          <CursorListFooter
+            query={outputs}
+            autoDrain
+            errorTitle="后续成果没有加载完整"
+            className="justify-start"
+          />
+          {outputs.isError && !outputs.isFetchNextPageError ? (
             <ErrorState
               title="成果没有加载出来"
               error={outputs.error}

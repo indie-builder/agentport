@@ -18,11 +18,7 @@ it('cancels slow SQL instead of holding a pool slot indefinitely', async () => {
   }
 }, 20_000);
 it('times out waiting for an exhausted connection pool', async () => {
-  const prior = process.env.DB_POOL_MAX;
-  process.env.DB_POOL_MAX = '1';
-  const { client } = createDb(url());
-  if (prior === undefined) delete process.env.DB_POOL_MAX;
-  else process.env.DB_POOL_MAX = prior;
+  const { client } = createDb(url(), { max: 1 });
   const held = await client.reserve();
   try {
     let error: unknown;

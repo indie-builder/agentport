@@ -1,8 +1,7 @@
 import type { KnowledgeBaseActivityItem, KnowledgeImageAsset } from '@agentport/contract/knowledge';
 import type {
+  CursorPage,
   KnowledgeBase,
-  KnowledgeBaseSettings,
-  KnowledgeBaseStatus,
   KnowledgeBaseSummary,
   KnowledgeChunk,
   KnowledgeDocument,
@@ -12,18 +11,15 @@ import type {
   KnowledgeFaqImportInput,
   KnowledgeFaqImportResponse,
   KnowledgeJob,
-  KnowledgeModelProfileKind,
   KnowledgeModelProfileSelection,
-  KnowledgeParseStatus,
+  KnowledgeSearchQuery,
   KnowledgeSearchResult,
-  KnowledgeSearchWarning,
   KnowledgeSourceInput,
   KnowledgeSourceStatus,
   KnowledgeSyncItem,
   KnowledgeTarget,
   KnowledgeWikiGraph,
   KnowledgeWikiLinksResult,
-  KnowledgeWikiPageStatus,
   KnowledgeWikiVersionDiff,
 } from '@agentport/shared';
 import type { ApiClient } from '../orpc.js';
@@ -52,130 +48,38 @@ function isFaqBatchBody(
   return Array.isArray((value as { results?: unknown }).results);
 }
 
-interface KnowledgePage<T> {
-  items: T[];
-  nextCursor: string | null;
-}
+export type KnowledgeBaseInput = Parameters<ApiClient['knowledge']['bases']['create']>[0]['body'];
 
-export interface KnowledgeBaseInput {
-  slug: string;
-  name: string;
-  description: string;
-  embeddingProfileId: string;
-  rerankProfileId: string | null;
-  asrProfileId: string | null;
-  settings: Omit<KnowledgeBaseSettings, 'imageProcessing'> & {
-    imageProcessing?: KnowledgeBaseSettings['imageProcessing'];
-  };
-}
+type KnowledgeBasePatch = Parameters<ApiClient['knowledge']['bases']['update']>[0]['body'];
 
-interface KnowledgeBasePatch {
-  name?: string;
-  description?: string;
-  status?: KnowledgeBaseStatus;
-  embeddingProfileId?: string;
-  rerankProfileId?: string | null;
-  asrProfileId?: string | null;
-  settings?: KnowledgeBaseInput['settings'];
-}
+export type KnowledgeFolder = ApiOutput<ApiClient['knowledge']['bases']['folders']>[number];
 
-export interface KnowledgeFolder {
-  id: string;
-  baseId: string;
-  parentId: string | null;
-  name: string;
-  path: string;
-  createdAt: string;
-}
+type KnowledgeChunkWriteResult = ApiOutput<ApiClient['knowledge']['chunks']['update']>;
 
-interface KnowledgeChunkWriteResult {
-  document: KnowledgeDocument;
-  chunk: KnowledgeChunk | null;
-  jobId: string | null;
-}
-
-export interface KnowledgeTag {
-  id: string;
-  baseId: string;
-  name: string;
-  createdAt: string;
-}
+export type KnowledgeTag = ApiOutput<ApiClient['knowledge']['bases']['tags']>[number];
 
 export type KnowledgeContentKind = KnowledgeTarget['kind'];
 
 export type KnowledgeVersionOrigin = KnowledgeDocumentVersion['origin'];
 
-export interface KnowledgeSearchOptions {
-  q: string;
-  folders?: string[];
-  tags?: string[];
-  kinds?: KnowledgeContentKind[];
-  limit?: number;
-  rerank?: boolean;
-  minVectorScore?: number;
-  diagnostics?: boolean;
-  onlyRecommended?: boolean;
-  faqPriority?: boolean;
-  faqDirectAnswerThreshold?: number;
-}
+export type KnowledgeSearchOptions = Partial<Omit<KnowledgeSearchQuery, 'q'>> &
+  Pick<KnowledgeSearchQuery, 'q'>;
 
-type KnowledgeFaqDocument = Omit<
-  Pick<
-    KnowledgeDocument,
-    | 'id'
-    | 'baseId'
-    | 'folderId'
-    | 'title'
-    | 'contentKind'
-    | 'status'
-    | 'disabledReason'
-    | 'currentVersionId'
-    | 'tags'
-    | 'createdAt'
-    | 'updatedAt'
-  >,
-  'contentKind' | 'disabledReason'
-> & { contentKind: string; disabledReason: string | null };
+export type KnowledgeFaqDetail = ApiOutput<ApiClient['knowledge']['faqs']['get']>;
 
-type KnowledgeFaqVersion = Pick<
-  KnowledgeDocumentVersion,
-  | 'id'
-  | 'documentId'
-  | 'version'
-  | 'origin'
-  | 'parentVersionId'
-  | 'metadata'
-  | 'faq'
-  | 'isCurrent'
-  | 'createdAt'
->;
+type KnowledgeFaqDocument = KnowledgeFaqDetail['document'];
 
-export interface KnowledgeFaqDetail {
-  document: KnowledgeFaqDocument;
-  draftVersion: KnowledgeFaqVersion | null;
-  publishedVersion: KnowledgeFaqVersion | null;
-  faq: KnowledgeFaq | null;
-}
+export type KnowledgeFaqSummary = ApiOutput<
+  ApiClient['knowledge']['bases']['faqs']
+>['items'][number];
 
-export type KnowledgeFaqSummary = KnowledgeFaqDocument & { faq: KnowledgeFaq | null };
+export type KnowledgeBatchResult = ApiOutput<
+  ApiClient['knowledge']['bases']['batch']
+>['results'][number];
 
-export interface KnowledgeBatchResult {
-  documentId: string;
-  status: 'succeeded' | 'failed';
-  newDocumentId?: string | undefined;
-  jobId?: string | undefined;
-  code?: string | undefined;
-  message?: string | undefined;
-}
-
-export interface KnowledgeFaqBatchResult {
-  results: Array<{
-    documentId: string;
-    status: 'succeeded' | 'failed';
-    code?: string | undefined;
-    message?: string | undefined;
-  }>;
-}
+export type KnowledgeFaqBatchResult = ApiOutput<
+  ApiClient['knowledge']['bases']['faqBatch']
+>['body'];
 
 export type KnowledgeFaqBatchInput =
   | {
@@ -189,37 +93,13 @@ export type KnowledgeFaqBatchInput =
       items: Array<{ documentId: string }>;
     };
 
-export interface KnowledgeBatchInput {
-  documentIds: string[];
-  action: 'move' | 'copy' | 'tag' | 'delete' | 'reprocess';
-  folderId?: string | null;
-  tags?: string[];
-  tagMode?: 'add' | 'remove' | 'replace';
-  confirmOverwriteManualChunks?: boolean;
-}
+export type KnowledgeBatchInput = Parameters<ApiClient['knowledge']['bases']['batch']>[0]['body'];
 
-export interface KnowledgeRetrievalEvaluationInput {
-  cases: Array<{ q: string; expectedTargets: KnowledgeTarget[]; expectedChunkIds?: string[] }>;
-  limit?: number;
-  rerank?: boolean;
-  minVectorScore?: number;
-}
+export type KnowledgeRetrievalEvaluationInput = Parameters<
+  ApiClient['knowledge']['bases']['evaluate']
+>[0]['body'];
 
-interface KnowledgeRetrievalEvaluationReport {
-  recallAtK: number;
-  mrr: number;
-  chunkRecallAtK: number | null;
-  results: Array<{
-    q: string;
-    hit: boolean;
-    recallAtK: number;
-    reciprocalRank: number;
-    chunkRecallAtK: number | null;
-    elapsedMs: number;
-    degraded: boolean;
-    warnings: KnowledgeSearchWarning[];
-  }>;
-}
+type KnowledgeRetrievalEvaluationReport = ApiOutput<ApiClient['knowledge']['bases']['evaluate']>;
 
 export type KnowledgeManualDraft = ApiOutput<ApiClient['knowledge']['documents']['manual']>;
 
@@ -233,118 +113,31 @@ export type { KnowledgeWikiGraph };
 
 export type KnowledgeWikiDiff = KnowledgeWikiVersionDiff;
 
-export interface KnowledgeDocumentDiff {
-  fromVersionId: string;
-  toVersionId: string;
-  addedLines: string[];
-  removedLines: string[];
-}
+export type KnowledgeDocumentDiff = ApiOutput<ApiClient['knowledge']['documents']['diff']>;
 
-type KnowledgeSourceType = Exclude<KnowledgeSourceInput['type'], 'upload' | 'url' | 'manual'>;
+export type KnowledgeSource = ApiOutput<
+  ApiClient['knowledge']['bases']['sources']
+>['items'][number];
 
-type KnowledgeSourceRangeKind = KnowledgeSourceInput['ranges'][number]['kind'];
+type KnowledgeSourceRange = KnowledgeSource['ranges'][number];
 
-interface KnowledgeSourceRange {
-  id: string;
-  kind: KnowledgeSourceRangeKind;
-  externalId: string;
-  ref: string | null;
-  paths: string[];
-  enabled: boolean;
-}
+type KnowledgeSyncRun = ApiOutput<ApiClient['knowledge']['sources']['runs']>['items'][number];
 
-export interface KnowledgeSource {
-  id: string;
-  baseId: string;
-  type: KnowledgeSourceType;
-  name: string;
-  config: Record<string, unknown>;
-  hasSecret: boolean;
-  status: KnowledgeSourceStatus;
-  syncCron: string | null;
-  lastSyncAt: string | null;
-  lastSyncStatus: string | null;
-  lastError: string | null;
-  createdAt: string;
-  updatedAt: string;
-  ranges: KnowledgeSourceRange[];
-}
+export type KnowledgeWikiVersion = ApiOutput<
+  ApiClient['knowledge']['wiki']['versions']
+>['items'][number];
 
-interface KnowledgeSyncRun {
-  id: string;
-  sourceId: string;
-  status: KnowledgeJob['status'];
-  startedAt: string | null;
-  endedAt: string | null;
-  cursorBefore: Record<string, unknown> | null;
-  cursorAfter: Record<string, unknown> | null;
-  stats: { listed: number; created: number; updated: number; disabled: number; failed: number };
-  error: string | null;
-  createdAt: string;
-}
+type KnowledgeVersionDetails = ApiOutput<ApiClient['knowledge']['versions']['details']>;
 
-export interface KnowledgeWikiVersion {
-  id: string;
-  pageId: string;
-  version: number;
-  markdown: string;
-  sourceChunkIds: string[];
-  model: string | null;
-  generatedBy: string;
-  createdAt: string;
-  title?: string;
-}
+export type KnowledgeVersionImage = KnowledgeVersionDetails['images'][number];
 
-export interface KnowledgeVersionImage {
-  name: string;
-  mimeType: string;
-  page: number | null;
-  warnings?: string[] | undefined;
-}
+export type KnowledgeWikiPageDetail = ApiOutput<ApiClient['knowledge']['wiki']['get']>;
 
-interface KnowledgeVersionDetails {
-  id: string;
-  documentId: string;
-  version: number;
-  originalFilename: string;
-  mimeType: string;
-  sizeBytes: number;
-  sourceRevision: string | null;
-  parseStatus: KnowledgeParseStatus;
-  pageMap: Array<Record<string, unknown>>;
-  images: KnowledgeVersionImage[];
-  createdAt: string;
-}
+export type KnowledgeModelProfile = ApiOutput<ApiClient['knowledge']['modelProfiles']['create']>;
 
-export interface KnowledgeWikiPageDetail {
-  id: string;
-  baseId: string;
-  slug: string;
-  title: string;
-  status: KnowledgeWikiPageStatus;
-  currentVersionId: string | null;
-  parentId?: string | null;
-  position?: number;
-  createdAt: string;
-  updatedAt: string;
-  versions: KnowledgeWikiVersion[];
-  nextCursor: string | null;
-}
-
-export interface KnowledgeModelProfile {
-  id: string;
-  kind: KnowledgeModelProfileKind;
-  name: string;
-  endpointUrl: string;
-  model: string;
-  dimensions: number | null;
-  enabled: boolean;
-  hasSecret: boolean;
-  embeddingProtocol: KnowledgeEmbeddingProtocol;
-  imageInputEnabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+type KnowledgeModelProfileInput = Parameters<
+  ApiClient['knowledge']['modelProfiles']['create']
+>[0]['body'];
 
 interface KnowledgePackageImportResult {
   baseId: string;
@@ -363,7 +156,7 @@ export default {
   knowledgeBases: (
     query: { cursor?: string; limit?: number } = {},
     signal?: AbortSignal,
-  ): Promise<KnowledgePage<KnowledgeBase>> =>
+  ): Promise<CursorPage<KnowledgeBase>> =>
     rpc.knowledge.bases.list({ query }, clientOptions(signal)),
   knowledgeBase: (id: string): Promise<KnowledgeBase> =>
     rpc.knowledge.bases.get({ params: { id } }),
@@ -376,7 +169,7 @@ export default {
   knowledgeBaseActivity: (
     id: string,
     cursor?: string,
-  ): Promise<KnowledgePage<KnowledgeBaseActivityItem>> =>
+  ): Promise<CursorPage<KnowledgeBaseActivityItem>> =>
     rpc.knowledge.bases.activity({
       params: { id },
       query: { limit: 20, ...(cursor === undefined ? {} : { cursor }) },
@@ -424,13 +217,13 @@ export default {
     baseId: string,
     query: Parameters<ApiClient['knowledge']['bases']['documents']>[0]['query'] = {},
     signal?: AbortSignal,
-  ): Promise<KnowledgePage<KnowledgeDocument>> =>
+  ): Promise<CursorPage<KnowledgeDocument>> =>
     rpc.knowledge.bases.documents({ params: { id: baseId }, query }, clientOptions(signal)),
   knowledgeImages: (
     baseId: string,
     query: Parameters<ApiClient['knowledge']['bases']['images']>[0]['query'] = {},
     signal?: AbortSignal,
-  ): Promise<KnowledgePage<KnowledgeImageAsset>> =>
+  ): Promise<CursorPage<KnowledgeImageAsset>> =>
     rpc.knowledge.bases.images({ params: { id: baseId }, query }, clientOptions(signal)),
   knowledgeDocument: (documentId: string, signal?: AbortSignal): Promise<KnowledgeDocument> =>
     rpc.knowledge.documents.get({ params: { documentId } }, clientOptions(signal)),
@@ -489,7 +282,7 @@ export default {
     documentId: string,
     cursor?: string,
     signal?: AbortSignal,
-  ): Promise<KnowledgePage<KnowledgeDocumentVersion>> =>
+  ): Promise<CursorPage<KnowledgeDocumentVersion>> =>
     rpc.knowledge.documents.versions(
       { params: { documentId }, query: cursor === undefined ? {} : { cursor } },
       clientOptions(signal),
@@ -525,7 +318,7 @@ export default {
     versionId: string | undefined,
     signal?: AbortSignal,
     cursor?: string,
-  ): Promise<KnowledgePage<KnowledgeChunk>> =>
+  ): Promise<CursorPage<KnowledgeChunk>> =>
     rpc.knowledge.documents.chunks(
       {
         params: { documentId },
@@ -615,7 +408,7 @@ export default {
     baseId: string,
     options: { documentId?: string; ids?: string[]; cursor?: string; limit?: number } = {},
     signal?: AbortSignal,
-  ): Promise<KnowledgePage<KnowledgeJob>> =>
+  ): Promise<CursorPage<KnowledgeJob>> =>
     rpc.knowledge.jobs.list({ query: { baseId, ...options } }, clientOptions(signal)),
   knowledgeJob: (jobId: string): Promise<KnowledgeJob> =>
     rpc.knowledge.jobs.get({ params: { jobId } }),
@@ -623,7 +416,7 @@ export default {
     rpc.knowledge.jobs.retry({ params: { jobId } }),
   cancelKnowledgeJob: (jobId: string): Promise<KnowledgeJob> =>
     rpc.knowledge.jobs.cancel({ params: { jobId } }),
-  knowledgeSources: (baseId: string, cursor?: string): Promise<KnowledgePage<KnowledgeSource>> =>
+  knowledgeSources: (baseId: string, cursor?: string): Promise<CursorPage<KnowledgeSource>> =>
     rpc.knowledge.bases.sources({
       params: { id: baseId },
       query: cursor === undefined ? {} : { cursor },
@@ -652,13 +445,13 @@ export default {
     rpc.knowledge.sources.test({ params: { sourceId } }),
   syncKnowledgeSource: (sourceId: string): Promise<{ jobId: string; syncRunId: string }> =>
     rpc.knowledge.sources.sync({ params: { sourceId } }),
-  knowledgeSourceRuns: (sourceId: string): Promise<KnowledgePage<KnowledgeSyncRun>> =>
+  knowledgeSourceRuns: (sourceId: string): Promise<CursorPage<KnowledgeSyncRun>> =>
     rpc.knowledge.sources.runs({ params: { sourceId }, query: {} }),
   knowledgeSyncItems: (
     sourceId: string,
     syncRunId: string,
     query: { cursor?: string; status?: 'failed' | 'skipped' } = {},
-  ): Promise<KnowledgePage<KnowledgeSyncItem>> =>
+  ): Promise<CursorPage<KnowledgeSyncItem>> =>
     rpc.knowledge.sources.runItems({ params: { sourceId, syncRunId }, query }),
   knowledgeFaqs: (
     baseId: string,
@@ -669,7 +462,7 @@ export default {
       isRecommended?: boolean;
     } = {},
     signal?: AbortSignal,
-  ): Promise<KnowledgePage<KnowledgeFaqSummary>> => {
+  ): Promise<CursorPage<KnowledgeFaqSummary>> => {
     const { isRecommended, ...rest } = query;
     return rpc.knowledge.bases.faqs(
       {
@@ -756,7 +549,7 @@ export default {
   knowledgeWikiPages: (
     baseId: string,
     cursor?: string,
-  ): Promise<KnowledgePage<Omit<KnowledgeWikiPageDetail, 'versions' | 'nextCursor'>>> =>
+  ): Promise<CursorPage<Omit<KnowledgeWikiPageDetail, 'versions' | 'nextCursor'>>> =>
     rpc.knowledge.bases.wikiPages({
       params: { id: baseId },
       query: cursor === undefined ? {} : { cursor },
@@ -766,7 +559,7 @@ export default {
   knowledgeWikiVersions: (
     pageId: string,
     cursor?: string,
-  ): Promise<KnowledgePage<KnowledgeWikiVersion>> =>
+  ): Promise<CursorPage<KnowledgeWikiVersion>> =>
     rpc.knowledge.wiki.versions({
       params: { pageId },
       query: cursor === undefined ? {} : { cursor },
@@ -852,14 +645,7 @@ export default {
       confirmOverwriteManualChunks?: boolean;
     } = {},
   ): Promise<{ jobId: string }> => rpc.knowledge.bases.rebuild({ params: { id }, body: input }),
-  createKnowledgeModelProfile: (input: {
-    kind: KnowledgeModelProfileKind;
-    name: string;
-    endpointUrl: string;
-    model: string;
-    apiKey?: string;
-    enabled?: boolean;
-    embeddingProtocol?: KnowledgeEmbeddingProtocol;
-    imageInputEnabled?: boolean;
-  }): Promise<KnowledgeModelProfile> => rpc.knowledge.modelProfiles.create({ body: input }),
+  createKnowledgeModelProfile: (
+    input: KnowledgeModelProfileInput,
+  ): Promise<KnowledgeModelProfile> => rpc.knowledge.modelProfiles.create({ body: input }),
 };

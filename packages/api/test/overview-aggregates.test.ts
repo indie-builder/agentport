@@ -261,6 +261,18 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     ]);
     expect(list.statusCode, list.body).toBe(200);
     expect(body.counts.servers).toBe(list.json<{ items: unknown[] }>().items.length);
+
+    const dataDomainServerId = unique('overview-data-domain');
+    await app.client.unsafe(
+      `insert into servers (id, name, kind, config)
+       values ($1, $1, 'data_domain', '{"dataDomainId":"dd_probe"}')`,
+      [dataDomainServerId],
+    );
+    try {
+      expect((await counts(7)).servers).toBe(body.counts.servers);
+    } finally {
+      await app.client.unsafe('delete from servers where id = $1', [dataDomainServerId]);
+    }
   });
 
   it('uses UTC natural days for the window boundary', async () => {

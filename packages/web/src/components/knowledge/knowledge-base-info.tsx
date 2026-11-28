@@ -1,6 +1,7 @@
-import type { KnowledgeBase } from '@agentport/shared';
+import { type KnowledgeBase, knowledgeBaseInputSchema } from '@agentport/shared';
 import { z } from 'zod';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
+import { withFieldMessages } from '../../lib/form.js';
 import { useUpdateKnowledgeBase } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
@@ -16,8 +17,13 @@ import { DraftGuardDialogs, useDraftGuard } from './knowledge-shared.js';
 const DESCRIPTION_MAX = 500;
 
 const baseInfoSchema = z.object({
-  name: z.string().trim().min(1, '不能为空，请填写后再保存').max(120, '最多 120 个字符'),
-  description: z.string().max(DESCRIPTION_MAX, `最多 ${DESCRIPTION_MAX} 个字符`),
+  name: withFieldMessages(z.string().trim(), knowledgeBaseInputSchema.shape.name, {
+    tooSmall: '不能为空，请填写后再保存',
+    tooBig: '最多 120 个字符',
+  }),
+  description: withFieldMessages(z.string(), knowledgeBaseInputSchema.shape.description.unwrap(), {
+    tooBig: `最多 ${DESCRIPTION_MAX} 个字符`,
+  }),
 });
 
 type BaseInfoForm = z.infer<typeof baseInfoSchema>;

@@ -5,6 +5,7 @@ import type {
   ScheduleMissedPolicy,
 } from '@agentport/shared';
 import {
+  DEFAULT_TIMEZONE,
   runFeedbackDecisionSchema,
   runQuestionStatusSchema,
   scheduleMissedPolicySchema,
@@ -132,7 +133,7 @@ export const agentSchedules = pgTable(
     createdBy: text('created_by').notNull(),
     executeAsBusinessId: text('execute_as_business_id').notNull(),
     cron: text('cron').notNull(),
-    timezone: text('timezone').notNull().default('Asia/Shanghai'),
+    timezone: text('timezone').notNull().default(DEFAULT_TIMEZONE),
     missedPolicy: text('missed_policy', {
       enum: scheduleMissedPolicySchema.options as [ScheduleMissedPolicy, ...ScheduleMissedPolicy[]],
     })

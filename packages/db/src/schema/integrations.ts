@@ -47,7 +47,7 @@ export const apiTokens = pgTable(
     index('api_tokens_owner_idx').on(t.ownerBusinessId),
     check(
       'api_tokens_scopes_check',
-      sql`cardinality(${t.scopes}) > 0 and ${t.scopes} <@ array['runs.create', 'runs.read']::text[]`,
+      sql`cardinality(${t.scopes}) > 0 and ${t.scopes} <@ array[${sql.raw(integrationScopeSchema.options.map((option) => `'${option}'`).join(', '))}]::text[]`,
     ),
   ],
 );

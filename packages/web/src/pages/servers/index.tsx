@@ -11,6 +11,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
+import { CursorListFooter } from '../../components/cursor-list-footer.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import { RecordRows } from '../../components/record-rows.js';
@@ -731,26 +732,7 @@ export function ServersPage() {
         />
       ) : null}
 
-      {servers.isFetchNextPageError ? (
-        <div className="flex justify-center">
-          <ErrorState
-            error={servers.error}
-            title="列表没有加载完"
-            onRetry={() => void servers.fetchNextPage()}
-          />
-        </div>
-      ) : servers.hasNextPage ? (
-        <div className="flex justify-center">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={servers.isFetchingNextPage}
-            onClick={() => void servers.fetchNextPage()}
-          >
-            {servers.isFetchingNextPage ? '加载中…' : '加载更多'}
-          </Button>
-        </div>
-      ) : null}
+      <CursorListFooter query={servers} errorTitle="列表没有加载完" />
 
       {catalogOpen ? (
         <ConnectorCatalogDialog

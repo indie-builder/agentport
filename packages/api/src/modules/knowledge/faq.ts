@@ -22,9 +22,9 @@ const FAQ_XLSX_ZIP_LIMITS: ZipReadLimits = {
 };
 const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
 
-export type FaqEntry = KnowledgeFaq;
+type FaqEntry = KnowledgeFaq;
 export type FaqTransferEntry = KnowledgeFaqTransferEntry;
-export type FaqImportIssue = KnowledgeFaqImportIssue;
+type FaqImportIssue = KnowledgeFaqImportIssue;
 type FaqImportRowStatus = KnowledgeFaqImportResult['status'];
 type FaqImportOperation = KnowledgeFaqImportResult['operation'];
 
@@ -40,8 +40,8 @@ const FAQ_COLUMNS = [
   'enabled',
 ] as const;
 
-export type FaqImportFormat = 'json' | 'csv' | 'xlsx';
-export type FaqImportMode = 'append' | 'replace';
+type FaqImportFormat = 'json' | 'csv' | 'xlsx';
+type FaqImportMode = 'append' | 'replace';
 
 export interface FaqParsedRow {
   row: number;
@@ -58,7 +58,7 @@ export interface FaqExistingEntry {
   updatedAt: string;
 }
 
-export interface FaqImportPlanRow {
+interface FaqImportPlanRow {
   row: number;
   status: FaqImportRowStatus;
   operation: FaqImportOperation;
@@ -74,7 +74,7 @@ interface FaqImportDraft {
   enabled: boolean;
 }
 
-export interface FaqImportPlan {
+interface FaqImportPlan {
   counts: {
     total: number;
     success: number;

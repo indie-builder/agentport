@@ -18,14 +18,48 @@ import {
 
 export async function createWikiPage(
   db: Database,
-  input: { baseId: string; slug: string; title: string },
+  input: {
+    baseId: string;
+    slug: string;
+    title: string;
+    parentId?: string | null | undefined;
+    position?: number | undefined;
+  },
 ): Promise<KnowledgeWikiPageRow> {
-  const [row] = await db
-    .insert(knowledgeWikiPages)
-    .values({ id: newId('knowledgeWikiPage'), ...input })
-    .returning();
-  if (!row) throw new Error('knowledge wiki page insert returned no row');
-  return row;
+  const create = async (handle: DbHandle): Promise<KnowledgeWikiPageRow> => {
+    const [row] = await handle
+      .insert(knowledgeWikiPages)
+      .values({
+        id: newId('knowledgeWikiPage'),
+        baseId: input.baseId,
+        slug: input.slug,
+        title: input.title,
+      })
+      .returning();
+    if (!row) throw new Error('knowledge wiki page insert returned no row');
+    return row;
+  };
+  if (input.parentId === undefined && input.position === undefined) {
+    return create(db);
+  }
+  return db.transaction(async (tx) => {
+    const row = await create(tx);
+    return applyWikiStructureTx(tx, row, {
+      ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
+      ...(input.position === undefined ? {} : { position: input.position }),
+    });
+  });
+}
+
+export async function listWikiSourcesByPageIds(
+  db: DbHandle,
+  pageIds: string[],
+): Promise<Array<typeof knowledgeWikiSources.$inferSelect>> {
+  if (pageIds.length === 0) return [];
+  return db
+    .select()
+    .from(knowledgeWikiSources)
+    .where(inArray(knowledgeWikiSources.pageId, pageIds));
 }
 
 export async function getWikiPage(db: DbHandle, id: string): Promise<KnowledgeWikiPageRow | null> {

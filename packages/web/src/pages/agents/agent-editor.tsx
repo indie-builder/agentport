@@ -10,7 +10,7 @@ import {
   type Server,
 } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Link, useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import {
   Bot,
@@ -108,7 +108,7 @@ import {
   agentSections as sectionItems,
   agentTabs as tabItems,
 } from '../../lib/detail-tabs.js';
-import { applyProblemToForm } from '../../lib/form.js';
+import { applyProblemToForm, useFormBlocker } from '../../lib/form.js';
 import { runtimeEnvironmentOptions } from '../../lib/format.js';
 import {
   agentDetailQuery,
@@ -449,33 +449,28 @@ export function AgentEditor({
   const configDisabled = pending || !canUpdateConfig;
   const bindingsDisabled = pending || !canBindings;
 
-  const blocker = useBlocker({
-    shouldBlockFn: ({ current, next }) => {
-      if (current.pathname === next.pathname) {
-        const currentTab = 'tab' in current.search ? (current.search.tab ?? 'config') : 'config';
-        const nextTab = 'tab' in next.search ? (next.search.tab ?? 'config') : 'config';
-        if (currentTab === nextTab) {
-          const ci = 'instruction' in current.search ? current.search.instruction : undefined;
-          const ni = 'instruction' in next.search ? next.search.instruction : undefined;
-          const cv = 'view' in current.search ? current.search.view : undefined;
-          const nv = 'view' in next.search ? next.search.view : undefined;
-          if (ci === ni && cv === nv) return false;
-          const confirmed = confirmedChildSwitch.current;
-          if (confirmed && confirmed.instruction === ni && confirmed.view === nv) return false;
-          return childDirty || locked;
-        }
-        return childDirty || locked;
+  const blocker = useFormBlocker(guarded, locked, {
+    allowNavigation: ({ current, next }) => {
+      if (current.pathname !== next.pathname) return false;
+      const currentTab = 'tab' in current.search ? (current.search.tab ?? 'config') : 'config';
+      const nextTab = 'tab' in next.search ? (next.search.tab ?? 'config') : 'config';
+      if (currentTab === nextTab) {
+        const ci = 'instruction' in current.search ? current.search.instruction : undefined;
+        const ni = 'instruction' in next.search ? next.search.instruction : undefined;
+        const cv = 'view' in current.search ? current.search.view : undefined;
+        const nv = 'view' in next.search ? next.search.view : undefined;
+        if (ci === ni && cv === nv) return true;
+        const confirmed = confirmedChildSwitch.current;
+        if (confirmed && confirmed.instruction === ni && confirmed.view === nv) return true;
       }
-      return guarded || locked;
+      return !(childDirty || locked);
     },
-    withResolver: true,
-    enableBeforeUnload: guarded || locked,
   });
   useEffect(() => {
     confirmedChildSwitch.current = null;
   }, [instruction, search.view]);
   const proceedLeave = (): void => {
-    if (!locked) blocker.proceed?.();
+    blocker.proceed();
   };
   const blockedTabSwitch =
     blocker.status === 'blocked' && blocker.current?.pathname === blocker.next?.pathname;
@@ -1897,7 +1892,7 @@ export function AgentEditor({
                               {savedSubAgents.map((child) => (
                                 <a
                                   key={child.id}
-                                  href={`/api/agents/${agent.id}/subagents/${child.id}/file`}
+                                  href={api.subAgentFileUrl(agent.id, child.id)}
                                   className={buttonVariants({ variant: 'outline', size: 'sm' })}
                                 >
                                   <Download />

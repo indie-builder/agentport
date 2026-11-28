@@ -1,15 +1,18 @@
+import {
+  type KNOWLEDGE_EMBEDDING_DIMENSIONS,
+  type KnowledgeEmbeddingProtocol,
+  knowledgeEmbeddingProtocolSchema,
+} from '@agentport/shared';
 import { z } from 'zod';
 import { fail } from './errors.js';
 import { type KnowledgeAudioFormat, knowledgeAudioFromMime } from './knowledge-audio.js';
-
-type EmbeddingProtocol = 'openai' | 'cohere_v2';
 
 export interface EmbeddingProfile {
   endpointUrl: string;
   model: string;
   apiKey?: string;
-  dimensions: 1024;
-  embeddingProtocol?: EmbeddingProtocol;
+  dimensions: typeof KNOWLEDGE_EMBEDDING_DIMENSIONS;
+  embeddingProtocol?: KnowledgeEmbeddingProtocol;
   imageInputEnabled?: boolean;
 }
 
@@ -203,7 +206,7 @@ function checkVectors(
 }
 
 function isCohere(profile: EmbeddingProfile): boolean {
-  return profile.embeddingProtocol === 'cohere_v2';
+  return profile.embeddingProtocol === knowledgeEmbeddingProtocolSchema.enum.cohere_v2;
 }
 
 async function cohereEmbed(

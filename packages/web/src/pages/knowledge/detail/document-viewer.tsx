@@ -33,6 +33,7 @@ import {
   documentStatusLabel,
   documentStatusTone,
   isAudioMimeType,
+  LineDiffColumns,
   locatorLabel,
   versionLabel,
 } from '../../../components/knowledge/knowledge-shared.js';
@@ -852,38 +853,12 @@ function DocumentDiffBody({ diff }: { diff: KnowledgeDocumentDiff }) {
     );
   }
   return (
-    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-      <div className="flex min-w-0 flex-col gap-1">
-        <span className="text-xs font-medium text-success">新增 {diff.addedLines.length} 行</span>
-        {diff.addedLines.length === 0 ? (
-          <span className="text-xs text-muted-foreground">无</span>
-        ) : (
-          <ul className="flex flex-col gap-0.5 font-mono text-2xs">
-            {diff.addedLines.map((line, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 差异行按原顺序展示
-              <li key={`added-${index}`} className="whitespace-pre-wrap break-words text-success">
-                + {line}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="flex min-w-0 flex-col gap-1">
-        <span className="text-xs font-medium text-danger">删除 {diff.removedLines.length} 行</span>
-        {diff.removedLines.length === 0 ? (
-          <span className="text-xs text-muted-foreground">无</span>
-        ) : (
-          <ul className="flex flex-col gap-0.5 font-mono text-2xs">
-            {diff.removedLines.map((line, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 差异行按原顺序展示
-              <li key={`removed-${index}`} className="whitespace-pre-wrap break-words text-danger">
-                − {line}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
+    <LineDiffColumns
+      addedLines={diff.addedLines}
+      removedLines={diff.removedLines}
+      addedLabel={`新增 ${diff.addedLines.length} 行`}
+      removedLabel={`删除 ${diff.removedLines.length} 行`}
+    />
   );
 }
 

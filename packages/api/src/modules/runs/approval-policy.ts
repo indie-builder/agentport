@@ -9,7 +9,6 @@ import {
 } from '@agentport/shared';
 import type { RequestContext } from '../../http/context.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
-import { str } from './repo.js';
 import { summarizeToolArguments } from './tool-arguments.js';
 
 type ApprovalTool = Pick<
@@ -119,6 +118,7 @@ export async function getRunApprovalTool(
     repo.servers.getApiToolByName(db, serverId, toolName),
   ]);
   if (server?.kind !== 'generated' || !currentTool?.enabled) return null;
+  const rawBaseUrl = snapshot !== null ? snapshot.config.baseUrl : server.config.baseUrl;
   const current: ApprovalTool = {
     id: currentTool.id,
     name: currentTool.name,
@@ -126,7 +126,7 @@ export async function getRunApprovalTool(
     pathTemplate: currentTool.pathTemplate,
     approvalMode: apiToolApprovalModeSchema.parse(currentTool.approvalMode),
     paramsIn: apiToolParamsInSchema.parse(currentTool.paramsIn),
-    baseUrl: str(snapshot !== null ? snapshot.config.baseUrl : server.config.baseUrl),
+    baseUrl: typeof rawBaseUrl === 'string' ? rawBaseUrl : '',
   };
   if (snapshot?.tools === undefined) return current;
   const snapshotTool = snapshot.tools.find((tool) => tool.enabled && tool.name === toolName);

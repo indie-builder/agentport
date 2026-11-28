@@ -7,12 +7,16 @@ import {
   KnowledgeModelError,
   rerankDocuments,
 } from '@agentport/core';
-import { assertSafeUrl } from '@agentport/core/net-guard';
+import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
-import type { KnowledgeEmbeddingProtocol, KnowledgeModelProfileKind } from '@agentport/shared';
+import {
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
+  type KnowledgeEmbeddingProtocol,
+  type KnowledgeModelProfileKind,
+  supportsKnowledgeImageVectors,
+} from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
-import { supportsImageVectors } from '../service.js';
 import { type KnowledgeDeps, notFound } from './shared.js';
 
 type ProfileRow = Awaited<ReturnType<typeof repo.knowledge.listModelProfiles>>[number];
@@ -50,20 +54,6 @@ function toProfile(row: {
   };
 }
 
-async function assertKnowledgeEndpoint(
-  raw: string,
-  config: { KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: string; NODE_ENV: string | undefined },
-): Promise<void> {
-  const url = new URL(raw);
-  const host = url.hostname.replace(/^\[|\]$/g, '');
-  const key = url.port ? `${host}:${url.port}` : host;
-  const allowed = config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST.split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (allowed.includes(key) || allowed.includes(host) || allowed.includes(url.origin)) return;
-  await assertSafeUrl(raw, config.NODE_ENV);
-}
-
 function imageCapabilityProblem(input: {
   kind: KnowledgeModelProfileKind;
   model: string;
@@ -73,7 +63,13 @@ function imageCapabilityProblem(input: {
   if (!input.imageInputEnabled) return null;
   if (input.kind === 'asr') return 'ASR profile 不支持图片输入';
   if (input.kind !== 'embedding') return '只有 embedding profile 可以开启图片输入';
-  if (!supportsImageVectors(input)) {
+  if (
+    !supportsKnowledgeImageVectors({
+      protocol: input.embeddingProtocol,
+      model: input.model,
+      supportsImageInput: input.imageInputEnabled,
+    })
+  ) {
     return '图片输入需要 embeddingProtocol=cohere_v2 且 model=embed-v4.0';
   }
   return null;
@@ -87,7 +83,14 @@ export async function listModelProfiles(deps: KnowledgeDeps, view: 'selection' |
     name: row.name,
     kind: row.kind,
     enabled: row.enabled,
-    supportsImageVectors: row.kind === 'embedding' && row.enabled && supportsImageVectors(row),
+    supportsImageVectors:
+      row.kind === 'embedding' &&
+      row.enabled &&
+      supportsKnowledgeImageVectors({
+        protocol: row.embeddingProtocol,
+        model: row.model,
+        supportsImageInput: row.imageInputEnabled,
+      }),
   }));
 }
 
@@ -107,7 +110,10 @@ export async function createModelProfile(
   const capabilityProblem = imageCapabilityProblem(input);
   if (capabilityProblem !== null) throw new AppError('INVALID_INPUT', capabilityProblem);
   try {
-    await assertKnowledgeEndpoint(input.endpointUrl, deps.config);
+    await assertServerEndpoint(input.endpointUrl, {
+      nodeEnv: deps.config.NODE_ENV,
+      allowlist: deps.config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST,
+    });
     const row = await repo.knowledge.createModelProfile(deps.db, {
       kind: input.kind,
       name: input.name,
@@ -115,7 +121,7 @@ export async function createModelProfile(
       model: input.model,
       embeddingProtocol: input.embeddingProtocol,
       imageInputEnabled: input.imageInputEnabled,
-      dimensions: input.kind === 'embedding' ? 1024 : null,
+      dimensions: input.kind === 'embedding' ? KNOWLEDGE_EMBEDDING_DIMENSIONS : null,
       secretsEncrypted: input.apiKey
         ? await encryptSecrets({ apiKey: input.apiKey }, deps.config.APP_SECRET_KEY)
         : null,
@@ -142,7 +148,12 @@ export async function updateModelProfile(
   },
 ) {
   const { apiKey, ...rest } = body;
-  if (rest.endpointUrl !== undefined) await assertKnowledgeEndpoint(rest.endpointUrl, deps.config);
+  if (rest.endpointUrl !== undefined) {
+    await assertServerEndpoint(rest.endpointUrl, {
+      nodeEnv: deps.config.NODE_ENV,
+      allowlist: deps.config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST,
+    });
+  }
   const current = await repo.knowledge.getModelProfileWithSecret(deps.db, profileId);
   if (!current) notFound('模型 profile');
   if (
@@ -197,10 +208,8 @@ export async function updateModelProfile(
 
 export async function deleteModelProfile(deps: KnowledgeDeps, profileId: string): Promise<void> {
   try {
-    const result = await deps.db.execute(
-      sql`delete from knowledge_model_profiles where id = ${profileId} returning id`,
-    );
-    if (result.length === 0) notFound('模型 profile');
+    const deleted = await repo.knowledge.deleteModelProfile(deps.db, profileId);
+    if (!deleted) notFound('模型 profile');
   } catch (err) {
     if (isPgCode(err, '23001') || isPgCode(err, '23503')) {
       throw new AppError('CONFLICT', '该 profile 仍被知识库使用，请先切换或删除知识库');
@@ -218,7 +227,10 @@ export async function testModelProfile(
   if (row.kind === 'asr') {
     throw new AppError('CONFLICT', 'ASR 请通过显式音频上传验证');
   }
-  await assertKnowledgeEndpoint(row.endpointUrl, deps.config);
+  await assertServerEndpoint(row.endpointUrl, {
+    nodeEnv: deps.config.NODE_ENV,
+    allowlist: deps.config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST,
+  });
   const apiKey = row.secretsEncrypted
     ? (await decryptSecrets(row.secretsEncrypted, deps.config.APP_SECRET_KEY)).apiKey
     : undefined;
@@ -227,7 +239,7 @@ export async function testModelProfile(
       const embeddingProfile = {
         endpointUrl: row.endpointUrl,
         model: row.model,
-        dimensions: 1024 as const,
+        dimensions: KNOWLEDGE_EMBEDDING_DIMENSIONS,
         embeddingProtocol: row.embeddingProtocol,
         imageInputEnabled: row.imageInputEnabled,
         ...(apiKey ? { apiKey } : {}),

@@ -16,8 +16,9 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
+import { CursorListFooter } from '../../../components/cursor-list-footer.js';
 import { FilterSelect } from '../../../components/filter-select.js';
 import { BatchActionDialog } from '../../../components/knowledge/knowledge-documents.js';
 import {
@@ -77,11 +78,20 @@ import {
   useUploadKnowledgeDocument,
 } from '../../../lib/queries.js';
 import { toastError, toastSuccess } from '../../../lib/toast.js';
-import { useDebouncedValue } from '../../../lib/use-debounced-value.js';
 import { DocumentDialog, FolderDialog, TagDialog } from './document-dialogs.js';
 import { ManualDocumentDialog, UrlImportDialog } from './document-imports.js';
 import { DocumentViewer } from './document-viewer.js';
 import type { KnowledgeCaps } from './shared.js';
+
+type DocumentSort = 'updated' | 'created' | 'title';
+
+type DocumentSearchPatch = {
+  q?: string | undefined;
+  status?: KnowledgeDocument['status'] | undefined;
+  tag?: string | undefined;
+  sort?: DocumentSort | undefined;
+  folder?: string | undefined;
+};
 
 export function DocumentsTab({
   baseId,
@@ -92,6 +102,11 @@ export function DocumentsTab({
   onFolderChange,
   documentId,
   onDocumentChange,
+  query,
+  status,
+  tag,
+  sort,
+  onSearchChange,
   onViewJobs,
 }: {
   baseId: string;
@@ -102,17 +117,57 @@ export function DocumentsTab({
   onFolderChange: (folderId: string | undefined) => void;
   documentId: string | undefined;
   onDocumentChange: (documentId: string | undefined) => void;
+  query: string;
+  status: 'all' | KnowledgeDocument['status'];
+  tag: string;
+  sort: DocumentSort | undefined;
+  onSearchChange: (patch: DocumentSearchPatch, replace?: boolean) => void;
   onViewJobs: (documentId: string) => void;
 }) {
-  const [query, setQuery] = useState('');
-  const settledQuery = useDebouncedValue(query.trim(), 300);
-  const [status, setStatus] = useState<'all' | KnowledgeDocument['status']>('all');
+  const [queryDraft, setQueryDraft] = useState(query);
+  const [composing, setComposing] = useState(false);
+  const lastSyncedQuery = useRef(query);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+  const onSearchChangeRef = useRef(onSearchChange);
+  onSearchChangeRef.current = onSearchChange;
+
+  useEffect(() => {
+    const node = searchBoxRef.current;
+    if (!node) return;
+    const onStart = (): void => setComposing(true);
+    const onEnd = (): void => setComposing(false);
+    node.addEventListener('compositionstart', onStart);
+    node.addEventListener('compositionend', onEnd);
+    return () => {
+      node.removeEventListener('compositionstart', onStart);
+      node.removeEventListener('compositionend', onEnd);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (query === lastSyncedQuery.current) return;
+    lastSyncedQuery.current = query;
+    setQueryDraft(query);
+  }, [query]);
+
+  useEffect(() => {
+    if (composing) return;
+    const trimmed = queryDraft.trim();
+    if (trimmed === lastSyncedQuery.current) return;
+    const timer = window.setTimeout(() => {
+      lastSyncedQuery.current = trimmed;
+      onSearchChangeRef.current({ q: trimmed === '' ? undefined : trimmed }, true);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [queryDraft, composing]);
+
+  const settledQuery = query.trim();
   const applyStatus = (next: string): void => {
     const value = parseKnowledgeDocumentStatusFilter(next);
-    if (value !== undefined) setStatus(value);
+    if (value !== undefined) {
+      onSearchChange({ status: value === 'all' ? undefined : value }, true);
+    }
   };
-  const [tag, setTag] = useState('all');
-  const [sort, setSort] = useState<'updated' | 'created' | 'title' | undefined>(undefined);
   const folders = useKnowledgeFolders(baseId);
   const tags = useKnowledgeTags(baseId);
   const deleteFolder = useDeleteKnowledgeFolder(baseId);
@@ -199,11 +254,15 @@ export function DocumentsTab({
   const targetFolderId = folderId === undefined || folderId === 'null' ? null : folderId;
   const filtersActive =
     settledQuery !== '' || status !== 'all' || tag !== 'all' || folderId !== undefined;
+  const clearQuery = (): void => {
+    lastSyncedQuery.current = '';
+    setQueryDraft('');
+    onSearchChange({ q: undefined }, true);
+  };
   const clearFilters = (): void => {
-    setQuery('');
-    setStatus('all');
-    setTag('all');
-    onFolderChange(undefined);
+    lastSyncedQuery.current = '';
+    setQueryDraft('');
+    onSearchChange({ q: undefined, status: undefined, tag: undefined, folder: undefined }, true);
   };
 
   const onFiles = async (files: File[]): Promise<void> => {
@@ -358,7 +417,9 @@ export function DocumentsTab({
               <FilterSelect
                 label="按标签筛选"
                 value={tag}
-                onValueChange={setTag}
+                onValueChange={(next) =>
+                  onSearchChange({ tag: next === 'all' ? undefined : next }, true)
+                }
                 options={[
                   { value: 'all', label: '全部标签' },
                   ...tags.data.map((item) => ({ value: item.name, label: item.name })),
@@ -370,7 +431,10 @@ export function DocumentsTab({
               label="按排序展示文档"
               value={sort ?? 'created'}
               onValueChange={(next) =>
-                setSort(next === 'updated' || next === 'title' ? next : 'created')
+                onSearchChange(
+                  { sort: next === 'updated' || next === 'title' ? next : undefined },
+                  true,
+                )
               }
               options={[
                 { value: 'updated', label: '最近更新' },
@@ -397,12 +461,15 @@ export function DocumentsTab({
                   : `共 ${documentItems.length} 个文档`}
             </span>
           </div>
-          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <div
+            ref={searchBoxRef}
+            className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2"
+          >
             <SearchInput
               label="搜索文档"
               placeholder="搜索文档…"
-              value={query}
-              onChange={setQuery}
+              value={queryDraft}
+              onChange={setQueryDraft}
               className="min-w-40 flex-1 sm:w-56 sm:flex-none"
             />
             {caps.content ? (
@@ -561,7 +628,7 @@ export function DocumentsTab({
           />
         ) : null}
         {documents.isPending ? <LoadingState rows={4} /> : null}
-        {documents.isError ? (
+        {documents.isError && !documents.isFetchNextPageError ? (
           <ErrorState error={documents.error} onRetry={() => void documents.refetch()} />
         ) : null}
         {documents.isSuccess && documentItems.length === 0 ? (
@@ -590,7 +657,7 @@ export function DocumentsTab({
                           key: 'status',
                           label: '状态',
                           value: documentStatusLabel[status],
-                          onRemove: () => setStatus('all'),
+                          onRemove: () => onSearchChange({ status: undefined }, true),
                         },
                       ]
                     : []),
@@ -600,7 +667,7 @@ export function DocumentsTab({
                           key: 'tag',
                           label: '标签',
                           value: tag,
-                          onRemove: () => setTag('all'),
+                          onRemove: () => onSearchChange({ tag: undefined }, true),
                         },
                       ]
                     : []),
@@ -610,7 +677,7 @@ export function DocumentsTab({
                           key: 'q',
                           label: '关键词',
                           value: settledQuery,
-                          onRemove: () => setQuery(''),
+                          onRemove: clearQuery,
                         },
                       ]
                     : []),
@@ -774,25 +841,12 @@ export function DocumentsTab({
             </TableBody>
           </Table>
         ) : null}
-        {documents.hasNextPage ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="self-start"
-            disabled={documents.isFetchingNextPage}
-            aria-busy={documents.isFetchingNextPage}
-            onClick={() => void documents.fetchNextPage()}
-          >
-            {documents.isFetchingNextPage ? '加载中…' : '加载更多文档'}
-          </Button>
-        ) : null}
-        {documents.isFetchNextPageError ? (
-          <ErrorState
-            error={documents.error}
-            title="更多文档没有加载出来"
-            onRetry={() => void documents.fetchNextPage()}
-          />
-        ) : null}
+        <CursorListFooter
+          query={documents}
+          label="文档"
+          errorTitle="更多文档没有加载出来"
+          className="justify-start"
+        />
 
         {confirmReprocess ? (
           <ConfirmDialog

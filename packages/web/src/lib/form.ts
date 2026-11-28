@@ -1,4 +1,4 @@
-import { useBlocker } from '@tanstack/react-router';
+import { type ShouldBlockFn, useBlocker } from '@tanstack/react-router';
 import type { FieldValues, Path, UseFormReturn } from 'react-hook-form';
 import type { z } from 'zod';
 import { ApiError } from './orpc.js';
@@ -6,12 +6,18 @@ import { ApiError } from './orpc.js';
 export function useFormBlocker(
   dirty: boolean,
   pending: boolean,
-  options?: { ignoreSamePath?: boolean },
+  options?: {
+    ignoreSamePath?: boolean;
+    allowNavigation?: (args: Parameters<ShouldBlockFn>[0]) => boolean;
+  },
 ) {
   const blocker = useBlocker({
     shouldBlockFn: (args) => {
-      if (options?.ignoreSamePath && args && args.current.pathname === args.next.pathname) {
-        return false;
+      if (args) {
+        if (options?.allowNavigation?.(args)) return false;
+        if (options?.ignoreSamePath && args.current.pathname === args.next.pathname) {
+          return false;
+        }
       }
       return dirty || pending;
     },
@@ -24,6 +30,39 @@ export function useFormBlocker(
       if (!pending) blocker.proceed?.();
     },
   };
+}
+
+type FieldIssueMessages = {
+  tooSmall?: string | undefined;
+  tooBig?: string | undefined;
+  invalidFormat?: string | undefined;
+  invalidType?: string | undefined;
+};
+
+export function withFieldMessages<TInput, TOutput = TInput>(
+  base: z.ZodType<TOutput, TInput>,
+  schema: z.ZodType,
+  messages: FieldIssueMessages,
+  options?: { allowEmpty?: boolean | undefined },
+) {
+  return base.superRefine((value, ctx) => {
+    if (options?.allowEmpty && value === '') return;
+    const parsed = schema.safeParse(value);
+    if (parsed.success) return;
+    for (const issue of parsed.error.issues) {
+      const custom =
+        issue.code === 'too_small'
+          ? messages.tooSmall
+          : issue.code === 'too_big'
+            ? messages.tooBig
+            : issue.code === 'invalid_format'
+              ? messages.invalidFormat
+              : issue.code === 'invalid_type'
+                ? messages.invalidType
+                : undefined;
+      ctx.addIssue({ code: 'custom', message: custom ?? issue.message });
+    }
+  });
 }
 
 const WRAPPER_SEGMENTS = new Set(['body', 'query', 'params']);

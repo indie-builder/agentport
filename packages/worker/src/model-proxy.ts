@@ -1,4 +1,4 @@
-import { CONTENT_BLOCKED_MESSAGE } from '@agentport/core';
+import { CONTENT_BLOCKED_MESSAGE, readCappedBytes } from '@agentport/core';
 import type { repo } from '@agentport/db';
 import {
   PROVIDER_NETWORK_MESSAGE,
@@ -89,24 +89,6 @@ function errorResponse(status: number, type: string, message: string): Response 
   });
 }
 
-async function readBody(request: Request): Promise<Buffer> {
-  if (!request.body) return Buffer.alloc(0);
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_BODY_BYTES) {
-      await reader.cancel().catch(() => undefined);
-      throw new Error('request body too large');
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks);
-}
-
 export async function startModelProxy(options: ModelProxyOptions): Promise<ModelProxy | null> {
   const { logger, upstreamBaseUrl } = options;
   const upstreamCredential = options.apiKey ?? options.authToken;
@@ -160,7 +142,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
 
     let body: Buffer;
     try {
-      body = await readBody(request);
+      body = await readCappedBytes(request, MAX_BODY_BYTES, 'model proxy request');
     } catch {
       return errorResponse(413, 'payload_too_large', 'body too large');
     }

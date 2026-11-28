@@ -85,12 +85,14 @@ type MountOptions = {
   runs?: EvalRunPage | ((query: RunsQuery) => Promise<EvalRunPage>);
   openDialog?: boolean;
   testCase?: EvalCase;
+  cases?: EvalCase[];
 };
 
 async function mount(editing = false, options: MountOptions = {}) {
   const currentCase = options.testCase ?? testCase;
+  const caseList = options.cases ?? (editing ? [currentCase] : []);
   vi.spyOn(api, 'evalCases').mockResolvedValue({
-    items: editing ? [currentCase] : [],
+    items: caseList,
     nextCursor: null,
   });
   const evalRuns = vi.spyOn(api, 'evalRuns');
@@ -106,7 +108,7 @@ async function mount(editing = false, options: MountOptions = {}) {
   });
   for (const agent of ['agent-a', 'agent-b']) {
     client.setQueryData(['eval-cases', agent, 50], {
-      pages: [{ items: editing ? [currentCase] : [], nextCursor: null }],
+      pages: [{ items: agent === 'agent-a' ? caseList : [], nextCursor: null }],
       pageParams: [undefined],
     });
   }
@@ -636,5 +638,95 @@ describe('evaluation run URL state', () => {
     await actWaitFor(() => expect(router.state.location.search.base).toBeUndefined());
     expect(router.state.location.search.head).toBeUndefined();
     expect(router.state.location.search.tab).toBe('runs');
+  });
+});
+
+describe('evaluation cases URL filter and search', () => {
+  const cases: EvalCase[] = [
+    {
+      ...testCase,
+      id: 'case-llm',
+      name: 'Alpha LLM',
+      prompt: 'Explain billing rules',
+      judgeMode: 'llm',
+    },
+    {
+      ...testCase,
+      id: 'case-contains',
+      name: 'Gamma Contains',
+      prompt: 'Check status output',
+      judgeMode: 'contains',
+    },
+    {
+      ...testCase,
+      id: 'case-tools',
+      name: 'Beta Tools',
+      prompt: 'Search handbook',
+      judgeMode: 'llm',
+      expectedTools: ['Read'],
+    },
+  ];
+
+  async function typeSearch(value: string) {
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索用例"]');
+    if (!input) throw new Error('Missing case search input');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    return input;
+  }
+
+  it('restores query and filter from the URL and renders matching cases', async () => {
+    await mount(false, {
+      url: '/eval?agent=agent-a&tab=cases&q=billing&filter=llm',
+      openDialog: false,
+      cases,
+    });
+
+    await actWaitFor(() => expect(container.textContent).toContain('Alpha LLM'));
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索用例"]');
+    expect(input?.value).toBe('billing');
+    expect(button('LLM 评判').getAttribute('aria-checked')).toBe('true');
+    expect(container.textContent).not.toContain('Gamma Contains');
+    expect(container.textContent).not.toContain('Beta Tools');
+  });
+
+  it('respects IME composition, syncs search to URL with replace, and clears on reset', async () => {
+    const router = await mount(false, {
+      url: '/eval?agent=agent-a&tab=cases',
+      openDialog: false,
+      cases,
+    });
+
+    await actWaitFor(() => expect(container.textContent).toContain('Alpha LLM'));
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索用例"]');
+    if (!input) throw new Error('Missing case search input');
+
+    await act(async () => {
+      input.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    });
+    await typeSearch('Beta');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+    expect(router.state.location.search.q).toBeUndefined();
+
+    await act(async () => {
+      input.dispatchEvent(new Event('compositionend', { bubbles: true }));
+    });
+    await actWaitFor(() => expect(router.state.location.search.q).toBe('Beta'));
+    expect(container.textContent).toContain('Beta Tools');
+    expect(container.textContent).not.toContain('Alpha LLM');
+
+    await click('包含匹配');
+    await actWaitFor(() => expect(router.state.location.search.filter).toBe('contains'));
+    await actWaitFor(() => expect(container.textContent).toContain('没有匹配的用例'));
+
+    await click('重置筛选');
+    await actWaitFor(() => expect(router.state.location.search.q).toBeUndefined());
+    expect(router.state.location.search.filter).toBeUndefined();
+    expect(container.textContent).toContain('Alpha LLM');
+    expect(container.textContent).toContain('Gamma Contains');
   });
 });

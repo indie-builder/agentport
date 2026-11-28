@@ -7,7 +7,7 @@ import { INVALID_REQUEST_FALLBACK_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { auditExportQuerySchema } from '../../http/native-schemas.js';
 import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
-import { auditOptions, toItem } from './router.js';
+import { auditOptions, toItem } from './shared.js';
 
 export function registerAuditHttp(app: Hono<HttpEnv>): void {
   app.get(

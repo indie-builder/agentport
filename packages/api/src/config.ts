@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import {
   commonEnvSchema,
+  DEFAULT_SANDBOX_API_URL,
   MCP_APPROVAL_WAIT_MS,
   parseEnv,
   serviceEnvShape,
@@ -24,6 +25,7 @@ const envSchema = z
     PORT: z.coerce.number().int().positive().default(3000),
     SELF_URL: z.string().default('http://127.0.0.1:3000'),
     DATABASE_URL: serviceEnvShape.DATABASE_URL,
+    DB_POOL_MAX: serviceEnvShape.DB_POOL_MAX,
     REDIS_URL,
     APP_SECRET_KEY: serviceEnvShape.APP_SECRET_KEY,
     ANTHROPIC_BASE_URL: serviceEnvShape.ANTHROPIC_BASE_URL,
@@ -46,6 +48,17 @@ const envSchema = z
     GENERATED_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
     WEBHOOK_PRIVATE_HOST_ALLOWLIST: serviceEnvShape.WEBHOOK_PRIVATE_HOST_ALLOWLIST,
     WREN_RUNTIME_URL: serviceEnvShape.WREN_RUNTIME_URL,
+    WEB_DIST: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    TRUST_PROXY: z.string().optional(),
+    RATE_LIMIT_DISABLED: z.string().optional(),
+    PLATFORM_MCP_TOKEN: z.string().optional(),
+    SANDBOX_API_URL: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().min(1).default(DEFAULT_SANDBOX_API_URL),
+    ),
   })
   .superRefine((env, ctx) => {
     if (env.ALLOW_WEAK_ADMIN_PASSWORD === 'true') return;
@@ -107,6 +120,21 @@ export function isTrustedOrigin(origin: string, trustedOrigins: readonly string[
       parsed.hostname.endsWith(`.${base}`)
     );
   });
+}
+
+export function resolveRuntimeFlags(
+  config: Partial<Pick<Config, 'TRUST_PROXY' | 'RATE_LIMIT_DISABLED' | 'PLATFORM_MCP_TOKEN'>>,
+  env: NodeJS.ProcessEnv = process.env,
+): {
+  trustProxy: boolean;
+  rateLimitDisabled: boolean;
+  platformMcpToken: string | null;
+} {
+  const trustProxy = (config.TRUST_PROXY ?? env.TRUST_PROXY) === '1';
+  const rateLimitDisabled = (config.RATE_LIMIT_DISABLED ?? env.RATE_LIMIT_DISABLED) === '1';
+  const rawToken = config.PLATFORM_MCP_TOKEN ?? env.PLATFORM_MCP_TOKEN;
+  const platformMcpToken = rawToken !== undefined && rawToken.length >= 16 ? rawToken : null;
+  return { trustProxy, rateLimitDisabled, platformMcpToken };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {

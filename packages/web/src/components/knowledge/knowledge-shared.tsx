@@ -6,6 +6,8 @@ import type {
   KnowledgeLocator,
   KnowledgeVersionOrigin,
 } from '../../lib/api.js';
+import { cn } from '../../lib/cn.js';
+import { formatTimestamp } from '../../lib/format.js';
 
 export { DraftGuardDialogs, useDraftGuard } from '../draft-guard.js';
 
@@ -144,17 +146,6 @@ export function versionLabel(version: KnowledgeDocumentVersion): string {
   return `v${version.version} · ${originLabel[version.origin] ?? version.origin}`;
 }
 
-function formatTimestamp(ms: number, withHours: boolean): string {
-  const pad = (value: number, size = 2): string => String(value).padStart(size, '0');
-  const hours = Math.floor(ms / 3_600_000);
-  const minutes = Math.floor((ms % 3_600_000) / 60_000);
-  const seconds = Math.floor((ms % 60_000) / 1000);
-  const millis = ms % 1000;
-  return withHours
-    ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}.${pad(millis, 3)}`
-    : `${pad(minutes)}:${pad(seconds)}.${pad(millis, 3)}`;
-}
-
 function timeRangeLabel(fromMs: number, toMs: number): string {
   const withHours = fromMs >= 3_600_000 || toMs >= 3_600_000;
   return `${formatTimestamp(fromMs, withHours)}–${formatTimestamp(toMs, withHours)}`;
@@ -190,4 +181,61 @@ export function locatorLabel(locator: KnowledgeLocator | null | undefined): stri
 
 export function scoreKindLabel(scoreKind: 'rrf' | 'rerank' | undefined): string {
   return scoreKind === 'rerank' ? '重排分数' : 'RRF 分数';
+}
+
+function keyedDiffLines(lines: readonly string[], prefix: string) {
+  const counts = new Map<string, number>();
+  return lines.map((line) => {
+    const occurrence = (counts.get(line) ?? 0) + 1;
+    counts.set(line, occurrence);
+    return { key: `${prefix}-${line}-${occurrence}`, line };
+  });
+}
+
+export function LineDiffColumns({
+  addedLines,
+  removedLines,
+  addedLabel = '新增行',
+  removedLabel = '删除行',
+}: {
+  addedLines: readonly string[];
+  removedLines: readonly string[];
+  addedLabel?: string;
+  removedLabel?: string;
+}) {
+  return (
+    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+      {[
+        {
+          entries: keyedDiffLines(addedLines, 'added'),
+          label: addedLabel,
+          prefix: '+',
+          tone: 'text-success',
+          keyPrefix: 'added',
+        },
+        {
+          entries: keyedDiffLines(removedLines, 'removed'),
+          label: removedLabel,
+          prefix: '−',
+          tone: 'text-danger',
+          keyPrefix: 'removed',
+        },
+      ].map((column) => (
+        <div key={column.keyPrefix} className="flex min-w-0 flex-col gap-1">
+          <span className={cn('text-xs font-medium', column.tone)}>{column.label}</span>
+          {column.entries.length === 0 ? (
+            <span className="text-xs text-muted-foreground">无</span>
+          ) : (
+            <ul className="flex flex-col gap-0.5 font-mono text-2xs">
+              {column.entries.map((entry) => (
+                <li key={entry.key} className={cn('whitespace-pre-wrap break-words', column.tone)}>
+                  {column.prefix} {entry.line}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }

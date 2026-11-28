@@ -3,9 +3,9 @@ import { AGENT_SELECTION_MISSING_MESSAGE, fail, notFound } from '@agentport/core
 import { newId, repo, schema } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
-import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
+import { accessFilter, authorizeObject, requireUser } from '../../http/access.js';
 import { writeCrossUserAudit } from '../../http/audit.js';
-import type { RequestContext } from '../../http/context.js';
+import { actorOf, type RequestContext } from '../../http/context.js';
 import { EVAL_RUN_MISSING_MESSAGE } from '../../http/errors.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from '../runs/access.js';

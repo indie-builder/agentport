@@ -2,6 +2,7 @@ import { auditStatusSchema, utcWindowStart } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, EllipsisVertical, RefreshCw, ScrollText, ShieldCheck } from 'lucide-react';
 import { Fragment, useState } from 'react';
+import { CursorListFooter } from '../components/cursor-list-footer.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterPopover } from '../components/filter-popover.js';
 import { FilterSelect } from '../components/filter-select.js';
@@ -604,26 +605,12 @@ export function AuditPage() {
                 renderExpanded={auditDetails}
               />
             )}
-            {audit.isFetchNextPageError ? (
-              <ErrorState
-                error={audit.error}
-                onRetry={() => void audit.fetchNextPage()}
-                title="下一页加载失败，保留已加载的审计记录"
-              />
-            ) : audit.hasNextPage ? (
-              <div className="flex justify-center">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={audit.isFetching || searchPending}
-                  onClick={() => void audit.fetchNextPage()}
-                >
-                  {audit.isFetchingNextPage ? '加载中…' : '加载更多'}
-                </Button>
-              </div>
-            ) : rows.length > 0 ? (
-              <div className="text-center text-xs text-muted-foreground">已到末尾</div>
-            ) : null}
+            <CursorListFooter
+              query={audit}
+              errorTitle="下一页加载失败，保留已加载的审计记录"
+              disabled={audit.isFetching || searchPending}
+              showEndLabel={rows.length > 0}
+            />
           </>
         )}
       </PageBody>

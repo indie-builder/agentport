@@ -1,8 +1,20 @@
 import { EditorView } from '@codemirror/view';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
 import { delay, HttpResponse, http } from 'msw';
-import { act } from 'react';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { toastError } from '../src/lib/toast.js';
+import { KnowledgeDetailPage } from '../src/pages/knowledge/detail/knowledge-detail-page.js';
+import { knowledgeDetailSearchSchema } from '../src/routes/-search.js';
 import {
   base,
   baseHandlers,
@@ -1207,6 +1219,50 @@ describe('knowledge document versions and manual drafts', () => {
 });
 
 describe('knowledge document filters', () => {
+  async function mountDetail(path: string, search: Record<string, string> = {}) {
+    const rootRoute = createRootRoute({ component: Outlet });
+    const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
+    const list = createRoute({
+      getParentRoute: () => shell,
+      path: '/knowledge/',
+      component: () => createElement('div', null, 'list'),
+    });
+    const detail = createRoute({
+      getParentRoute: () => shell,
+      path: '/knowledge/$baseId',
+      validateSearch: knowledgeDetailSearchSchema,
+      component: KnowledgeDetailPage,
+    });
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, retryOnMount: false },
+        mutations: { retry: false },
+      },
+    });
+    mountState.client = client;
+    const host = document.createElement('div');
+    mountState.host = host;
+    document.body.append(host);
+    const root = createRoot(host);
+    mountState.root = root;
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([shell.addChildren([list, detail])]),
+      history: createMemoryHistory({
+        initialEntries: [
+          Object.keys(search).length ? `${path}?${new URLSearchParams(search)}` : path,
+        ],
+      }),
+    });
+    await act(async () => {
+      await router.load();
+      root.render(
+        createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
+      );
+    });
+    await flush();
+    return router;
+  }
+
   it('clears query, status, tag and folder together from the empty result', async () => {
     const folderFixture = {
       id: 'kfd_new',
@@ -1230,7 +1286,7 @@ describe('knowledge document filters', () => {
         });
       }),
     );
-    await mount('/knowledge/kb_1');
+    const router = await mountDetail('/knowledge/kb_1');
 
     await chooseFilter('按状态筛选', '失败');
     await chooseFilter('按标签筛选', '流程');
@@ -1244,11 +1300,18 @@ describe('knowledge document filters', () => {
       );
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await flush();
+    await waitFor(
+      () =>
+        router.state.location.search.status === 'failed' &&
+        router.state.location.search.tag === '流程' &&
+        router.state.location.search.folder === 'kfd_new' &&
+        router.state.location.search.q === '上线',
+    );
     await waitFor(() => document.body.textContent?.includes('没有匹配的文档') === true);
 
     await click(button('清除全部筛选'));
     await waitFor(() => document.body.textContent?.includes('上线流程') === true);
+    expect(router.state.location.search).toEqual({});
     const last = [...calls]
       .reverse()
       .find(
@@ -1259,5 +1322,71 @@ describe('knowledge document filters', () => {
     for (const key of ['status', 'tag', 'folderId', 'q']) {
       expect(url.searchParams.has(key)).toBe(false);
     }
+  });
+
+  it('restores status, tag, sort and query from the URL and omits defaults on clear', async () => {
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+    );
+    const router = await mountDetail('/knowledge/kb_1', {
+      status: 'failed',
+      tag: '流程',
+      sort: 'title',
+      q: '上线',
+    });
+
+    const initialCall = [...calls]
+      .reverse()
+      .find(
+        (item) =>
+          item.method === 'GET' && item.path.startsWith('/api/knowledge/bases/kb_1/documents'),
+      );
+    const initialUrl = new URL(initialCall?.path ?? '', 'http://localhost');
+    expect(initialUrl.searchParams.get('status')).toBe('failed');
+    expect(initialUrl.searchParams.get('tag')).toBe('流程');
+    expect(initialUrl.searchParams.get('sort')).toBe('title');
+    expect(initialUrl.searchParams.get('order')).toBe('asc');
+    expect(initialUrl.searchParams.get('q')).toBe('上线');
+
+    await chooseFilter('按排序展示文档', '最近创建');
+    await chooseFilter('按状态筛选', '全部状态');
+    await chooseFilter('按标签筛选', '全部标签');
+    const clearSearch = button('清除：搜索文档');
+    await click(clearSearch);
+    await waitFor(() => Object.keys(router.state.location.search).length === 0);
+    expect(router.state.location.search).toEqual({});
+  });
+
+  it('retries loading the next document page through CursorListFooter', async () => {
+    baseHandlers();
+    let nextCalls = 0;
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor');
+        if (cursor === 'kdoc_cursor') {
+          nextCalls += 1;
+          if (nextCalls === 1) {
+            return HttpResponse.json({ code: 'INTERNAL', message: '下一页失败' }, { status: 500 });
+          }
+          return HttpResponse.json({
+            items: [{ ...doc, id: 'kdoc_2', title: '第二页文档' }],
+            nextCursor: null,
+          });
+        }
+        return HttpResponse.json({ items: [doc], nextCursor: 'kdoc_cursor' });
+      }),
+    );
+    await mountDetail('/knowledge/kb_1');
+
+    await click(button('加载更多文档'));
+    await waitFor(() => document.body.textContent?.includes('更多文档没有加载出来') === true);
+    expect(document.querySelectorAll('[role="alert"]').length).toBe(1);
+
+    await click(button('重试'));
+    await waitFor(() => document.body.textContent?.includes('第二页文档') === true);
+    expect(document.body.textContent).not.toContain('更多文档没有加载出来');
   });
 });

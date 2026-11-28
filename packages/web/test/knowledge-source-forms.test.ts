@@ -502,7 +502,7 @@ describe('knowledge source forms', () => {
     expect(document.getElementById('source-range-0-paths-error')?.textContent).toContain(
       '每个 Seafile 范围都需要目录根',
     );
-    expect(document.activeElement).toBe(input);
+    await vi.waitFor(() => expect(document.activeElement).toBe(input));
   });
 
   it('shows an existing Seafile whole-library root as / and saves it unchanged', async () => {

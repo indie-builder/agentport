@@ -141,6 +141,12 @@ describe('public question contract', () => {
     expect(publicRunQuestionSchema.parse(projected)).toEqual(projected);
     expect(original.answers[secret]).toBe(secret);
     expect(redactSecrets('Bearer abcdef123456')).toBe('Bearer abcd***');
+    expect(redactSecrets('Bearer abcdefgh')).toBe('Bearer abcd***');
+    expect(redactSecrets('Bearer abcdefg')).toBe('Bearer abcdefg');
+    expect(redactSecrets('sk-1234567890')).toBe('sk-1***');
+    expect(redactSecrets('sk-123456789')).toBe('sk-123456789');
+    expect(redactSecrets('ghp_1234567890123456')).toBe('ghp_***');
+    expect(redactSecrets('ghp_123456789012345')).toBe('ghp_123456789012345');
   });
 
   it('accepts only indexed free text and option identities at the HTTP boundary', () => {

@@ -4,7 +4,7 @@ import { repo } from '@agentport/db';
 import type { Channel, Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { RedisClient } from 'bun';
-import { createApprovalEvaluator } from '../src/modules/servers/approval-policy.js';
+import { createApprovalEvaluator } from '../src/modules/runs/approval-policy.js';
 import {
   cleanup,
   createAgent,

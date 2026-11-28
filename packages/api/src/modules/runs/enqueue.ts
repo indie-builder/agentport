@@ -12,7 +12,7 @@ export function failRunEnqueue(cause?: unknown): never {
   );
 }
 
-export async function failQueuedRunEnqueue(db: Database, runId: string): Promise<boolean> {
+async function failQueuedRunEnqueue(db: Database, runId: string): Promise<boolean> {
   return (
     (await repo.runs.failUnstartedRun(
       db,

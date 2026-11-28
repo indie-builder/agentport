@@ -5,6 +5,7 @@ export * from './knowledge/faq-import.js';
 export * from './knowledge/folders.js';
 export * from './knowledge/jobs.js';
 export * from './knowledge/model-profiles.js';
+export * from './knowledge/package-import.js';
 export type {
   KnowledgeBaseRow,
   KnowledgeChunkRow,

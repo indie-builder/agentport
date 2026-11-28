@@ -259,6 +259,7 @@ describe.skipIf(!ready)(
       decrypt: () => ({}),
       anthropicBaseUrl: undefined,
       allowLoopback: true,
+      nodeEnv: 'test',
     };
 
     function armAsrLatch(): AsrLatch {
