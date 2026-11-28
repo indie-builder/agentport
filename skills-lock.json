@@ -92,12 +92,6 @@
       "skillPath": "skills/emil-design-eng/SKILL.md",
       "computedHash": ""
     },
-    "fastify-best-practices": {
-      "source": "mcollina/skills",
-      "sourceType": "github",
-      "skillPath": "skills/fastify/SKILL.md",
-      "computedHash": ""
-    },
     "find-animation-opportunities": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
@@ -129,12 +123,6 @@
       "skillPath": "skills/mcp-builder/SKILL.md",
       "computedHash": ""
     },
-    "migrate-radix-to-base": {
-      "source": "shadcn-ui/ui",
-      "sourceType": "github",
-      "skillPath": "skills/migrate-radix-to-base/SKILL.md",
-      "computedHash": "7644de21e9aa533904def58c30f809ae6574c3cabc6396ab8b03dee751e8ffbe"
-    },
     "openui": {
       "source": "thesysdev/skills",
       "sourceType": "github",
@@ -146,12 +134,6 @@
       "sourceType": "github",
       "skillPath": "skills/pick-ui-library/SKILL.md",
       "computedHash": ""
-    },
-    "pnpm": {
-      "source": "antfu/skills",
-      "sourceType": "github",
-      "skillPath": "skills/pnpm/SKILL.md",
-      "computedHash": "47b91dd52f0034a7a4af935ef296a422f08a98c5c8c616e3e0eacafbf71de4e2"
     },
     "prototype": {
       "source": "emilkowalski/skills",
