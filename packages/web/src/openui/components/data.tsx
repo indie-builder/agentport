@@ -798,7 +798,7 @@ export function VisualCardBlockRenderer({
                 <div
                   aria-hidden="true"
                   data-slot="visual-card-scrim"
-                  className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-t from-black/75 via-black/35 to-transparent"
+                  className="pointer-events-none absolute inset-0 -z-10 bg-linear-to-t from-fg/75 via-fg/35 to-transparent"
                 />
               </>
             ) : null}
