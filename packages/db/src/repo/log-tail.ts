@@ -1,6 +1,6 @@
 import { type Column, type SQL, sql } from 'drizzle-orm';
 
-export const DEFAULT_LOG_TAIL_LIMIT = 64 * 1024;
+const DEFAULT_LOG_TAIL_LIMIT = 64 * 1024;
 
 export function logTailFields(options: {
   tailColumn: Column;

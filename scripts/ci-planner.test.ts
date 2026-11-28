@@ -186,7 +186,9 @@ describe('planCi', () => {
     expect(stages.get('typecheck:scripts')?.enabled).toBe(true);
     expect(stages.get('typecheck:e2e')?.enabled).toBe(true);
     expect(stages.get('typecheck:tests')?.enabled).toBe(true);
-    expect(stages.get('ci:planner:test')?.enabled).toBe(true);
+    expect(stages.get('lint:deadcode')?.enabled).toBe(true);
+    expect(stages.get('lint:ratchet')?.enabled).toBe(true);
+    expect(stages.get('scripts:test')?.enabled).toBe(true);
     for (const skipped of [
       'build:web',
       'openui:check',
@@ -337,5 +339,60 @@ describe('planCi', () => {
       'test',
       'test:web',
     ]);
+  });
+
+  test('triggers lint:deadcode, lint:ratchet, lint:lines and scripts:test appropriately', () => {
+    const knipPlan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['knip.json'],
+    });
+    expect(knipPlan.fullRun).toBe(true);
+    expect(knipPlan.affectedPackages).toHaveLength(8);
+    expect(byName(knipPlan).get('lint:deadcode')?.enabled).toBe(true);
+
+    const deletePlan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['docs/README.md'],
+      deletedOrRenamedFiles: ['packages/core/src/dead.ts'],
+    });
+    expect(byName(deletePlan).get('lint:deadcode')?.enabled).toBe(true);
+
+    const pkgJsonPlan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['packages/web/package.json'],
+    });
+    expect(byName(pkgJsonPlan).get('lint:deadcode')?.enabled).toBe(true);
+
+    const ratchetPlan = planCi({
+      options: parseCiArgs(['--changed', '--fast']),
+      changedFiles: ['scripts/baselines/suppressions.json'],
+    });
+    const ratchetStages = byName(ratchetPlan);
+    expect(ratchetStages.get('lint:ratchet')?.enabled).toBe(true);
+    expect(ratchetStages.get('lint:ratchet')?.fixHint).toBe('bun run ratchet:tighten');
+    expect(ratchetStages.get('scripts:test')?.enabled).toBe(true);
+    expect(ratchetStages.get('scripts:test')?.args).toEqual([
+      'test',
+      '--cwd',
+      'scripts',
+      './ci-planner.test.ts',
+      './check-ratchets.test.ts',
+      './check-dist-fresh.test.ts',
+    ]);
+
+    const linesPlan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['scripts/baselines/file-lines.json'],
+    });
+    const linesStages = byName(linesPlan);
+    expect(linesStages.get('lint:lines')?.enabled).toBe(true);
+    expect(linesStages.get('lint:lines')?.fixHint).toBe('bun run ratchet:tighten');
+    expect(linesStages.get('scripts:test')?.enabled).toBe(true);
+
+    const distFreshPlan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['scripts/check-dist-fresh.ts'],
+    });
+    expect(byName(distFreshPlan).get('scripts:test')?.enabled).toBe(true);
   });
 });

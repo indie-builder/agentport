@@ -190,7 +190,7 @@ export async function publishRun(runId: string, event: ChatEvent): Promise<void>
   await appendStreamEvent(getClient(), runStreamKey(runId), event);
 }
 
-export async function publishChannelEvent(channelId: string, event: ChannelEvent): Promise<void> {
+async function publishChannelEvent(channelId: string, event: ChannelEvent): Promise<void> {
   const redis = getChannelClient();
   if (!redis.connected) await redis.connect();
   await appendStreamEvent(redis, channelStreamKey(channelId), event);

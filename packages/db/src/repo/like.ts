@@ -2,7 +2,7 @@ import { type Column, ilike, like, type SQL } from 'drizzle-orm';
 
 export type LikePattern = string & { readonly __brand: 'LikePattern' };
 
-export function escapeLike(value: string): string {
+function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
 

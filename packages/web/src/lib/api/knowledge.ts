@@ -81,7 +81,7 @@ export type KnowledgeFaqBatchResult = ApiOutput<
   ApiClient['knowledge']['bases']['faqBatch']
 >['body'];
 
-export type KnowledgeFaqBatchInput =
+type KnowledgeFaqBatchInput =
   | {
       action: 'publish';
       importBatchId?: string;

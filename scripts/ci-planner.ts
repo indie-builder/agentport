@@ -1,4 +1,4 @@
-export const WORKSPACE_PACKAGES = [
+const WORKSPACE_PACKAGES = [
   'shared',
   'contract',
   'core',
@@ -11,7 +11,7 @@ export const WORKSPACE_PACKAGES = [
 
 export type WorkspacePackage = (typeof WORKSPACE_PACKAGES)[number];
 
-export type CiMode = 'full' | 'fast' | 'changed' | 'changed:fast';
+type CiMode = 'full' | 'fast' | 'changed' | 'changed:fast';
 
 export type StageName =
   | 'lint:biome'
@@ -19,6 +19,8 @@ export type StageName =
   | 'lint:design'
   | 'lint:contract'
   | 'lint:contract:test'
+  | 'lint:deadcode'
+  | 'lint:ratchet'
   | 'lint:lines'
   | 'lint:docs'
   | 'typecheck'
@@ -30,7 +32,7 @@ export type StageName =
   | 'openui:check'
   | 'test'
   | 'test:web'
-  | 'ci:planner:test'
+  | 'scripts:test'
   | 'e2e';
 
 export type CiOptions = {
@@ -98,6 +100,7 @@ const ROOT_CONFIG_FILES = new Set([
   'package.json',
   'bun.lock',
   'biome.json',
+  'knip.json',
   'tsconfig.json',
   'tsconfig.base.json',
   'tsconfig.scripts.json',
@@ -113,7 +116,7 @@ const WORKSPACE_PACKAGE_SET = new Set<string>(WORKSPACE_PACKAGES);
 const isWorkspacePackage = (value: string): value is WorkspacePackage =>
   WORKSPACE_PACKAGE_SET.has(value);
 
-export const normalizeRepoPath = (filePath: string): string =>
+const normalizeRepoPath = (filePath: string): string =>
   filePath.replace(/\\/g, '/').replace(/^\.\//, '');
 
 export const parseCiArgs = (argv: readonly string[]): CiOptions => {
@@ -282,10 +285,17 @@ const isOpenuiTriggerFile = (file: string): boolean =>
   file === 'scripts/check-openui.mjs' ||
   file === 'package.json';
 
-const isCiPlannerFile = (file: string): boolean =>
-  file === 'scripts/ci.ts' ||
-  file === 'scripts/ci-planner.ts' ||
-  file === 'scripts/ci-planner.test.ts';
+const isScriptsTestTriggerFile = (file: string): boolean =>
+  /^scripts\/ci[^/]*\.ts$/.test(file) ||
+  file === 'scripts/check-file-lines.mjs' ||
+  file.startsWith('scripts/check-ratchets') ||
+  file.startsWith('scripts/check-dist-fresh') ||
+  file.startsWith('scripts/baselines/');
+
+const isJsOrTsFile = (file: string): boolean => /\.(?:[cm]?[jt]sx?)$/.test(file);
+
+const isPackageJsonFile = (file: string): boolean =>
+  file === 'package.json' || file.endsWith('/package.json');
 
 const resolveMode = (options: CiOptions): CiMode => {
   if (options.changed) {
@@ -384,11 +394,34 @@ export const planCi = (input: CiPlanInput): CiPlan => {
         changedFiles.includes('scripts/check-project-contract.test.ts'),
     ),
     stageFromFlag(
+      'lint:deadcode',
+      ['run', 'lint:deadcode'],
+      fullRun ||
+        changedFiles.some(
+          (file) => isJsOrTsFile(file) || isPackageJsonFile(file) || file === 'knip.json',
+        ) ||
+        deletedOrRenamedFiles.some((file) => /^(?:packages|scripts|tests)\//.test(file)),
+    ),
+    stageFromFlag(
+      'lint:ratchet',
+      ['run', 'lint:ratchet'],
+      fullRun ||
+        changedFiles.some(
+          (file) =>
+            isJsOrTsFile(file) ||
+            file === 'scripts/check-ratchets.mjs' ||
+            file === 'scripts/baselines/suppressions.json',
+        ),
+      { fixHint: 'bun run ratchet:tighten' },
+    ),
+    stageFromFlag(
       'lint:lines',
       ['run', 'lint:lines'],
       fullRun ||
         changedFiles.some((file) => /\.(?:[jt]sx?|mjs|json)$/.test(file)) ||
-        changedFiles.includes('scripts/check-file-lines.mjs'),
+        changedFiles.includes('scripts/check-file-lines.mjs') ||
+        changedFiles.includes('scripts/baselines/file-lines.json'),
+      { fixHint: 'bun run ratchet:tighten' },
     ),
     stageFromFlag(
       'lint:docs',
@@ -451,9 +484,16 @@ export const planCi = (input: CiPlanInput): CiPlan => {
       dependsOn: ['typecheck'],
     }),
     stageFromFlag(
-      'ci:planner:test',
-      ['test', '--cwd', 'scripts', './ci-planner.test.ts'],
-      fullRun || changedFiles.some(isCiPlannerFile),
+      'scripts:test',
+      [
+        'test',
+        '--cwd',
+        'scripts',
+        './ci-planner.test.ts',
+        './check-ratchets.test.ts',
+        './check-dist-fresh.test.ts',
+      ],
+      fullRun || changedFiles.some(isScriptsTestTriggerFile),
     ),
   ];
 

@@ -31,11 +31,11 @@ import type { ReactNode } from 'react';
 import { cn } from '../lib/cn.js';
 import { Button } from './ui/button.js';
 
-export type EmptyStateVariant = 'stage' | 'filter' | 'clear' | 'permission' | 'idle';
+type EmptyStateVariant = 'stage' | 'filter' | 'clear' | 'permission' | 'idle';
 
-export type EmptyStateScale = 'page' | 'section' | 'panel' | 'inline';
+type EmptyStateScale = 'page' | 'section' | 'panel' | 'inline';
 
-export type EmptySpecimenName =
+type EmptySpecimenName =
   | 'agents'
   | 'channels'
   | 'schedules'
@@ -65,7 +65,7 @@ export interface EmptyFilterChip {
   onRemove?: (() => void) | undefined;
 }
 
-export interface EmptyStateProps {
+interface EmptyStateProps {
   variant?: EmptyStateVariant | undefined;
   scale?: EmptyStateScale | undefined;
   specimen?: EmptySpecimenName | undefined;
@@ -117,7 +117,7 @@ function defaultVariantIcon(variant: EmptyStateVariant): ReactNode {
   return null;
 }
 
-export interface ActiveFilterChipsProps {
+interface ActiveFilterChipsProps {
   filters: readonly EmptyFilterChip[];
   onClearAll?: (() => void) | undefined;
   className?: string | undefined;

@@ -5,13 +5,8 @@ import { Skeleton } from './ui/skeleton.js';
 
 export {
   ActiveFilterChips,
-  type ActiveFilterChipsProps,
   type EmptyFilterChip,
-  type EmptySpecimenName,
   EmptyState,
-  type EmptyStateProps,
-  type EmptyStateScale,
-  type EmptyStateVariant,
 } from './empty-state.js';
 
 export function LoadingState({

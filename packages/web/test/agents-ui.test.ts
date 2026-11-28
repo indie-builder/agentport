@@ -460,7 +460,6 @@ describe('expert editor regressions', () => {
         }
         const form = tree.find((node) => node.type === 'form');
         if (!form) throw new Error('Missing form');
-        // eslint-disable-next-line no-console
         await (form.props.onSubmit as (event: unknown) => Promise<void>)({
           preventDefault() {},
         });

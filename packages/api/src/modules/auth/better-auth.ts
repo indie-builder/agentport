@@ -62,5 +62,3 @@ export function createAuth(config: Config, db: Database) {
     },
   });
 }
-
-export type Auth = ReturnType<typeof createAuth>;
