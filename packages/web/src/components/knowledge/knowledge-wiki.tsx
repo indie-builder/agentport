@@ -47,6 +47,13 @@ import { Dialog } from '../ui/dialog.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../ui/field.js';
 import { Input } from '../ui/input.js';
 import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../ui/number-input.js';
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -739,6 +746,51 @@ function WikiLinks({
   );
 }
 
+function WikiPositionField({
+  id,
+  value,
+  disabled,
+  invalid,
+  inputRef,
+  onChange,
+  onBlur,
+}: {
+  id: string;
+  value: string;
+  disabled: boolean;
+  invalid: boolean;
+  inputRef: (instance: HTMLInputElement | null) => void;
+  onChange: (value: string) => void;
+  onBlur: () => void;
+}) {
+  const trimmed = value.trim();
+  const parsed = trimmed === '' ? Number.NaN : Number(trimmed);
+  return (
+    <Field className="gap-1.5" data-invalid={invalid}>
+      <FieldLabel htmlFor={id}>排序</FieldLabel>
+      <NumberInput
+        value={Number.isFinite(parsed) ? parsed : null}
+        step={1}
+        disabled={disabled}
+        onValueChange={(next, details) => {
+          if (details.reason === 'input-commit') {
+            details.cancel();
+            return;
+          }
+          onChange(next === null ? '' : String(next));
+        }}
+      >
+        <NumberInputGroup>
+          <NumberInputDecrement />
+          <NumberInputControl ref={inputRef} id={id} inputMode="numeric" onBlur={onBlur} />
+          <NumberInputIncrement />
+        </NumberInputGroup>
+      </NumberInput>
+      <FieldError id={`${id}-error`}>{invalid ? '需为非负整数' : null}</FieldError>
+    </Field>
+  );
+}
+
 const wikiOrganizeFormSchema = z.object({
   parentId: z.string(),
   position: z.string(),
@@ -759,7 +811,7 @@ function WikiOrganizeDialog({
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
   const save = useSaveKnowledgeWikiPage(baseId);
-  const { register, control, handleSubmit, watch, formState } = useZodForm(wikiOrganizeFormSchema, {
+  const { control, handleSubmit, watch, formState } = useZodForm(wikiOrganizeFormSchema, {
     defaultValues: { parentId: page.parentId ?? 'null', position: String(page.position ?? 0) },
   });
   const { isDirty } = formState;
@@ -847,22 +899,21 @@ function WikiOrganizeDialog({
                 )}
               />
             </Field>
-            <Field className="gap-1.5" data-invalid={invalidPosition}>
-              <FieldLabel htmlFor="wiki-position">排序</FieldLabel>
-              <Input
-                id="wiki-position"
-                type="number"
-                min={0}
-                step={1}
-                {...register('position')}
-                disabled={pending}
-                aria-invalid={invalidPosition}
-                aria-describedby={invalidPosition ? 'wiki-position-error' : undefined}
-              />
-              <FieldError id="wiki-position-error">
-                {invalidPosition ? '需为非负整数' : null}
-              </FieldError>
-            </Field>
+            <Controller
+              name="position"
+              control={control}
+              render={({ field }) => (
+                <WikiPositionField
+                  id="wiki-position"
+                  value={field.value}
+                  disabled={pending}
+                  invalid={invalidPosition}
+                  inputRef={field.ref}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                />
+              )}
+            />
           </FieldGroup>
           <FieldError>{error}</FieldError>
           <div className="flex justify-end gap-2">
@@ -1196,22 +1247,21 @@ function CreateWikiPageDialog({
                 )}
               />
             </Field>
-            <Field className="gap-1.5" data-invalid={invalidPosition}>
-              <FieldLabel htmlFor="wiki-create-position">排序</FieldLabel>
-              <Input
-                id="wiki-create-position"
-                type="number"
-                min={0}
-                step={1}
-                {...register('position')}
-                disabled={pending}
-                aria-invalid={invalidPosition}
-                aria-describedby={invalidPosition ? 'wiki-create-position-error' : undefined}
-              />
-              <FieldError id="wiki-create-position-error">
-                {invalidPosition ? '需为非负整数' : null}
-              </FieldError>
-            </Field>
+            <Controller
+              name="position"
+              control={control}
+              render={({ field }) => (
+                <WikiPositionField
+                  id="wiki-create-position"
+                  value={field.value}
+                  disabled={pending}
+                  invalid={invalidPosition}
+                  inputRef={field.ref}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                />
+              )}
+            />
           </FieldGroup>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={guard.close} disabled={pending}>

@@ -53,6 +53,13 @@ import {
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../components/ui/number-input.js';
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -543,16 +550,36 @@ function PolicyDialog({
               </Field>
               <Field data-invalid={Boolean(errors.priority)} data-disabled={pending}>
                 <FieldLabel htmlFor="policy-priority">优先级</FieldLabel>
-                <Input
-                  id="policy-priority"
-                  type="number"
-                  min={0}
-                  max={10000}
-                  step={1}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.priority)}
-                  aria-describedby={errors.priority ? 'policy-priority-error' : undefined}
-                  {...register('priority', { valueAsNumber: true })}
+                <Controller
+                  control={control}
+                  name="priority"
+                  render={({ field }) => (
+                    <NumberInput
+                      name={field.name}
+                      value={Number.isFinite(field.value) ? field.value : null}
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next ?? Number.NaN);
+                      }}
+                      step={1}
+                      disabled={pending}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="policy-priority"
+                          inputMode="numeric"
+                          onBlur={field.onBlur}
+                          aria-invalid={Boolean(errors.priority)}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
                 <FieldError id="policy-priority-error">{errors.priority?.message}</FieldError>
               </Field>

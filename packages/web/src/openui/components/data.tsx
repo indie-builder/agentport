@@ -8,6 +8,11 @@ import { Fragment, useState } from 'react';
 import { Button } from '../../components/ui/button.js';
 import { Calendar } from '../../components/ui/calendar.js';
 import { Input } from '../../components/ui/input.js';
+import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputGroup,
+} from '../../components/ui/number-input.js';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover.js';
 import {
   Select,
@@ -187,17 +192,37 @@ function EditableCell({
     );
   }
 
+  if (column.type === 'number') {
+    const trimmed = value.trim();
+    const parsed = trimmed === '' ? Number.NaN : Number(trimmed);
+    return (
+      <NumberInput
+        value={Number.isFinite(parsed) ? parsed : null}
+        format={{ useGrouping: false, maximumFractionDigits: 12 }}
+        disabled={disabled}
+        onValueChange={(next, details) => {
+          if (details.reason === 'input-commit') {
+            details.cancel();
+            return;
+          }
+          onChange(next === null ? '' : String(next));
+        }}
+      >
+        <NumberInputGroup className="border-transparent bg-transparent">
+          <NumberInputControl aria-label={label} className="text-right font-mono tabular-nums" />
+        </NumberInputGroup>
+      </NumberInput>
+    );
+  }
+
   return (
     <Input
       aria-label={label}
-      type={column.type === 'number' ? 'number' : column.type === 'url' ? 'url' : 'text'}
+      type={column.type === 'url' ? 'url' : 'text'}
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className={cn(
-        'h-8 border-transparent bg-transparent',
-        column.type === 'number' && 'text-right font-mono tabular-nums',
-      )}
+      className="h-8 border-transparent bg-transparent"
     />
   );
 }

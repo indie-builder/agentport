@@ -44,7 +44,13 @@ import {
   FieldGroup,
   FieldLabel,
 } from '../components/ui/field.js';
-import { Input } from '../components/ui/input.js';
+import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../components/ui/number-input.js';
 import { Switch } from '../components/ui/switch.js';
 import {
   Table,
@@ -533,7 +539,7 @@ function SloDialog({
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
   const update = useUpdateSloSettings();
-  const { register, control, handleSubmit, formState } = useZodForm(sloSettingsSchema, {
+  const { control, handleSubmit, formState } = useZodForm(sloSettingsSchema, {
     defaultValues: settings,
   });
   const { errors, isDirty } = formState;
@@ -601,34 +607,72 @@ function SloDialog({
             <div className="grid gap-5 sm:grid-cols-2">
               <Field data-invalid={Boolean(errors.windowMinutes)} data-disabled={pending}>
                 <FieldLabel htmlFor="slo-window">统计窗口（分钟）</FieldLabel>
-                <Input
-                  id="slo-window"
-                  type="number"
-                  min={5}
-                  max={1440}
-                  step={1}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.windowMinutes)}
-                  aria-describedby={errors.windowMinutes ? 'slo-window-error' : 'slo-window-hint'}
-                  {...register('windowMinutes', { valueAsNumber: true })}
+                <Controller
+                  control={control}
+                  name="windowMinutes"
+                  render={({ field }) => (
+                    <NumberInput
+                      name={field.name}
+                      value={Number.isFinite(field.value) ? field.value : null}
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next ?? Number.NaN);
+                      }}
+                      step={1}
+                      disabled={pending}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="slo-window"
+                          inputMode="numeric"
+                          onBlur={field.onBlur}
+                          aria-invalid={Boolean(errors.windowMinutes)}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
                 <FieldDescription id="slo-window-hint">5–1440 分钟。</FieldDescription>
                 <FieldError id="slo-window-error">{errors.windowMinutes?.message}</FieldError>
               </Field>
               <Field data-invalid={Boolean(errors.runSuccessTarget)} data-disabled={pending}>
                 <FieldLabel htmlFor="slo-success-target">成功率目标</FieldLabel>
-                <Input
-                  id="slo-success-target"
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.runSuccessTarget)}
-                  aria-describedby={
-                    errors.runSuccessTarget ? 'slo-success-target-error' : 'slo-success-hint'
-                  }
-                  {...register('runSuccessTarget', { valueAsNumber: true })}
+                <Controller
+                  control={control}
+                  name="runSuccessTarget"
+                  render={({ field }) => (
+                    <NumberInput
+                      name={field.name}
+                      value={Number.isFinite(field.value) ? field.value : null}
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next ?? Number.NaN);
+                      }}
+                      step={0.001}
+                      disabled={pending}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="slo-success-target"
+                          inputMode="decimal"
+                          onBlur={field.onBlur}
+                          aria-invalid={Boolean(errors.runSuccessTarget)}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
                 <FieldDescription id="slo-success-hint">0–1，例如 0.99。</FieldDescription>
                 <FieldError id="slo-success-target-error">
@@ -640,29 +684,71 @@ function SloDialog({
             <div className="grid gap-5 sm:grid-cols-2">
               <Field data-invalid={Boolean(errors.runP95LatencyMs)} data-disabled={pending}>
                 <FieldLabel htmlFor="slo-p95">P95 目标（ms）</FieldLabel>
-                <Input
-                  id="slo-p95"
-                  type="number"
-                  min={1}
-                  step={1}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.runP95LatencyMs)}
-                  aria-describedby={errors.runP95LatencyMs ? 'slo-p95-error' : undefined}
-                  {...register('runP95LatencyMs', { valueAsNumber: true })}
+                <Controller
+                  control={control}
+                  name="runP95LatencyMs"
+                  render={({ field }) => (
+                    <NumberInput
+                      name={field.name}
+                      value={Number.isFinite(field.value) ? field.value : null}
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next ?? Number.NaN);
+                      }}
+                      step={1}
+                      disabled={pending}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="slo-p95"
+                          inputMode="numeric"
+                          onBlur={field.onBlur}
+                          aria-invalid={Boolean(errors.runP95LatencyMs)}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
                 <FieldError id="slo-p95-error">{errors.runP95LatencyMs?.message}</FieldError>
               </Field>
               <Field data-invalid={Boolean(errors.queueOldestWaitMs)} data-disabled={pending}>
                 <FieldLabel htmlFor="slo-queue-wait">队列等待目标（ms）</FieldLabel>
-                <Input
-                  id="slo-queue-wait"
-                  type="number"
-                  min={1}
-                  step={1}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.queueOldestWaitMs)}
-                  aria-describedby={errors.queueOldestWaitMs ? 'slo-queue-wait-error' : undefined}
-                  {...register('queueOldestWaitMs', { valueAsNumber: true })}
+                <Controller
+                  control={control}
+                  name="queueOldestWaitMs"
+                  render={({ field }) => (
+                    <NumberInput
+                      name={field.name}
+                      value={Number.isFinite(field.value) ? field.value : null}
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next ?? Number.NaN);
+                      }}
+                      step={1}
+                      disabled={pending}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="slo-queue-wait"
+                          inputMode="numeric"
+                          onBlur={field.onBlur}
+                          aria-invalid={Boolean(errors.queueOldestWaitMs)}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
                 <FieldError id="slo-queue-wait-error">
                   {errors.queueOldestWaitMs?.message}
@@ -672,20 +758,36 @@ function SloDialog({
 
             <Field data-invalid={Boolean(errors.providerErrorRateTarget)} data-disabled={pending}>
               <FieldLabel htmlFor="slo-provider-error">供应商错误率目标</FieldLabel>
-              <Input
-                id="slo-provider-error"
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
-                disabled={pending}
-                aria-invalid={Boolean(errors.providerErrorRateTarget)}
-                aria-describedby={
-                  errors.providerErrorRateTarget
-                    ? 'slo-provider-error-error'
-                    : 'slo-provider-error-hint'
-                }
-                {...register('providerErrorRateTarget', { valueAsNumber: true })}
+              <Controller
+                control={control}
+                name="providerErrorRateTarget"
+                render={({ field }) => (
+                  <NumberInput
+                    name={field.name}
+                    value={Number.isFinite(field.value) ? field.value : null}
+                    onValueChange={(next, details) => {
+                      if (details?.reason === 'input-commit') {
+                        details.cancel();
+                        return;
+                      }
+                      field.onChange(next ?? Number.NaN);
+                    }}
+                    step={0.001}
+                    disabled={pending}
+                  >
+                    <NumberInputGroup>
+                      <NumberInputDecrement />
+                      <NumberInputControl
+                        ref={field.ref}
+                        id="slo-provider-error"
+                        inputMode="decimal"
+                        onBlur={field.onBlur}
+                        aria-invalid={Boolean(errors.providerErrorRateTarget)}
+                      />
+                      <NumberInputIncrement />
+                    </NumberInputGroup>
+                  </NumberInput>
+                )}
               />
               <FieldDescription id="slo-provider-error-hint">0–1，例如 0.05。</FieldDescription>
               <FieldError id="slo-provider-error-error">

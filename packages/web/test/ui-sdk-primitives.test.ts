@@ -38,6 +38,13 @@ import {
   MeterValue,
 } from '../src/components/ui/meter.js';
 import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../src/components/ui/number-input.js';
+import {
   PasswordInput,
   PasswordInputControl,
   PasswordInputToggle,
@@ -845,5 +852,272 @@ describe('Slider, PasswordInput, Rating, Meter, SegmentedControl, FileInput, and
     });
     expect(allowedBusiness.ok, allowedBusiness.error?.message).toBe(true);
     expect(onConfirm).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('NumberInput primitive, Field integration, and agent', () => {
+  it('defaults format to useGrouping false, preserves data-slot names, and wires FieldLabel and step buttons', async () => {
+    await render(
+      createElement(
+        'div',
+        null,
+        createElement(
+          Field,
+          null,
+          createElement(FieldLabel, null, '超时毫秒'),
+          createElement(
+            NumberInput,
+            {
+              defaultValue: 30000,
+              min: 1000,
+              max: 60000,
+              step: 500,
+              className: (state) => (state.disabled ? 'is-disabled' : 'is-ready'),
+            },
+            createElement(
+              NumberInputGroup,
+              null,
+              createElement(NumberInputDecrement),
+              createElement(NumberInputControl),
+              createElement(NumberInputIncrement),
+            ),
+          ),
+        ),
+        createElement(
+          Field,
+          { invalid: true },
+          createElement(FieldLabel, null, '千分位数值'),
+          createElement(
+            NumberInput,
+            {
+              defaultValue: 30000,
+              format: { useGrouping: true },
+            },
+            createElement(
+              NumberInputGroup,
+              null,
+              createElement(NumberInputControl),
+              createElement(NumberInputDecrement, { 'aria-label': '下调' }, '-'),
+              createElement(NumberInputIncrement, { 'aria-label': '上调' }, '+'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    const roots = Array.from(host.querySelectorAll<HTMLElement>('[data-slot="number-input"]'));
+    const groups = Array.from(
+      host.querySelectorAll<HTMLElement>('[data-slot="number-input-group"]'),
+    );
+    const controls = Array.from(
+      host.querySelectorAll<HTMLInputElement>('[data-slot="number-input-control"]'),
+    );
+    const decrements = Array.from(
+      host.querySelectorAll<HTMLButtonElement>('[data-slot="number-input-decrement"]'),
+    );
+    const increments = Array.from(
+      host.querySelectorAll<HTMLButtonElement>('[data-slot="number-input-increment"]'),
+    );
+    const labels = Array.from(host.querySelectorAll<HTMLLabelElement>('label'));
+
+    expect(roots).toHaveLength(2);
+    expect(groups).toHaveLength(2);
+    expect(controls).toHaveLength(2);
+    expect(decrements).toHaveLength(2);
+    expect(increments).toHaveLength(2);
+
+    const [firstRoot, secondRoot] = roots;
+    const [firstControl, secondControl] = controls;
+    const [firstDec, secondDec] = decrements;
+    const [firstInc, secondInc] = increments;
+    const [firstLabel] = labels;
+    if (
+      !firstRoot ||
+      !secondRoot ||
+      !firstControl ||
+      !secondControl ||
+      !firstDec ||
+      !secondDec ||
+      !firstInc ||
+      !secondInc ||
+      !firstLabel
+    ) {
+      throw new Error('missing number input elements');
+    }
+
+    expect(firstRoot.className).toContain('is-ready');
+    expect(firstControl.value).toBe('30000');
+    expect(secondControl.value).toBe('30,000');
+    expect(secondControl.getAttribute('aria-invalid')).toBe('true');
+
+    expect(firstLabel.htmlFor).toBe(firstControl.id);
+    expect(firstControl.getAttribute('aria-labelledby')).toContain(firstLabel.id);
+
+    expect(firstDec.getAttribute('aria-label')).toBe('减少');
+    expect(firstInc.getAttribute('aria-label')).toBe('增加');
+    expect(firstDec.tabIndex).toBe(-1);
+    expect(firstInc.tabIndex).toBe(-1);
+    expect(firstDec.getAttribute('aria-controls')).toBe(firstControl.id);
+    expect(firstInc.getAttribute('aria-controls')).toBe(firstControl.id);
+    expect(firstDec.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+    expect(firstInc.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+
+    expect(secondDec.getAttribute('aria-label')).toBe('下调');
+    expect(secondDec.textContent).toBe('-');
+    expect(secondInc.getAttribute('aria-label')).toBe('上调');
+    expect(secondInc.textContent).toBe('+');
+  });
+
+  it('handles ArrowUp, ArrowDown, Home, End, step buttons, clamping on Enter/blur, and empty null', async () => {
+    const onValueChange = vi.fn();
+    const onValueCommit = vi.fn();
+
+    await render(
+      createElement(
+        Field,
+        null,
+        createElement(FieldLabel, null, '重试次数'),
+        createElement(
+          NumberInput,
+          {
+            defaultValue: 4,
+            min: 0,
+            max: 10,
+            step: 2,
+            onValueChange: (value, details) => onValueChange(value, details.reason),
+            onValueCommit: (value, details) => onValueCommit(value, details.reason),
+          },
+          createElement(
+            NumberInputGroup,
+            null,
+            createElement(NumberInputDecrement),
+            createElement(NumberInputControl),
+            createElement(NumberInputIncrement),
+          ),
+        ),
+      ),
+    );
+
+    const control = host.querySelector<HTMLInputElement>('[data-slot="number-input-control"]');
+    const decrement = host.querySelector<HTMLButtonElement>('[data-slot="number-input-decrement"]');
+    const increment = host.querySelector<HTMLButtonElement>('[data-slot="number-input-increment"]');
+    if (!control || !decrement || !increment) throw new Error('missing number input controls');
+
+    expect(control.value).toBe('4');
+
+    await act(async () => {
+      increment.click();
+      await settle();
+    });
+    expect(control.value).toBe('6');
+    expect(onValueCommit).toHaveBeenLastCalledWith(6, 'increment-press');
+
+    await act(async () => {
+      decrement.click();
+      await settle();
+    });
+    expect(control.value).toBe('4');
+    expect(onValueCommit).toHaveBeenLastCalledWith(4, 'decrement-press');
+
+    await act(async () => {
+      control.focus();
+      await settle();
+    });
+    await dispatchKey(control, 'ArrowUp');
+    expect(control.value).toBe('6');
+    expect(onValueChange).toHaveBeenLastCalledWith(6, 'step-key');
+    expect(onValueCommit).toHaveBeenLastCalledWith(6, 'step-key');
+
+    await dispatchKey(control, 'ArrowDown');
+    expect(control.value).toBe('4');
+
+    await dispatchKey(control, 'End');
+    expect(control.value).toBe('10');
+    expect(increment.hasAttribute('data-at-bound')).toBe(true);
+    expect(increment.disabled).toBe(true);
+
+    await dispatchKey(control, 'Home');
+    expect(control.value).toBe('0');
+    expect(decrement.hasAttribute('data-at-bound')).toBe(true);
+    expect(decrement.disabled).toBe(true);
+
+    await typeIntoInput(control, '99');
+    await dispatchKey(control, 'Enter');
+    expect(control.value).toBe('10');
+    expect(onValueCommit).toHaveBeenLastCalledWith(10, 'input-commit');
+
+    await typeIntoInput(control, '-5');
+    await act(async () => {
+      control.blur();
+      await settle();
+    });
+    expect(control.value).toBe('0');
+    expect(onValueCommit).toHaveBeenLastCalledWith(0, 'input-commit');
+
+    await typeIntoInput(control, '');
+    await act(async () => {
+      control.blur();
+      await settle();
+    });
+    expect(control.value).toBe('');
+    expect(onValueChange).toHaveBeenLastCalledWith(null, 'input-change');
+    expect(onValueCommit).toHaveBeenLastCalledWith(null, 'input-change');
+  });
+
+  it('exposes number-input actions in agent.snapshot and commits setValue with source agent', async () => {
+    const onValueChange = vi.fn();
+    const onValueCommit = vi.fn();
+
+    await render(
+      createElement(
+        Field,
+        null,
+        createElement(FieldLabel, null, '并发数'),
+        createElement(
+          NumberInput,
+          {
+            defaultValue: 4,
+            min: 1,
+            max: 16,
+            step: 1,
+            onValueChange: (value, details) => onValueChange(value, details.source),
+            onValueCommit: (value, details) => onValueCommit(value, details.source),
+          },
+          createElement(
+            NumberInputGroup,
+            null,
+            createElement(NumberInputDecrement),
+            createElement(NumberInputControl),
+            createElement(NumberInputIncrement),
+          ),
+        ),
+      ),
+    );
+
+    const control = host.querySelector<HTMLInputElement>('[data-slot="number-input-control"]');
+    if (!control) throw new Error('missing number input control');
+
+    const entry = agent
+      .snapshot()
+      .find(
+        (item) => !item.offPage && item.component === 'number-input' && item.label === '并发数',
+      );
+    expect(entry).toMatchObject({
+      component: 'number-input',
+      label: '并发数',
+      value: 4,
+      min: 1,
+      max: 16,
+      step: 1,
+      actions: expect.arrayContaining(['setValue', 'increment', 'decrement']),
+    });
+
+    const result = await runAgentAct({
+      steps: [{ ref: '并发数', action: 'setValue', args: [12] }],
+    });
+    expect(result.ok, result.error?.message).toBe(true);
+    expect(control.value).toBe('12');
+    expect(onValueChange).toHaveBeenLastCalledWith(12, 'agent');
+    expect(onValueCommit).toHaveBeenLastCalledWith(12, 'agent');
   });
 });

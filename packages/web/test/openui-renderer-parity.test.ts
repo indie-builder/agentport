@@ -123,7 +123,9 @@ const attrs = (root: Element, name: string): string[] =>
   [...root.querySelectorAll(`[${name}]`)].map((node) => node.getAttribute(name) ?? '\u0000');
 
 const inputValues = (root: Element): string[] =>
-  [...root.querySelectorAll<HTMLInputElement>('input')].map((input) => input.value);
+  [...root.querySelectorAll<HTMLInputElement>('input:not([type="hidden"])')].map(
+    (input) => input.value,
+  );
 
 /** 单元格可读值：本地可编辑时是 input.value，官方是只读 span 文本。 */
 const cells = (root: Element): string[] => {

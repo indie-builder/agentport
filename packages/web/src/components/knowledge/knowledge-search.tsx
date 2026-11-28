@@ -13,7 +13,13 @@ import { Button } from '../ui/button.js';
 import { Checkbox } from '../ui/checkbox.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible.js';
 import { Field, FieldLabel } from '../ui/field.js';
-import { Input } from '../ui/input.js';
+import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../ui/number-input.js';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover.js';
 import { Switch } from '../ui/switch.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.js';
@@ -76,27 +82,25 @@ export function FaqRetrievalControls({
         <FieldLabel htmlFor={`${idPrefix}-direct-threshold`} className="text-sm">
           直接答案门槛
         </FieldLabel>
-        <Input
-          id={`${idPrefix}-direct-threshold`}
-          type="number"
+        <NumberInput
           min={-1}
           max={1}
           step={0.05}
           value={value.faqDirectAnswerThreshold ?? 0.9}
-          onChange={(event) => {
-            const raw = event.target.value;
-            if (raw === '') {
-              onChange({ faqDirectAnswerThreshold: undefined });
+          onValueChange={(next, details) => {
+            if (details.reason === 'input-commit') {
+              details.cancel();
               return;
             }
-            const next = Number(raw);
-            onChange({
-              faqDirectAnswerThreshold:
-                Number.isFinite(next) && next >= -1 && next <= 1 ? next : undefined,
-            });
+            onChange({ faqDirectAnswerThreshold: next === null ? undefined : next });
           }}
-          className="h-8"
-        />
+        >
+          <NumberInputGroup>
+            <NumberInputDecrement />
+            <NumberInputControl id={`${idPrefix}-direct-threshold`} />
+            <NumberInputIncrement />
+          </NumberInputGroup>
+        </NumberInput>
       </Field>
     </>
   );
@@ -592,26 +596,25 @@ export function SearchTab({
           <FieldLabel htmlFor="knowledge-min-vector" className="text-sm">
             向量门槛
           </FieldLabel>
-          <Input
-            id="knowledge-min-vector"
-            type="number"
+          <NumberInput
             min={-1}
             max={1}
             step={0.05}
             value={state.minVectorScore ?? 0.3}
-            onChange={(event) => {
-              const raw = event.target.value;
-              if (raw === '') {
-                onChange({ minVectorScore: undefined });
+            onValueChange={(next, details) => {
+              if (details.reason === 'input-commit') {
+                details.cancel();
                 return;
               }
-              const next = Number(raw);
-              onChange({
-                minVectorScore: Number.isFinite(next) && next >= -1 && next <= 1 ? next : undefined,
-              });
+              onChange({ minVectorScore: next === null ? undefined : next });
             }}
-            className="h-8"
-          />
+          >
+            <NumberInputGroup>
+              <NumberInputDecrement />
+              <NumberInputControl id="knowledge-min-vector" />
+              <NumberInputIncrement />
+            </NumberInputGroup>
+          </NumberInput>
         </Field>
         <FaqRetrievalControls
           idPrefix="knowledge-search"

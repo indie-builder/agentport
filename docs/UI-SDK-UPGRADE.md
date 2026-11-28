@@ -39,7 +39,7 @@ rg -n "@ui-sdk/" packages/web/src
 | 文件 | 用到的入口 | 升级时关注 |
 |---|---|---|
 | `packages/web/src/components/ui/*.tsx` | `@ui-sdk/react/<component>` | part 结构、`render` 签名、`data-slot`/状态属性名 |
-| `packages/web/src/components/ui/{alert-dialog,avatar,file-input,meter,password-input,rating,segmented-control}.tsx` | `@ui-sdk/react/{alert-dialog,avatar,file-input,meter,rating,segmented-control}` | 确认弹层 `value="confirm"` 与异步 `action`、`PasswordInput` 原生脱敏与显隐开关、`FileInput` 校验与控制器、`Meter`/`Rating`/`SegmentedControl` 指示器与状态属性、`Avatar` 回退态 |
+| `packages/web/src/components/ui/{alert-dialog,avatar,file-input,meter,number-input,password-input,rating,segmented-control}.tsx` | `@ui-sdk/react/{alert-dialog,avatar,file-input,meter,number-input,rating,segmented-control}` | 确认弹层 `value="confirm"` 与异步 `action`、`PasswordInput` 原生脱敏与显隐开关、`FileInput` 校验与控制器、`Meter`/`NumberInput`/`Rating`/`SegmentedControl` 指示器与状态属性、`Avatar` 回退态 |
 | `packages/web/src/lib/ui-agent.ts`、`packages/web/src/components/ui-agent-host.tsx`、`packages/web/src/App.tsx` | `@ui-sdk/react/agent`、`@ui-sdk/react/alert-dialog` | `createAgent`、`agentTools`、`registerTools`、`allow(step, { signal })` 中断信号、WebMCP 挂载卸载及 `data-agent-confirm`/`data-agent-secret`/`data-agent-hidden`（experimental，升级重点复测） |
 | `packages/web/src/components/chat/conversation-search.tsx`、`packages/web/src/components/command-palette.tsx`、`packages/web/src/components/keyboard-shortcuts-dialog.tsx` | `@ui-sdk/react/command`、`@ui-sdk/react/shortcuts` | Command 的 item/group 结构、键盘行为与 `useShortcut`/`shortcuts` 全局快捷键注册 |
 | `packages/web/src/pages/plugins/plugin-file-tree.tsx` | `@ui-sdk/react/tree` | `Tree`/`TreeGroup`/`TreeItem` 的展开状态、roving focus 与 `--tree-group-height` |

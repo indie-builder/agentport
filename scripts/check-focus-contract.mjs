@@ -9,6 +9,7 @@ const INPUT_PRIMITIVES = new Set([
   'components/ui/select.tsx',
   'components/ui/combobox.tsx',
   'components/ui/input-group.tsx',
+  'components/ui/number-input.tsx',
 ]);
 const SLIDER = 'components/ui/slider.tsx';
 

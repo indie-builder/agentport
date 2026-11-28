@@ -19,6 +19,7 @@ import { Combobox, ComboboxItem, ComboboxList } from '../src/components/ui/combo
 import { DropdownMenuTrigger } from '../src/components/ui/dropdown-menu.js';
 import { Field, FieldDescription } from '../src/components/ui/field.js';
 import { Input } from '../src/components/ui/input.js';
+import { NumberInput, NumberInputControl } from '../src/components/ui/number-input.js';
 import { Select, SelectItem } from '../src/components/ui/select.js';
 import { Tabs } from '../src/components/ui/tabs.js';
 import { Textarea } from '../src/components/ui/textarea.js';
@@ -300,13 +301,12 @@ function flatText(node: ReactNode): string {
   return '';
 }
 
-/** 组件测试不挂载真实 DOM，RHF 的 valueAsNumber 没有 ref 可取；直接传 number 值。 */
 function changeNumberField(tree: Element[], id: string, value: number): void {
-  const field = tree.find((node) => node.props.id === id);
+  const field = tree.find(
+    (node) => node.type === NumberInput && elements(node).some((child) => child.props.id === id),
+  );
   if (!field) throw new Error(`Missing number field ${id}`);
-  (field.props.onChange as (event: unknown) => void)({
-    target: { name: field.props.name, value },
-  });
+  (field.props.onValueChange as (value: number | null) => void)(value);
 }
 
 beforeEach(() => {
@@ -910,7 +910,7 @@ describe('expert editor regressions', () => {
         );
         expect(flatText(hint?.props.children as ReactNode)).toBe('被委派时使用主运行总超时。');
         const input = fieldNodes.find(
-          (node) => node.type === Input && node.props.id === 'agent-timeout',
+          (node) => node.type === NumberInputControl && node.props.id === 'agent-timeout',
         );
         expect(input).toBeDefined();
       },
