@@ -8,7 +8,13 @@ import { useEvaluateKnowledgeRetrieval } from '../../lib/queries.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 import { Button } from '../ui/button.js';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '../ui/field.js';
-import { Input } from '../ui/input.js';
+import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../ui/number-input.js';
 import { Switch } from '../ui/switch.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.js';
 import { Textarea } from '../ui/textarea.js';
@@ -175,17 +181,39 @@ export function KnowledgeEvaluations({
           <div className="flex flex-col items-start gap-4">
             <Field className="gap-1.5" data-invalid={Boolean(errors.limit)}>
               <FieldLabel htmlFor="knowledge-evaluation-limit">检索条数 K</FieldLabel>
-              <Input
-                id="knowledge-evaluation-limit"
-                className="w-28"
-                type="number"
-                min={1}
-                max={50}
-                step={1}
-                disabled={pending}
-                aria-invalid={Boolean(errors.limit)}
-                aria-describedby={errors.limit ? 'knowledge-evaluation-limit-error' : undefined}
-                {...register('limit')}
+              <Controller
+                control={control}
+                name="limit"
+                render={({ field }) => {
+                  const trimmed = field.value.trim();
+                  const parsed = trimmed === '' ? Number.NaN : Number(trimmed);
+                  return (
+                    <NumberInput
+                      value={Number.isFinite(parsed) ? parsed : null}
+                      step={1}
+                      disabled={pending}
+                      className="w-32 max-w-32"
+                      onValueChange={(next, details) => {
+                        if (details.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next === null ? '' : String(next));
+                      }}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="knowledge-evaluation-limit"
+                          inputMode="numeric"
+                          onBlur={field.onBlur}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  );
+                }}
               />
               <FieldError id="knowledge-evaluation-limit-error">{errors.limit?.message}</FieldError>
             </Field>

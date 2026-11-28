@@ -69,6 +69,13 @@ import { Field, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from
 import { FileInput, FileInputTrigger } from '../ui/file-input.js';
 import { Input } from '../ui/input.js';
 import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../ui/number-input.js';
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -1425,24 +1432,25 @@ function FaqTest({ baseId }: { baseId: string }) {
           <FieldLabel htmlFor="faq-test-threshold" className="text-sm">
             向量门槛
           </FieldLabel>
-          <Input
-            id="faq-test-threshold"
-            type="number"
+          <NumberInput
             min={-1}
             max={1}
             step={0.05}
             value={minVectorScore}
-            onChange={(event) => {
-              const raw = event.target.value;
-              if (raw === '') {
-                setMinVectorScore(0.3);
+            onValueChange={(next, details) => {
+              if (details.reason === 'input-commit') {
+                details.cancel();
                 return;
               }
-              const next = Number(raw);
-              if (Number.isFinite(next) && next >= -1 && next <= 1) setMinVectorScore(next);
+              setMinVectorScore(next ?? 0.3);
             }}
-            className="h-8"
-          />
+          >
+            <NumberInputGroup>
+              <NumberInputDecrement />
+              <NumberInputControl id="faq-test-threshold" />
+              <NumberInputIncrement />
+            </NumberInputGroup>
+          </NumberInput>
         </Field>
         <FaqRetrievalControls
           idPrefix="faq-test"

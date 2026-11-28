@@ -1,8 +1,9 @@
-import { type RetentionSettings, retentionSettingsSchema } from '@agentport/shared';
+import { type RetentionSettings, retentionUpdateSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Activity, Bot, Download, Server, Sparkles } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Controller } from 'react-hook-form';
 import { AttentionPanel } from '../components/attention-panel.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
@@ -33,7 +34,11 @@ import {
   FieldGroup,
   FieldLabel,
 } from '../components/ui/field.js';
-import { Input } from '../components/ui/input.js';
+import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputGroup,
+} from '../components/ui/number-input.js';
 import {
   Table,
   TableBody,
@@ -481,11 +486,7 @@ export function RunTrendCard({ days }: { days: number }) {
   );
 }
 
-const retentionFormSchema = retentionSettingsSchema.pick({
-  runDays: true,
-  messageDays: true,
-  agentVersions: true,
-});
+const retentionFormSchema = retentionUpdateSchema.required();
 
 type RetentionFormValues = Pick<RetentionSettings, 'runDays' | 'messageDays' | 'agentVersions'>;
 
@@ -495,28 +496,24 @@ const RETENTION_FIELDS = [
     id: 'retention-run-days',
     label: '运行记录保留天数',
     hint: '超过该天数的运行记录及其消息会被清理。',
-    max: 3650,
   },
   {
     name: 'messageDays',
     id: 'retention-message-days',
     label: '消息保留天数',
     hint: '无运行归属的会话消息与频道消息超过该天数后清理（随运行的对话消息按运行记录保留天数清理）。',
-    max: 3650,
   },
   {
     name: 'agentVersions',
     id: 'retention-agent-versions',
     label: '版本保留个数',
     hint: '每个专家保留最近的历史版本数量。',
-    max: 1000,
   },
 ] as const satisfies ReadonlyArray<{
   name: keyof RetentionFormValues;
   id: string;
   label: string;
   hint: string;
-  max: number;
 }>;
 
 function RetentionForm({
@@ -527,7 +524,7 @@ function RetentionForm({
   canManage: boolean;
 }) {
   const save = useUpdateRetention();
-  const { register, handleSubmit, reset, formState } = useZodForm(retentionFormSchema, {
+  const { control, handleSubmit, reset, formState } = useZodForm(retentionFormSchema, {
     defaultValues: {
       runDays: settings.runDays,
       messageDays: settings.messageDays,
@@ -586,20 +583,35 @@ function RetentionForm({
                   <FieldDescription id={`${field.id}-hint`}>{field.hint}</FieldDescription>
                   <FieldError id={`${field.id}-error`}>{error}</FieldError>
                 </FieldContent>
-                <Input
-                  {...register(field.name, { valueAsNumber: true })}
-                  id={field.id}
-                  type="number"
-                  min={1}
-                  max={field.max}
-                  step={1}
-                  inputMode="numeric"
-                  className="w-24"
-                  disabled={disabled}
-                  aria-invalid={Boolean(error)}
-                  aria-describedby={
-                    error ? `${field.id}-hint ${field.id}-error` : `${field.id}-hint`
-                  }
+                <Controller
+                  control={control}
+                  name={field.name}
+                  render={({ field: controllerField }) => (
+                    <NumberInput
+                      name={controllerField.name}
+                      value={Number.isFinite(controllerField.value) ? controllerField.value : null}
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        controllerField.onChange(next ?? Number.NaN);
+                      }}
+                      step={1}
+                      disabled={disabled}
+                      className="w-24"
+                    >
+                      <NumberInputGroup>
+                        <NumberInputControl
+                          ref={controllerField.ref}
+                          id={field.id}
+                          inputMode="numeric"
+                          onBlur={controllerField.onBlur}
+                          aria-invalid={Boolean(error)}
+                        />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
               </Field>
             );

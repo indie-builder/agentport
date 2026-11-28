@@ -23,7 +23,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { ArrowRightLeft, Coins, KeyRound, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { type ComponentProps, useRef, useState } from 'react';
-import { Controller } from 'react-hook-form';
+import { type Control, Controller, type FieldPath } from 'react-hook-form';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { CursorListFooter } from '../components/cursor-list-footer.js';
@@ -55,6 +55,13 @@ import {
   FieldSet,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
+import {
+  NumberInput,
+  NumberInputControl,
+  NumberInputDecrement,
+  NumberInputGroup,
+  NumberInputIncrement,
+} from '../components/ui/number-input.js';
 import {
   Select,
   SelectContent,
@@ -523,10 +530,9 @@ function BudgetDialog({
         alertRatio: 0.8,
         enabled: true,
       };
-  const { register, control, handleSubmit, watch, setValue, formState } = useZodForm(
-    budgetFormSchema,
-    { defaultValues: defaults },
-  );
+  const { control, handleSubmit, watch, setValue, formState } = useZodForm(budgetFormSchema, {
+    defaultValues: defaults,
+  });
   const { errors, isDirty } = formState;
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -738,32 +744,71 @@ function BudgetDialog({
                 <FieldLabel htmlFor="budget-limit">
                   上限 <RequiredMark />
                 </FieldLabel>
-                <Input
-                  id="budget-limit"
-                  type="number"
-                  min={0}
-                  step={metric === 'cost_usd_month' ? 0.01 : 1}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.limitValue)}
-                  aria-describedby={errors.limitValue ? 'budget-limit-error' : undefined}
-                  {...register('limitValue', { valueAsNumber: true })}
+                <Controller
+                  control={control}
+                  name="limitValue"
+                  render={({ field }) => (
+                    <NumberInput
+                      name={field.name}
+                      value={Number.isFinite(field.value) ? field.value : null}
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next ?? Number.NaN);
+                      }}
+                      step={metric === 'cost_usd_month' ? 0.01 : 1}
+                      disabled={pending}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="budget-limit"
+                          inputMode={metric === 'cost_usd_month' ? 'decimal' : 'numeric'}
+                          onBlur={field.onBlur}
+                          aria-invalid={Boolean(errors.limitValue)}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
                 <FieldError id="budget-limit-error">{errors.limitValue?.message}</FieldError>
               </Field>
               <Field data-invalid={Boolean(errors.alertRatio)} data-disabled={pending}>
                 <FieldLabel htmlFor="budget-alert-ratio">提醒阈值</FieldLabel>
-                <Input
-                  id="budget-alert-ratio"
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.alertRatio)}
-                  aria-describedby={
-                    errors.alertRatio ? 'budget-alert-ratio-error' : 'budget-alert-ratio-hint'
-                  }
-                  {...register('alertRatio', { valueAsNumber: true })}
+                <Controller
+                  control={control}
+                  name="alertRatio"
+                  render={({ field }) => (
+                    <NumberInput
+                      name={field.name}
+                      value={Number.isFinite(field.value) ? field.value : null}
+                      onValueChange={(next, details) => {
+                        if (details?.reason === 'input-commit') {
+                          details.cancel();
+                          return;
+                        }
+                        field.onChange(next ?? Number.NaN);
+                      }}
+                      step={0.01}
+                      disabled={pending}
+                    >
+                      <NumberInputGroup>
+                        <NumberInputDecrement />
+                        <NumberInputControl
+                          ref={field.ref}
+                          id="budget-alert-ratio"
+                          inputMode="decimal"
+                          onBlur={field.onBlur}
+                          aria-invalid={Boolean(errors.alertRatio)}
+                        />
+                        <NumberInputIncrement />
+                      </NumberInputGroup>
+                    </NumberInput>
+                  )}
                 />
                 <FieldDescription id="budget-alert-ratio-hint">
                   达到上限的该比例时提醒，例如 0.8 表示 80%。
@@ -1938,9 +1983,75 @@ function AlertsSection({ canManage }: { canManage: boolean }) {
   );
 }
 
+type AlertsThresholdPath =
+  | 'runFailures.threshold'
+  | 'runFailures.windowMinutes'
+  | 'queueFailed.threshold'
+  | 'queueWaiting.threshold';
+
+function AlertThresholdField({
+  control,
+  name,
+  id,
+  unit,
+  label,
+  error,
+  disabled,
+}: {
+  control: Control<AlertsFormValues>;
+  name: Extract<FieldPath<AlertsFormValues>, AlertsThresholdPath>;
+  id: string;
+  unit: string;
+  label: string;
+  error: string | undefined;
+  disabled: boolean;
+}) {
+  const errorId = `${id}-error`;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1">
+        <Controller
+          control={control}
+          name={name}
+          render={({ field }) => (
+            <NumberInput
+              name={field.name}
+              value={Number.isFinite(field.value) ? field.value : null}
+              onValueChange={(next, details) => {
+                if (details?.reason === 'input-commit') {
+                  details.cancel();
+                  return;
+                }
+                field.onChange(next ?? Number.NaN);
+              }}
+              step={1}
+              disabled={disabled}
+              className="w-24"
+            >
+              <NumberInputGroup>
+                <NumberInputControl
+                  ref={field.ref}
+                  id={id}
+                  inputMode="numeric"
+                  onBlur={field.onBlur}
+                  aria-label={label}
+                  aria-invalid={Boolean(error)}
+                  {...(error ? { 'aria-describedby': errorId } : {})}
+                />
+              </NumberInputGroup>
+            </NumberInput>
+          )}
+        />
+        <span className="text-xs text-muted-foreground">{unit}</span>
+      </div>
+      <FieldError id={errorId}>{error}</FieldError>
+    </div>
+  );
+}
+
 function AlertsForm({ settings, canManage }: { settings: AlertSettings; canManage: boolean }) {
   const update = useUpdateAlertSettings();
-  const { register, control, handleSubmit, reset, formState } = useZodForm(alertsFormSchema, {
+  const { control, handleSubmit, reset, formState } = useZodForm(alertsFormSchema, {
     defaultValues: {
       runFailures: settings.runFailures,
       queueFailed: settings.queueFailed,
@@ -2004,50 +2115,24 @@ function AlertsForm({ settings, canManage }: { settings: AlertSettings; canManag
                 />
               )}
             />
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1">
-                <Input
-                  id="alerts-run-threshold"
-                  type="number"
-                  min={1}
-                  step={1}
-                  className="w-24"
-                  disabled={!canManage || pending}
-                  aria-label="运行失败阈值（次）"
-                  aria-invalid={Boolean(errors.runFailures?.threshold)}
-                  aria-describedby={
-                    errors.runFailures?.threshold ? 'alerts-run-threshold-error' : undefined
-                  }
-                  {...register('runFailures.threshold', { valueAsNumber: true })}
-                />
-                <span className="text-xs text-muted-foreground">次</span>
-              </div>
-              <FieldError id="alerts-run-threshold-error">
-                {errors.runFailures?.threshold?.message}
-              </FieldError>
-            </div>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1">
-                <Input
-                  id="alerts-run-window"
-                  type="number"
-                  min={1}
-                  step={1}
-                  className="w-24"
-                  disabled={!canManage || pending}
-                  aria-label="运行失败统计窗口（分钟）"
-                  aria-invalid={Boolean(errors.runFailures?.windowMinutes)}
-                  aria-describedby={
-                    errors.runFailures?.windowMinutes ? 'alerts-run-window-error' : undefined
-                  }
-                  {...register('runFailures.windowMinutes', { valueAsNumber: true })}
-                />
-                <span className="text-xs text-muted-foreground">分钟</span>
-              </div>
-              <FieldError id="alerts-run-window-error">
-                {errors.runFailures?.windowMinutes?.message}
-              </FieldError>
-            </div>
+            <AlertThresholdField
+              control={control}
+              name="runFailures.threshold"
+              id="alerts-run-threshold"
+              unit="次"
+              label="运行失败阈值（次）"
+              error={errors.runFailures?.threshold?.message}
+              disabled={!canManage || pending}
+            />
+            <AlertThresholdField
+              control={control}
+              name="runFailures.windowMinutes"
+              id="alerts-run-window"
+              unit="分钟"
+              label="运行失败统计窗口（分钟）"
+              error={errors.runFailures?.windowMinutes?.message}
+              disabled={!canManage || pending}
+            />
           </div>
 
           <div className="grid grid-cols-[minmax(0,1fr)_72px_140px_140px] items-start gap-4 border-b py-4">
@@ -2067,30 +2152,15 @@ function AlertsForm({ settings, canManage }: { settings: AlertSettings; canManag
                 />
               )}
             />
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1">
-                <Input
-                  id="alerts-queue-failed-threshold"
-                  type="number"
-                  min={1}
-                  step={1}
-                  className="w-24"
-                  disabled={!canManage || pending}
-                  aria-label="队列失败阈值（个）"
-                  aria-invalid={Boolean(errors.queueFailed?.threshold)}
-                  aria-describedby={
-                    errors.queueFailed?.threshold
-                      ? 'alerts-queue-failed-threshold-error'
-                      : undefined
-                  }
-                  {...register('queueFailed.threshold', { valueAsNumber: true })}
-                />
-                <span className="text-xs text-muted-foreground">个</span>
-              </div>
-              <FieldError id="alerts-queue-failed-threshold-error">
-                {errors.queueFailed?.threshold?.message}
-              </FieldError>
-            </div>
+            <AlertThresholdField
+              control={control}
+              name="queueFailed.threshold"
+              id="alerts-queue-failed-threshold"
+              unit="个"
+              label="队列失败阈值（个）"
+              error={errors.queueFailed?.threshold?.message}
+              disabled={!canManage || pending}
+            />
             <span className="text-xs text-muted-foreground">—</span>
           </div>
 
@@ -2111,30 +2181,15 @@ function AlertsForm({ settings, canManage }: { settings: AlertSettings; canManag
                 />
               )}
             />
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1">
-                <Input
-                  id="alerts-queue-waiting-threshold"
-                  type="number"
-                  min={1}
-                  step={1}
-                  className="w-24"
-                  disabled={!canManage || pending}
-                  aria-label="队列积压阈值（个）"
-                  aria-invalid={Boolean(errors.queueWaiting?.threshold)}
-                  aria-describedby={
-                    errors.queueWaiting?.threshold
-                      ? 'alerts-queue-waiting-threshold-error'
-                      : undefined
-                  }
-                  {...register('queueWaiting.threshold', { valueAsNumber: true })}
-                />
-                <span className="text-xs text-muted-foreground">个</span>
-              </div>
-              <FieldError id="alerts-queue-waiting-threshold-error">
-                {errors.queueWaiting?.threshold?.message}
-              </FieldError>
-            </div>
+            <AlertThresholdField
+              control={control}
+              name="queueWaiting.threshold"
+              id="alerts-queue-waiting-threshold"
+              unit="个"
+              label="队列积压阈值（个）"
+              error={errors.queueWaiting?.threshold?.message}
+              disabled={!canManage || pending}
+            />
             <span className="text-xs text-muted-foreground">—</span>
           </div>
         </div>
