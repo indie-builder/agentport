@@ -290,7 +290,7 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
       <TabsList
         variant="line"
         aria-label="标签页"
-        className="w-full justify-start gap-1 overflow-x-auto px-[3px] [&_[role=tab]]:after:bottom-[-4.5px]"
+        className="w-full justify-start gap-1 overflow-x-auto px-0.75 [&_[role=tab]]:after:bottom-[-4.5px]"
       >
         {entries.map(({ itemProps, value }) => (
           <TabsTrigger key={value} value={value} className="flex-none px-2">

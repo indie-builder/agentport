@@ -104,7 +104,7 @@ export function CodeBlock({
       open={open}
       onOpenChange={setExpanded}
       className={cn(
-        'cds-code-surface group relative overflow-hidden rounded-card border border-white/10 bg-code-block text-code-block-fg',
+        'cds-code-surface group relative overflow-hidden rounded-card border border-code-block-border bg-code-block text-code-block-fg',
         className,
       )}
     >
