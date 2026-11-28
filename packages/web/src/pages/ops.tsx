@@ -68,6 +68,7 @@ import {
   TableRow,
 } from '../components/ui/table.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { createTimeInputController, TimeInput } from '../components/ui/time-input.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
@@ -845,6 +846,7 @@ function ScheduleDialog({
   const [reloading, setReloading] = useState(false);
   const [reloadError, setReloadError] = useState<string | null>(null);
   const [baseline, setBaseline] = useState(schedule?.updatedAt);
+  const [timeController] = useState(createTimeInputController);
   const {
     register,
     control,
@@ -1212,15 +1214,35 @@ function ScheduleDialog({
                       <FieldLabel htmlFor="schedule-time">
                         时间 <RequiredMark />
                       </FieldLabel>
-                      <Input
-                        {...register('time')}
-                        value={watched.time}
-                        id="schedule-time"
-                        type="time"
-                        disabled={pending}
-                        aria-required="true"
-                        aria-invalid={Boolean(errors.time)}
-                        aria-describedby={errors.time ? 'schedule-time-error' : undefined}
+                      <Controller
+                        control={control}
+                        name="time"
+                        render={({ field }) => (
+                          <TimeInput
+                            controller={timeController}
+                            ref={(node) => {
+                              field.ref(node ? { focus: () => timeController.focus() } : null);
+                            }}
+                            id="schedule-time"
+                            hourCycle={24}
+                            value={field.value || null}
+                            onValueChange={(next) => field.onChange(next ?? '')}
+                            onBlur={(event) => {
+                              if (
+                                !(
+                                  event.relatedTarget instanceof Node &&
+                                  event.currentTarget.contains(event.relatedTarget)
+                                )
+                              ) {
+                                field.onBlur();
+                              }
+                            }}
+                            disabled={pending}
+                            required
+                            aria-invalid={Boolean(errors.time)}
+                            aria-describedby={errors.time ? 'schedule-time-error' : undefined}
+                          />
+                        )}
                       />
                       <FieldError id="schedule-time-error">{errors.time?.message}</FieldError>
                     </Field>

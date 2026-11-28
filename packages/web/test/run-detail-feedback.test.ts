@@ -71,8 +71,12 @@ let host: HTMLDivElement;
 let root: Root;
 let history: ReturnType<typeof createMemoryHistory>;
 
-function stepButtons(): HTMLButtonElement[] {
-  return [...host.querySelectorAll<HTMLButtonElement>('ol button')];
+function stepButtons(): HTMLElement[] {
+  return [
+    ...host.querySelectorAll<HTMLElement>(
+      '[role="listbox"][aria-label="执行步骤"] [role="option"]',
+    ),
+  ];
 }
 
 function button(label: string): HTMLButtonElement | undefined {
@@ -171,6 +175,8 @@ describe('run detail keeps its tree across a failed refresh', () => {
     const router = await mount();
     await vi.waitFor(() => expect(stepButtons()).toHaveLength(2));
 
+    await act(async () => stepButtons()[0]?.click());
+    expect(router.state.location.search).toMatchObject({ step: 0 });
     await act(async () => stepButtons()[1]?.click());
     expect(router.state.location.search).toMatchObject({ step: 1 });
     await act(async () => button('内容过大，点击查看')?.click());
@@ -185,9 +191,10 @@ describe('run detail keeps its tree across a failed refresh', () => {
     expect(host.textContent).toContain('刷新失败，内容仍是上次结果');
     expect(host.textContent).toContain('network down');
     expect(button('重试')).not.toBeUndefined();
-    expect(host.querySelectorAll('ol button')).toHaveLength(2);
+    expect(stepButtons()).toHaveLength(2);
     expect(router.state.location.search).toMatchObject({ step: 1 });
-    expect(stepButtons()[1]?.getAttribute('aria-current')).toBe('step');
+    expect(stepButtons()[1]?.getAttribute('aria-selected')).toBe('true');
+    expect(stepButtons()[1]?.hasAttribute('data-selected')).toBe(true);
     expect(document.activeElement).toBe(stepButtons()[1]);
     expect(button('收起内容')).not.toBeUndefined();
     expect((host.querySelector('pre')?.textContent ?? '').length).toBeGreaterThan(64 * 1024);

@@ -6,14 +6,20 @@ import {
 } from '@openuidev/react-lang';
 import { Fragment, useState } from 'react';
 import { Button } from '../../components/ui/button.js';
-import { Calendar } from '../../components/ui/calendar.js';
+import {
+  DatePicker,
+  DatePickerClear,
+  DatePickerContent,
+  DatePickerGroup,
+  DatePickerInput,
+  DatePickerTrigger,
+} from '../../components/ui/date-picker.js';
 import { Input } from '../../components/ui/input.js';
 import {
   NumberInput,
   NumberInputControl,
   NumberInputGroup,
 } from '../../components/ui/number-input.js';
-import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover.js';
 import {
   Select,
   SelectContent,
@@ -164,31 +170,18 @@ function EditableCell({
   if (column.type === 'date-single') {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(value.slice(0, 10)) ? value.slice(0, 10) : null;
     return (
-      <Popover>
-        <PopoverTrigger
-          render={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-label={label}
-              disabled={disabled}
-              className="h-8 w-full justify-start border-transparent bg-transparent font-normal"
-            >
-              {value || '选择日期'}
-            </Button>
-          }
-        />
-        <PopoverContent align="start" className="w-auto p-0">
-          <Calendar
-            mode="single"
-            deselectable
-            value={date}
-            {...(date ? { defaultMonth: date.slice(0, 7) } : {})}
-            onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}
-          />
-        </PopoverContent>
-      </Popover>
+      <DatePicker
+        value={date}
+        disabled={disabled}
+        onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}
+      >
+        <DatePickerGroup className="border-transparent bg-transparent">
+          <DatePickerInput aria-label={label} placeholder="选择日期" />
+          <DatePickerClear />
+          <DatePickerTrigger aria-label={`选择${label}`} />
+        </DatePickerGroup>
+        <DatePickerContent />
+      </DatePicker>
     );
   }
 

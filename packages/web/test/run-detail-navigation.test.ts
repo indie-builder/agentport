@@ -163,11 +163,13 @@ describe('run detail navigation', () => {
     const back = host.querySelector<HTMLAnchorElement>('a[aria-label="返回来源"]');
     expect(back?.getAttribute('href')).toBe('/runs?agent=agent-a&status=failed&view=table');
 
-    const steps = host.querySelectorAll<HTMLButtonElement>('ol button');
-    await act(async () => steps[1]?.click());
+    const steps = host.querySelectorAll<HTMLElement>(
+      '[role="listbox"][aria-label="执行步骤"] [role="option"]',
+    );
+    await act(async () => steps[0]?.click());
     expect(router.state.location.search).toMatchObject({
       backTo: '/runs?agent=agent-a&status=failed&view=table',
-      step: 1,
+      step: 0,
     });
 
     await act(async () => back?.click());

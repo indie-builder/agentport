@@ -15,6 +15,11 @@ import { ConfirmDialog } from '../src/components/confirm-dialog.js';
 import { Collapsible } from '../src/components/motion-collapsible.js';
 import { PageHeader } from '../src/components/page.js';
 import { ErrorState, LoadingState } from '../src/components/states.js';
+import {
+  Autocomplete,
+  AutocompleteInput,
+  AutocompleteItem,
+} from '../src/components/ui/autocomplete.js';
 import { Combobox, ComboboxItem, ComboboxList } from '../src/components/ui/combobox.js';
 import { DropdownMenuTrigger } from '../src/components/ui/dropdown-menu.js';
 import { Field, FieldDescription } from '../src/components/ui/field.js';
@@ -1060,20 +1065,24 @@ describe('expert editor regressions', () => {
             expect(tree.find((node) => node.type === Collapsible)?.props.open).toBe(true);
             const model = tree.find((node) => node.props.id === 'new-agent-model');
             if (!model) throw new Error('Missing model input');
-            expect(model.type).toBe(Input);
-            expect(model.props.list).toBe('new-agent-models');
-            const suggestions = tree.find((node) => node.props.id === 'new-agent-models');
+            expect(model.type).toBe(AutocompleteInput);
+            const autocomplete = tree.find(
+              (node) =>
+                node.type === Autocomplete &&
+                elements(node).some((child) => child.props.id === 'new-agent-model'),
+            );
+            if (!autocomplete) throw new Error('Missing model autocomplete');
             expect(
-              elements(suggestions?.props.children as ReactNode).map((node) => node.props.value),
+              elements(autocomplete)
+                .filter((node) => node.type === AutocompleteItem)
+                .map((node) => node.props.value),
             ).toContain('group/flash');
             const name = tree.find((node) => node.props.id === 'new-agent-name');
             if (!name) throw new Error('Missing name field');
             (name.props.onChange as (event: unknown) => void)({
               target: { name: 'name', value: 'Custom model' },
             });
-            (model.props.onChange as (event: unknown) => void)({
-              target: { name: 'model', value: 'gateway/custom-model' },
-            });
+            (autocomplete.props.onValueChange as (value: string) => void)('gateway/custom-model');
             return true;
           }
           const form = tree.find((node) => node.type === 'form');
@@ -1403,7 +1412,11 @@ describe('expert editor regressions', () => {
       () => CreateAgentDialog({ onClose: () => {}, onCreated: () => {}, finalFocus: () => null }),
       (tree) => {
         const fields = tree.filter(
-          (node) => node.type === Input || node.type === Textarea || node.type === Select,
+          (node) =>
+            node.type === Input ||
+            node.type === Textarea ||
+            node.type === Select ||
+            node.type === Autocomplete,
         );
         expect(fields).toHaveLength(7);
         expect(fields.every((node) => node.props.disabled === true)).toBe(true);

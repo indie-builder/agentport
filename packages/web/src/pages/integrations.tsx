@@ -51,6 +51,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/ui/collapsible.js';
+import { createDateInputController, DateInput } from '../components/ui/date-input.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   Field,
@@ -479,6 +480,7 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [created, setCreated] = useState<ApiTokenCreateResult | null>(null);
+  const [expiresController] = useState(createDateInputController);
   const pending = create.isPending && !saved;
   const dirty = !saved && isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
@@ -618,13 +620,35 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
                 </FieldSet>
                 <Field data-invalid={Boolean(errors.expiresAt)} data-disabled={pending}>
                   <FieldLabel htmlFor="api-token-expires">过期时间</FieldLabel>
-                  <Input
-                    id="api-token-expires"
-                    type="datetime-local"
-                    disabled={pending}
-                    aria-invalid={Boolean(errors.expiresAt)}
-                    aria-describedby={errors.expiresAt ? 'api-token-expires-error' : undefined}
-                    {...register('expiresAt')}
+                  <Controller
+                    control={control}
+                    name="expiresAt"
+                    render={({ field }) => (
+                      <DateInput
+                        controller={expiresController}
+                        ref={(node) => {
+                          field.ref(node ? { focus: () => expiresController.focus() } : null);
+                        }}
+                        id="api-token-expires"
+                        granularity="minute"
+                        hourCycle={24}
+                        value={field.value || null}
+                        onValueChange={(next) => field.onChange(next ?? '')}
+                        onBlur={(event) => {
+                          if (
+                            !(
+                              event.relatedTarget instanceof Node &&
+                              event.currentTarget.contains(event.relatedTarget)
+                            )
+                          ) {
+                            field.onBlur();
+                          }
+                        }}
+                        disabled={pending}
+                        aria-invalid={Boolean(errors.expiresAt)}
+                        aria-describedby={errors.expiresAt ? 'api-token-expires-error' : undefined}
+                      />
+                    )}
                   />
                   <FieldDescription>留空表示长期有效。</FieldDescription>
                   <FieldError id="api-token-expires-error">{errors.expiresAt?.message}</FieldError>

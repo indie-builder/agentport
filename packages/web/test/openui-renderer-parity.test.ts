@@ -139,9 +139,20 @@ const ISO = /\d{4}-\d{2}-\d{2}/g;
 const toIso = (date: Date): string =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
+function parseInputIso(value: string): string | null {
+  const slash = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (slash) return `${slash[3]}-${slash[1]}-${slash[2]}`;
+  const iso = value.match(ISO);
+  return iso?.[0] ?? null;
+}
+
 /** 单个日期：优先 ISO 字面量，否则取 “Oct 28, 2026” 这样的日期片段再解析。
  *  不能把整段根文本直接丢给 new Date()：表单里还有 “日期”“提交”等标签，会解析失败。 */
 function firstDay(root: Element): string | null {
+  for (const value of inputValues(root)) {
+    const parsed = parseInputIso(value);
+    if (parsed) return parsed;
+  }
   const raw = text(root);
   const iso = raw.match(ISO);
   if (iso?.[0]) return iso[0];
@@ -152,8 +163,13 @@ function firstDay(root: Element): string | null {
 }
 
 function days(root: Element): string[] {
+  const found = new Set<string>();
+  for (const value of inputValues(root)) {
+    const parsed = parseInputIso(value);
+    if (parsed) found.add(parsed);
+  }
   const raw = text(root);
-  const found = new Set<string>(raw.match(ISO) ?? []);
+  for (const match of raw.match(ISO) ?? []) found.add(match);
   for (const label of raw.match(/[A-Z][a-z]{2} \d{1,2}, \d{4}/g) ?? []) {
     const parsed = new Date(label);
     if (!Number.isNaN(parsed.getTime())) found.add(toIso(parsed));

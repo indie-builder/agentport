@@ -36,6 +36,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
+import { Listbox, ListboxItem } from '../../components/ui/listbox.js';
 import { can } from '../../lib/access.js';
 import { type ApprovalRequest, api } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
@@ -522,47 +523,60 @@ export function RunDetailPage() {
                 }
               />
             ) : (
-              <ol className="flex flex-col">
-                {steps.map((step, index) => {
-                  const Icon = stepIcons[step.kind];
-                  const isActive = index === activeIndex;
-                  return (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: 步骤没有稳定 id，位置即身份
-                    <li key={`${index}-${step.at}`}>
-                      <Button
-                        variant="ghost"
-                        onClick={() => selectStep(index)}
-                        aria-current={isActive ? 'step' : undefined}
-                        className={cn(
-                          'w-full justify-start gap-2.5 text-left',
-                          isActive && 'bg-selected hover:bg-selected',
-                        )}
-                      >
-                        <span className="w-5 shrink-0 text-right font-mono text-2xs tabular-nums text-muted-foreground">
-                          {index + 1}
-                        </span>
-                        <Icon aria-hidden="true" className="shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1">
-                          <span
-                            className={cn(
-                              'block truncate font-mono text-xs',
-                              step.kind === 'tool' ? 'text-fg' : 'text-muted-foreground',
-                            )}
-                          >
-                            {stepName(step)}
-                          </span>
-                        </span>
-                        <span
-                          className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground"
-                          title={`事件时间：${formatDateTime(step.at)}`}
+              (() => {
+                const seenSteps = new Map<string, number>();
+                const stepEntries = steps.map((step, index) => {
+                  const base = `${step.kind}:${step.at}:${step.kind === 'tool' ? (step.toolUseId ?? step.name ?? '') : ''}`;
+                  const count = (seenSteps.get(base) ?? 0) + 1;
+                  seenSteps.set(base, count);
+                  return { step, index, key: `${base}:${count}` };
+                });
+                return (
+                  <Listbox
+                    aria-label="执行步骤"
+                    value={
+                      activeIndex >= 0 && activeIndex < steps.length ? String(activeIndex) : null
+                    }
+                    onValueChange={(next) => {
+                      if (next !== null) selectStep(Number(next));
+                    }}
+                    className="border-0 bg-transparent p-0"
+                  >
+                    {stepEntries.map(({ step, index, key }) => {
+                      const Icon = stepIcons[step.kind];
+                      return (
+                        <ListboxItem
+                          key={key}
+                          value={String(index)}
+                          label={`${index + 1} ${stepName(step)}`}
+                          className="gap-2.5 px-2.5 py-2"
                         >
-                          +{formatDuration(elapsed(step.at, start))}
-                        </span>
-                      </Button>
-                    </li>
-                  );
-                })}
-              </ol>
+                          <span className="w-5 shrink-0 text-end font-mono text-2xs tabular-nums text-muted-foreground">
+                            {index + 1}
+                          </span>
+                          <Icon aria-hidden="true" className="shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1">
+                            <span
+                              className={cn(
+                                'block truncate font-mono text-xs',
+                                step.kind === 'tool' ? 'text-fg' : 'text-muted-foreground',
+                              )}
+                            >
+                              {stepName(step)}
+                            </span>
+                          </span>
+                          <span
+                            className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground"
+                            title={`事件时间：${formatDateTime(step.at)}`}
+                          >
+                            +{formatDuration(elapsed(step.at, start))}
+                          </span>
+                        </ListboxItem>
+                      );
+                    })}
+                  </Listbox>
+                );
+              })()
             )}
           </section>
 

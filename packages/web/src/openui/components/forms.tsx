@@ -12,7 +12,7 @@ import {
   useTriggerAction,
 } from '@openuidev/react-lang';
 import { Toggle } from '@ui-sdk/react/toggle';
-import { CalendarDays, CircleAlert } from 'lucide-react';
+import { CircleAlert } from 'lucide-react';
 import {
   createContext,
   type ReactNode,
@@ -24,8 +24,15 @@ import {
 } from 'react';
 import { RequiredMark } from '../../components/required-mark.js';
 import { Button as UiButton } from '../../components/ui/button.js';
-import { Calendar } from '../../components/ui/calendar.js';
 import { Checkbox } from '../../components/ui/checkbox.js';
+import {
+  DatePicker,
+  DatePickerClear,
+  DatePickerContent,
+  DatePickerGroup,
+  DatePickerInput,
+  DatePickerTrigger,
+} from '../../components/ui/date-picker.js';
 import {
   Field,
   FieldError as FieldControlError,
@@ -43,7 +50,6 @@ import {
   NumberInputGroup,
   NumberInputIncrement,
 } from '../../components/ui/number-input.js';
-import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover.js';
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group.js';
 import {
   Select,
@@ -327,62 +333,54 @@ export function DatePickerRenderer({
   const from = mode === 'range' ? isoDate(rangeValue?.from) : null;
   const to = mode === 'range' ? isoDate(rangeValue?.to) : null;
   const range = from && to ? ([from, to] as [string, string]) : null;
-  const label =
-    mode === 'range'
-      ? [rangeValue?.from, rangeValue?.to].filter(Boolean).join(' → ')
-      : typeof field.value === 'string'
-        ? field.value.slice(0, 10)
-        : '';
+  const monthSeed = selected ?? from;
 
   return (
-    <Popover>
-      <PopoverTrigger
-        render={
-          <UiButton
-            variant="outline"
-            id={wiring?.controlId ?? field.name}
-            aria-invalid={field.error ? true : undefined}
-            aria-describedby={wiring?.describedBy}
-            disabled={field.streaming}
-            className={cn(
-              'flex h-8 w-full justify-between gap-1.5 px-2.5 font-normal',
-              label ? 'text-fg' : 'text-muted-foreground',
-            )}
-          />
+    <DatePicker
+      mode={mode}
+      name={field.name}
+      value={mode === 'range' ? range : selected}
+      {...(monthSeed ? { defaultMonth: monthSeed.slice(0, 7) } : {})}
+      disabled={field.streaming}
+      onValueChange={(next) => {
+        if (mode === 'range') {
+          const [start, end] = Array.isArray(next) ? next : [];
+          const value = { from: start, to: end };
+          field.setValue(value);
+          field.validate(value);
+          return;
         }
-      >
-        {label || 'Select date...'}
-        <CalendarDays aria-hidden="true" className="size-4 text-muted-foreground" />
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-0">
+        const value = typeof next === 'string' ? next : '';
+        field.setValue(value);
+        field.validate(value);
+      }}
+    >
+      <DatePickerGroup>
+        <DatePickerInput
+          id={wiring?.controlId ?? field.name}
+          placeholder={mode === 'range' ? 'Start date' : 'Select date...'}
+          aria-invalid={field.error ? true : undefined}
+          aria-describedby={wiring?.describedBy}
+        />
         {mode === 'range' ? (
-          <Calendar
-            mode="range"
-            value={range}
-            {...(from ? { defaultMonth: from.slice(0, 7) } : {})}
-            onValueChange={(next) => {
-              const [start, end] = Array.isArray(next) ? next : [];
-              const value = { from: start, to: end };
-              field.setValue(value);
-              field.validate(value);
-            }}
-          />
-        ) : (
-          <Calendar
-            mode="single"
-            deselectable
-            value={selected}
-            {...(selected ? { defaultMonth: selected.slice(0, 7) } : {})}
-            onValueChange={(next) => {
-              // 空字符串而非 undefined：官方 fieldGetter 回退会把 undefined 还原成 props 字面量初值。
-              const value = typeof next === 'string' ? next : '';
-              field.setValue(value);
-              field.validate(value);
-            }}
-          />
-        )}
-      </PopoverContent>
-    </Popover>
+          <>
+            <span aria-hidden="true" className="text-muted-foreground select-none">
+              –
+            </span>
+            <DatePickerInput
+              end
+              placeholder="End date"
+              aria-label="End date"
+              aria-invalid={field.error ? true : undefined}
+              aria-describedby={wiring?.describedBy}
+            />
+          </>
+        ) : null}
+        <DatePickerClear />
+        <DatePickerTrigger />
+      </DatePickerGroup>
+      <DatePickerContent />
+    </DatePicker>
   );
 }
 

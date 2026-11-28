@@ -52,6 +52,7 @@ import {
   NumberInputGroup,
   NumberInputIncrement,
 } from '../ui/number-input.js';
+import { Progress, ProgressIndicator, ProgressTrack, ProgressValue } from '../ui/progress.js';
 import {
   Select,
   SelectContent,
@@ -456,7 +457,19 @@ function WikiPageEditor({
       {generateJob ? (
         <PageNote
           title={`生成任务 ${jobStatusLabel[generateJob.status]}`}
-          description={generateJob.step ?? `进度 ${generateJob.progress}%`}
+          {...(generateJob.step ? { description: generateJob.step } : {})}
+          action={
+            <Progress
+              value={generateJob.progress}
+              aria-label="生成任务进度"
+              className="w-44 grid-cols-[minmax(0,1fr)_auto] items-center gap-2"
+            >
+              <ProgressTrack className="col-span-1">
+                <ProgressIndicator />
+              </ProgressTrack>
+              <ProgressValue>进度 {generateJob.progress}%</ProgressValue>
+            </Progress>
+          }
         />
       ) : null}
       <Field className="gap-1.5">
