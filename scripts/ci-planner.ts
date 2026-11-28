@@ -31,6 +31,7 @@ export type StageName =
   | 'formal'
   | 'build:web'
   | 'openui:check'
+  | 'openui:audit'
   | 'test'
   | 'test:web'
   | 'scripts:test'
@@ -282,7 +283,7 @@ const isFormalTriggerFile = (file: string): boolean =>
   file.startsWith('packages/db/src/repo/runs') ||
   file.startsWith('packages/db/src/schema');
 
-const isOpenuiTriggerFile = (file: string): boolean =>
+const isOpenuiCheckTriggerFile = (file: string): boolean =>
   file.startsWith('packages/web/src/openui/') ||
   file.startsWith('packages/core/src/generated/') ||
   file.startsWith('packages/core/src/openui') ||
@@ -370,10 +371,15 @@ export const planCi = (input: CiPlanInput): CiPlan => {
     };
   };
 
-  const openuiActive = fullRun || changedFiles.some(isOpenuiTriggerFile);
+  const openuiCheckActive = fullRun || changedFiles.some(isOpenuiCheckTriggerFile);
+  const openuiAuditActive =
+    openuiCheckActive ||
+    changedFiles.includes('packages/web/test/openui-coverage-registry.json') ||
+    changedFiles.includes('scripts/audit-openui-coverage.mjs') ||
+    deletedOrRenamedFiles.some((file) => file.startsWith('packages/web/test/'));
   const dbMigrationActive = fullRun || changedFiles.some(isDbMigrationTriggerFile);
   const typecheckActive =
-    fullRun || anyPackageAffected || dbMigrationActive || (openuiActive && !options.fast);
+    fullRun || anyPackageAffected || dbMigrationActive || (openuiCheckActive && !options.fast);
   const testSupportChanged = changedFiles.some((file) => file.startsWith('tests/support/'));
   const testActive = fullRun || anyBackendAffected || testSupportChanged;
   const testEnabled = testActive && !options.fast;
@@ -491,13 +497,14 @@ export const planCi = (input: CiPlanInput): CiPlan => {
     stageFromFlag(
       'openui:check',
       testEnabled ? ['run', 'openui:check', '--', '--no-tests'] : ['run', 'openui:check'],
-      openuiActive,
+      openuiCheckActive,
       {
         fastSkipped: true,
         fixHint: 'bun run openui:spec',
         dependsOn: ['typecheck'],
       },
     ),
+    stageFromFlag('openui:audit', ['run', 'openui:audit'], openuiAuditActive),
     stageFromFlag('test', ['run', 'test:sharded'], testActive, {
       fastSkipped: true,
       dependsOn: ['typecheck'],
@@ -525,7 +532,15 @@ export const planCi = (input: CiPlanInput): CiPlan => {
     stages.push(
       stageFromFlag('e2e', ['run', 'e2e:suite'], true, {
         fastSkipped: true,
-        dependsOn: ['typecheck', 'typecheck:e2e', 'build:web', 'openui:check', 'test', 'test:web'],
+        dependsOn: [
+          'typecheck',
+          'typecheck:e2e',
+          'build:web',
+          'openui:check',
+          'openui:audit',
+          'test',
+          'test:web',
+        ],
       }),
     );
   }

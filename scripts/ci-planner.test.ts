@@ -176,6 +176,10 @@ describe('planCi', () => {
     expect(stages.get('lint:contract:test')?.enabled).toBe(true);
     expect(stages.get('build:web')?.args).toEqual(['run', '--filter', '@agentport/web', 'build']);
     expect(stages.get('openui:check')?.args).toEqual(['run', 'openui:check', '--', '--no-tests']);
+    expect(stages.get('openui:audit')?.enabled).toBe(true);
+    expect(stages.get('openui:audit')?.args).toEqual(['run', 'openui:audit']);
+    expect(stages.get('openui:audit')?.dependsOn).toEqual([]);
+    expect(stages.get('openui:audit')?.fixHint).toBeUndefined();
     expect(stages.get('e2e')).toBeUndefined();
   });
 
@@ -192,6 +196,8 @@ describe('planCi', () => {
     expect(stages.get('typecheck:tests')?.enabled).toBe(true);
     expect(stages.get('lint:deadcode')?.enabled).toBe(true);
     expect(stages.get('lint:ratchet')?.enabled).toBe(true);
+    expect(stages.get('openui:audit')?.enabled).toBe(true);
+    expect(stages.get('openui:audit')?.dependsOn).toEqual([]);
     expect(stages.get('scripts:test')?.enabled).toBe(true);
     for (const skipped of [
       'build:web',
@@ -249,6 +255,7 @@ describe('planCi', () => {
     expect(stages.get('test:web')?.enabled).toBe(true);
     expect(stages.get('test')?.enabled).toBe(false);
     expect(stages.get('openui:check')?.enabled).toBe(false);
+    expect(stages.get('openui:audit')?.enabled).toBe(false);
     expect(stages.get('formal')?.enabled).toBe(false);
   });
 
@@ -260,6 +267,8 @@ describe('planCi', () => {
     const stages = byName(plan);
     expect(stages.get('openui:check')?.enabled).toBe(true);
     expect(stages.get('openui:check')?.args).toEqual(['run', 'openui:check']);
+    expect(stages.get('openui:audit')?.enabled).toBe(true);
+    expect(stages.get('openui:audit')?.dependsOn).toEqual([]);
   });
 
   test('triggers lint:docs when files under packages/scripts/tests are deleted', () => {
@@ -306,6 +315,68 @@ describe('planCi', () => {
     });
     expect(byName(fastScriptPlan).get('typecheck')?.enabled).toBe(false);
     expect(byName(fastScriptPlan).get('openui:check')?.skipReason).toBe('--fast');
+    expect(byName(fastScriptPlan).get('openui:audit')?.enabled).toBe(true);
+  });
+
+  test('activates openui:audit independently for audit script, registry, openui sources, and deleted web tests', () => {
+    const auditScriptPlan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['scripts/audit-openui-coverage.mjs'],
+    });
+    const auditScriptStages = byName(auditScriptPlan);
+    expect(auditScriptStages.get('openui:audit')?.enabled).toBe(true);
+    expect(auditScriptStages.get('openui:audit')?.args).toEqual(['run', 'openui:audit']);
+    expect(auditScriptStages.get('openui:audit')?.dependsOn).toEqual([]);
+    expect(auditScriptStages.get('openui:check')?.enabled).toBe(false);
+    expect(auditScriptStages.get('openui:check')?.skipReason).toBe('unchanged');
+    expect(auditScriptStages.get('typecheck')?.enabled).toBe(false);
+    expect(auditScriptStages.get('typecheck')?.skipReason).toBe('unchanged');
+
+    const fastAuditScriptPlan = planCi({
+      options: parseCiArgs(['--changed', '--fast']),
+      changedFiles: ['scripts/audit-openui-coverage.mjs'],
+    });
+    expect(byName(fastAuditScriptPlan).get('openui:audit')?.enabled).toBe(true);
+
+    const registryPlan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['packages/web/test/openui-coverage-registry.json'],
+    });
+    const registryStages = byName(registryPlan);
+    expect(registryStages.get('openui:audit')?.enabled).toBe(true);
+    expect(registryStages.get('openui:audit')?.dependsOn).toEqual([]);
+    expect(registryStages.get('openui:check')?.enabled).toBe(false);
+    expect(registryStages.get('openui:check')?.skipReason).toBe('unchanged');
+
+    const fastRegistryPlan = planCi({
+      options: parseCiArgs(['--changed', '--fast']),
+      changedFiles: ['packages/web/test/openui-coverage-registry.json'],
+    });
+    expect(byName(fastRegistryPlan).get('openui:audit')?.enabled).toBe(true);
+
+    const openuiSourcePlan = planCi({
+      options: parseCiArgs(['--changed', '--fast']),
+      changedFiles: ['packages/web/src/openui/components/data.tsx'],
+    });
+    expect(byName(openuiSourcePlan).get('openui:audit')?.enabled).toBe(true);
+
+    const deletedEvidencePlan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['packages/web/test/openui-form-fixes.test.ts'],
+      deletedOrRenamedFiles: ['packages/web/test/openui-form-fixes.test.ts'],
+    });
+    const deletedEvidenceStages = byName(deletedEvidencePlan);
+    expect(deletedEvidenceStages.get('openui:audit')?.enabled).toBe(true);
+    expect(deletedEvidenceStages.get('openui:check')?.enabled).toBe(false);
+    expect(deletedEvidenceStages.get('openui:check')?.skipReason).toBe('unchanged');
+
+    const backendPlan = planCi({
+      options: parseCiArgs(['--changed']),
+      changedFiles: ['packages/api/src/modules/chat/router.ts'],
+    });
+    const backendStage = byName(backendPlan).get('openui:audit');
+    expect(backendStage?.enabled).toBe(false);
+    expect(backendStage?.skipReason).toBe('unchanged');
   });
 
   test('activates formal for worker scheduling changes', () => {
@@ -340,6 +411,7 @@ describe('planCi', () => {
       'typecheck:e2e',
       'build:web',
       'openui:check',
+      'openui:audit',
       'test',
       'test:web',
     ]);
