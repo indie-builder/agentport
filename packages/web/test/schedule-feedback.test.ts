@@ -128,6 +128,33 @@ async function click(label: string) {
 
 async function fill(id: string, value: string) {
   const element = document.getElementById(id);
+  if (element?.getAttribute('data-slot') === 'time-input') {
+    const segments = [...element.querySelectorAll<HTMLInputElement>('input[role="spinbutton"]')];
+    if (segments.length === 0) throw new Error(`Missing time segments: ${id}`);
+    if (value === '') {
+      for (const segment of segments) {
+        await act(async () => {
+          segment.focus();
+          segment.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }),
+          );
+        });
+      }
+      return;
+    }
+    const parts = value.split(':');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    for (const [index, segment] of segments.entries()) {
+      const part = parts[index];
+      if (part === undefined) continue;
+      await act(async () => {
+        segment.focus();
+        setter?.call(segment, part);
+        segment.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    }
+    return;
+  }
   if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
     throw new Error(`Missing input: ${id}`);
   }
@@ -160,7 +187,9 @@ function frequencyText(): string {
 }
 
 function timeValue(): string {
-  return (document.getElementById('schedule-time') as HTMLInputElement | null)?.value ?? '';
+  return (
+    document.querySelector<HTMLInputElement>('#schedule-time input[type="hidden"]')?.value ?? ''
+  );
 }
 
 function cronValue(): string {
@@ -390,7 +419,11 @@ describe('schedule dialog fields and payload', () => {
     expect(groupOf(enabled)).toBe(groupOf(frequency));
 
     const order = [...document.querySelectorAll('[data-slot="field"]')]
-      .map((element) => element.querySelector('input[id], textarea[id], button[id]')?.id)
+      .map(
+        (element) =>
+          element.querySelector('input[id], textarea[id], button[id], [data-slot="time-input"][id]')
+            ?.id,
+      )
       .filter(Boolean);
     expect(order).toEqual([
       'schedule-name',
@@ -588,7 +621,7 @@ describe('schedule dialog fields and payload', () => {
     );
     expect(timeValue()).toBe('');
     await vi.waitFor(() =>
-      expect(document.activeElement).toBe(document.getElementById('schedule-time')),
+      expect(document.getElementById('schedule-time')?.contains(document.activeElement)).toBe(true),
     );
     expect(msw.calls.some((entry) => entry.method === 'POST')).toBe(false);
   });
@@ -785,7 +818,14 @@ describe('schedule dialog fields and payload', () => {
     expect((document.getElementById('schedule-frequency') as HTMLButtonElement).disabled).toBe(
       true,
     );
-    expect((document.getElementById('schedule-time') as HTMLInputElement).disabled).toBe(true);
+    expect(document.getElementById('schedule-time')?.hasAttribute('data-disabled')).toBe(true);
+    expect(
+      [
+        ...(document
+          .getElementById('schedule-time')
+          ?.querySelectorAll<HTMLInputElement>('input[role="spinbutton"]') ?? []),
+      ].every((segment) => segment.disabled),
+    ).toBe(true);
     expect((document.getElementById('schedule-timezone') as HTMLButtonElement).disabled).toBe(true);
     expect((document.getElementById('schedule-missed-policy') as HTMLButtonElement).disabled).toBe(
       true,

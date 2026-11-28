@@ -184,7 +184,7 @@ describe('EditableTable cell types', () => {
     if (!option) throw new Error('missing select option');
     await click(option);
 
-    await click(host.querySelector<HTMLElement>('[aria-label="日期 第 1 行"]') as HTMLElement);
+    await click(host.querySelector<HTMLElement>('[aria-label="选择日期 第 1 行"]') as HTMLElement);
     const day = [
       ...document.querySelectorAll<HTMLElement>('[data-slot="calendar-day"]:not([data-outside])'),
     ].find((item) => item.textContent?.trim() === '15');
@@ -213,16 +213,17 @@ describe('EditableTable cell types', () => {
       { onAction },
     );
 
-    await click(host.querySelector<HTMLElement>('[aria-label="日期 第 1 行"]') as HTMLElement);
+    await click(host.querySelector<HTMLElement>('[aria-label="选择日期 第 1 行"]') as HTMLElement);
     const selected = document.querySelector<HTMLElement>(
       '[data-slot="calendar-day"][data-value="2030-06-15"]',
     );
     expect(selected?.getAttribute('aria-selected')).toBe('true');
     expect(selected?.textContent?.trim()).toBe('15');
-    if (!selected) throw new Error('missing selected calendar day');
-    await click(selected);
+    const clear = host.querySelector<HTMLElement>('[data-slot="date-picker-clear"]');
+    if (!clear) throw new Error('missing clear button');
+    await click(clear);
 
-    expect(host.textContent).toContain('选择日期');
+    expect(host.querySelector<HTMLInputElement>('[aria-label="日期 第 1 行"]')?.value).toBe('');
     await click(buttonByText('Save Changes'));
 
     const event = onAction.mock.calls.at(-1)?.[0] as {
@@ -240,7 +241,7 @@ describe('EditableTable cell types', () => {
       ]),
     );
 
-    await click(host.querySelector<HTMLElement>('[aria-label="日期 第 1 行"]') as HTMLElement);
+    await click(host.querySelector<HTMLElement>('[aria-label="选择日期 第 1 行"]') as HTMLElement);
     const caption = document.querySelector<HTMLElement>('[data-slot="calendar-heading"]');
     expect(caption?.textContent).toContain('2030');
     const selectedDay = document.querySelector<HTMLElement>(

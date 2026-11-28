@@ -9,6 +9,15 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../../../components/ui/collapsible.js';
+import {
+  Timeline,
+  TimelineConnector,
+  TimelineDescription,
+  TimelineItem,
+  TimelineMarker,
+  TimelineTime,
+  TimelineTitle,
+} from '../../../components/ui/timeline.js';
 import { formatDateTime } from '../../../lib/format.js';
 import { knowledgeJobErrorText } from '../../../lib/knowledge-errors.js';
 import {
@@ -135,43 +144,66 @@ export function SourceRuns({
         />
       ) : null}
       {runs.data && runs.data.length > 0 ? (
-        <ul className="flex flex-col gap-1">
-          {runs.data.map((run) => (
-            <li key={run.id} className="flex flex-col gap-1 text-2xs">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge tone={jobStatusTone[run.status]}>
-                  {jobStatusLabel[run.status]}
-                </StatusBadge>
-                <span className="text-muted-foreground">
-                  新增 {run.stats.created} · 更新 {run.stats.updated} · 失败 {run.stats.failed}
-                </span>
-                <span className="text-muted-foreground">
-                  {formatDateTime(run.startedAt ?? run.createdAt)}
-                </span>
-                {run.error ? <span className="text-danger">{run.error}</span> : null}
-              </div>
-              <Collapsible className="pl-2">
-                <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 text-left text-muted-foreground">
-                  <ChevronRight
-                    className="size-3.5 shrink-0 transition-transform group-aria-expanded:rotate-90"
-                    aria-hidden="true"
-                  />
-                  逐项结果
-                  {run.stats.failed > 0 ? ` · 失败 ${run.stats.failed}` : ''}
-                </CollapsibleTrigger>
-                <CollapsibleContent keepMounted hiddenUntilFound>
-                  <div className="mt-1">
-                    <SyncRunItems
-                      sourceId={sourceId}
-                      syncRunId={run.id}
-                      onOpenDocument={onOpenDocument}
+        <Timeline aria-label="同步记录">
+          {runs.data.map((run) => {
+            const status =
+              run.status === 'succeeded'
+                ? ('complete' as const)
+                : run.status === 'running' || run.status === 'queued'
+                  ? ('current' as const)
+                  : undefined;
+            return (
+              <TimelineItem
+                key={run.id}
+                value={run.id}
+                className="gap-y-1 pb-2.5 text-2xs"
+                {...(status === undefined ? {} : { status })}
+              >
+                <TimelineMarker
+                  className={run.status === 'failed' ? 'empty:before:bg-danger' : undefined}
+                />
+                <TimelineConnector />
+                <div className="flex min-h-6 flex-wrap items-center gap-2">
+                  <TimelineTitle className="flex flex-wrap items-center gap-2 text-2xs font-normal">
+                    <StatusBadge tone={jobStatusTone[run.status]}>
+                      {jobStatusLabel[run.status]}
+                    </StatusBadge>
+                    <span className="text-muted-foreground">
+                      新增 {run.stats.created} · 更新 {run.stats.updated} · 失败 {run.stats.failed}
+                    </span>
+                  </TimelineTitle>
+                  <TimelineTime dateTime={run.startedAt ?? run.createdAt}>
+                    {formatDateTime(run.startedAt ?? run.createdAt)}
+                  </TimelineTime>
+                </div>
+                {run.error ? (
+                  <TimelineDescription className="text-2xs text-danger">
+                    {run.error}
+                  </TimelineDescription>
+                ) : null}
+                <Collapsible className="ps-2">
+                  <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 rounded-[var(--radius-icon)] text-start text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <ChevronRight
+                      className="size-3.5 shrink-0 transition-transform group-aria-expanded:rotate-90"
+                      aria-hidden="true"
                     />
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </li>
-          ))}
-        </ul>
+                    逐项结果
+                    {run.stats.failed > 0 ? ` · 失败 ${run.stats.failed}` : ''}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent keepMounted hiddenUntilFound>
+                    <div className="mt-1">
+                      <SyncRunItems
+                        sourceId={sourceId}
+                        syncRunId={run.id}
+                        onOpenDocument={onOpenDocument}
+                      />
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </TimelineItem>
+            );
+          })}
+        </Timeline>
       ) : null}
     </div>
   );

@@ -2,6 +2,12 @@ import { type PartProps, renderElement } from '@ui-sdk/react/primitive';
 import { cva, type VariantProps } from 'class-variance-authority';
 import type * as React from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  ScrollArea,
+  ScrollAreaScrollbar,
+  ScrollAreaThumb,
+  ScrollAreaViewport,
+} from '@/components/ui/scroll-area';
 import { cn } from '@/lib/cn';
 
 function mergeClassName<State>(
@@ -231,21 +237,23 @@ function AttachmentTrigger({
 
 function AttachmentGroup({
   className,
-  render,
+  children,
   ...props
-}: ElementPartProps<'div', { slot: 'attachment-group' }>) {
-  return renderElement(
-    'div',
-    {
-      'data-slot': 'attachment-group',
-      ...props,
-      className: mergeClassName(
-        'flex min-w-0 scroll-fade-x snap-x snap-mandatory scroll-px-1 scrollbar-none gap-3 overflow-x-auto overscroll-x-contain py-1 *:data-[slot=attachment]:flex-none *:data-[slot=attachment]:snap-start',
-        className,
-      ),
-    },
-    render,
-    { slot: 'attachment-group' },
+}: Omit<React.ComponentProps<typeof ScrollAreaViewport>, 'className'> & {
+  className?: string | undefined;
+}) {
+  return (
+    <ScrollArea className={cn('w-full min-w-0', className)}>
+      <ScrollAreaViewport
+        className="flex snap-x snap-mandatory scroll-px-1 gap-3 overscroll-x-contain py-1 *:data-[slot=attachment]:flex-none *:data-[slot=attachment]:snap-start [--fade-start:0px] [--fade-end:0px] not-data-at-x-start:[--fade-start:12px] not-data-at-x-end:[--fade-end:12px] [mask-image:linear-gradient(to_right,transparent,black_var(--fade-start),black_calc(100%-var(--fade-end)),transparent)] rtl:[mask-image:linear-gradient(to_left,transparent,black_var(--fade-start),black_calc(100%-var(--fade-end)),transparent)]"
+        {...props}
+      >
+        {children}
+      </ScrollAreaViewport>
+      <ScrollAreaScrollbar orientation="horizontal">
+        <ScrollAreaThumb />
+      </ScrollAreaScrollbar>
+    </ScrollArea>
   );
 }
 

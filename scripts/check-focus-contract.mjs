@@ -10,6 +10,9 @@ const INPUT_PRIMITIVES = new Set([
   'components/ui/combobox.tsx',
   'components/ui/input-group.tsx',
   'components/ui/number-input.tsx',
+  'components/ui/autocomplete.tsx',
+  'components/ui/date-input.tsx',
+  'components/ui/time-input.tsx',
 ]);
 const SLIDER = 'components/ui/slider.tsx';
 

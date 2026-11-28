@@ -41,6 +41,15 @@ import { PageBody, PageTopbar } from '../../components/page.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
+import {
+  Autocomplete,
+  AutocompleteContent,
+  AutocompleteEmpty,
+  AutocompleteInput,
+  AutocompleteItem,
+  AutocompleteItemText,
+  AutocompleteList,
+} from '../../components/ui/autocomplete.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Checkbox } from '../../components/ui/checkbox.js';
 import {
@@ -373,6 +382,7 @@ export function AgentEditor({
   const roleField = useController({ control, name: 'role' }).field;
   const visibilityField = useController({ control, name: 'visibility' }).field;
   const tagsField = useController({ control, name: 'tags' }).field;
+  const modelField = useController({ control, name: 'model' }).field;
   const effortField = useController({ control, name: 'effort' }).field;
   const serverIdsField = useController({ control, name: 'serverIds' }).field;
   const skillIdsField = useController({ control, name: 'skillIds' }).field;
@@ -1261,20 +1271,44 @@ export function AgentEditor({
                           data-disabled={configDisabled}
                           orientation="horizontal"
                           className="gap-3"
+                          data-invalid={Boolean(errors.model)}
                         >
-                          <FieldLabel htmlFor="agent-model">模型</FieldLabel>
-                          <Input
-                            {...rhf.register('model')}
+                          <FieldContent>
+                            <FieldLabel htmlFor="agent-model">模型</FieldLabel>
+                            <FieldError id="agent-model-error">{errors.model?.message}</FieldError>
+                          </FieldContent>
+                          <Autocomplete
                             disabled={configDisabled}
-                            id="agent-model"
-                            list="agent-models"
-                            className="w-64 font-mono"
-                          />
-                          <datalist id="agent-models">
-                            {models.map((model) => (
-                              <option key={model} value={model} />
-                            ))}
-                          </datalist>
+                            value={modelField.value}
+                            onValueChange={(next) => modelField.onChange(next)}
+                            openOnFocus
+                            filter={(item, query) => {
+                              const needle = query.trim().toLowerCase();
+                              return (
+                                !needle ||
+                                models.includes(query) ||
+                                item.label.toLowerCase().includes(needle)
+                              );
+                            }}
+                          >
+                            <AutocompleteInput
+                              ref={modelField.ref}
+                              id="agent-model"
+                              onBlur={modelField.onBlur}
+                              aria-invalid={Boolean(errors.model)}
+                              className="w-64 font-mono"
+                            />
+                            <AutocompleteContent>
+                              <AutocompleteEmpty>无匹配预设，可直接保留输入</AutocompleteEmpty>
+                              <AutocompleteList>
+                                {models.map((model) => (
+                                  <AutocompleteItem key={model} value={model}>
+                                    <AutocompleteItemText className="font-mono" />
+                                  </AutocompleteItem>
+                                ))}
+                              </AutocompleteList>
+                            </AutocompleteContent>
+                          </Autocomplete>
                         </Field>
                         <Field
                           data-disabled={configDisabled}

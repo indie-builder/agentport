@@ -237,7 +237,7 @@ describe('OpenUiBlock', () => {
     expect(host.textContent).toContain('每日摘要');
     expect(host.textContent).toContain('徒步');
     expect(host.textContent).toContain('轻松');
-    expect(host.textContent).toContain('Select date...');
+    expect(host.querySelector('input[placeholder="Select date..."]')).toBeTruthy();
     expect(
       [...host.querySelectorAll('button')].filter((b) => b.textContent === '保存'),
     ).toHaveLength(1);
