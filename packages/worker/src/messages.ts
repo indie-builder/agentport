@@ -1,4 +1,4 @@
-import { resolveOpenUiResponse } from '@agentport/core';
+import { resolveOpenUiResponseDetailed } from '@agentport/core';
 import { type Database, type DbHandle, newId, repo, schema } from '@agentport/db';
 import {
   type ChatEvent,
@@ -183,12 +183,9 @@ async function previousUiProgram(
   return row?.uiProgram ?? '';
 }
 
-function canonicalPrograms(
-  rows: MessageRow[],
-  baseline: string,
-  uiFormat: 'markdown' | 'openui',
-): Map<number, string | null> {
+function canonicalPrograms(rows: MessageRow[], baseline: string, uiFormat: 'markdown' | 'openui') {
   const programs = new Map<number, string | null>();
+  const diagnostics: ReturnType<typeof resolveOpenUiResponseDetailed>['diagnostics'] = [];
   let previous = baseline;
   rows.forEach((row, index) => {
     if (row.role !== 'assistant') return;
@@ -207,15 +204,18 @@ function canonicalPrograms(
       programs.set(index, null);
       return;
     }
-    const resolved = resolveOpenUiResponse(previous, content.text as string);
-    if (resolved.trim() === '') {
+    const resolved = resolveOpenUiResponseDetailed(previous, content.text as string);
+    if (resolved.diagnostics.length > 0) {
+      diagnostics.push(...resolved.diagnostics);
+    }
+    if (resolved.text.trim() === '') {
       programs.set(index, null);
       return;
     }
-    programs.set(index, resolved);
-    previous = resolved;
+    programs.set(index, resolved.text);
+    previous = resolved.text;
   });
-  return programs;
+  return { programs, diagnostics };
 }
 
 async function deleteRunOutputMessages(tx: DbHandle, runId: string): Promise<void> {
@@ -238,6 +238,7 @@ export async function persistRunMessages(
     /** 重试中间轮不投影频道：同一 run 覆盖同一 seq 行会让已订阅者漏掉最终正文。 */
     projectChannelReply?: boolean;
     replacesRunId?: string;
+    logger?: { warn: (obj: Record<string, unknown>, msg: string) => void };
   },
 ): Promise<{
   written: boolean;
@@ -246,8 +247,9 @@ export async function persistRunMessages(
 }> {
   const rows = buildMessageRows(input.events);
   const uiFormat = input.uiFormat ?? 'markdown';
+  let openuiDiagnostics: ReturnType<typeof resolveOpenUiResponseDetailed>['diagnostics'] = [];
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [agent] = await tx
       .select({ id: schema.agents.id })
       .from(schema.agents)
@@ -329,7 +331,8 @@ export async function persistRunMessages(
           and(eq(schema.messages.runId, input.replacesRunId), eq(schema.messages.role, 'user')),
         );
     }
-    const programs = canonicalPrograms(rows, baseline, uiFormat);
+    const { programs, diagnostics } = canonicalPrograms(rows, baseline, uiFormat);
+    openuiDiagnostics = diagnostics;
     const withIds = rows.map((row, index) => ({
       row,
       index,
@@ -442,4 +445,15 @@ export async function persistRunMessages(
       ...(channelMessage === undefined ? {} : { channelMessage }),
     };
   });
+  if (result.written && openuiDiagnostics.length > 0) {
+    input.logger?.warn(
+      {
+        conversationId: input.conversationId,
+        runId: input.runId,
+        diagnostics: openuiDiagnostics,
+      },
+      'openui response resolution diagnostics',
+    );
+  }
+  return result;
 }

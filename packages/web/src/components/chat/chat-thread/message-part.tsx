@@ -1,4 +1,4 @@
-import type { OpenUiAction, OpenUiToolResult } from '@agentport/shared';
+import { type OpenUiAction, type OpenUiToolResult, segmentOpenUi } from '@agentport/shared';
 import { FileText, Image } from 'lucide-react';
 import { memo, useLayoutEffect, useRef, useState } from 'react';
 import type { ChatItem } from '../../../lib/chat-state.js';
@@ -204,6 +204,7 @@ export interface OpenUiSnapshot {
   conversationId?: string;
   messageId?: string;
   uiProgram?: string;
+  previousUiProgram?: string;
   uiState?: unknown;
   onToolCall?: (input: OpenUiToolCallInput) => Promise<OpenUiToolResult>;
   onSaveState?: (input: OpenUiStateSaveInput) => Promise<unknown>;
@@ -217,7 +218,14 @@ function renderAssistantText(
   onAction: ((action: OpenUiAction) => void) | undefined,
   snapshot?: OpenUiSnapshot,
 ) {
-  if (text.length > LARGE_CONTENT_CHARS) {
+  if (
+    text.length > LARGE_CONTENT_CHARS &&
+    !(
+      openUi &&
+      (Boolean(snapshot?.uiProgram) ||
+        segmentOpenUi(text, streaming).some((segment) => segment.kind === 'openui'))
+    )
+  ) {
     return (
       <CollapsibleText text={text} className="whitespace-pre-wrap break-words text-base text-fg" />
     );
@@ -233,6 +241,9 @@ function renderAssistantText(
         ? {}
         : { conversationId: snapshot.conversationId })}
       {...(snapshot?.uiProgram === undefined ? {} : { uiProgram: snapshot.uiProgram })}
+      {...(snapshot?.previousUiProgram === undefined
+        ? {}
+        : { previousUiProgram: snapshot.previousUiProgram })}
       {...(snapshot?.uiState === undefined ? {} : { uiState: snapshot.uiState })}
       {...(snapshot?.onToolCall === undefined ? {} : { onToolCall: snapshot.onToolCall })}
       {...(snapshot?.onSaveState === undefined ? {} : { onSaveState: snapshot.onSaveState })}

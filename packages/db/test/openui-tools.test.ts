@@ -65,6 +65,7 @@ async function addGeneratedTool(
   metadata: {
     description?: string;
     inputSchema?: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
     approvalMode?: 'allow' | 'ask' | 'deny';
   } = {},
 ) {
@@ -76,6 +77,7 @@ async function addGeneratedTool(
     method: 'GET',
     pathTemplate: `/${name}`,
     inputSchema: metadata.inputSchema ?? { type: 'object', properties: {} },
+    ...(metadata.outputSchema === undefined ? {} : { outputSchema: metadata.outputSchema }),
     approvalMode: metadata.approvalMode ?? 'allow',
     enabled,
   });
@@ -172,6 +174,11 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         description: 'alpha tool',
         inputSchema: { type: 'object', properties: {} },
         approvalMode: 'allow',
+        toolId: expect.any(String),
+        method: 'GET',
+        pathTemplate: '/alpha',
+        paramsIn: 'query',
+        baseUrl: 'https://example.com',
       },
       {
         serverId: firstGenId,
@@ -181,6 +188,11 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         description: 'gamma tool',
         inputSchema: { type: 'object', properties: {} },
         approvalMode: 'allow',
+        toolId: expect.any(String),
+        method: 'GET',
+        pathTemplate: '/gamma',
+        paramsIn: 'query',
+        baseUrl: 'https://example.com',
       },
       {
         serverId: lastGenId,
@@ -190,6 +202,11 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         description: 'alpha tool',
         inputSchema: { type: 'object', properties: {} },
         approvalMode: 'allow',
+        toolId: expect.any(String),
+        method: 'GET',
+        pathTemplate: '/alpha',
+        paramsIn: 'query',
+        baseUrl: 'https://example.com',
       },
       {
         serverId: lastGenId,
@@ -199,6 +216,11 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         description: 'bravo tool',
         inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
         approvalMode: 'ask',
+        toolId: expect.any(String),
+        method: 'GET',
+        pathTemplate: '/bravo',
+        paramsIn: 'query',
+        baseUrl: 'https://example.com',
       },
     ]);
   });
@@ -264,6 +286,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         title: 'Lookup',
         description: 'look something up',
         inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
+        outputSchema: { type: 'object', properties: { items: { type: 'array' } } },
       },
       { name: 'bare' },
     ]);
@@ -273,8 +296,169 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
       `mcp__${name}__bare`,
       `mcp__${name}__lookup`,
     ]);
-    expect(tools.find((tool) => tool.name.endsWith('__lookup'))?.description).toBe(
-      'look something up',
+    const lookup = tools.find((tool) => tool.name.endsWith('__lookup'));
+    expect(lookup?.description).toBe('look something up');
+    expect(lookup?.outputSchema).toEqual({
+      type: 'object',
+      properties: { items: { type: 'array' } },
+    });
+    expect(tools.find((tool) => tool.name.endsWith('__bare'))?.outputSchema).toBeUndefined();
+  });
+
+  it('preserves outputSchema on generated tools', async () => {
+    const agentId = await newAgent();
+    const serverId = await newServer('generated', `oui-out-${agentId.slice(4)}`);
+    await addGeneratedTool(serverId, 'report', true, {
+      outputSchema: { type: 'object', properties: { total: { type: 'number' } } },
+    });
+    await bind(agentId, serverId);
+
+    const [tool] = await repo.openui.listOpenUiTools(db, agentId);
+    expect(tool?.outputSchema).toEqual({
+      type: 'object',
+      properties: { total: { type: 'number' } },
+    });
+  });
+});
+
+describe('listOpenUiToolsFromSnapshot', () => {
+  it('builds sorted http and generated tool rows from a version snapshot with mcp filtering', () => {
+    const now = new Date().toISOString();
+    const tools = repo.openui.listOpenUiToolsFromSnapshot(
+      {
+        allowedTools: [],
+        disallowedTools: ['mcp__srv-b__hidden'],
+      },
+      [
+        {
+          id: 'srv_2',
+          name: 'srv-b',
+          kind: 'generated',
+          config: { baseUrl: 'https://api.example.com' },
+          updatedAt: now,
+          tools: [
+            {
+              id: 'tool_z',
+              serverId: 'srv_2',
+              name: 'zebra',
+              description: 'z',
+              method: 'POST',
+              pathTemplate: '/z',
+              inputSchema: { type: 'object', properties: {} },
+              outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+              paramsIn: 'body',
+              approvalMode: 'ask',
+              enabled: true,
+              createdAt: now,
+            },
+            {
+              id: 'tool_a',
+              serverId: 'srv_2',
+              name: 'alpha',
+              description: 'a',
+              method: 'GET',
+              pathTemplate: '/a',
+              inputSchema: { type: 'object', properties: {} },
+              paramsIn: 'query',
+              approvalMode: 'allow',
+              enabled: true,
+              createdAt: now,
+            },
+            {
+              id: 'tool_h',
+              serverId: 'srv_2',
+              name: 'hidden',
+              description: 'h',
+              method: 'GET',
+              pathTemplate: '/h',
+              inputSchema: { type: 'object', properties: {} },
+              paramsIn: 'query',
+              approvalMode: 'allow',
+              enabled: true,
+              createdAt: now,
+            },
+            {
+              id: 'tool_d',
+              serverId: 'srv_2',
+              name: 'disabled',
+              description: 'd',
+              method: 'GET',
+              pathTemplate: '/d',
+              inputSchema: { type: 'object', properties: {} },
+              paramsIn: 'query',
+              approvalMode: 'allow',
+              enabled: false,
+              createdAt: now,
+            },
+          ],
+        },
+        {
+          id: 'srv_1',
+          name: 'srv-a',
+          kind: 'http',
+          config: {
+            url: 'https://mcp.example.com',
+            toolCatalog: [
+              {
+                name: 'query',
+                description: 'run query',
+                inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
+                outputSchema: { type: 'object', properties: { rows: { type: 'array' } } },
+              },
+            ],
+          },
+          updatedAt: now,
+        },
+        {
+          id: 'srv_3',
+          name: 'srv-c',
+          kind: 'stdio',
+          config: { command: 'echo', args: [] },
+          updatedAt: now,
+        },
+      ],
     );
+
+    expect(tools).toEqual([
+      {
+        serverId: 'srv_1',
+        serverName: 'srv-a',
+        kind: 'http',
+        name: 'mcp__srv-a__query',
+        description: 'run query',
+        inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
+        outputSchema: { type: 'object', properties: { rows: { type: 'array' } } },
+        approvalMode: 'allow',
+      },
+      {
+        serverId: 'srv_2',
+        serverName: 'srv-b',
+        kind: 'generated',
+        name: 'mcp__srv-b__alpha',
+        description: 'a',
+        inputSchema: { type: 'object', properties: {} },
+        approvalMode: 'allow',
+        toolId: 'tool_a',
+        method: 'GET',
+        pathTemplate: '/a',
+        paramsIn: 'query',
+        baseUrl: 'https://api.example.com',
+      },
+      {
+        serverId: 'srv_2',
+        serverName: 'srv-b',
+        kind: 'generated',
+        name: 'mcp__srv-b__zebra',
+        description: 'z',
+        inputSchema: { type: 'object', properties: {} },
+        outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+        approvalMode: 'ask',
+        toolId: 'tool_z',
+        method: 'POST',
+        pathTemplate: '/z',
+        paramsIn: 'body',
+        baseUrl: 'https://api.example.com',
+      },
+    ]);
   });
 });

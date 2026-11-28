@@ -38,21 +38,73 @@ export function openUiActionContent(
     },
   ];
 }
-function userControlledStrings(value: unknown): string[] {
+type OpenUiActionPart = z.infer<typeof openUiActionContentSchema>[1];
+
+function stringLeaves(value: unknown): string[] {
   if (typeof value === 'string') return [value];
-  if (Array.isArray(value)) return value.flatMap(userControlledStrings);
+  if (Array.isArray(value)) return value.flatMap(stringLeaves);
   return value !== null && typeof value === 'object'
-    ? Object.entries(value).flatMap(([key, child]) => [key, ...userControlledStrings(child)])
+    ? Object.values(value).flatMap(stringLeaves)
     : [];
 }
 
-export function openUiActionPolicyTexts(
-  action: Pick<
-    z.infer<typeof openUiActionContentSchema>[1],
-    'params' | 'context' | 'formState' | 'formName'
-  >,
-): string[] {
-  return userControlledStrings([action.params, action.context, action.formState, action.formName]);
+function objectKeys(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(objectKeys);
+  return value !== null && typeof value === 'object'
+    ? Object.entries(value).flatMap(([key, child]) => [key, ...objectKeys(child)])
+    : [];
+}
+
+function applyStringLeaves(value: unknown, next: () => string): unknown {
+  if (typeof value === 'string') return next();
+  if (Array.isArray(value)) return value.map((item) => applyStringLeaves(item, next));
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, applyStringLeaves(child, next)]),
+    );
+  }
+  return value;
+}
+
+export function openUiActionPolicyInputs(action: OpenUiActionPart): {
+  values: string[];
+  keys: string[];
+  apply: (redactedValues: readonly string[]) => OpenUiActionPart;
+} {
+  const values = [
+    ...stringLeaves(action.params),
+    ...stringLeaves(action.context),
+    ...stringLeaves(action.formState),
+    ...stringLeaves(action.formName),
+  ];
+  const keys = [
+    ...objectKeys(action.params),
+    ...objectKeys(action.context),
+    ...objectKeys(action.formState),
+  ];
+  return {
+    values,
+    keys,
+    apply(redactedValues) {
+      let cursor = 0;
+      const next = () => redactedValues[cursor++] ?? '';
+      return {
+        ...action,
+        ...(action.params === undefined
+          ? {}
+          : { params: applyStringLeaves(action.params, next) as Record<string, unknown> }),
+        ...(action.context === undefined
+          ? {}
+          : { context: applyStringLeaves(action.context, next) }),
+        ...(action.formState === undefined
+          ? {}
+          : { formState: applyStringLeaves(action.formState, next) as Record<string, unknown> }),
+        ...(action.formName === undefined
+          ? {}
+          : { formName: applyStringLeaves(action.formName, next) as string }),
+      };
+    },
+  };
 }
 
 export function sourcePairingProblem(action: OpenUiActionRequest): string | null {

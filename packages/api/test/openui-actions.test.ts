@@ -25,6 +25,7 @@ describe.skipIf(!ready)('openui actions', () => {
   const agentSlugs: string[] = [];
   const runIds: string[] = [];
   const conversationIds: string[] = [];
+  const policyIds: string[] = [];
 
   beforeAll(async () => {
     app = await startApp();
@@ -37,6 +38,13 @@ describe.skipIf(!ready)('openui actions', () => {
         .getJob(runId)
         .then((job) => job?.remove())
         .catch(() => undefined);
+    }
+    for (const policyId of policyIds) {
+      await request(app, {
+        method: 'DELETE',
+        url: `/api/security/policies/${policyId}`,
+        headers: auth(),
+      });
     }
     if (conversationIds.length > 0) {
       await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
@@ -539,5 +547,59 @@ describe.skipIf(!ready)('openui actions', () => {
     runIds.push(body.runId);
     const rows = await userMessages(body.conversationId);
     expect(rows[0]?.content).toEqual({ type: 'text', text: 'plain hello' });
+  });
+
+  it('redacts string leaf values inside openuiAction formState and params symmetrically', async () => {
+    const agent = await newAgent();
+    const source = await sourceMessage(agent.id);
+    const secret = `SECRET-${unique('redact')}`;
+    const policyRes = await request(app, {
+      method: 'POST',
+      url: '/api/security/policies',
+      headers: auth(),
+      payload: {
+        name: unique('oui-redact'),
+        direction: 'inbound',
+        action: 'redact',
+        matchType: 'keyword',
+        pattern: secret,
+        agentId: agent.id,
+      },
+    });
+    expect(policyRes.statusCode, policyRes.body).toBe(201);
+    policyIds.push(policyRes.json<{ id: string }>().id);
+
+    const res = await request(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: {
+        agentId: agent.id,
+        conversationId: source.conversationId,
+        message: 'submit form',
+        openuiAction: {
+          type: 'continue_conversation',
+          message: 'submit form',
+          params: { note: `token ${secret}` },
+          formState: { nested: { apiKey: secret, count: 2 } },
+          messageId: source.messageId,
+          blockKey: 's0',
+        },
+      },
+    });
+    expect(res.statusCode, res.body).toBe(202);
+    runIds.push(res.json<{ runId: string }>().runId);
+
+    const rows = await userMessages(source.conversationId);
+    expect(rows[0]?.content).toEqual([
+      { type: 'text', text: 'submit form' },
+      {
+        type: 'openui_action',
+        params: { note: 'token [REDACTED]' },
+        formState: { nested: { apiKey: '[REDACTED]', count: 2 } },
+        messageId: source.messageId,
+        blockKey: 's0',
+      },
+    ]);
   });
 });

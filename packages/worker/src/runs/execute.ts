@@ -741,6 +741,14 @@ export async function runAgentJob(
         workflows,
         hooks: effectiveAgent.hooksEnabled ? effectiveAgent.hooksConfig : null,
         hookFiles,
+        ...(effectiveAgent.uiFormat === 'openui' && definition !== null
+          ? {
+              openuiTools: repo.openui.listOpenUiToolsFromSnapshot(
+                effectiveAgent,
+                definition.resources.servers,
+              ),
+            }
+          : {}),
         plugins: runPlugins,
         memoryPolicy: runMemoryPolicy,
       });
@@ -985,6 +993,7 @@ export async function runAgentJob(
           ...(replacesRunId === undefined ? {} : { replacesRunId }),
           uiFormat: runUiFormat,
           projectChannelReply: !willRetry,
+          logger: runLog,
           ...(run.channelId !== null && modelExecuted ? { modelExecuted: true } : {}),
         });
         messagesWritten = persisted.written;

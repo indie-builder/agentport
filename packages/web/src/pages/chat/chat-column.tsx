@@ -19,6 +19,7 @@ import {
   useConversationOutputs,
   type useRunApprovals,
 } from '../../lib/queries.js';
+import { toast } from '../../lib/toast.js';
 import type { useChatStream } from '../../lib/use-chat-stream.js';
 import type {
   OpenUiApprovalInput,
@@ -108,7 +109,13 @@ export function ChatColumn({
 }) {
   const sendRef = useRef(send);
   sendRef.current = send;
+  const phaseKindRef = useRef(phase.kind);
+  phaseKindRef.current = phase.kind;
   const openUiAction = useCallback((action: OpenUiAction) => {
+    if (phaseKindRef.current !== 'idle') {
+      toast.info('当前回复正在生成，请完成后再操作');
+      return;
+    }
     void sendRef.current(action.message, action);
   }, []);
   const openUiToolCall = useCallback(

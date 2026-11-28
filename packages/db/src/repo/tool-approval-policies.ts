@@ -56,6 +56,34 @@ export async function listEnabledForTool(db: DbHandle, input: ToolLookup) {
     .orderBy(asc(toolApprovalPolicies.id));
 }
 
+export async function listEnabledForServer(
+  db: DbHandle,
+  input: { serverId: string; agentId: string | null },
+) {
+  return db
+    .select()
+    .from(toolApprovalPolicies)
+    .where(
+      and(
+        eq(toolApprovalPolicies.enabled, true),
+        or(
+          isNull(toolApprovalPolicies.serverId),
+          eq(toolApprovalPolicies.serverId, input.serverId),
+        ),
+        input.agentId === null
+          ? isNull(toolApprovalPolicies.agentId)
+          : or(
+              isNull(toolApprovalPolicies.agentId),
+              eq(toolApprovalPolicies.agentId, input.agentId),
+            ),
+        isNull(toolApprovalPolicies.toolId),
+        isNull(toolApprovalPolicies.httpMethod),
+        isNull(toolApprovalPolicies.pathTemplate),
+      ),
+    )
+    .orderBy(asc(toolApprovalPolicies.id));
+}
+
 export async function create(db: Database, input: ToolApprovalPolicyCreate, actor: string) {
   const [row] = await db
     .insert(toolApprovalPolicies)

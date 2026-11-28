@@ -1,15 +1,19 @@
 import { isSafeOpenUrl, type OpenUiAction, type OpenUiToolResult } from '@agentport/shared';
 import {
+  createParser,
+  type McpClientLike,
+  mergeStatements,
   type OpenUIError,
   type ParseResult,
   Renderer,
+  ToolNotFoundError,
   useRendererQuery,
 } from '@openuidev/react-lang';
 import { CircleAlert, CircleCheck, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
-import { errorMessage } from '../lib/api.js';
+import { ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { library as openUiLibrary } from './library.js';
 
@@ -35,6 +39,7 @@ export interface OpenUiApprovalInput {
 
 interface OpenUiBlockProps {
   program: string;
+  previousProgram?: string;
   streaming?: boolean;
   initialState?: Record<string, unknown>;
   onAction?: (action: OpenUiAction) => void;
@@ -56,10 +61,13 @@ interface Source {
 interface PendingSave {
   state: Record<string, unknown>;
   source: Source;
+  failed?: true;
 }
 
 /** 审批未完成时库会把同一次调用记成 Mutation 失败；这类文案不当作真实失败。 */
 const APPROVAL_REQUIRED = '需要批准：';
+const HAS_ROOT = /^\s*root\s*=/m;
+const previewParser = createParser(openUiLibrary.toJSONSchema(), openUiLibrary.root);
 
 function belongsTo(pending: Source, current: Source): boolean {
   return (
@@ -71,6 +79,7 @@ function belongsTo(pending: Source, current: Source): boolean {
 
 export function OpenUiBlock({
   program,
+  previousProgram,
   streaming = false,
   initialState,
   onAction,
@@ -121,12 +130,12 @@ export function OpenUiBlock({
         });
         if (mounted.current) setSaveError(null);
       } catch (error) {
-        if (pendingState.current === null) pendingState.current = { state, source: target };
+        if (pendingState.current === null)
+          pendingState.current = { state, source: target, failed: true };
         if (mounted.current) setSaveError({ error, state });
       } finally {
         inFlight.current = null;
-        if (pendingState.current !== null && pendingState.current.state !== state)
-          void flushRef.current();
+        if (pendingState.current !== null && !pendingState.current.failed) void flushRef.current();
       }
     })();
     inFlight.current = saving;
@@ -157,13 +166,33 @@ export function OpenUiBlock({
       return inFlight.current ?? Promise.resolve();
     }
     if (inFlight.current !== null) {
-      pendingState.current = { state: pending.state, source: target };
+      pendingState.current = {
+        state: pending.state,
+        source: target,
+        ...(pending.failed ? { failed: true } : {}),
+      };
       return inFlight.current;
     }
     pendingState.current = null;
     return sendState(pending.state, target);
   }, [sendState]);
   flushRef.current = flush;
+
+  const drainFlush = useCallback(async (): Promise<void> => {
+    if (pendingState.current !== null && !pendingState.current.failed) {
+      void flush();
+    }
+    while (true) {
+      if (inFlight.current !== null) {
+        await inFlight.current;
+        continue;
+      }
+      if (pendingState.current === null || pendingState.current.failed) return;
+      const next = flush();
+      if (inFlight.current === null) return;
+      await next;
+    }
+  }, [flush]);
 
   useEffect(() => {
     mounted.current = true;
@@ -188,21 +217,31 @@ export function OpenUiBlock({
     timer.current = setTimeout(() => void flush(), 400);
   };
 
-  const runTool = useCallback(
-    async (toolName: string, args: Record<string, unknown>): Promise<unknown> => {
+  const callTool = useCallback(
+    async (params: { name: string; arguments?: Record<string, unknown> }) => {
       const { conversationId: conversation, messageId: message, blockKey: key } = source.current;
       const handler = toolCallRef.current;
       if (!conversation || !message || key === undefined || !handler) {
         throw new Error('这一轮界面还没保存，暂时无法查询数据；请等本轮结束后重试');
       }
-      const result = await handler({
-        conversationId: conversation,
-        messageId: message,
-        blockKey: key,
-        toolName,
-        args,
-      });
-      if (result.status === 'ok') return result.data;
+      let result: OpenUiToolResult;
+      try {
+        result = await handler({
+          conversationId: conversation,
+          messageId: message,
+          blockKey: key,
+          toolName: params.name,
+          args: params.arguments ?? {},
+        });
+      } catch (error) {
+        if (error instanceof ApiError && error.code === 'NOT_FOUND') {
+          throw new ToolNotFoundError(params.name);
+        }
+        throw error;
+      }
+      if (result.status === 'ok') {
+        return { content: [], structuredContent: result.data };
+      }
       if (result.status === 'approval_required') {
         setApproved((previous) => {
           if (!previous.has(result.approvalId)) return previous;
@@ -213,24 +252,39 @@ export function OpenUiBlock({
         setApprovals((previous) =>
           previous.some((item) => item.approvalId === result.approvalId)
             ? previous
-            : [...previous, { approvalId: result.approvalId, toolName }],
+            : [...previous, { approvalId: result.approvalId, toolName: params.name }],
         );
-        throw new Error(`${APPROVAL_REQUIRED}${toolName}`);
+        throw new Error(`${APPROVAL_REQUIRED}${params.name}`);
       }
-      throw new Error(result.error);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: result.error }],
+      };
     },
     [],
   );
 
-  const toolProvider = useMemo(() => {
+  const toolProvider = useMemo<McpClientLike | null>(() => {
     if (!onToolCall || !conversationId || !messageId || blockKey === undefined) return null;
-    return {
-      callTool: async (params: { name: string; arguments?: Record<string, unknown> }) => ({
-        content: [],
-        structuredContent: await runTool(params.name, params.arguments ?? {}),
-      }),
-    };
-  }, [onToolCall, conversationId, messageId, blockKey, runTool]);
+    return { callTool };
+  }, [onToolCall, conversationId, messageId, blockKey, callTool]);
+
+  const effectiveProgram = useMemo(() => {
+    const trimmed = program.trim();
+    if (!streaming || !previousProgram || trimmed === '') return program;
+    try {
+      const needsMerge =
+        !HAS_ROOT.test(program) ||
+        (() => {
+          const parsed = previewParser.parse(trimmed);
+          return parsed.root === null || parsed.meta.unresolved.length > 0;
+        })();
+      if (!needsMerge) return program;
+      return mergeStatements(previousProgram.trim(), trimmed, 'root');
+    } catch {
+      return program;
+    }
+  }, [program, streaming, previousProgram]);
 
   const settled = !streaming;
   const [diagnostics, setDiagnostics] = useState<OpenUIError[]>([]);
@@ -250,6 +304,7 @@ export function OpenUiBlock({
     setDiagnostics(
       errors.filter(
         (error) =>
+          error.severity !== 'warning' &&
           error.source !== 'query' &&
           !(error.source === 'mutation' && error.message.includes(APPROVAL_REQUIRED)),
       ),
@@ -273,8 +328,7 @@ export function OpenUiBlock({
     }
     if (event.type !== 'continue_conversation') return;
     if (!event.humanFriendlyMessage) return;
-    void flush();
-    actionRef.current?.({
+    const payload: OpenUiAction = {
       type: 'continue_conversation',
       params,
       message: event.humanFriendlyMessage,
@@ -283,15 +337,26 @@ export function OpenUiBlock({
       ...(event.formName === undefined ? {} : { formName: event.formName }),
       ...(messageId === undefined ? {} : { messageId }),
       ...(blockKey === undefined ? {} : { blockKey }),
+    };
+    if (
+      (pendingState.current === null || pendingState.current.failed) &&
+      inFlight.current === null
+    ) {
+      actionRef.current?.(payload);
+      return;
+    }
+    void drainFlush().finally(() => {
+      actionRef.current?.(payload);
     });
   };
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <Renderer.Root
-        response={program}
+        response={effectiveProgram}
         library={openUiLibrary}
         isStreaming={streaming}
+        publishObservability={false}
         {...(initialState ? { initialState } : {})}
         {...(toolProvider ? { toolProvider } : {})}
         onStateUpdate={handleState}
@@ -328,7 +393,9 @@ export function OpenUiBlock({
           error={saveError.error}
           title="界面状态没有保存"
           onRetry={() => {
-            pendingState.current ??= { state: saveError.state, source: { ...source.current } };
+            if (pendingState.current === null || pendingState.current.failed) {
+              pendingState.current = { state: saveError.state, source: { ...source.current } };
+            }
             void flush();
           }}
         />

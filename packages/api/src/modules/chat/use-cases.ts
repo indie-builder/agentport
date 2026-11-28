@@ -42,7 +42,7 @@ import {
   OPENUI_ACTION_MAX_BYTES,
   openUiActionContent,
   openUiActionContentSchema,
-  openUiActionPolicyTexts,
+  openUiActionPolicyInputs,
   sourcePairingProblem,
 } from './openui-actions.js';
 import { checkOutputSelection } from './outputs.js';
@@ -292,29 +292,34 @@ export async function startRun(
     attachment,
     text: isTextAttachment(attachment.mimeType) ? attachment.data.toString('utf8') : '',
   }));
+  const actionPolicy =
+    originalParts === undefined ? undefined : openUiActionPolicyInputs(originalParts[1]);
+  const actionValueCount = actionPolicy?.values.length ?? 0;
   const policyDecision = await enforceContentPolicy({
     db: deps.db,
     log: deps.log,
     requestId: deps.requestId,
     actor: principal.businessId,
     anthropicBaseUrl: deps.config.ANTHROPIC_BASE_URL,
-    texts: [message ?? '', openuiAction?.message ?? '', ...uploads.map(({ text }) => text)],
+    texts: [
+      message ?? '',
+      openuiAction?.message ?? '',
+      ...(actionPolicy?.values ?? []),
+      ...uploads.map(({ text }) => text),
+    ],
     extraTexts: [
       ...uploads.map(({ attachment }) => attachment.filename),
-      ...(openuiAction === undefined || originalParts === undefined
-        ? []
-        : new Set([
-            ...openUiActionPolicyTexts(openuiAction),
-            ...openUiActionPolicyTexts(originalParts[1]),
-          ])),
+      ...(actionPolicy === undefined ? [] : new Set(actionPolicy.keys)),
     ],
-    payload: ([text, actionText, ...attachmentTexts]) => {
+    payload: ([text, actionText, ...rest]) => {
+      const redactedActionValues = rest.slice(0, actionValueCount);
+      const attachmentTexts = rest.slice(actionValueCount);
       const parts =
         originalParts === undefined
           ? undefined
           : ([
               { ...originalParts[0], text: actionText ?? originalParts[0].text },
-              originalParts[1],
+              actionPolicy ? actionPolicy.apply(redactedActionValues) : originalParts[1],
             ] satisfies ReturnType<typeof openUiActionContent>);
       const finalAttachments = uploads.map(({ attachment, text: original }, index) => {
         const redacted = attachmentTexts[index];
@@ -532,6 +537,8 @@ export async function regenerateLastRun(
         return data.toString('utf8');
       }),
   );
+  const actionPolicy =
+    originalParts === undefined ? undefined : openUiActionPolicyInputs(originalParts[1]);
   const policyDecision = await enforceContentPolicy({
     db: deps.db,
     log: deps.log,
@@ -541,29 +548,35 @@ export async function regenerateLastRun(
     agentId,
     conversationId,
     origin: 'regenerate',
-    texts: [originalText],
+    texts: [originalText, ...(actionPolicy?.values ?? [])],
     extraTexts: [
       ...attachmentTexts,
       ...attachments.map(({ filename }) => filename),
-      ...(originalParts === undefined ? [] : openUiActionPolicyTexts(originalParts[1])),
+      ...(actionPolicy === undefined ? [] : new Set(actionPolicy.keys)),
     ],
-    payload: ([text]) => ({
-      data: {
-        message: text,
-        openuiAction:
-          originalParts === undefined
-            ? undefined
-            : [{ ...originalParts[0], text }, originalParts[1]],
-      },
-      binding: {
-        conversationId,
-        messageId: last.id,
-        message: text,
-        storedTextHash: sha256Hex(originalText),
-        openuiAction: originalParts,
-        attachments: attachments.map(({ filename, sha256 }) => ({ filename, sha256 })),
-      },
-    }),
+    payload: ([text, ...redactedActionValues]) => {
+      const parts =
+        originalParts === undefined
+          ? undefined
+          : ([
+              { ...originalParts[0], text },
+              actionPolicy ? actionPolicy.apply(redactedActionValues) : originalParts[1],
+            ] satisfies ReturnType<typeof openUiActionContent>);
+      return {
+        data: {
+          message: text,
+          openuiAction: parts,
+        },
+        binding: {
+          conversationId,
+          messageId: last.id,
+          message: text,
+          storedTextHash: sha256Hex(originalText),
+          openuiAction: parts,
+          attachments: attachments.map(({ filename, sha256 }) => ({ filename, sha256 })),
+        },
+      };
+    },
     sourceKind: 'run_prompt',
     sourceId: last.id,
   });

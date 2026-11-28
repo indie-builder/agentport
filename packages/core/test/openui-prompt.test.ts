@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { createParser } from '@openuidev/lang-core';
+import spec from '../src/generated/openui.spec.json' with { type: 'json' };
 import { openuiSystemPrompt } from '../src/openui-prompt.js';
 import { renderWorkspace } from '../src/workspace.js';
 import { toWorkspaceInput, type WorkspaceAgentRow } from '../src/workspace-input.js';
@@ -84,6 +86,57 @@ describe('openuiSystemPrompt', () => {
     expect(prompt).toContain('mcp__billing__get-invoice');
     expect(prompt).toContain('Query(');
     expect(prompt).toContain('Mutation(');
+  });
+
+  it('uses an inline-mode preamble without the conflicting code-only instruction', () => {
+    const prompt = openuiSystemPrompt();
+    expect(prompt).not.toContain('Your ENTIRE response must be valid openui-lang code');
+    expect(prompt).toContain('```openui-lang');
+    expect(prompt).toContain('root = Card(...)');
+  });
+
+  it('includes a valid Query/Mutation/@Run/$binding tool example when tools are present', () => {
+    const withoutTools = openuiSystemPrompt();
+    expect(withoutTools).not.toContain('Example 6 — Live data with Query');
+
+    const withTools = openuiSystemPrompt([tool]);
+    const marker = 'Example 6 — Live data with Query, filter binding, and Mutation refresh:\n\n';
+    const start = withTools.indexOf(marker);
+    expect(start).toBeGreaterThan(-1);
+    const bodyStart = start + marker.length;
+    const bodyEnd = withTools.indexOf('\n\n', bodyStart);
+    const program = withTools.slice(bodyStart, bodyEnd === -1 ? undefined : bodyEnd);
+
+    expect(program).toContain('Query(');
+    expect(program).toContain('Mutation(');
+    expect(program).toContain('@Run(');
+    expect(program).toContain('$status');
+
+    const parser = createParser(spec.schema, spec.root);
+    const parsed = parser.parse(program);
+    expect(parsed.root).not.toBeNull();
+    expect(parsed.meta.incomplete).toBe(false);
+    expect(parsed.meta.unresolved).toEqual([]);
+    expect(parsed.meta.errors).toEqual([]);
+  });
+
+  it('renders concrete outputSchema fields when provided instead of generic object', () => {
+    const prompt = openuiSystemPrompt([
+      {
+        ...tool,
+        outputSchema: {
+          type: 'object',
+          properties: {
+            invoiceId: { type: 'string' },
+            amountCents: { type: 'number' },
+          },
+          required: ['invoiceId', 'amountCents'],
+        },
+      },
+    ]);
+    expect(prompt).toContain('invoiceId');
+    expect(prompt).toContain('amountCents');
+    expect(prompt).not.toContain('- mcp__billing__get-invoice(id?: number) → object');
   });
 
   it('caches per catalog: a different catalog yields a different prompt', () => {

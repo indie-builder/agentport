@@ -40,6 +40,7 @@ export function limitToolCatalog(
     title?: string | undefined;
     description?: string | undefined;
     inputSchema?: Record<string, unknown> | undefined;
+    outputSchema?: Record<string, unknown> | undefined;
   }>,
 ): McpToolSummary[] {
   const catalog = tools.map((tool) => ({
@@ -47,6 +48,7 @@ export function limitToolCatalog(
     ...(tool.title !== undefined ? { title: tool.title } : {}),
     ...(tool.description !== undefined ? { description: tool.description } : {}),
     ...(tool.inputSchema !== undefined ? { inputSchema: tool.inputSchema } : {}),
+    ...(tool.outputSchema !== undefined ? { outputSchema: tool.outputSchema } : {}),
   }));
   if (catalog.length > MAX_TOOLS) {
     throw new Error(`工具目录过大（${catalog.length} 个工具，上限 ${MAX_TOOLS}），已拒绝返回`);

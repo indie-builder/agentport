@@ -43,6 +43,7 @@ export const openUiStateEnvelopeSchema = z.object({
 });
 
 export const OPENUI_STATE_MAX_BYTES = 64 * 1024;
+export const OPENUI_STATE_TOTAL_MAX_BYTES = 256 * 1024;
 
 export interface OpenUiPromptOptions {
   examples: readonly string[];
