@@ -15,6 +15,7 @@
       "!**/.claude",
       "!**/dist",
       "!**/routeTree.gen.ts",
+      "!**/cn-tables.ts",
       "!**/migrations/meta",
       "!docs/**/*.json",
       "!packages/core/src/generated"
