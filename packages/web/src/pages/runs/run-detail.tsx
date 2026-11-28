@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Download,
   EllipsisVertical,
+  FileText,
   ListTree,
   LoaderCircle,
   RotateCcw,
@@ -16,8 +17,9 @@ import { useRef, useState } from 'react';
 import { BackLink } from '../../components/back-link.js';
 import { CopyButton } from '../../components/copy-button.js';
 import { CursorListFooter } from '../../components/cursor-list-footer.js';
+import { InspectorSheet } from '../../components/inspector-sheet.js';
 import { Metric } from '../../components/metric-label.js';
-import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
+import { Page, PageBody, PageHeader, PageTopbar } from '../../components/page.js';
 import { EvalFromRunDialog } from '../../components/run/eval-from-run-dialog.js';
 import { RunFeedbackPanel } from '../../components/run/run-feedback.js';
 import { RunQuestionCard } from '../../components/run/run-question.js';
@@ -38,12 +40,15 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
 import { Listbox, ListboxItem } from '../../components/ui/listbox.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
+import { SegmentedToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { type ApprovalRequest, api } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
 import { questionFromContent } from '../../lib/chat-state.js';
 import { cn } from '../../lib/cn.js';
 import {
+  formatBytes,
   formatCost,
   formatDateTime,
   formatDuration,
@@ -68,6 +73,15 @@ import {
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 
+type StepFilter = 'all' | 'tool' | 'message';
+type DetailTab = 'trace' | 'delivery';
+
+const STEP_FILTERS: ReadonlyArray<{ value: StepFilter; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'tool', label: '工具' },
+  { value: 'message', label: '消息' },
+];
+
 function elapsed(at: string, start: string | null): number {
   const base = new Date(start ?? at).getTime();
   const time = new Date(at).getTime();
@@ -90,7 +104,10 @@ export function RunDetailPage() {
   const canFeedback = can(me.data, 'runs.feedback');
   const [exporting, setExporting] = useState(false);
   const [evalOpen, setEvalOpen] = useState(false);
-  const navigate = useNavigate();
+  const [contextOpen, setContextOpen] = useState(false);
+  const [stepFilter, setStepFilter] = useState<StepFilter>('all');
+  const contextTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const navigate = useNavigate({ from: '/runs/$runId' });
   const status = run.data?.run.status;
   const approvals = useRunApprovals(params.runId, !status || isActiveRunStatus(status));
   const questions = useRunQuestions(params.runId, !status || isActiveRunStatus(status));
@@ -109,12 +126,22 @@ export function RunDetailPage() {
   const approvalInFlight = useRef(false);
   const backTo = search.backTo ?? '/runs';
   const selected = search.step ?? null;
+  const activeTab: DetailTab = search.tab ?? 'trace';
 
   const selectStep = (index: number): void => {
     void navigate({
       to: '/runs/$runId',
       params: { runId: params.runId },
       search: (prev) => ({ ...prev, step: index }),
+      replace: true,
+    });
+  };
+
+  const selectTab = (next: DetailTab): void => {
+    void navigate({
+      to: '/runs/$runId',
+      params: { runId: params.runId },
+      search: (prev) => ({ ...prev, tab: next }),
       replace: true,
     });
   };
@@ -245,6 +272,9 @@ export function RunDetailPage() {
                 {rerunMutation.isPending ? '提交中…' : '重跑'}
               </Button>
             ) : null}
+            <Button variant="outline" ref={contextTriggerRef} onClick={() => setContextOpen(true)}>
+              运行信息
+            </Button>
             {(terminal && hasPrompt && canSaveAsSkill) ||
             (terminal && hasPrompt && canEval) ||
             canExport ? (
@@ -344,206 +374,273 @@ export function RunDetailPage() {
   const denied = approvalItems.filter((item) => item.deniedAt !== null);
   const activeIndex = selected !== null && selected < steps.length ? selected : steps.length - 1;
   const activeStep = steps[activeIndex];
+  const activeStepKey = activeStep
+    ? `${activeIndex}:${activeStep.at}:${activeStep.kind === 'tool' ? (activeStep.toolUseId ?? activeStep.name ?? '') : activeStep.kind}`
+    : 'empty';
   const userPrompt = steps.find((step) => step.kind === 'user')?.text ?? '';
   const lastAssistantMessageId =
     steps.flatMap((step) => (step.kind === 'assistant' ? [step.messageId ?? null] : [])).at(-1) ??
     null;
   const runFiles = (outputs.data?.items ?? []).filter((file) => file.runId === detail.id);
 
+  const seenSteps = new Map<string, number>();
+  const stepEntries = steps.map((step, index) => {
+    const base = `${step.kind}:${step.at}:${step.kind === 'tool' ? (step.toolUseId ?? step.name ?? '') : ''}`;
+    const count = (seenSteps.get(base) ?? 0) + 1;
+    seenSteps.set(base, count);
+    return { step, index, key: `${base}:${count}` };
+  });
+  const filteredSteps = stepEntries.filter(({ step }) => {
+    if (stepFilter === 'all') return true;
+    if (stepFilter === 'tool') return step.kind === 'tool';
+    return step.kind === 'user' || step.kind === 'assistant';
+  });
+
+  const hasAlerts =
+    run.isError ||
+    (failed && Boolean(detail.error)) ||
+    approvals.isError ||
+    questions.isError ||
+    pending.length > 0 ||
+    denied.length > 0 ||
+    orphanQuestions.length > 0;
+
   return (
     <Page>
-      <PageTopbar>{header}</PageTopbar>
-      <PageBody>
-        {run.isError ? (
-          <ErrorState
-            error={run.error}
-            title="刷新失败，内容仍是上次结果"
-            onRetry={() => void run.refetch()}
-          />
-        ) : null}
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-2 text-xs">
-          <Link
-            to="/chat"
-            search={{ agent: conversation.agentId, conversation: conversation.id }}
-            className="min-w-0 text-muted-foreground underline underline-offset-2 [overflow-wrap:anywhere] hover:text-fg"
-          >
-            {conversation.title || '返回会话'}
-          </Link>
-          <Metric
-            label="运行耗时"
-            value={formatDuration(detail.latencyMs)}
-            danger={detail.status === 'timeout'}
-          />
-          <Metric label="轮次" value={detail.turns ?? '—'} />
-          <Metric label="成本" value={formatCost(detail.costUsd)} />
-          <Metric
-            label="Tokens 输入 / 输出"
-            value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
-          />
-        </div>
-
-        {failed && detail.error ? (
-          <div
-            role="alert"
-            className="flex items-start gap-3 border-y border-line bg-danger-soft px-4 py-3"
-          >
-            <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-fg">运行{runStatusLabel[detail.status]}</div>
-              <pre className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere] font-mono text-xs leading-5 text-muted-foreground">
-                {detail.error}
-              </pre>
-            </div>
-            <CopyButton value={detail.error} label="复制错误" />
+      <Tabs<DetailTab> value={activeTab} onValueChange={selectTab} className="min-h-0 flex-1 gap-4">
+        <PageTopbar>
+          {header}
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-2 text-xs">
+            <Link
+              to="/chat"
+              search={{ agent: conversation.agentId, conversation: conversation.id }}
+              className="min-w-0 text-muted-foreground underline underline-offset-2 [overflow-wrap:anywhere] hover:text-fg"
+            >
+              {conversation.title || '返回会话'}
+            </Link>
+            <Metric
+              label="运行耗时"
+              value={formatDuration(detail.latencyMs)}
+              danger={detail.status === 'timeout'}
+            />
+            <Metric label="轮次" value={detail.turns ?? '—'} />
+            <Metric label="成本" value={formatCost(detail.costUsd)} />
+            <Metric
+              label="Tokens 输入 / 输出"
+              value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
+            />
           </div>
-        ) : null}
+          <TabsList variant="line" aria-label="运行详情视图">
+            <TabsTrigger value="trace">
+              执行轨迹{' '}
+              <span className="text-xs tabular-nums text-muted-foreground">{steps.length}</span>
+            </TabsTrigger>
+            <TabsTrigger value="delivery">
+              交付与验收
+              {runFiles.length > 0 ? (
+                <>
+                  {' '}
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {runFiles.length}
+                  </span>
+                </>
+              ) : null}
+            </TabsTrigger>
+          </TabsList>
+        </PageTopbar>
 
-        {approvals.isError ? (
-          <ErrorState error={approvals.error} onRetry={() => void approvals.refetch()} />
-        ) : null}
+        <PageBody className="gap-4 max-xl:overflow-y-auto xl:overflow-hidden xl:[&>*]:shrink">
+          {hasAlerts ? (
+            <div className="flex min-w-0 shrink-0 flex-col gap-3">
+              {run.isError ? (
+                <ErrorState
+                  error={run.error}
+                  title="刷新失败，内容仍是上次结果"
+                  onRetry={() => void run.refetch()}
+                />
+              ) : null}
 
-        {questions.isError ? (
-          <ErrorState
-            title="提问状态没有加载出来"
-            error={questions.error}
-            onRetry={() => void questions.refetch()}
-          />
-        ) : null}
-
-        {pending.length > 0 || denied.length > 0 ? (
-          <div
-            role={detail.status === 'running' && pending.length > 0 ? 'alert' : undefined}
-            className="flex flex-wrap items-center gap-3 border-y border-line bg-warning-soft px-4 py-2.5"
-          >
-            <CircleAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />
-            <span className="min-w-0 [overflow-wrap:anywhere] text-xs text-fg">
-              {pending.length > 0
-                ? detail.status === 'running'
-                  ? `有 ${pending.length} 个工具待审批；请查看各项是否仍在等待。`
-                  : '已结束运行的未批准请求不再生效，重新运行会重新请求批准。'
-                : `已拒绝 ${denied.length} 个工具调用。`}
-            </span>
-            <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-2">
-              {detail.status === 'running'
-                ? pending.map((item) => {
-                    const deciding = approveMutation.isPending || denyMutation.isPending;
-                    const approving =
-                      approveMutation.isPending &&
-                      approveMutation.variables?.approvalId === item.id;
-                    const denying =
-                      denyMutation.isPending && denyMutation.variables?.approvalId === item.id;
-                    return (
-                      <div
-                        key={item.id}
-                        className="flex min-w-0 max-w-full flex-wrap items-center gap-2"
-                      >
-                        <span className="min-w-0 [overflow-wrap:anywhere] text-2xs text-muted-foreground">
-                          {item.waiting
-                            ? `等待至 ${formatDateTime(item.expiresAt)}`
-                            : '审批已失效，请让智能体重新发起'}
-                        </span>
-                        {canApprove && item.waiting ? (
-                          <>
-                            <Button
-                              size="sm"
-                              className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
-                              disabled={deciding}
-                              aria-busy={approving}
-                              data-agent-confirm={`批准 ${item.serverName ?? item.serverId} / ${item.toolName} 的工具调用`}
-                              onClick={() => approve(item)}
-                            >
-                              <span className="min-w-0 [overflow-wrap:anywhere]">
-                                {approving
-                                  ? `批准中… ${item.serverName ?? item.serverId} / ${item.toolName}`
-                                  : `批准 ${item.serverName ?? item.serverId} / ${item.toolName}`}
-                              </span>
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
-                              disabled={deciding}
-                              aria-busy={denying}
-                              data-agent-confirm={`拒绝 ${item.serverName ?? item.serverId} / ${item.toolName} 的工具调用`}
-                              onClick={() => deny(item)}
-                            >
-                              <span className="min-w-0 [overflow-wrap:anywhere]">
-                                {denying
-                                  ? `拒绝中… ${item.serverName ?? item.serverId} / ${item.toolName}`
-                                  : `拒绝 ${item.serverName ?? item.serverId} / ${item.toolName}`}
-                              </span>
-                            </Button>
-                          </>
-                        ) : null}
-                      </div>
-                    );
-                  })
-                : null}
-              {denied.map((item) => (
-                <span
-                  key={item.id}
-                  className="min-w-0 self-center border-l border-line pl-2 [overflow-wrap:anywhere] text-2xs text-muted-foreground"
+              {failed && detail.error ? (
+                <div
+                  role="alert"
+                  className="flex items-start gap-3 rounded-item border border-line bg-danger-soft px-4 py-3"
                 >
-                  已拒绝 {item.serverName ?? item.serverId} / {item.toolName}
-                </span>
-              ))}
-            </div>
-          </div>
-        ) : null}
+                  <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-fg">
+                      运行{runStatusLabel[detail.status]}
+                    </div>
+                    <pre className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere] font-mono text-xs leading-5 text-muted-foreground">
+                      {detail.error}
+                    </pre>
+                  </div>
+                  <CopyButton value={detail.error} label="复制错误" />
+                </div>
+              ) : null}
 
-        {orphanQuestions.length > 0 ? (
-          <div className="flex flex-col gap-3">
-            {orphanQuestions.map((question) => (
-              <RunQuestionCard
-                key={question.requestId}
-                question={question}
-                live={cancellable && canAnswer}
-              />
-            ))}
-          </div>
-        ) : null}
+              {approvals.isError ? (
+                <ErrorState error={approvals.error} onRetry={() => void approvals.refetch()} />
+              ) : null}
 
-        <div className="grid min-w-0 gap-6 border-t pt-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-          <section className="flex min-w-0 flex-col gap-4" aria-label="步骤">
-            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
-              <h2 className="text-base font-medium text-fg">步骤</h2>
-              <span className="text-2xs text-muted-foreground">
-                {steps.length} 步 · 时间为运行后经过时间
-              </span>
+              {questions.isError ? (
+                <ErrorState
+                  title="提问状态没有加载出来"
+                  error={questions.error}
+                  onRetry={() => void questions.refetch()}
+                />
+              ) : null}
+
+              {pending.length > 0 || denied.length > 0 ? (
+                <div
+                  role={detail.status === 'running' && pending.length > 0 ? 'alert' : undefined}
+                  className="flex min-w-0 flex-col gap-2 rounded-item border border-line bg-warning-soft px-4 py-2.5"
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <CircleAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />
+                    <span className="min-w-0 [overflow-wrap:anywhere] text-xs text-fg">
+                      {pending.length > 0
+                        ? detail.status === 'running'
+                          ? `有 ${pending.length} 个工具待审批；请查看各项是否仍在等待。`
+                          : '已结束运行的未批准请求不再生效，重新运行会重新请求批准。'
+                        : `已拒绝 ${denied.length} 个工具调用。`}
+                    </span>
+                  </div>
+                  {detail.status === 'running' && pending.length > 0 ? (
+                    <div className="flex min-w-0 flex-col gap-2 border-t border-line pt-2">
+                      {pending.map((item) => {
+                        const target = `${item.serverName ?? item.serverId} / ${item.toolName}`;
+                        const deciding = approveMutation.isPending || denyMutation.isPending;
+                        const approving =
+                          approveMutation.isPending &&
+                          approveMutation.variables?.approvalId === item.id;
+                        const denying =
+                          denyMutation.isPending && denyMutation.variables?.approvalId === item.id;
+                        return (
+                          <div
+                            key={item.id}
+                            className="flex min-w-0 flex-wrap items-center justify-between gap-2"
+                          >
+                            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                              <span className="min-w-0 font-mono text-xs text-fg [overflow-wrap:anywhere]">
+                                {target}
+                              </span>
+                              <span className="text-2xs text-muted-foreground">
+                                {item.waiting
+                                  ? `等待至 ${formatDateTime(item.expiresAt)}`
+                                  : '审批已失效，请让智能体重新发起'}
+                              </span>
+                            </div>
+                            {canApprove && item.waiting ? (
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <Button
+                                  size="sm"
+                                  disabled={deciding}
+                                  aria-busy={approving}
+                                  aria-label={`批准 ${target}`}
+                                  data-agent-confirm={`批准 ${target} 的工具调用`}
+                                  onClick={() => approve(item)}
+                                >
+                                  {approving ? '批准中…' : '批准'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={deciding}
+                                  aria-busy={denying}
+                                  aria-label={`拒绝 ${target}`}
+                                  data-agent-confirm={`拒绝 ${target} 的工具调用`}
+                                  onClick={() => deny(item)}
+                                >
+                                  {denying ? '拒绝中…' : '拒绝'}
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {denied.length > 0 ? (
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
+                      {denied.map((item) => (
+                        <span
+                          key={item.id}
+                          className="min-w-0 [overflow-wrap:anywhere] text-2xs text-muted-foreground"
+                        >
+                          已拒绝 {item.serverName ?? item.serverId} / {item.toolName}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {orphanQuestions.length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  {orphanQuestions.map((question) => (
+                    <RunQuestionCard
+                      key={question.requestId}
+                      question={question}
+                      live={cancellable && canAnswer}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
-            {steps.length === 0 ? (
-              <EmptyState
-                variant="idle"
-                scale="section"
-                icon={<ListTree className="size-5" aria-hidden="true" />}
-                title="还没有产生执行步骤"
-                description={
-                  isActiveRunStatus(detail.status)
-                    ? '正在等待事件流入，稍后自动刷新。'
-                    : '本次运行未记录到步骤事件。'
-                }
-              />
-            ) : (
-              (() => {
-                const seenSteps = new Map<string, number>();
-                const stepEntries = steps.map((step, index) => {
-                  const base = `${step.kind}:${step.at}:${step.kind === 'tool' ? (step.toolUseId ?? step.name ?? '') : ''}`;
-                  const count = (seenSteps.get(base) ?? 0) + 1;
-                  seenSteps.set(base, count);
-                  return { step, index, key: `${base}:${count}` };
-                });
-                return (
+          ) : null}
+
+          <TabsContent
+            value="trace"
+            className="flex flex-col max-xl:flex-none xl:min-h-0 xl:flex-1 xl:overflow-hidden"
+          >
+            <div className="grid gap-5 border-t border-line pt-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[320px_minmax(0,1fr)]">
+              <section className="flex min-w-0 flex-col gap-3 xl:min-h-0" aria-label="步骤">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-baseline gap-2">
+                    <h2 className="text-sm font-medium text-fg">步骤</h2>
+                    <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                      {filteredSteps.length === steps.length
+                        ? `${steps.length} 步`
+                        : `${filteredSteps.length} / ${steps.length} 步`}
+                    </span>
+                  </div>
+                  <SegmentedToggle
+                    label="筛选步骤类型"
+                    value={stepFilter}
+                    onChange={setStepFilter}
+                    options={STEP_FILTERS}
+                  />
+                </div>
+                {steps.length === 0 ? (
+                  <EmptyState
+                    variant="idle"
+                    scale="section"
+                    icon={<ListTree className="size-5" aria-hidden="true" />}
+                    title="还没有产生执行步骤"
+                    description={
+                      isActiveRunStatus(detail.status)
+                        ? '正在等待事件流入，稍后自动刷新。'
+                        : '本次运行未记录到步骤事件。'
+                    }
+                  />
+                ) : filteredSteps.length === 0 ? (
+                  <EmptyState variant="filter" scale="inline" title="该分类下没有步骤" />
+                ) : (
                   <Listbox
                     aria-label="执行步骤"
                     value={
-                      activeIndex >= 0 && activeIndex < steps.length ? String(activeIndex) : null
+                      activeIndex >= 0 &&
+                      activeIndex < steps.length &&
+                      filteredSteps.some((entry) => entry.index === activeIndex)
+                        ? String(activeIndex)
+                        : null
                     }
                     onValueChange={(next) => {
                       if (next !== null) selectStep(Number(next));
                     }}
-                    className="border-0 bg-transparent p-0"
+                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-0 bg-transparent p-0 max-xl:max-h-80"
                   >
-                    {stepEntries.map(({ step, index, key }) => {
+                    {filteredSteps.map(({ step, index, key }) => {
                       const Icon = stepIcons[step.kind];
                       return (
                         <ListboxItem
@@ -576,86 +673,138 @@ export function RunDetailPage() {
                       );
                     })}
                   </Listbox>
-                );
-              })()
-            )}
-          </section>
+                )}
+              </section>
 
-          <section
-            className="min-w-0 border-t pt-5 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-4"
-            aria-label="步骤详情"
+              <section
+                className="min-w-0 border-t border-line pt-4 xl:min-h-0 xl:overflow-y-auto xl:overscroll-contain xl:border-t-0 xl:border-l xl:pt-0 xl:pl-5"
+                aria-label="步骤详情"
+              >
+                <StepInspector
+                  key={activeStepKey}
+                  step={activeStep}
+                  index={activeIndex}
+                  question={
+                    activeStep ? questionForStep(activeStep, liveQuestions, cancellable) : undefined
+                  }
+                  live={cancellable && canAnswer}
+                />
+              </section>
+            </div>
+          </TabsContent>
+
+          <TabsContent
+            value="delivery"
+            className="max-xl:flex-none xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain"
           >
-            <StepInspector
-              step={activeStep}
-              index={activeIndex}
-              question={
-                activeStep ? questionForStep(activeStep, liveQuestions, cancellable) : undefined
-              }
-              live={cancellable && canAnswer}
-            />
-          </section>
+            <div className="flex min-w-0 flex-col gap-6 border-t border-line pt-4">
+              <CursorListFooter
+                query={outputs}
+                autoDrain
+                errorTitle="后续成果没有加载完整"
+                className="justify-start"
+              />
+              {outputs.isError && !outputs.isFetchNextPageError ? (
+                <ErrorState
+                  title="成果没有加载出来"
+                  error={outputs.error}
+                  onRetry={() => void outputs.refetch()}
+                />
+              ) : null}
+              {runFiles.length > 0 ? (
+                <section className="flex min-w-0 flex-col gap-2" aria-label="产出文件">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h2 className="text-sm font-medium text-fg">产出文件</h2>
+                    <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                      {runFiles.length} 个
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-line rounded-item border border-line bg-surface">
+                    {runFiles.map((file) => (
+                      <li
+                        key={file.path}
+                        className="flex min-w-0 items-center justify-between gap-3 px-3 py-2 text-xs"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <FileText
+                            className="size-3.5 shrink-0 text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0 truncate font-mono text-fg" title={file.path}>
+                            {file.path}
+                          </span>
+                        </span>
+                        <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                          {formatBytes(file.size)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+              <RunFeedbackPanel
+                runId={detail.id}
+                conversationTitle={conversation.title}
+                prompt={userPrompt}
+                messageId={lastAssistantMessageId}
+                files={runFiles}
+                canEvaluate={canEval}
+                canWrite={canFeedback && terminal}
+              />
+            </div>
+          </TabsContent>
+        </PageBody>
+      </Tabs>
+
+      <InspectorSheet
+        open={contextOpen}
+        onOpenChange={setContextOpen}
+        size="sm"
+        title="运行上下文"
+        finalFocus={() =>
+          contextTriggerRef.current?.isConnected ? contextTriggerRef.current : null
+        }
+      >
+        <div className="flex min-w-0 flex-col">
+          <ContextRow label="运行 ID" value={detail.id} mono copy />
+          <ContextRow label="专家（当前）" value={detail.agentName ?? detail.agentId} />
+          <ContextRow
+            label="入队时版本"
+            value={detail.agentVersion != null ? `v${detail.agentVersion}` : '—'}
+            mono
+          />
+          <ContextRow label="运行环境" value={detail.runtimeEnvironment?.environmentName ?? '—'} />
+          <ContextRow
+            label="环境版本"
+            value={detail.runtimeEnvironment?.versionId ?? '—'}
+            mono
+            copy={detail.runtimeEnvironment !== null}
+          />
+          <ContextRow label="开始" value={formatDateTime(detail.startedAt)} mono />
+          <ContextRow label="结束" value={formatDateTime(detail.endedAt)} mono />
+          <ContextRow
+            label="Sandbox"
+            value={detail.sandboxId ?? '—'}
+            mono
+            copy={detail.sandboxId != null}
+          />
+          <ContextRow
+            label="Session"
+            value={detail.sessionId ?? '—'}
+            mono
+            copy={detail.sessionId != null}
+          />
         </div>
+      </InspectorSheet>
 
-        <PageSection title="交付验收">
-          <CursorListFooter
-            query={outputs}
-            autoDrain
-            errorTitle="后续成果没有加载完整"
-            className="justify-start"
-          />
-          {outputs.isError && !outputs.isFetchNextPageError ? (
-            <ErrorState
-              title="成果没有加载出来"
-              error={outputs.error}
-              onRetry={() => void outputs.refetch()}
-            />
-          ) : null}
-          <RunFeedbackPanel
-            runId={detail.id}
-            conversationTitle={conversation.title}
-            prompt={userPrompt}
-            messageId={lastAssistantMessageId}
-            files={runFiles}
-            canEvaluate={canEval}
-            canWrite={canFeedback && terminal}
-          />
-        </PageSection>
-
-        <PageSection title="运行上下文">
-          <div className="grid min-w-0 grid-cols-1 gap-x-4 sm:grid-cols-2">
-            <ContextRow label="运行 ID" value={detail.id} mono copy />
-            <ContextRow label="专家（当前）" value={detail.agentName ?? detail.agentId} />
-            <ContextRow
-              label="入队时版本"
-              value={detail.agentVersion != null ? `v${detail.agentVersion}` : '—'}
-              mono
-            />
-            <ContextRow
-              label="运行环境"
-              value={detail.runtimeEnvironment?.environmentName ?? '—'}
-            />
-            <ContextRow
-              label="环境版本"
-              value={detail.runtimeEnvironment?.versionId ?? '—'}
-              mono
-              copy={detail.runtimeEnvironment !== null}
-            />
-            <ContextRow label="开始" value={formatDateTime(detail.startedAt)} mono />
-            <ContextRow label="结束" value={formatDateTime(detail.endedAt)} mono />
-            <ContextRow label="Sandbox" value={detail.sandboxId ?? '—'} mono copy />
-            <ContextRow label="Session" value={detail.sessionId ?? '—'} mono copy />
-          </div>
-        </PageSection>
-
-        {evalOpen ? (
-          <EvalFromRunDialog
-            runId={detail.id}
-            conversationTitle={conversation.title}
-            prompt={userPrompt}
-            onClose={() => setEvalOpen(false)}
-          />
-        ) : null}
-      </PageBody>
+      {evalOpen ? (
+        <EvalFromRunDialog
+          runId={detail.id}
+          conversationTitle={conversation.title}
+          prompt={userPrompt}
+          onClose={() => setEvalOpen(false)}
+        />
+      ) : null}
     </Page>
   );
 }
@@ -672,7 +821,7 @@ function ContextRow({
   copy?: boolean;
 }) {
   return (
-    <div className="flex h-9 min-w-0 items-center gap-2 border-b">
+    <div className="flex h-9 min-w-0 items-center gap-2 border-b border-line last:border-b-0">
       <span className="w-20 shrink-0 text-2xs text-muted-foreground">{label}</span>
       <span
         className={cn('min-w-0 flex-1 truncate text-xs text-fg', mono && 'font-mono tabular-nums')}

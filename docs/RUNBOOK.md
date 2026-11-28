@@ -8,7 +8,7 @@
 
 ## 0. 先做三件事
 
-1. 打开页面「系统状态」（`/status`），或用 curl 看端点（`/health/metrics` 需要登录 Cookie）：
+1. 打开页面「运维 → 系统健康」（`/operations?section=health`），或用 curl 看端点（`/health/metrics` 需要登录 Cookie）：
 
 ```bash
 curl -sS -w '\nHTTP %{http_code}\n' http://localhost:3000/health/live
@@ -95,7 +95,7 @@ curl -fsS http://localhost:3000/health/ready
 docker compose ps
 ```
 
-页面 `/status` 的「存活检查」应变为「正常」。
+页面 `/operations?section=health` 的「存活检查」应变为「正常」。
 
 ---
 
@@ -287,7 +287,7 @@ curl -sS https://api.anthropic.com/v1/messages \
 
 ## 4. 队列堆积
 
-**症状**：run 一直 `queued`，`/health/metrics` 的 `queue.waiting` 持续增长，`/status` 队列卡片黄色或红色。
+**症状**：run 一直 `queued`，`/health/metrics` 的 `queue.waiting` 持续增长，`/operations?section=health` 队列卡片黄色或红色。
 
 ### 4.1 判断：worker 是否在消费
 
@@ -661,7 +661,7 @@ BASE_URL=http://localhost:3000 ADMIN_USER=admin ADMIN_PASSWORD='<当前管理员
 
 首次初始化后 `.env` 的 `ADMIN_PASSWORD` 不保证等于当前密码，冒烟请填账号当前密码。
 
-页面 `/status` 应全绿；在页面发起一次真实 run 确认沙盒与凭证正常。
+页面 `/operations?section=health` 应全绿；在页面发起一次真实 run 确认沙盒与凭证正常。
 
 ### 9.3 回滚
 

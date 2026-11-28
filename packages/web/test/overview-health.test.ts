@@ -7,8 +7,20 @@ import { healthMetricsQuery, overviewQuery } from '../src/lib/queries.js';
 import { OverviewPage } from '../src/pages/overview.js';
 
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ to, children, ...props }: { to: string; children: ReactNode }) =>
-    createElement('a', { href: to, ...props }, children),
+  Link: ({
+    to,
+    search,
+    children,
+    ...props
+  }: {
+    to: string;
+    search?: Record<string, string>;
+    children: ReactNode;
+  }) => {
+    const query = search ? new URLSearchParams(search).toString() : '';
+    const href = query ? `${to}?${query}` : to;
+    return createElement('a', { href, ...props }, children);
+  },
   useNavigate: () => vi.fn(),
   useSearch: () => ({}),
   useLocation: () => ({ href: '/operations' }),
@@ -89,19 +101,21 @@ describe('overview health summary', () => {
     expect(html).toContain('健康指标加载中');
     expect(html).not.toContain('健康指标不可用');
     expect(html).toContain('查看健康');
-    expect(html).toMatch(/<a\b[^>]*href="\/status"/);
+    expect(html).toMatch(/<a\b[^>]*href="\/operations\?section=health"/);
   });
 
   it('keeps diagnostics reachable when the first read fails', () => {
     const html = renderHealth({ loaded: false, error: true });
     expect(html).toContain('健康指标不可用');
     expect(html).toContain('重试');
-    expect(html).toMatch(/<a\b[^>]*href="\/status"/);
+    expect(html).toMatch(/<a\b[^>]*href="\/operations\?section=health"/);
   });
 
   it('stays quiet on the home page when the queue is healthy', () => {
     const html = renderHealth();
-    expect(html).not.toContain('队列');
+    expect(html).not.toContain('查看健康');
+    expect(html).not.toContain('队列积压');
+    expect(html).not.toContain('任务等待');
     expect(html).not.toContain('指标不可用');
   });
 

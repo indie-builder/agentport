@@ -1308,7 +1308,7 @@ describe('all 11 core application routes agent-readiness', () => {
     const controls = visibleControls();
     assertAllVisibleControlsNamed(controls);
     expect(controls.map((entry) => entry.label)).toEqual(
-      expect.arrayContaining(['切换区段', '保存']),
+      expect.arrayContaining(['概况分区', '数据保留', '切换区段']),
     );
     expect(host?.textContent).toContain('等待批准 issue_refund');
 

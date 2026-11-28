@@ -155,6 +155,7 @@ export const runsSearchSchema = z.object({
     .optional()
     .catch(undefined),
   view: listViewSchema,
+  preview: z.string().min(1).optional().catch(undefined),
 });
 
 export const channelsSearchSchema = z.object({ view: listViewSchema });
@@ -222,11 +223,9 @@ export const securitySearchSchema = z.object({
 });
 
 export const operationsSearchSchema = z.object({
+  section: z.enum(['overview', 'observability', 'health']).optional().catch(undefined),
   tab: z.enum(['recent', 'agents']).optional().catch(undefined),
-});
-
-export const observabilitySearchSchema = z.object({
-  tab: z.enum(['slo', 'queues', 'providers']).optional().catch(undefined),
+  obsTab: z.enum(['slo', 'queues', 'providers']).optional().catch(undefined),
   windowMinutes: z.coerce
     .number()
     .pipe(z.union([z.literal(15), z.literal(60), z.literal(360), z.literal(1440)]))
@@ -236,6 +235,7 @@ export const observabilitySearchSchema = z.object({
 
 export const runDetailSearchSchema = z.object({
   step: z.coerce.number().int().nonnegative().optional().catch(undefined),
+  tab: z.enum(['trace', 'delivery']).optional().catch(undefined),
   backTo: backToSearchSchema,
 });
 
@@ -269,6 +269,7 @@ export const runtimeEnvironmentsSearchSchema = z.object({
 export const runtimeEnvironmentDetailSearchSchema = z.object({
   status: runtimeEnvironmentVersionStatusSchema.optional().catch(undefined),
   version: z.string().min(1).optional().catch(undefined),
+  tab: z.enum(['versions', 'dockerfile']).optional().catch(undefined),
   backTo: backToSearchSchema,
 });
 

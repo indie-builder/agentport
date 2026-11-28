@@ -187,7 +187,7 @@ describe('run list view toggle', () => {
 
     expect(router.state.location.search.range).toBeUndefined();
     expect(host.textContent).toContain('全部时间');
-    expect(cards()).not.toBeNull();
+    expect(table()).not.toBeNull();
   });
 
   it('passes the trigger from the URL to the runs query and shows filtered results', async () => {
@@ -202,16 +202,16 @@ describe('run list view toggle', () => {
     expect(host.textContent).toContain('符合筛选条件');
   });
 
-  it('defaults to the cards and renders rows instead when the URL asks for the table', async () => {
+  it('defaults to the table and renders cards instead when the URL asks for cards', async () => {
     const router = await mount();
-    expect(cards()).not.toBeNull();
-    expect(table()).toBeNull();
-
-    await act(async () => {
-      await router.navigate({ to: '/runs', search: { view: 'table' } });
-    });
     expect(table()).not.toBeNull();
     expect(cards()).toBeNull();
+
+    await act(async () => {
+      await router.navigate({ to: '/runs', search: { view: 'cards' } });
+    });
+    expect(cards()).not.toBeNull();
+    expect(table()).toBeNull();
   });
 
   it('opens the card view from a view=cards URL with every run field', async () => {
@@ -291,14 +291,14 @@ describe('run list view toggle', () => {
   it('writes the chosen view into the URL when the toggle is clicked', async () => {
     const router = await mount();
     const toggle = [...host.querySelectorAll('button')].find(
-      (element) => element.textContent?.trim() === '表格',
+      (element) => element.textContent?.trim() === '卡片',
     );
-    if (!toggle) throw new Error('Missing table view toggle');
+    if (!toggle) throw new Error('Missing cards view toggle');
 
     await act(async () => toggle.click());
-    await vi.waitFor(() => expect(table()).not.toBeNull());
-    expect(cards()).toBeNull();
+    await vi.waitFor(() => expect(cards()).not.toBeNull());
+    expect(table()).toBeNull();
     expect(router.state.location.pathname).toBe('/runs');
-    expect(router.state.location.search).toMatchObject({ view: 'table' });
+    expect(router.state.location.search).toMatchObject({ view: 'cards' });
   });
 });

@@ -1294,10 +1294,9 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
    ├─ 个人资料 /personal/profile（默认）
    └─ 账号安全 /personal/security
 运维 /operations（底部独立入口）
-├─ 概况 /operations
+├─ 概况 /operations（含 SLO 与队列 /operations?section=observability、系统健康 /operations?section=health 分区）
 ├─ 运行 /runs
 ├─ 运行环境 /runtime-environments
-├─ 健康 /status
 ├─ 审计 /audit
 ├─ 平台（同一运维上下文内单独分组）
 │  ├─ 账户 /accounts

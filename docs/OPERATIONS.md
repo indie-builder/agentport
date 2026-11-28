@@ -573,8 +573,8 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 | `/api/audit` | 审计事件，可按 action / status / 时间过滤 | 登录 |
 | 页面「审计」 | 同上，按时间倒序 | 登录 |
 | 页面「运行」→ 详情 | 状态、耗时、轮次、成本、token、错误、步骤时间线（子智能体内部调用缩进）；「用同样输入重新运行」 |
-| 页面「系统状态」`/status` | live / ready / metrics 三面板，10 秒刷新；浏览器内只读自检 | 登录；metrics 接口需 `operations.read` 权限 |
-| 页面「观测」`/observability` | 运行、队列与供应商指标，SLO 状态与告警计数；运行、供应商与近期告警按页面选择的统计窗口，队列为实时快照，SLO 按 `platform_settings.slo_window_minutes` 独立评估 | `operations.read` 权限；修改 SLO 需 `operations.manage` |
+| 页面「运维 → 系统健康」`/operations?section=health` | live / ready / metrics 面板，10 秒刷新；浏览器内只读自检 | 登录；metrics 接口需 `operations.read` 权限 |
+| 页面「运维 → SLO 与队列」`/operations?section=observability` | 运行、队列与供应商指标，SLO 状态与告警计数；运行、供应商与近期告警按页面选择的统计窗口，队列为实时快照，SLO 按 `platform_settings.slo_window_minutes` 独立评估 | `operations.read` 权限；修改 SLO 需 `operations.manage` |
 | api 日志 | pino JSON（生产）/ pino-pretty（开发）；按路由模板记录，>2s 记 `slow request`，SSE 不打慢请求 | stdout |
 | worker 日志 | 结构化 JSON；每步带 `runId`，容器 stderr 以 `sandbox` 字段转发 | stdout |
 

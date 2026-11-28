@@ -1,14 +1,21 @@
 import { auditStatusSchema, utcWindowStart } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, EllipsisVertical, RefreshCw, ScrollText, ShieldCheck } from 'lucide-react';
-import { Fragment, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
+import { CopyButton } from '../components/copy-button.js';
 import { CursorListFooter } from '../components/cursor-list-footer.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterPopover } from '../components/filter-popover.js';
 import { FilterSelect } from '../components/filter-select.js';
+import { InspectorSheet } from '../components/inspector-sheet.js';
 import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../components/page.js';
 import { SearchInput } from '../components/search-input.js';
-import { type EmptyFilterChip, EmptyState, ErrorState } from '../components/states.js';
+import {
+  ActiveFilterChips,
+  type EmptyFilterChip,
+  EmptyState,
+  ErrorState,
+} from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import {
@@ -21,6 +28,7 @@ import {
 import { type AuditEntry, type AuditStatus, api } from '../lib/api.js';
 import { downloadBlob, downloadJson } from '../lib/browser-files.js';
 import { toCsv } from '../lib/csv.js';
+import { useDialogClose } from '../lib/dialog-guard.js';
 import {
   auditStatusLabel,
   auditStatusVariant,
@@ -60,7 +68,7 @@ const columns: DataColumn<AuditEntry>[] = [
     id: 'createdAt',
     header: '时间',
     locked: true,
-    width: '130px',
+    width: '132px',
     sortValue: (row) => row.createdAt,
     cell: (row) => (
       <span className="font-mono tabular-nums text-muted-foreground" title={row.createdAt}>
@@ -69,19 +77,46 @@ const columns: DataColumn<AuditEntry>[] = [
     ),
   },
   {
+    id: 'actor',
+    header: '操作者',
+    locked: true,
+    width: 'minmax(140px,1fr)',
+    cell: (row) => (
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span
+          className="min-w-0 max-w-[160px] overflow-hidden text-ellipsis whitespace-nowrap font-mono text-fg"
+          title={row.actor}
+        >
+          {row.actor}
+        </span>
+        <StatusBadge className="shrink-0">{actorKindLabel[row.actorKind]}</StatusBadge>
+      </div>
+    ),
+  },
+  {
     id: 'action',
     header: '动作',
     locked: true,
-    width: 'minmax(160px,1.3fr)',
-    cell: (row) => <span className="font-mono text-fg">{row.action}</span>,
+    width: 'minmax(160px,1.2fr)',
+    cell: (row) => (
+      <span
+        className="block overflow-hidden text-ellipsis whitespace-nowrap font-mono text-fg"
+        title={row.action}
+      >
+        {row.action}
+      </span>
+    ),
   },
   {
     id: 'target',
     header: '目标',
-    width: 'minmax(120px,200px)',
+    width: 'minmax(120px,180px)',
     cell: (row) =>
       row.target ? (
-        <span className="whitespace-normal [overflow-wrap:anywhere] font-mono text-muted-foreground">
+        <span
+          className="block max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap font-mono text-muted-foreground"
+          title={row.target}
+        >
           {row.target}
         </span>
       ) : (
@@ -91,7 +126,7 @@ const columns: DataColumn<AuditEntry>[] = [
   {
     id: 'status',
     header: '状态',
-    width: '90px',
+    width: '88px',
     cell: (row) => (
       <StatusBadge tone={auditStatusVariant[row.status]}>
         {auditStatusLabel[row.status]}
@@ -102,17 +137,21 @@ const columns: DataColumn<AuditEntry>[] = [
     id: 'durationMs',
     header: '耗时',
     numeric: true,
-    width: '72px',
+    width: '76px',
     sortValue: (row) => row.durationMs,
     cell: (row) => formatDuration(row.durationMs),
   },
   {
     id: 'requestId',
     header: '请求 ID',
-    width: 'minmax(130px,1fr)',
+    width: 'minmax(140px,1fr)',
+    hiddenByDefault: true,
     cell: (row) =>
       row.requestId ? (
-        <span className="whitespace-normal [overflow-wrap:anywhere] font-mono text-muted-foreground">
+        <span
+          className="block overflow-hidden text-ellipsis whitespace-nowrap font-mono text-muted-foreground"
+          title={row.requestId}
+        >
           {row.requestId}
         </span>
       ) : (
@@ -153,33 +192,6 @@ function detailRank(key: string) {
   return index === -1 ? detailOrder.length : index;
 }
 
-function auditDetails(row: AuditEntry) {
-  return (
-    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
-      <dt className="text-muted-foreground">操作者</dt>
-      <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">{row.actor}</dd>
-      <dt className="text-muted-foreground">主体类型</dt>
-      <dd className="min-w-0 text-fg">{actorKindLabel[row.actorKind]}</dd>
-      <dt className="text-muted-foreground">事件 ID</dt>
-      <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">{row.id}</dd>
-      <dt className="text-muted-foreground">输入摘要</dt>
-      <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
-        {row.inputDigest ?? <span className="text-muted-foreground">—</span>}
-      </dd>
-      {Object.entries(row.detail ?? {})
-        .sort(([a], [b]) => detailRank(a) - detailRank(b))
-        .map(([key, value]) => (
-          <Fragment key={key}>
-            <dt className="text-muted-foreground">{detailLabels.get(key) ?? key}</dt>
-            <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
-              {value ?? <span className="text-muted-foreground">—</span>}
-            </dd>
-          </Fragment>
-        ))}
-    </dl>
-  );
-}
-
 export function AuditPage() {
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/audit' });
@@ -193,9 +205,15 @@ export function AuditPage() {
   const [exporting, setExporting] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const settledAction = useDebouncedValue(action.trim(), 300);
-  const settledTarget = useDebouncedValue(target.trim(), 300);
-  const settledActor = useDebouncedValue(actor.trim(), 300);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const lastRowRef = useRef<AuditEntry | null>(null);
+  const trimmedAction = action.trim();
+  const trimmedTarget = target.trim();
+  const trimmedActor = actor.trim();
+  const settledAction = useDebouncedValue(trimmedAction, 300);
+  const settledTarget = useDebouncedValue(trimmedTarget, 300);
+  const settledActor = useDebouncedValue(trimmedActor, 300);
   const query = buildAuditQuery({
     action: settledAction,
     status,
@@ -207,6 +225,17 @@ export function AuditPage() {
   const audit = useAudit(query);
 
   const rows = audit.data?.pages.flatMap((page) => page.items) ?? [];
+  const firstLoadFailed = audit.isError && !audit.data;
+  const selectedRow = selectedId ? (rows.find((item) => item.id === selectedId) ?? null) : null;
+  if (selectedRow) lastRowRef.current = selectedRow;
+  const displayedRow = selectedRow ?? lastRowRef.current;
+  const sheet = useDialogClose(() => setSelectedId(null), selectedRow !== null);
+  const detailEntries = displayedRow
+    ? Object.entries(displayedRow.detail ?? {}).sort(([a], [b]) => detailRank(a) - detailRank(b))
+    : [];
+  const clearFilters = () => {
+    void navigate({ to: '/audit', search: {}, replace: true });
+  };
   const filtered =
     Boolean(settledAction) ||
     status !== 'all' ||
@@ -215,23 +244,24 @@ export function AuditPage() {
     actorKind !== 'all' ||
     range !== 'all';
   const searchPending =
-    action.trim() !== settledAction ||
-    target.trim() !== settledTarget ||
-    actor.trim() !== settledActor;
+    trimmedAction !== settledAction ||
+    trimmedTarget !== settledTarget ||
+    trimmedActor !== settledActor;
+  const isFilteredEmpty = filtered && !audit.isPending && !searchPending && rows.length === 0;
   const activeFilterCount =
-    (target.trim() ? 1 : 0) +
-    (actor.trim() ? 1 : 0) +
+    (trimmedTarget ? 1 : 0) +
+    (trimmedActor ? 1 : 0) +
     (actorKind !== 'all' ? 1 : 0) +
     (status !== 'all' ? 1 : 0) +
     (range !== 'all' ? 1 : 0);
 
   const activeFilters: EmptyFilterChip[] = [
-    ...(settledAction
+    ...(trimmedAction
       ? [
           {
             key: 'action',
             label: '动作前缀',
-            value: settledAction,
+            value: trimmedAction,
             onRemove: () =>
               void navigate({
                 to: '/audit',
@@ -241,12 +271,12 @@ export function AuditPage() {
           },
         ]
       : []),
-    ...(settledTarget
+    ...(trimmedTarget
       ? [
           {
             key: 'target',
             label: '目标',
-            value: settledTarget,
+            value: trimmedTarget,
             onRemove: () =>
               void navigate({
                 to: '/audit',
@@ -256,12 +286,12 @@ export function AuditPage() {
           },
         ]
       : []),
-    ...(settledActor
+    ...(trimmedActor
       ? [
           {
             key: 'actor',
             label: '操作者',
-            value: settledActor,
+            value: trimmedActor,
             onRemove: () =>
               void navigate({
                 to: '/audit',
@@ -548,11 +578,23 @@ export function AuditPage() {
               className="w-full"
             />
           </FilterPopover>
+          <span role="status" className="ml-auto text-xs text-muted-foreground">
+            {audit.isPending || searchPending
+              ? '加载中…'
+              : firstLoadFailed
+                ? '数量不可用'
+                : audit.hasNextPage
+                  ? `已加载 ${rows.length} 条记录`
+                  : `共 ${rows.length} 条记录`}
+          </span>
         </PageToolbar>
+        {!isFilteredEmpty && activeFilters.length > 0 ? (
+          <ActiveFilterChips filters={activeFilters} onClearAll={clearFilters} />
+        ) : null}
       </PageTopbar>
 
       <PageBody>
-        {audit.isError && !audit.data ? (
+        {firstLoadFailed ? (
           <ErrorState
             error={audit.error}
             onRetry={() => void audit.refetch()}
@@ -567,18 +609,14 @@ export function AuditPage() {
                 title="刷新失败，保留已加载的审计记录"
               />
             ) : null}
-            {filtered && !audit.isPending && !searchPending && rows.length === 0 ? (
+            {isFilteredEmpty ? (
               <EmptyState
                 variant="filter"
                 scale="section"
                 title="没有符合条件的审计记录"
                 activeFilters={activeFilters}
                 action={
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void navigate({ to: '/audit', search: {} })}
-                  >
+                  <Button variant="outline" size="sm" onClick={clearFilters}>
                     清除全部筛选
                   </Button>
                 }
@@ -593,6 +631,8 @@ export function AuditPage() {
                 }
                 label="审计事件"
                 loading={audit.isPending || searchPending}
+                storageKey="pace.audit.columns"
+                hideRowCount
                 empty={
                   <EmptyState
                     variant="idle"
@@ -602,7 +642,10 @@ export function AuditPage() {
                     description="账户登录、权限变更与关键配置修改会自动记录在这里。"
                   />
                 }
-                renderExpanded={auditDetails}
+                onRowClick={(row, trigger) => {
+                  triggerRef.current = trigger;
+                  setSelectedId(row.id);
+                }}
               />
             )}
             <CursorListFooter
@@ -614,6 +657,125 @@ export function AuditPage() {
           </>
         )}
       </PageBody>
+
+      <InspectorSheet
+        open={sheet.open}
+        onOpenChange={(next) => {
+          if (!next) sheet.close();
+        }}
+        onOpenChangeComplete={(next) => {
+          sheet.onOpenChangeComplete(next);
+          if (!next) lastRowRef.current = null;
+        }}
+        size="md"
+        title={displayedRow?.action ?? '审计详情'}
+        eyebrow={
+          displayedRow ? (
+            <StatusBadge tone={auditStatusVariant[displayedRow.status]}>
+              {auditStatusLabel[displayedRow.status]}
+            </StatusBadge>
+          ) : null
+        }
+        description={displayedRow ? formatDateTime(displayedRow.createdAt) : undefined}
+        finalFocus={() => (triggerRef.current?.isConnected ? triggerRef.current : null)}
+      >
+        {displayedRow ? (
+          <div className="flex flex-col gap-6">
+            <section className="flex flex-col gap-3">
+              <h2 className="text-sm font-medium text-fg">事件信息</h2>
+              <dl className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2.5 text-xs">
+                <dt className="text-muted-foreground">操作者</dt>
+                <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
+                  {displayedRow.actor}
+                </dd>
+                <dt className="text-muted-foreground">主体类型</dt>
+                <dd className="min-w-0 text-fg">{actorKindLabel[displayedRow.actorKind]}</dd>
+                <dt className="text-muted-foreground">目标</dt>
+                <dd className="flex min-w-0 items-start justify-between gap-2">
+                  {displayedRow.target ? (
+                    <>
+                      <span className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
+                        {displayedRow.target}
+                      </span>
+                      <CopyButton
+                        value={displayedRow.target}
+                        label="复制目标"
+                        className="-my-1 -mr-1.5 shrink-0"
+                      />
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </dd>
+                <dt className="text-muted-foreground">耗时</dt>
+                <dd className="min-w-0 font-mono tabular-nums text-fg">
+                  {formatDuration(displayedRow.durationMs)}
+                </dd>
+                <dt className="text-muted-foreground">事件 ID</dt>
+                <dd className="flex min-w-0 items-start justify-between gap-2">
+                  <span className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
+                    {displayedRow.id}
+                  </span>
+                  <CopyButton
+                    value={displayedRow.id}
+                    label="复制事件 ID"
+                    className="-my-1 -mr-1.5 shrink-0"
+                  />
+                </dd>
+                <dt className="text-muted-foreground">请求 ID</dt>
+                <dd className="flex min-w-0 items-start justify-between gap-2">
+                  {displayedRow.requestId ? (
+                    <>
+                      <span className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
+                        {displayedRow.requestId}
+                      </span>
+                      <CopyButton
+                        value={displayedRow.requestId}
+                        label="复制请求 ID"
+                        className="-my-1 -mr-1.5 shrink-0"
+                      />
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </dd>
+                <dt className="text-muted-foreground">输入摘要</dt>
+                <dd className="flex min-w-0 items-start justify-between gap-2">
+                  {displayedRow.inputDigest ? (
+                    <>
+                      <span className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
+                        {displayedRow.inputDigest}
+                      </span>
+                      <CopyButton
+                        value={displayedRow.inputDigest}
+                        label="复制输入摘要"
+                        className="-my-1 -mr-1.5 shrink-0"
+                      />
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </dd>
+              </dl>
+            </section>
+            {detailEntries.length > 0 ? (
+              <section className="flex flex-col gap-3 border-t border-line pt-5">
+                <h2 className="text-sm font-medium text-fg">变更明细</h2>
+                <dl className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2.5 text-xs">
+                  {detailEntries.map(([key, value]) => (
+                    <Fragment key={key}>
+                      <dt className="text-muted-foreground">{detailLabels.get(key) ?? key}</dt>
+                      <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
+                        {value ?? <span className="text-muted-foreground">—</span>}
+                      </dd>
+                    </Fragment>
+                  ))}
+                </dl>
+              </section>
+            ) : null}
+          </div>
+        ) : null}
+      </InspectorSheet>
     </Page>
   );
 }

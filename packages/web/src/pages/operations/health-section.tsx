@@ -7,24 +7,27 @@ import {
   HeartPulse,
   ListChecks,
   LoaderCircle,
-  RefreshCw,
 } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from 'react';
+import { InspectorSheet } from '../../components/inspector-sheet.js';
+import { PageNote } from '../../components/page.js';
+import { RecordRows } from '../../components/record-rows.js';
+import { EmptyState, LoadingState } from '../../components/states.js';
+import { StatusBadge } from '../../components/status-badge.js';
+import { Button } from '../../components/ui/button.js';
 import {
-  Page,
-  PageBody,
-  PageHeader,
-  PageNote,
-  PageSection,
-  PageTopbar,
-} from '../components/page.js';
-import { EmptyState, LoadingState } from '../components/states.js';
-import { StatusBadge } from '../components/status-badge.js';
-import { Button } from '../components/ui/button.js';
-import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
-import { formatBytes, formatDuration, formatUptime } from '../lib/format.js';
-import { judgeQueue } from '../lib/health.js';
-import { healthLiveQuery, healthMetricsQuery, healthReadyQuery } from '../lib/queries.js';
+  Card,
+  CardAction,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../../components/ui/card.js';
+import { api, type HealthProbe, type HealthReady } from '../../lib/api.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
+import { formatBytes, formatDuration, formatUptime } from '../../lib/format.js';
+import { judgeQueue } from '../../lib/health.js';
+import { healthLiveQuery, healthMetricsQuery, healthReadyQuery } from '../../lib/queries.js';
 
 type CheckState = 'pending' | 'ok' | 'warn' | 'unknown' | 'error';
 
@@ -61,20 +64,11 @@ function StatusPill({ state }: { state: CheckState }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="break-words font-mono text-sm leading-5 tabular-nums text-fg">{value}</div>
-    </div>
-  );
-}
-
 function Reason({ tone = 'danger', children }: { tone?: 'warn' | 'danger'; children: ReactNode }) {
   const Icon = tone === 'warn' ? CircleAlert : CircleX;
   return (
     <div
-      className={`flex items-start gap-1.5 border-t pt-2 text-sm ${
+      className={`flex items-start gap-1.5 text-sm ${
         tone === 'warn' ? 'text-warning' : 'text-danger'
       }`}
     >
@@ -135,11 +129,34 @@ interface SmokeStep {
   ms: number;
 }
 
-function SmokeChecklist() {
+function SmokeCheckSheet({
+  open,
+  onClosed,
+  runTrigger,
+  finalFocus,
+}: {
+  open: boolean;
+  onClosed: () => void;
+  runTrigger: number;
+  finalFocus?: () => HTMLElement | null;
+}) {
+  const dialog = useDialogClose(onClosed, open);
   const [steps, setSteps] = useState<SmokeStep[]>([]);
   const [running, setRunning] = useState(false);
+  const runIdRef = useRef(0);
+  const mountedRef = useRef(true);
+  const lastTriggerRef = useRef(0);
 
-  const run = async (): Promise<void> => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      runIdRef.current += 1;
+    };
+  }, []);
+
+  const run = useCallback(async (): Promise<void> => {
+    const runId = ++runIdRef.current;
     setRunning(true);
     setSteps([]);
     const results: SmokeStep[] = [];
@@ -154,6 +171,7 @@ function SmokeChecklist() {
       } catch (err) {
         outcome = { ok: false, detail: err instanceof Error ? err.message : '未知错误' };
       }
+      if (!mountedRef.current || runIdRef.current !== runId) return;
       results.push({
         label,
         state: outcome.ok ? 'ok' : 'error',
@@ -171,6 +189,7 @@ function SmokeChecklist() {
         detail: `HTTP ${probe.httpStatus} · ${probe.body?.status ?? '无响应体'}`,
       };
     });
+    if (!mountedRef.current || runIdRef.current !== runId) return;
 
     await record('GET /health/ready', async () => {
       const probe = await api.healthReady();
@@ -183,6 +202,7 @@ function SmokeChecklist() {
           : `HTTP ${probe.httpStatus} · 响应体无法解析`,
       };
     });
+    if (!mountedRef.current || runIdRef.current !== runId) return;
 
     await record('GET /health/metrics', async () => {
       const metrics = await api.healthMetrics();
@@ -200,23 +220,40 @@ function SmokeChecklist() {
             : `部分指标缺失：${missing.join('、')}`,
       };
     });
+    if (!mountedRef.current || runIdRef.current !== runId) return;
 
     setRunning(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (runTrigger > 0 && runTrigger !== lastTriggerRef.current) {
+      lastTriggerRef.current = runTrigger;
+      void run();
+    }
+  }, [runTrigger, run]);
 
   return (
-    <PageSection
+    <InspectorSheet
+      size="sm"
+      open={dialog.open}
+      onOpenChange={(next) => {
+        if (!next) dialog.close();
+      }}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
       title="冒烟检查"
-      divided={false}
-      actions={
-        <Button variant="outline" size="sm" disabled={running} onClick={() => void run()}>
-          {running ? (
-            <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
-          ) : (
-            <ListChecks data-icon="inline-start" aria-hidden="true" />
-          )}
-          运行冒烟检查
-        </Button>
+      description="依次探测 live、ready 与 metrics 端点，不改动服务状态。"
+      {...(finalFocus === undefined ? {} : { finalFocus })}
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="outline" disabled={running} onClick={() => void run()}>
+            {running ? (
+              <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+            ) : (
+              <ListChecks data-icon="inline-start" aria-hidden="true" />
+            )}
+            重新运行
+          </Button>
+        </div>
       }
     >
       <div aria-live="polite" aria-relevant="additions text">
@@ -242,7 +279,7 @@ function SmokeChecklist() {
                 <StatusBadge tone={step.state === 'ok' ? 'success' : 'danger'}>
                   {step.state === 'ok' ? '通过' : '失败'}
                 </StatusBadge>
-                <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:flex-wrap sm:gap-3">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="min-w-0 break-all font-mono text-xs text-fg">{step.label}</span>
                   <span
                     className={
@@ -268,11 +305,27 @@ function SmokeChecklist() {
           </ul>
         )}
       </div>
-    </PageSection>
+    </InspectorSheet>
   );
 }
 
-export function StatusPage() {
+export interface HealthSectionProps {
+  smokeOpen?: boolean | undefined;
+  onSmokeOpenChange?: ((open: boolean) => void) | undefined;
+  smokeRunTrigger?: number | undefined;
+  smokeButtonRef?: RefObject<HTMLButtonElement | null> | undefined;
+}
+
+export function HealthSection({
+  smokeOpen: controlledSmokeOpen,
+  onSmokeOpenChange,
+  smokeRunTrigger = 0,
+  smokeButtonRef,
+}: HealthSectionProps = {}) {
+  const [internalSmokeOpen, setInternalSmokeOpen] = useState(false);
+  const smokeOpen = controlledSmokeOpen ?? internalSmokeOpen;
+  const setSmokeOpen = onSmokeOpenChange ?? setInternalSmokeOpen;
+
   const live = useQuery(healthLiveQuery);
   const ready = useQuery(healthReadyQuery);
   const metrics = useQuery({
@@ -333,45 +386,20 @@ export function StatusPage() {
       ? 'ok'
       : 'error';
 
-  const isFetching = live.isFetching || ready.isFetching || metrics.isFetching;
-
-  const refresh = (): void => {
-    void live.refetch();
-    void ready.refetch();
-    void metrics.refetch();
-  };
-
   return (
-    <Page>
-      <PageTopbar>
-        <PageHeader
-          title="健康"
-          description="运行指标每 10 秒自动刷新。"
-          actions={
-            <Button variant="outline" onClick={refresh} disabled={isFetching}>
-              <RefreshCw
-                data-icon="inline-start"
-                className={isFetching ? 'animate-spin' : undefined}
-                aria-hidden="true"
-              />
-              {isFetching ? '刷新中…' : '刷新'}
-            </Button>
-          }
-        />
-      </PageTopbar>
-
-      <PageBody>
-        <PageSection title="端点诊断" divided={false}>
-          <div className="flex flex-wrap items-start gap-3 border-b pb-3">
+    <>
+      <Card size="sm" hover="static" className="min-w-0">
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-0 sm:divide-x sm:divide-line">
+          <div className="flex min-w-0 items-start justify-between gap-3 sm:pr-5">
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <h3 className="text-sm font-medium text-fg">
-                存活检查{' '}
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="text-sm font-medium text-fg">存活检查</span>
                 <code className="break-all font-mono text-xs text-muted-foreground">
                   /health/live
                 </code>
-              </h3>
+              </div>
               {liveState === 'error' ? (
-                <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                <p className="break-words text-xs text-danger [overflow-wrap:anywhere]">
                   {live.isError
                     ? '存活检查请求失败。'
                     : (live.data?.error ??
@@ -381,87 +409,100 @@ export function StatusPage() {
             </div>
             <StatusPill state={liveState} />
           </div>
-          <div className="flex flex-wrap items-start gap-3">
+
+          <div className="flex min-w-0 items-start justify-between gap-3 sm:pl-5">
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <h3 className="text-sm font-medium text-fg">
-                就绪检查{' '}
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="text-sm font-medium text-fg">就绪检查</span>
                 <code className="break-all font-mono text-xs text-muted-foreground">
                   /health/ready
                 </code>
-              </h3>
+              </div>
               {readyProblem ? (
-                <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                <p className="break-words text-xs text-danger [overflow-wrap:anywhere]">
                   {readyProblem}
                 </p>
-              ) : null}
-              {!ready.isPending && !ready.isError && ready.data?.body ? (
-                <div className="flex flex-wrap gap-2">
-                  <StatusBadge tone={ready.data.body.db === 'ok' ? 'success' : 'danger'}>
-                    数据库 {ready.data.body.db === 'ok' ? '正常' : '不可用'}
-                  </StatusBadge>
-                  <StatusBadge tone={ready.data.body.redis === 'ok' ? 'success' : 'danger'}>
-                    Redis {ready.data.body.redis === 'ok' ? '正常' : '不可用'}
-                  </StatusBadge>
-                </div>
               ) : null}
             </div>
             <StatusPill state={readyState} />
           </div>
-        </PageSection>
+        </CardContent>
+      </Card>
 
-        {metrics.isError ? (
-          <PageNote
-            tone="danger"
-            title={data ? '指标刷新失败' : '指标读取失败'}
-            description={
-              data
-                ? '以下保留上次成功读取的指标。'
-                : '指标端点不可达或返回非 200，各区块显示为未知。'
-            }
-            action={
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={metrics.isFetching}
-                onClick={() => void metrics.refetch()}
-              >
-                重试
-              </Button>
-            }
-          />
-        ) : null}
+      {metrics.isError ? (
+        <PageNote
+          tone="danger"
+          title={data ? '指标刷新失败' : '指标读取失败'}
+          description={
+            data ? '以下保留上次成功读取的指标。' : '指标端点不可达或返回非 200，各区块显示为未知。'
+          }
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={metrics.isFetching}
+              onClick={() => void metrics.refetch()}
+            >
+              重试
+            </Button>
+          }
+        />
+      ) : null}
 
-        <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
-          <PageSection title="进程" actions={<StatusPill state={processState} />}>
+      <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card size="sm" hover="static" className="min-w-0">
+          <CardHeader>
+            <CardTitle>
+              <h2 className="text-sm font-medium text-fg">进程</h2>
+            </CardTitle>
+            <CardAction>
+              <StatusPill state={processState} />
+            </CardAction>
+          </CardHeader>
+          <CardContent>
             {data ? (
-              <div className="grid grid-cols-3 gap-4">
-                <Metric label="运行时长" value={formatUptime(data.process.uptimeSeconds)} />
-                <Metric label="内存 RSS" value={formatBytes(data.process.memoryRssBytes)} />
-                <Metric label="Bun" value={data.process.bunVersion} />
-              </div>
+              <RecordRows
+                rows={[
+                  {
+                    label: '运行时长',
+                    value: formatUptime(data.process.uptimeSeconds),
+                    mono: true,
+                  },
+                  {
+                    label: '内存 RSS',
+                    value: formatBytes(data.process.memoryRssBytes),
+                    mono: true,
+                  },
+                  { label: 'Bun', value: data.process.bunVersion, mono: true },
+                ]}
+              />
             ) : metrics.isPending ? (
               <LoadingState rows={2} />
             ) : (
               <Unknown />
             )}
-          </PageSection>
+          </CardContent>
+        </Card>
 
-          <PageSection title="队列 agent-runs" actions={<StatusPill state={queueState} />}>
+        <Card size="sm" hover="static" className="min-w-0">
+          <CardHeader>
+            <CardTitle>
+              <h2 className="text-sm font-medium text-fg">队列 agent-runs</h2>
+            </CardTitle>
+            <CardAction>
+              <StatusPill state={queueState} />
+            </CardAction>
+          </CardHeader>
+          <CardContent>
             {queue ? (
-              <>
-                <div className="grid grid-cols-4 gap-4">
-                  <Metric label="等待" value={String(queue.waiting)} />
-                  <Metric label="运行中" value={String(queue.active)} />
-                  <Metric label="失败" value={String(queue.failed)} />
-                  <Metric label="延迟" value={String(queue.delayed)} />
-                </div>
-                {queueHealth.condition === 'ok' ? null : (
-                  <Reason tone="warn">
-                    {queueHealth.message}
-                    {queueHealth.hint ? ` ${queueHealth.hint}` : ''}
-                  </Reason>
-                )}
-              </>
+              <RecordRows
+                rows={[
+                  { label: '等待', value: String(queue.waiting), mono: true },
+                  { label: '运行中', value: String(queue.active), mono: true },
+                  { label: '失败', value: String(queue.failed), mono: true },
+                  { label: '延迟', value: String(queue.delayed), mono: true },
+                ]}
+              />
             ) : metrics.isPending ? (
               <LoadingState rows={2} />
             ) : data ? (
@@ -472,23 +513,43 @@ export function StatusPage() {
             ) : (
               <Unknown />
             )}
-          </PageSection>
+          </CardContent>
+          {queue && queueHealth.condition !== 'ok' ? (
+            <CardFooter>
+              <Reason tone="warn">
+                {queueHealth.message}
+                {queueHealth.hint ? ` ${queueHealth.hint}` : ''}
+              </Reason>
+            </CardFooter>
+          ) : null}
+        </Card>
 
-          <PageSection title="数据库" actions={<StatusPill state={dbState} />}>
+        <Card size="sm" hover="static" className="min-w-0">
+          <CardHeader>
+            <CardTitle>
+              <h2 className="text-sm font-medium text-fg">数据库</h2>
+            </CardTitle>
+            <CardAction>
+              <StatusPill state={dbState} />
+            </CardAction>
+          </CardHeader>
+          <CardContent>
             {db ? (
-              <>
-                <div className="grid grid-cols-3 gap-4">
-                  <Metric label="连接" value={db.connected ? '正常' : '失败'} />
-                  <Metric label="Ping" value={db.pingMs === null ? '未测得' : `${db.pingMs} ms`} />
-                  <Metric
-                    label="连接上限"
-                    value={db.maxConnections === null ? '未提供' : String(db.maxConnections)}
-                  />
-                </div>
-                {!db.connected ? (
-                  <Reason>数据库探测失败：检查 DATABASE_URL 与 PostgreSQL 服务。</Reason>
-                ) : null}
-              </>
+              <RecordRows
+                rows={[
+                  { label: '连接', value: db.connected ? '正常' : '失败' },
+                  {
+                    label: 'Ping',
+                    value: db.pingMs === null ? '未测得' : `${db.pingMs} ms`,
+                    mono: true,
+                  },
+                  {
+                    label: '连接上限',
+                    value: db.maxConnections === null ? '未提供' : String(db.maxConnections),
+                    mono: true,
+                  },
+                ]}
+              />
             ) : metrics.isPending ? (
               <LoadingState rows={2} />
             ) : data ? (
@@ -496,14 +557,31 @@ export function StatusPage() {
             ) : (
               <Unknown />
             )}
-          </PageSection>
+          </CardContent>
+          {db && !db.connected ? (
+            <CardFooter>
+              <Reason>数据库探测失败：检查 DATABASE_URL 与 PostgreSQL 服务。</Reason>
+            </CardFooter>
+          ) : null}
+        </Card>
 
-          <PageSection title="Redis" actions={<StatusPill state={redisState} />}>
+        <Card size="sm" hover="static" className="min-w-0">
+          <CardHeader>
+            <CardTitle>
+              <h2 className="text-sm font-medium text-fg">Redis</h2>
+            </CardTitle>
+            <CardAction>
+              <StatusPill state={redisState} />
+            </CardAction>
+          </CardHeader>
+          <CardContent>
             {redis ? (
-              <div className="grid grid-cols-2 gap-4">
-                <Metric label="Ping" value={`${redis.pingMs} ms`} />
-                <Metric label="状态" value="PONG" />
-              </div>
+              <RecordRows
+                rows={[
+                  { label: 'Ping', value: `${redis.pingMs} ms`, mono: true },
+                  { label: '状态', value: 'PONG', mono: true },
+                ]}
+              />
             ) : metrics.isPending ? (
               <LoadingState rows={2} />
             ) : data ? (
@@ -513,11 +591,23 @@ export function StatusPage() {
             ) : (
               <Unknown />
             )}
-          </PageSection>
-        </div>
+          </CardContent>
+        </Card>
+      </div>
 
-        <SmokeChecklist />
-      </PageBody>
-    </Page>
+      {smokeOpen ? (
+        <SmokeCheckSheet
+          open={smokeOpen}
+          onClosed={() => setSmokeOpen(false)}
+          runTrigger={smokeRunTrigger}
+          {...(smokeButtonRef
+            ? {
+                finalFocus: () =>
+                  smokeButtonRef.current?.isConnected ? smokeButtonRef.current : null,
+              }
+            : {})}
+        />
+      ) : null}
+    </>
   );
 }

@@ -17,7 +17,6 @@ import {
   Database,
   FlaskConical,
   Hash,
-  HeartPulse,
   History,
   Home,
   KeyRound,
@@ -26,7 +25,6 @@ import {
   MessagesSquare,
   Plug,
   Puzzle,
-  Radar,
   Scale,
   ScrollText,
   Search,
@@ -121,12 +119,6 @@ const pages = {
     icon: LayoutDashboard,
     permissionIds: ['operations.read'],
   },
-  observability: {
-    to: '/observability',
-    label: '观测',
-    icon: Radar,
-    permissionIds: ['operations.read'],
-  },
   runs: { to: '/runs', label: '运行', icon: Activity, permissionIds: ['runs.read'] },
   dataDomains: {
     to: '/data-domains',
@@ -140,7 +132,6 @@ const pages = {
     icon: Container,
     permissionIds: ['runtime_environments.read'],
   },
-  status: { to: '/status', label: '健康', icon: HeartPulse, permissionIds: ['operations.read'] },
   audit: { to: '/audit', label: '审计', icon: ScrollText, permissionIds: ['audit.read'] },
   accounts: { to: '/accounts', label: '账户', icon: KeyRound, permissionIds: ['accounts.read'] },
   roles: { to: '/roles', label: '角色', icon: Users, permissionIds: ['roles.read'] },
@@ -252,10 +243,8 @@ export const BUILD_MENU: readonly MenuItem[] = [
 
 export const OPERATIONS_MENU: readonly MenuItem[] = [
   pages.operations,
-  pages.observability,
   pages.runs,
   pages.runtimeEnvironments,
-  pages.status,
   pages.audit,
 ];
 
@@ -272,7 +261,7 @@ const HOME_ORDER: readonly MenuItem[] = [
   ...WORK_MENU,
   ...RESOURCE_MENU,
   ...BUILD_MENU.filter((item) => item.to === '/eval'),
-  ...OPERATIONS_MENU.filter((item) => item.to !== '/status'),
+  ...OPERATIONS_MENU,
   ...PLATFORM_MENU,
 ];
 
@@ -317,12 +306,10 @@ export const ROUTE_META: Readonly<Record<string, NavRouteMeta>> = {
   '/_shell/data-domains/$dataDomainId': pages.dataDomains,
   '/_shell/eval': pages.eval,
   '/_shell/operations': pages.operations,
-  '/_shell/observability': pages.observability,
   '/_shell/runs/': pages.runs,
   '/_shell/runs/$runId': pages.runs,
   '/_shell/runtime-environments/': pages.runtimeEnvironments,
   '/_shell/runtime-environments/$environmentId': pages.runtimeEnvironments,
-  '/_shell/status': pages.status,
   '/_shell/audit': pages.audit,
   '/_shell/accounts': pages.accounts,
   '/_shell/roles': pages.roles,

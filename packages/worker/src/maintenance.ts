@@ -168,7 +168,7 @@ async function runOpsAlerts(input: {
         kind: `slo_${status.key}`,
         title: `SLO 未达标：${status.label}`,
         body: `目标 ${status.target}，实际 ${status.actual}（样本 ${status.sampleSize}）`,
-        link: '/observability',
+        link: '/operations?section=observability',
         sourceId: `slo:${status.key}:${bucket}`,
       });
     }

@@ -4,18 +4,27 @@ import { errorMessage } from '../lib/api.js';
 import { formatRelative } from '../lib/format.js';
 import { useAttention } from '../lib/queries.js';
 import { PageNote, PageSection } from './page.js';
-import { ErrorState, LoadingState } from './states.js';
+import { EmptyState, ErrorState, LoadingState } from './states.js';
 import { StatusBadge } from './status-badge.js';
 import { Button } from './ui/button.js';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from './ui/card.js';
 
-const rowClassName = '-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5';
-const interactiveRowClassName = `${rowClassName} transition-colors duration-150 ease-out-soft hover:bg-hover`;
+const sectionRowClassName = '-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5';
+const cardRowClassName = 'flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5';
+const hoverTransitionClassName = 'transition-colors duration-150 ease-out-soft hover:bg-hover';
 
-export function AttentionPanel({ canOpenRuns = true }: { canOpenRuns?: boolean }) {
+export function AttentionPanel({
+  canOpenRuns = true,
+  layout = 'section',
+}: {
+  canOpenRuns?: boolean;
+  layout?: 'section' | 'card' | undefined;
+}) {
   const location = useLocation();
   const attention = useAttention();
   const data = attention.data;
-  if (attention.isSuccess && (data?.total ?? 0) === 0) return null;
+  const isEmpty = attention.isSuccess && (data?.total ?? 0) === 0;
+  if (layout === 'section' && isEmpty) return null;
 
   const failedRuns = data?.failedRuns.filter((item) => item.kind === 'failed_run') ?? [];
   const failedGroups = new Map<
@@ -44,13 +53,11 @@ export function AttentionPanel({ canOpenRuns = true }: { canOpenRuns?: boolean }
         (a.latestEndedAt === null ? 0 : Date.parse(a.latestEndedAt)),
   );
 
-  return (
-    <PageSection
-      title="需要处理"
-      divided={false}
-      className="overflow-x-clip"
-      actions={data ? <StatusBadge tone="danger">{data.total} 项</StatusBadge> : null}
-    >
+  const rowClassName = layout === 'card' ? cardRowClassName : sectionRowClassName;
+  const interactiveRowClassName = `${rowClassName} ${hoverTransitionClassName}`;
+
+  const body = (
+    <>
       {attention.isPending ? <LoadingState rows={2} /> : null}
       {attention.isError && !data ? (
         <ErrorState error={attention.error} onRetry={() => void attention.refetch()} />
@@ -67,8 +74,21 @@ export function AttentionPanel({ canOpenRuns = true }: { canOpenRuns?: boolean }
           }
         />
       ) : null}
-      {data ? (
-        <ul className="flex flex-col">
+      {isEmpty ? (
+        <EmptyState
+          variant="clear"
+          scale="panel"
+          title="暂无待处理事项"
+          description="当前没有待审批工具或失败运行。"
+        />
+      ) : data ? (
+        <ul
+          className={
+            layout === 'card'
+              ? '-mx-2 flex max-h-[300px] flex-col overflow-y-auto overscroll-contain px-2'
+              : 'flex flex-col'
+          }
+        >
           {data.approvals.map((item) => {
             if (item.kind !== 'approval') return null;
             const content = (
@@ -145,6 +165,35 @@ export function AttentionPanel({ canOpenRuns = true }: { canOpenRuns?: boolean }
           })}
         </ul>
       ) : null}
+    </>
+  );
+
+  if (layout === 'card') {
+    return (
+      <Card hover="static" className="flex min-h-0 min-w-0 flex-col">
+        <CardHeader>
+          <CardTitle>
+            <h2 className="text-base font-medium text-fg">需要处理</h2>
+          </CardTitle>
+          {data && data.total > 0 ? (
+            <CardAction>
+              <StatusBadge tone="danger">{data.total} 项</StatusBadge>
+            </CardAction>
+          ) : null}
+        </CardHeader>
+        <CardContent className="flex min-h-0 flex-1 flex-col">{body}</CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <PageSection
+      title="需要处理"
+      divided={false}
+      className="overflow-x-clip"
+      actions={data ? <StatusBadge tone="danger">{data.total} 项</StatusBadge> : null}
+    >
+      {body}
     </PageSection>
   );
 }

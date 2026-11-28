@@ -165,7 +165,7 @@ describe('run detail answers a live question', () => {
     });
 
     await act(async () => {
-      host.querySelector<HTMLElement>('[role="radio"]')?.click();
+      host.querySelector<HTMLElement>('fieldset [role="radio"]')?.click();
     });
     await act(async () => button('提交回答')?.click());
     await act(async () => {

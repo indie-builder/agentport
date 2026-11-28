@@ -79,11 +79,21 @@ function stepButtons(): HTMLElement[] {
   ];
 }
 
-function button(label: string): HTMLButtonElement | undefined {
-  return [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+function button(label: string, scope: ParentNode = host): HTMLButtonElement | undefined {
+  return [...scope.querySelectorAll<HTMLButtonElement>('button')].find(
     (element) =>
       element.textContent?.trim() === label || element.getAttribute('aria-label') === label,
   );
+}
+
+function tab(label: string): HTMLElement | undefined {
+  return [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+    (element) => element.textContent?.trim() === label,
+  );
+}
+
+function sheet(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[role="dialog"]');
 }
 
 function menuItem(label: string): HTMLElement | undefined {
@@ -139,6 +149,7 @@ async function mount(path = '/runs/run-1') {
 beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'runQuestions').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'runFeedback').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextCursor: null });
   client = new QueryClient({
@@ -179,6 +190,7 @@ describe('run detail keeps its tree across a failed refresh', () => {
     expect(router.state.location.search).toMatchObject({ step: 0 });
     await act(async () => stepButtons()[1]?.click());
     expect(router.state.location.search).toMatchObject({ step: 1 });
+    await act(async () => tab('参数')?.click());
     await act(async () => button('内容过大，点击查看')?.click());
     expect(button('收起内容')).not.toBeUndefined();
     await act(async () => stepButtons()[1]?.focus());
@@ -207,10 +219,11 @@ describe('run detail keeps its tree across a failed refresh', () => {
     );
     await flush();
 
-    expect(host.textContent).toContain('新结果');
     expect(host.textContent).not.toContain('刷新失败，内容仍是上次结果');
     expect(router.state.location.search).toMatchObject({ step: 1 });
     expect(button('收起内容')).not.toBeUndefined();
+    await act(async () => tab('结果')?.click());
+    expect(host.textContent).toContain('新结果');
   });
 
   it('shows the full error state only when no detail data was ever loaded', async () => {
@@ -234,23 +247,30 @@ describe('run detail runtime environment identity', () => {
     };
     vi.spyOn(api, 'run').mockResolvedValue(data);
     await mount();
-    await vi.waitFor(() => expect(host.textContent).toContain('默认环境'));
+    await vi.waitFor(() => expect(button('运行信息')).not.toBeUndefined());
+    await act(async () => button('运行信息')?.click());
+    await flush();
 
-    const version = [...host.querySelectorAll('span')].find(
+    const contextSheet = sheet();
+    expect(contextSheet?.textContent).toContain('默认环境');
+    const version = [...(contextSheet?.querySelectorAll('span') ?? [])].find(
       (element) => element.textContent === versionId,
     );
     expect(version?.getAttribute('title')).toBe(versionId);
-    expect(button('复制环境版本')).not.toBeUndefined();
+    expect(button('复制环境版本', contextSheet ?? document)).not.toBeUndefined();
   });
 
   it('shows no identity before the run has created a container', async () => {
     vi.spyOn(api, 'run').mockResolvedValue(detail('queued', [userStep]));
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('原问题'));
+    await act(async () => button('运行信息')?.click());
+    await flush();
 
-    expect(host.textContent).toContain('运行环境');
-    expect(host.textContent).toContain('环境版本');
-    expect(button('复制环境版本')).toBeUndefined();
+    const contextSheet = sheet();
+    expect(contextSheet?.textContent).toContain('运行环境');
+    expect(contextSheet?.textContent).toContain('环境版本');
+    expect(button('复制环境版本', contextSheet ?? document)).toBeUndefined();
   });
 });
 

@@ -102,11 +102,6 @@ async function inspectRoute(
     path: '/eval',
     component: () => createElement(PageHeader, { title: '评估' }),
   });
-  const status = createRoute({
-    getParentRoute: () => shell,
-    path: '/status',
-    component: () => createElement(PageHeader, { title: '健康' }),
-  });
   const audit = createRoute({
     getParentRoute: () => shell,
     path: '/audit',
@@ -161,7 +156,6 @@ async function inspectRoute(
         chat,
         schedules,
         evalRoute,
-        status,
         audit,
         pluginsIndex,
         pluginDetail,
@@ -376,7 +370,6 @@ describe('sidebar active route', () => {
       ['/eval', '/eval'],
       ['/operations', '/operations'],
       ['/runtime-environments/', '/runtime-environments'],
-      ['/status', '/status'],
       ['/audit', '/audit'],
     ] as const) {
       const view = await inspectRoute(path, 'success');
@@ -428,7 +421,7 @@ describe('business and operations navigation contexts', () => {
       expect(view.host.querySelector('a[aria-label="运维"]')?.getAttribute('href')).toBe(
         '/operations',
       );
-      for (const href of ['/operations', '/runs', '/runtime-environments', '/status', '/audit']) {
+      for (const href of ['/operations', '/runs', '/runtime-environments', '/audit']) {
         expect(navHrefs(view.host)).not.toContain(href);
       }
     } finally {
@@ -441,10 +434,8 @@ describe('business and operations navigation contexts', () => {
     try {
       expect(navHrefs(view.host)).toEqual([
         '/operations',
-        '/observability',
         '/runs',
         '/runtime-environments',
-        '/status',
         '/audit',
         '/accounts',
         '/roles',
@@ -465,13 +456,7 @@ describe('business and operations navigation contexts', () => {
   });
 
   it('keeps the operations context on every operations deep link', async () => {
-    for (const path of [
-      '/runs/',
-      '/runs/run_review',
-      '/runtime-environments/',
-      '/status',
-      '/audit',
-    ]) {
+    for (const path of ['/runs/', '/runs/run_review', '/runtime-environments/', '/audit']) {
       const view = await inspectRoute(path, 'success');
       try {
         expect(navHrefs(view.host)[0]).toBe('/operations');
@@ -507,7 +492,6 @@ describe('business and operations navigation contexts', () => {
     ['/operations', '概况 · PACE'],
     ['/runs/', '运行 · PACE'],
     ['/runtime-environments/', '运行环境 · PACE'],
-    ['/status', '健康 · PACE'],
     ['/audit', '审计 · PACE'],
   ])('names the business page %s as %s', async (path, title) => {
     const view = await inspectRoute(path, 'success');
@@ -546,7 +530,6 @@ describe('personal navigation context', () => {
         '/operations',
         '/runs',
         '/runtime-environments',
-        '/status',
         '/audit',
         '/accounts',
         '/roles',

@@ -15,7 +15,7 @@ PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：�
 | 运行时配置 | 提示词、模型、技能、MCP 绑定、子智能体、工具白名单/黑名单、权限模式（`dontAsk` / `plan` / `default` / `acceptEdits`，`auto` 不开放）、effort、轮次、预算、超时 |
 | 运行 | BullMQ 队列 → Docker 沙盒 → Claude Agent SDK → SSE 流式事件；取消、超时、预算与轮次限制；失败重试与孤儿 run 收敛 |
 | 对话 | 会话历史、分支、工具调用落库、续聊与分支走 SDK 会话续接/分支（`resumeSessionId` / `forkFromSdkMessageUuid`）、队列只带本轮输入、运行详情重跑 |
-| 观测 | 运行列表与 trace 详情、成本/轮次/token/延迟、审计日志、`/health/*`、队列与进程指标、`/status` 系统状态页 |
+| 观测 | 运行列表与 trace 详情、成本/轮次/token/延迟、审计日志、`/health/*`、队列与进程指标、`/operations?section=health` 系统健康页 |
 | 评估 | 用例管理、`eval-runs` 队列异步回归跑批、通过率与结果详情 |
 | 治理 | Better Auth 多账户登录（Drizzle 会话落库、可吊销）、Redis 限流、UTC cron 定时任务（BullMQ Job Scheduler，运行队列积压超过 100 时跳过）、数据保留任务、数据库备份与恢复 |
 | 账户与权限 | 稳定 `businessId`、认证账户可重建、默认四角色、DB 可配置的角色·功能矩阵与对象范围、专家成员、私有会话/个人记忆隔离、跨用户运维审计；实现与验收记录见 任务记录 |
