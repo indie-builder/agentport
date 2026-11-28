@@ -7,7 +7,7 @@
 
 | 包 | 锁定版本 | 用途 |
 |---|---|---|
-| `@openuidev/react-ui` | 0.19.0 | 生成期：官方 chat 库与 `definitions.ts` 对照 |
+| `@openuidev/react-ui` | 0.20.1 | 生成期：官方 chat 库与 `definitions.ts` 对照 |
 | `@openuidev/cli` | 0.6.3 | 生成期：从 web 库产出 `openui.spec.json` |
 | `@openuidev/lang-core`（core） | 1.2.0 | 运行期：解析与系统提示词 |
 | `@openuidev/react-lang`（web） | 1.2.0 | 运行期：渲染与 hooks |

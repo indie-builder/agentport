@@ -178,10 +178,12 @@ function DatePickerClear({
 function DatePickerTrigger({
   className,
   children,
+  'aria-label': ariaLabel = '选择日期',
   ...props
 }: WithOptionalClassName<ComponentProps<typeof DatePickerTriggerPrimitive>>) {
   return (
     <DatePickerTriggerPrimitive
+      aria-label={ariaLabel}
       className={mergeClassName(datePickerTriggerClassName, className)}
       {...props}
     >

@@ -215,27 +215,42 @@ export function BlockCard({
   clickable,
   onActivate,
   children,
+  footer,
   className,
 }: {
   clickable: boolean;
   onActivate?: (() => void) | undefined;
   children: ReactNode;
+  footer?: ReactNode;
   className?: string;
 }) {
-  const base = cn(
+  const surface = cn(
     'cds-card-surface flex h-full min-w-0 flex-col gap-3 rounded-card p-3 text-left',
-    clickable &&
-      'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
     className,
     'bg-surface',
   );
-  if (!clickable) return <div className={base}>{children}</div>;
+  if (!clickable) {
+    return (
+      <div className={surface}>
+        {children}
+        {footer}
+      </div>
+    );
+  }
   const fromInnerControl = (target: EventTarget) =>
     target instanceof Element && target.closest('button, a, input, textarea, select') !== null;
-  return (
+  const splitFooter = footer !== undefined && footer !== null && footer !== false;
+  const body = (
     <ButtonPrimitive
       render={<div />}
-      className={base}
+      className={
+        splitFooter
+          ? 'flex min-w-0 flex-1 cursor-pointer flex-col gap-3 rounded-card text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+          : cn(
+              surface,
+              'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            )
+      }
       onClick={(event) => {
         if (fromInnerControl(event.target)) return;
         onActivate?.();
@@ -243,5 +258,12 @@ export function BlockCard({
     >
       {children}
     </ButtonPrimitive>
+  );
+  if (!splitFooter) return body;
+  return (
+    <div className={surface}>
+      {body}
+      {footer}
+    </div>
   );
 }

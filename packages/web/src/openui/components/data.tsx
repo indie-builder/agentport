@@ -672,6 +672,15 @@ export function CompositeCardBlockRenderer({
           childProps<{ title?: string }>(itemProps?.header)?.title ??
           itemProps?.id ??
           `Item ${index + 1}`;
+        const footerNode = itemProps?.footer ? (
+          <div className="mt-auto flex min-w-0 flex-col gap-2 border-t border-line pt-2">
+            <div className="min-w-0">{renderNode(itemProps.footer.price)}</div>
+            {itemProps.footer.button ? (
+              <div className="min-w-0">{renderNode(itemProps.footer.button)}</div>
+            ) : null}
+          </div>
+        ) : null;
+        const splitFooter = clickable && Boolean(itemProps?.footer?.button);
         return (
           <BlockCard
             key={itemProps?.id ?? index}
@@ -679,6 +688,7 @@ export function CompositeCardBlockRenderer({
             onActivate={() =>
               activate(label, { itemIndex: index, itemId: itemProps?.id, itemTitle: label })
             }
+            {...(splitFooter ? { footer: footerNode } : {})}
           >
             {itemProps?.header ? (
               <div className="min-w-0">{renderNode(itemProps.header)}</div>
@@ -691,14 +701,7 @@ export function CompositeCardBlockRenderer({
                 ))}
               </div>
             ) : null}
-            {itemProps?.footer ? (
-              <div className="mt-auto flex min-w-0 flex-col gap-2 border-t border-line pt-2">
-                <div className="min-w-0">{renderNode(itemProps.footer.price)}</div>
-                {itemProps.footer.button ? (
-                  <div className="min-w-0">{renderNode(itemProps.footer.button)}</div>
-                ) : null}
-              </div>
-            ) : null}
+            {splitFooter ? null : footerNode}
           </BlockCard>
         );
       })}

@@ -263,6 +263,7 @@ describe('CompositeCard footer actions', () => {
       { onAction },
     );
 
+    expect(host.querySelector('[role="button"] button')).toBeNull();
     const card = byText<HTMLElement>('[role="button"]', '标题一');
     await act(async () => card.click());
 
@@ -282,5 +283,33 @@ describe('CompositeCard footer actions', () => {
       type: 'continue_conversation',
       message: '查看详情',
     });
+  });
+});
+
+describe('MetricIndicatorWithStrikethrough', () => {
+  it('renders value, strikethrough previousValue, trend and subtext', async () => {
+    await render(
+      [
+        'root = Card([block])',
+        'block = CompositeCardBlock([a, b], "grid", true)',
+        'a = CompositeCardItem("a", aHeader, [aText], aFooter)',
+        'aHeader = IconText(aIcon, "neutral", "m", "套餐甲", "", false, "horizontal")',
+        'aIcon = Icon("circle", "shapes")',
+        'aText = Text("text", "基础配置", "", "text", "sm")',
+        'aFooter = { price: aPrice }',
+        'aPrice = MetricIndicatorWithStrikethrough("¥199", "限时优惠", "¥299", { direction: "down", value: 33 })',
+        'b = CompositeCardItem("b", bHeader, [bText])',
+        'bHeader = IconText(bIcon, "neutral", "m", "套餐乙", "", false, "horizontal")',
+        'bIcon = Icon("circle", "shapes")',
+        'bText = Text("text", "标准配置", "", "text", "sm")',
+      ].join('\n'),
+    );
+
+    expect(host.textContent).toContain('¥199');
+    expect(host.textContent).toContain('¥299');
+    expect(host.textContent).toContain('↓ 33%');
+    expect(host.textContent).toContain('限时优惠');
+    const previous = byText<HTMLSpanElement>('span', '¥299');
+    expect(previous.className).toContain('line-through');
   });
 });
