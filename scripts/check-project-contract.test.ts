@@ -19,15 +19,11 @@ const validCss = `@custom-variant dark (&:where(.dark, .dark *));
 }
 `;
 
-const validRootPackageJson = JSON.stringify(
-  {
-    engines: { node: '>=24.22.2 <25' },
-    workspaces: { catalog: { '@types/node': '24.19.2' } },
-    devDependencies: { '@types/node': 'catalog:' },
-  },
-  null,
-  2,
-);
+const validRootPackageJson = JSON.stringify({
+  engines: { node: '>=24.22.2 <25' },
+  workspaces: { catalog: { '@types/node': '24.19.2' } },
+  devDependencies: { '@types/node': 'catalog:' },
+});
 
 const validDockerfile = 'FROM node:24-alpine AS base\n';
 
@@ -934,27 +930,19 @@ const fixtures = [
   {
     name: '子包 package.json engines.node 升 26',
     rule: 'node-version-lock',
-    files: {
-      'packages/api/package.json': JSON.stringify({
-        engines: { node: '>=26' },
-      }),
-    },
+    files: { 'packages/api/package.json': JSON.stringify({ engines: { node: '>=26' } }) },
     expected: ['packages/api/package.json: engines.node', '永久锁定 24.x'],
   },
   {
     name: 'Dockerfile 使用 node:26-alpine',
     rule: 'node-version-lock',
-    files: {
-      Dockerfile: 'FROM node:26-alpine AS base\n',
-    },
+    files: { Dockerfile: 'FROM node:26-alpine AS base\n' },
     expected: ['Dockerfile:1: FROM node:26-alpine AS base', '永久锁定 24.x'],
   },
   {
     name: 'Dockerfile 带镜像前缀使用 node:26-alpine',
     rule: 'node-version-lock',
-    files: {
-      Dockerfile: 'FROM docker.io/library/node:26-alpine AS base\n',
-    },
+    files: { Dockerfile: 'FROM docker.io/library/node:26-alpine AS base\n' },
     expected: ['Dockerfile:1: FROM docker.io/library/node:26-alpine AS base', '永久锁定 24.x'],
   },
   {
@@ -968,6 +956,15 @@ const fixtures = [
       'Dockerfile:2: FROM node AS base',
       'Dockerfile:3: FROM node@sha256:deadbeef',
     ],
+  },
+  {
+    name: 'Dockerfile 引用不存在的子包',
+    rule: 'dockerfile-workspace-sync',
+    files: {
+      'packages/api/package.json': JSON.stringify({ name: '@agentport/api' }),
+      Dockerfile: 'FROM node:24-alpine AS base\nCOPY packages/ghost/package.json packages/ghost/\n',
+    },
+    expected: ['Dockerfile:2: 引用了不存在的子包 packages/ghost'],
   },
   ...[
     'scheduling/scheduler.ts',
