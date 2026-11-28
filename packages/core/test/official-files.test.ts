@@ -21,7 +21,7 @@ const agent = {
   model: 'claude-sonnet-5-5',
   systemPrompt: '你是调研员。\n\n## 步骤\n\n1. 先读。',
   maxTurns: 12,
-  permissionMode: 'dontAsk',
+  permissionMode: 'dontAsk' as const,
   effort: 'high' as const,
   allowedTools: [],
   disallowedTools: [],

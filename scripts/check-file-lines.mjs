@@ -22,7 +22,9 @@ const listedRun = Bun.spawnSync(
   { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
 );
 if (!listedRun.success) {
-  const reason = listedRun.signalCode ? `signal ${listedRun.signalCode}` : `exit ${listedRun.exitCode}`;
+  const reason = listedRun.signalCode
+    ? `signal ${listedRun.signalCode}`
+    : `exit ${listedRun.exitCode}`;
   console.error(listedRun.stderr?.toString('utf8').trim() || `git ls-files failed (${reason})`);
   process.exit(listedRun.exitCode || 1);
 }
@@ -40,7 +42,7 @@ for (const file of files) {
   const text = await Bun.file(file).text();
   const lines = text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
   if (lines > LIMIT) {
-    problems.push(`${file}: ${lines} 行，超过 ${LIMIT} 行上限，请按领域/业务边界重构`);
+    problems.push(`[file-lines] ${file}: ${lines} 行，超过 ${LIMIT} 行上限，请按领域/业务边界重构`);
   }
 }
 

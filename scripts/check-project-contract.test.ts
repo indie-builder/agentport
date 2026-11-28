@@ -1642,6 +1642,7 @@ test('仅 shared/mcp.ts 回退字面量仍命中跨包重复文案', () => {
   );
   const file = 'packages/shared/src/mcp.ts';
   const source = files[file];
+  if (!source) throw new Error(`missing ${file}`);
   const message = 'URL不能包含账号密码，请通过加密headers配置凭证';
   files[file] = source.replace('}, URL_CREDENTIALS_MESSAGE);', `}, '${message}');`);
   expect(files[file]).not.toBe(source);

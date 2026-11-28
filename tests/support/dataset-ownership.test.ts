@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveOwnership } from './dataset-ownership.ts';
+import { resolveOwnership } from './dataset-ownership.js';
 
 const base = {
   dataset: 'demo-dataset',

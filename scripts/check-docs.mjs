@@ -75,7 +75,7 @@ for (const source of sources) {
     const query = beforeHash.indexOf('?');
     const pathPart = decode(query === -1 ? beforeHash : beforeHash.slice(0, query));
     const fragment = decode(hash === -1 ? '' : href.slice(hash + 1));
-    const fail = (reason) => failures.push(`${source}: ${href} -> ${reason}`);
+    const fail = (reason) => failures.push(`[docs-check] ${source}: ${href} -> ${reason}`);
 
     if (isAbsolute(pathPart)) {
       links += 1;
@@ -153,7 +153,7 @@ for (const source of docSources) {
       const candidate = line.trimStart().replace(/^\$\s+/, '');
       if (!shellCommand.test(candidate)) continue;
       commands += 1;
-      failures.push(`${source}:${index + 1}: ${candidate} -> 禁止 pnpm/npm 运行命令`);
+      failures.push(`[docs-check] ${source}:${index + 1}: ${candidate} -> 禁止 pnpm/npm 运行命令`);
       continue;
     }
     const fenceMatch = line.match(fenceOpen);
@@ -182,13 +182,13 @@ for (const source of docSources) {
       if (bare.split('/').some((segment) => buildSegment.test(segment))) continue;
       paths += 1;
       if (!existsSync(resolve(root, bare)))
-        failures.push(`${source}:${index + 1}: ${candidate} -> 行内路径不存在`);
+        failures.push(`[docs-check] ${source}:${index + 1}: ${candidate} -> 行内路径不存在`);
     }
     if (historicalLine.test(line)) continue;
     for (const candidate of inlineCode(line)) {
       if (!shellCommand.test(candidate)) continue;
       commands += 1;
-      failures.push(`${source}:${index + 1}: ${candidate} -> 禁止 pnpm/npm 运行命令`);
+      failures.push(`[docs-check] ${source}:${index + 1}: ${candidate} -> 禁止 pnpm/npm 运行命令`);
     }
   }
 }
@@ -200,11 +200,12 @@ const rowCells = (row) => {
   return cells.map((cell) => cell.trim());
 };
 
-const indexFormatError = (lineNumber) => `docs/PITFALLS.md:${lineNumber}: 索引表格式不符合预期`;
+const indexFormatError = (lineNumber) =>
+  `[docs-check] docs/PITFALLS.md:${lineNumber}: 索引表格式不符合预期`;
 const indexed = [];
 let indexTableValid = false;
 if (indexRows.length === 0) {
-  failures.push('docs/PITFALLS.md: 缺少索引表');
+  failures.push('[docs-check] docs/PITFALLS.md: 缺少索引表');
 } else if (indexRows.length < 2 || indexRows[1].number !== indexRows[0].number + 1) {
   failures.push(indexFormatError(indexRows[0].number));
 } else {
@@ -247,9 +248,10 @@ const duplicate = [...new Set([...titleCounts.keys(), ...indexCounts.keys()])].f
   (item) => (titleCounts.get(item) ?? 0) > 1 || (indexCounts.get(item) ?? 0) > 1,
 );
 if (indexTableValid) {
-  for (const [title] of missing) failures.push(`docs/PITFALLS.md: 索引缺少 ## ${title}`);
-  for (const [item] of extra) failures.push(`docs/PITFALLS.md: 索引多出 ${item}`);
-  for (const item of duplicate) failures.push(`docs/PITFALLS.md: 重复条目 ${item}`);
+  for (const [title] of missing)
+    failures.push(`[docs-check] docs/PITFALLS.md: 索引缺少 ## ${title}`);
+  for (const [item] of extra) failures.push(`[docs-check] docs/PITFALLS.md: 索引多出 ${item}`);
+  for (const item of duplicate) failures.push(`[docs-check] docs/PITFALLS.md: 重复条目 ${item}`);
 }
 
 if (failures.length) {

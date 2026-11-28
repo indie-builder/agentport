@@ -17,7 +17,7 @@ let baseUrl = '';
 let embeddingBody: unknown = {};
 let rerankBody: unknown = {};
 let redirectHits = 0;
-let lastEmbedRequest: { url?: string; body: unknown } | null = null;
+let lastEmbedRequest: { url: string | undefined; body: unknown } | null = null;
 
 const embeddingProfile = (): EmbeddingProfile => ({
   endpointUrl: baseUrl,
@@ -378,7 +378,7 @@ describe('transcribeAudio', () => {
     model: 'whisper-1',
     apiKey: 'secret',
   });
-  const stringEntry = (value: FormDataEntryValue | null): string | null =>
+  const stringEntry = (value: ReturnType<FormData['get']>): string | null =>
     typeof value === 'string' ? value : null;
 
   beforeAll(async () => {
@@ -591,18 +591,25 @@ describe('transcribeAudio', () => {
   it('keeps a timeout while reading the success body retryable', async () => {
     const deadline = new AbortController();
     const timeoutSpy = spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal);
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
-      return new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode('{"text":"'));
-            init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason));
-            queueMicrotask(() => deadline.abort(new DOMException('timed out', 'TimeoutError')));
-          },
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      );
-    });
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
+      Object.assign(
+        async (_url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"text":"'));
+                init?.signal?.addEventListener('abort', () =>
+                  controller.error(init.signal?.reason),
+                );
+                queueMicrotask(() => deadline.abort(new DOMException('timed out', 'TimeoutError')));
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        },
+        { preconnect: globalThis.fetch.preconnect },
+      ),
+    );
     try {
       await expect(transcribeAudio(profile(), input())).rejects.toMatchObject({ kind: 'timeout' });
     } finally {
@@ -613,18 +620,25 @@ describe('transcribeAudio', () => {
 
   it('propagates caller cancellation while reading the success body', async () => {
     const caller = new AbortController();
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
-      return new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode('{"text":"'));
-            init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason));
-            queueMicrotask(() => caller.abort());
-          },
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      );
-    });
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
+      Object.assign(
+        async (_url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"text":"'));
+                init?.signal?.addEventListener('abort', () =>
+                  controller.error(init.signal?.reason),
+                );
+                queueMicrotask(() => caller.abort());
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        },
+        { preconnect: globalThis.fetch.preconnect },
+      ),
+    );
     try {
       let error: unknown;
       try {
@@ -653,11 +667,16 @@ describe('transcribeAudio', () => {
     });
     await new Promise<void>((resolve) => cutoffServer.listen(0, '127.0.0.1', resolve));
     const realFetch = globalThis.fetch;
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (...args) => {
-      const response = await realFetch(...args);
-      headersSeen();
-      return response;
-    });
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
+      Object.assign(
+        async (...args: Parameters<typeof fetch>) => {
+          const response = await realFetch(...args);
+          headersSeen();
+          return response;
+        },
+        { preconnect: globalThis.fetch.preconnect },
+      ),
+    );
     try {
       const address = cutoffServer.address();
       if (!address || typeof address === 'string') throw new Error('cutoff fixture did not bind');

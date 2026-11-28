@@ -22,9 +22,12 @@ describe('inspectKnowledgeAudio formats', () => {
     ['tone.m4a', 'audio/mp4', 'm4a', 'audio/mp4'],
     ['tone.flac', 'audio/flac', 'flac', 'audio/flac'],
     ['tone.ogg', 'audio/ogg', 'ogg', 'audio/ogg'],
-  ])('accepts %s and returns the canonical mime', async (name, mime, format, canonical) => {
-    await expect(inspectFixture(name, mime)).resolves.toEqual({ format, mimeType: canonical });
-  });
+  ] as const)(
+    'accepts %s and returns the canonical mime',
+    async (name, mime, format, canonical) => {
+      await expect(inspectFixture(name, mime)).resolves.toEqual({ format, mimeType: canonical });
+    },
+  );
 
   it.each([
     ['tone.mp3', 'audio/mp3'],

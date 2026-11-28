@@ -263,8 +263,10 @@ test('expert cards and employee badge', { session: 'admin' }, async ({ app, scre
   expect(measured).not.toBeNull();
   if (!measured) throw new Error('专家列表未渲染');
   expect(measured.cards).toHaveLength(5);
+  const firstCard = measured.cards[0];
+  if (!firstCard) throw new Error('专家列表未渲染');
   for (const card of measured.cards) expect(card.height).toBeCloseTo(176, 0);
-  for (const card of measured.cards) expect(card.width).toBeCloseTo(measured.cards[0].width, 0);
+  for (const card of measured.cards) expect(card.width).toBeCloseTo(firstCard.width, 0);
 
   const rows = new Map<number, typeof measured.cards>();
   for (const card of measured.cards) {
@@ -276,7 +278,10 @@ test('expert cards and employee badge', { session: 'admin' }, async ({ app, scre
   for (const row of rows.values()) {
     row.sort((left, right) => left.x - right.x);
     for (let index = 1; index < row.length; index += 1) {
-      expect(row[index].x - (row[index - 1].x + row[index - 1].width)).toBeCloseTo(16, 0);
+      const current = row[index];
+      const previous = row[index - 1];
+      if (!current || !previous) continue;
+      expect(current.x - (previous.x + previous.width)).toBeCloseTo(16, 0);
     }
   }
   expect(measured.dataAvatar).toBeCloseTo(40, 0);

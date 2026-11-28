@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { readdir, rm } from 'node:fs/promises';
 import http from 'node:http';
-import { SQL } from 'bun';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SQL } from 'bun';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ENV_FILE = join(ROOT, '.env');
@@ -82,7 +82,12 @@ async function timed(fn) {
   const started = performance.now();
   try {
     const result = await fn();
-    return { ok: result.status >= 200 && result.status < 300, status: result.status, ms: performance.now() - started, result };
+    return {
+      ok: result.status >= 200 && result.status < 300,
+      status: result.status,
+      ms: performance.now() - started,
+      result,
+    };
   } catch (err) {
     return { ok: false, status: 0, ms: performance.now() - started, error: err.message };
   }
@@ -96,9 +101,13 @@ function summarize(label, samples, rss, startedAt = performance.now(), extra = '
   const rps = samples.length / (elapsedMs / 1000);
   const statuses = {};
   for (const sample of samples) {
-    if (!sample.ok) statuses[sample.status || 'network'] = (statuses[sample.status || 'network'] ?? 0) + 1;
+    if (!sample.ok)
+      statuses[sample.status || 'network'] = (statuses[sample.status || 'network'] ?? 0) + 1;
   }
-  const db = rss?.maxDbPingMs === null || rss?.maxDbPingMs === undefined ? '' : ` dbPing=${ms(rss.maxDbPingMs)}ms dbMax=${rss.dbMaxConnections}`;
+  const db =
+    rss?.maxDbPingMs === null || rss?.maxDbPingMs === undefined
+      ? ''
+      : ` dbPing=${ms(rss.maxDbPingMs)}ms dbMax=${rss.dbMaxConnections}`;
   const line = [
     label.padEnd(24),
     String(samples.length).padStart(5),
@@ -133,12 +142,15 @@ function createSampler(cookie, intervalMs = 100) {
   let busy = false;
   let maxDbPingMs = null;
   let dbMaxConnections = null;
-  let peakQueue = { waiting: 0, active: 0 };
+  const peakQueue = { waiting: 0, active: 0 };
   const take = async () => {
     if (busy) return;
     busy = true;
     try {
-      const res = await request('GET', '/health/metrics', { headers: { Cookie: cookie }, timeoutMs: 3_000 });
+      const res = await request('GET', '/health/metrics', {
+        headers: { Cookie: cookie },
+        timeoutMs: 3_000,
+      });
       const metrics = JSON.parse(res.text);
       last = metrics;
       const rss = metrics.process?.memoryRssBytes ?? null;
@@ -149,7 +161,8 @@ function createSampler(cookie, intervalMs = 100) {
       }
       if (metrics.db) {
         if (metrics.db.pingMs !== null) {
-          maxDbPingMs = maxDbPingMs === null ? metrics.db.pingMs : Math.max(maxDbPingMs, metrics.db.pingMs);
+          maxDbPingMs =
+            maxDbPingMs === null ? metrics.db.pingMs : Math.max(maxDbPingMs, metrics.db.pingMs);
         }
         dbMaxConnections = metrics.db.maxConnections;
       }
@@ -214,7 +227,9 @@ async function cleanup(label) {
     if (existsSync(workspaces)) {
       const names = await readdir(workspaces).catch(() => []);
       const mine = names.filter((name) => name.startsWith(PREFIX));
-      await Promise.all(mine.map((name) => rm(join(workspaces, name), { recursive: true, force: true })));
+      await Promise.all(
+        mine.map((name) => rm(join(workspaces, name), { recursive: true, force: true })),
+      );
       if (mine.length > 0) counts.workspaces = mine.length;
     }
     console.log(`[cleanup:${label}] ${JSON.stringify(counts)}`);
@@ -248,7 +263,9 @@ async function login() {
     process.exit(1);
   }
   const cookies = res.headers['set-cookie'] ?? [];
-  const token = cookies.map((value) => value.split(';')[0]).find((value) => value?.startsWith('agentport_token='));
+  const token = cookies
+    .map((value) => value.split(';')[0])
+    .find((value) => value?.startsWith('agentport_token='));
   if (!token) {
     console.error('登录响应没有 agentport_token Cookie');
     process.exit(1);
@@ -313,7 +330,9 @@ async function rampTest(cookie) {
         )),
       );
     }
-    results.push(summarize(`GET ${path} x${concurrency}`, samples, await sampler.stop(), startedAt));
+    results.push(
+      summarize(`GET ${path} x${concurrency}`, samples, await sampler.stop(), startedAt),
+    );
   }
   return results;
 }
@@ -330,14 +349,22 @@ async function writeTest(cookie) {
   const startedAt = performance.now();
   const samples = await Promise.all(
     Array.from({ length: 20 }, (_, index) =>
-      timed(() => request('POST', '/api/skills', { body: body(index), headers: { Cookie: cookie } })),
+      timed(() =>
+        request('POST', '/api/skills', { body: body(index), headers: { Cookie: cookie } }),
+      ),
     ),
   );
   const rss = await sampler.stop();
   const summary = summarize('POST /api/skills', samples, rss, startedAt);
-  const ids = samples.filter((sample) => sample.ok).map((sample) => JSON.parse(sample.result.text).id);
+  const ids = samples
+    .filter((sample) => sample.ok)
+    .map((sample) => JSON.parse(sample.result.text).id);
   const deleted = await Promise.all(
-    ids.map((id) => request('DELETE', `/api/skills/${id}`, { headers: { Cookie: cookie } }).then((res) => res.status).catch(() => 0)),
+    ids.map((id) =>
+      request('DELETE', `/api/skills/${id}`, { headers: { Cookie: cookie } })
+        .then((res) => res.status)
+        .catch(() => 0),
+    ),
   );
   summary.deleted = deleted.filter((status) => status === 204).length;
   return summary;
@@ -357,24 +384,28 @@ function sse(path, cookie, timeoutMs) {
       settled = true;
       resolve({ connectMs, events, bytes, durationMs: performance.now() - started, ...input });
     };
-    const req = http.request(url, { method: 'GET', agent, headers: { Cookie: cookie, Accept: 'text/event-stream' } }, (res) => {
-      connectMs = performance.now() - started;
-      if (res.statusCode !== 200) {
-        res.resume();
-        finish({ status: res.statusCode, ok: false, error: `status ${res.statusCode}` });
-        return;
-      }
-      res.setEncoding('utf8');
-      res.on('data', (chunk) => {
-        bytes += Buffer.byteLength(chunk);
-        buffer += chunk;
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() ?? '';
-        for (const part of parts) if (part.includes('data:')) events += 1;
-      });
-      res.on('end', () => finish({ status: 200, ok: true }));
-      res.on('error', (err) => finish({ status: 0, ok: false, error: err.message }));
-    });
+    const req = http.request(
+      url,
+      { method: 'GET', agent, headers: { Cookie: cookie, Accept: 'text/event-stream' } },
+      (res) => {
+        connectMs = performance.now() - started;
+        if (res.statusCode !== 200) {
+          res.resume();
+          finish({ status: res.statusCode, ok: false, error: `status ${res.statusCode}` });
+          return;
+        }
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          bytes += Buffer.byteLength(chunk);
+          buffer += chunk;
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() ?? '';
+          for (const part of parts) if (part.includes('data:')) events += 1;
+        });
+        res.on('end', () => finish({ status: 200, ok: true }));
+        res.on('error', (err) => finish({ status: 0, ok: false, error: err.message }));
+      },
+    );
     req.setTimeout(timeoutMs, () => {
       req.destroy();
       finish({ status: 0, ok: false, error: 'timeout', timedOut: true });
@@ -413,7 +444,9 @@ async function sseTest(cookie, agentId) {
     await sleep(300);
   }
   if (!['succeeded', 'failed', 'cancelled', 'timeout'].includes(status)) {
-    await request('POST', `/api/chat/${runId}/cancel`, { headers: { Cookie: cookie } }).catch(() => undefined);
+    await request('POST', `/api/chat/${runId}/cancel`, { headers: { Cookie: cookie } }).catch(
+      () => undefined,
+    );
   }
   const ok = results.filter((result) => result.ok);
   const summary = {
@@ -422,9 +455,18 @@ async function sseTest(cookie, agentId) {
     chatBudget,
     ok: ok.length,
     errors: results.length - ok.length,
-    connectP50: pct(ok.map((result) => result.connectMs), 0.5),
-    connectP95: pct(ok.map((result) => result.connectMs), 0.95),
-    durationP50: pct(ok.map((result) => result.durationMs), 0.5),
+    connectP50: pct(
+      ok.map((result) => result.connectMs),
+      0.5,
+    ),
+    connectP95: pct(
+      ok.map((result) => result.connectMs),
+      0.95,
+    ),
+    durationP50: pct(
+      ok.map((result) => result.durationMs),
+      0.5,
+    ),
     durationMax: ok.length ? Math.max(...ok.map((result) => result.durationMs)) : null,
     eventsMin: ok.length ? Math.min(...ok.map((result) => result.events)) : null,
     rss,
@@ -452,7 +494,11 @@ async function mcpTest(cookie) {
             Accept: 'application/json, text/event-stream',
           },
         });
-        const payload = res.text.split('\n').find((line) => line.startsWith('data:'))?.slice(5) ?? '';
+        const payload =
+          res.text
+            .split('\n')
+            .find((line) => line.startsWith('data:'))
+            ?.slice(5) ?? '';
         if (!payload.includes('"tools"')) {
           return { ...res, status: res.status === 200 ? 0 : res.status };
         }
@@ -510,7 +556,9 @@ async function queueTest(cookie, agentId, chatBudget) {
   while (Date.now() < deadline) {
     const [list, metrics] = await Promise.all([
       request('GET', '/api/runs?limit=100', { headers: { Cookie: cookie } }).catch(() => null),
-      request('GET', '/health/metrics', { headers: { Cookie: cookie }, timeoutMs: 3_000 }).catch(() => null),
+      request('GET', '/health/metrics', { headers: { Cookie: cookie }, timeoutMs: 3_000 }).catch(
+        () => null,
+      ),
     ]);
     if (metrics?.status === 200) {
       const queue = JSON.parse(metrics.text).queue;
@@ -549,15 +597,23 @@ async function queueTest(cookie, agentId, chatBudget) {
   const rss = await sampler.stop();
   for (const post of accepted) {
     if (!['succeeded', 'failed', 'cancelled', 'timeout'].includes(states.get(post.runId)?.status)) {
-      await request('POST', `/api/chat/${post.runId}/cancel`, { headers: { Cookie: cookie } }).catch(() => undefined);
+      await request('POST', `/api/chat/${post.runId}/cancel`, {
+        headers: { Cookie: cookie },
+      }).catch(() => undefined);
     }
   }
   const summary = {
     accepted: accepted.length,
     rateLimited,
     statuses,
-    submitP50: pct(accepted.map((post) => post.ms), 0.5),
-    submitP95: pct(accepted.map((post) => post.ms), 0.95),
+    submitP50: pct(
+      accepted.map((post) => post.ms),
+      0.5,
+    ),
+    submitP95: pct(
+      accepted.map((post) => post.ms),
+      0.95,
+    ),
     queueWaitP50: pct(waits, 0.5),
     queueWaitP95: pct(waits, 0.95),
     queueWaitMax: waits.length ? Math.max(...waits) : null,
@@ -577,7 +633,11 @@ async function queueTest(cookie, agentId, chatBudget) {
 
 async function createTestAgent(cookie) {
   const res = await request('POST', '/api/agents', {
-    body: { slug: `${PREFIX}${RUN_ID}-agent`, name: `Load test ${RUN_ID}`, description: 'loadtest' },
+    body: {
+      slug: `${PREFIX}${RUN_ID}-agent`,
+      name: `Load test ${RUN_ID}`,
+      description: 'loadtest',
+    },
     headers: { Cookie: cookie },
   });
   if (res.status !== 201) {
@@ -603,7 +663,9 @@ async function main() {
   await cleanup('before');
   const cookie = await login();
 
-  console.log('\n测试                          样本  错误   p50(ms)  p95(ms)  p99(ms)   req/s  峰值RSS(MB)');
+  console.log(
+    '\n测试                          样本  错误   p50(ms)  p95(ms)  p99(ms)   req/s  峰值RSS(MB)',
+  );
   const summary = {};
   summary.reads = await readTest(cookie);
   summary.ramp = await rampTest(cookie);

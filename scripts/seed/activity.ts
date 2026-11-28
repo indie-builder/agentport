@@ -7,11 +7,11 @@ import {
   readOutputFile,
   sha256Hex,
 } from '@agentport/core';
-import { newId, repo, schema } from '@agentport/db';
+import { newId, repo, schema, type Transaction } from '@agentport/db';
 import { and, asc, eq } from 'drizzle-orm';
-import { DEMO_CONVERSATIONS } from './constants';
-import { storageDir } from './paths';
-import type { DemoCatalog, SeedContext } from './types';
+import { DEMO_CONVERSATIONS } from './constants.js';
+import { storageDir } from './paths.js';
+import type { DemoCatalog, SeedContext } from './types.js';
 
 const SLOT = {
   review: 'succeeded',
@@ -246,7 +246,7 @@ export async function seedActivity(ctx: SeedContext, catalog: DemoCatalog): Prom
       const seedMessage = messages.find(
         (message) =>
           message.role === 'user' &&
-          repo.chat.messageText(message.content) === spec.messages[0].text,
+          repo.chat.messageText(message.content) === spec.messages[0]?.text,
       );
       const [run] = seedMessage?.runId
         ? await db
@@ -282,7 +282,7 @@ export async function seedActivity(ctx: SeedContext, catalog: DemoCatalog): Prom
       createdAt: new Date(runStartedAt.getTime() + message.offsetMs),
     }));
 
-    await db.transaction(async (tx) => {
+    await db.transaction(async (tx: Transaction) => {
       await repo.chat.createConversation(tx, {
         id: conversationId,
         agentId: spec.agent.id,

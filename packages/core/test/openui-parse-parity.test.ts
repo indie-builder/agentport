@@ -4,6 +4,7 @@ import {
   action,
   createLibrary,
   createParser,
+  type DefinedComponent,
   defineComponent,
   markReactive,
 } from '@openuidev/lang-core';
@@ -17,7 +18,7 @@ const definitions = createOpenUiDefinitions({ defineComponent, action, reactive 
 const ours = createParser(
   createLibrary({
     root: definitions.root,
-    components: definitions.components,
+    components: definitions.components as unknown as DefinedComponent[],
     componentGroups: definitions.componentGroups,
   }).toJSONSchema(),
   'Card',

@@ -1,7 +1,7 @@
-import type { DbHandle } from '@agentport/db';
+import type { Database } from '@agentport/db';
 
 export interface SeedContext {
-  db: DbHandle;
+  db: Database;
   businessId: string;
   now: Date;
   log: (message: string) => void;

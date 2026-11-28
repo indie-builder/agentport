@@ -1,12 +1,12 @@
 import { existsSync } from 'node:fs';
 import { createDb, platformBootstrap, repo } from '@agentport/db';
 import { eq } from 'drizzle-orm';
-import { seedActivity } from './seed/activity';
-import { seedAgents } from './seed/agents';
-import { seedChannels } from './seed/channels';
-import { seedKnowledge } from './seed/knowledge';
-import { seedOps } from './seed/ops';
-import type { DemoCatalog, SeedContext } from './seed/types';
+import { seedActivity } from './seed/activity.js';
+import { seedAgents } from './seed/agents.js';
+import { seedChannels } from './seed/channels.js';
+import { seedKnowledge } from './seed/knowledge.js';
+import { seedOps } from './seed/ops.js';
+import type { DemoCatalog, SeedContext } from './seed/types.js';
 
 const envPath = Bun.fileURLToPath(new URL('../.env', import.meta.url));
 if (existsSync(envPath)) process.loadEnvFile(envPath);

@@ -3,6 +3,7 @@ import { createOpenUiDefinitions, OPENUI_COMPONENT_NAMES } from '@agentport/shar
 import {
   action,
   createLibrary,
+  type DefinedComponent,
   defineComponent,
   isReactiveSchema,
   markReactive,
@@ -25,7 +26,7 @@ const kit = { defineComponent, action, reactive };
 const definitions = createOpenUiDefinitions(kit, {});
 const ours = createLibrary({
   root: definitions.root,
-  components: definitions.components,
+  components: definitions.components as unknown as DefinedComponent[],
   componentGroups: definitions.componentGroups,
 });
 

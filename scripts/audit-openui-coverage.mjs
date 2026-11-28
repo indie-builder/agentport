@@ -14,11 +14,7 @@ const nested = registry.nestedOnly ?? [];
 const nestedInteractive = registry.nestedInteractive ?? [];
 const specialized = registry.specialized ?? [];
 
-const registered = new Set([
-  ...samples,
-  ...nested,
-  ...specialized.map((entry) => entry.name),
-]);
+const registered = new Set([...samples, ...nested, ...specialized.map((entry) => entry.name)]);
 const unknownToRegistry = contract.filter((name) => !registered.has(name));
 const unknownToContract = [...registered].filter((name) => !contract.includes(name));
 
@@ -36,7 +32,10 @@ const buckets = new Map();
 for (const [name, label] of [
   ...bucket('samples', samples),
   ...bucket('nestedOnly', nested),
-  ...bucket('specialized', specialized.map((entry) => entry.name)),
+  ...bucket(
+    'specialized',
+    specialized.map((entry) => entry.name),
+  ),
 ]) {
   buckets.set(name, [...(buckets.get(name) ?? []), label]);
 }

@@ -1298,7 +1298,8 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     state.conversationId = found.conversationId;
     state.messageId = found.messageId;
     state.status = found.runId ? 'running' : 'failed';
-    state.runId = found.runId ?? undefined;
+    if (found.runId) state.runId = found.runId;
+    else delete state.runId;
     save();
     if (!found.runId) return null;
     return api<RunDetail>(browser, `/api/runs/${found.runId}`);

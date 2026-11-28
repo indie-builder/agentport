@@ -10,7 +10,7 @@
       "**/*.ts",
       "**/*.tsx",
       "**/*.json",
-      "scripts/check-docs.mjs",
+      "scripts/**/*.mjs",
       "!**/.agents",
       "!**/.claude",
       "!**/dist",
