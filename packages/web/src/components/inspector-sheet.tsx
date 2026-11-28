@@ -61,9 +61,7 @@ export function InspectorSheet({
               {eyebrow}
             </div>
             {description ? (
-              <SheetDescription className="mt-1 text-sm text-muted-foreground">
-                {description}
-              </SheetDescription>
+              <SheetDescription className="mt-1">{description}</SheetDescription>
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">

@@ -170,16 +170,18 @@ export function ChatTopBar({
       <Button
         ref={workspaceToggleRef}
         variant="muted"
-        size="icon"
+        size="none"
         aria-label={workspaceOpen ? '隐藏会话成果' : '打开会话成果'}
         title={workspaceOpen ? '隐藏会话成果' : '打开会话成果'}
         aria-expanded={workspaceOpen}
         aria-controls={workspacePanelId}
         onClick={onToggleWorkspace}
-        className="shrink-0 gap-1.5 lg:w-auto lg:px-2"
+        className="shrink-0"
       >
-        <PanelRightDashed />
-        <span className="hidden text-sm lg:inline">会话成果</span>
+        <span className="inline-flex size-8 items-center justify-center gap-1.5 lg:w-auto lg:px-2">
+          <PanelRightDashed />
+          <span className="hidden text-sm lg:inline">会话成果</span>
+        </span>
       </Button>
     </div>
   );

@@ -174,7 +174,9 @@ export function DuplicateBaseDialog({
               />
               <FieldDescription
                 id="knowledge-duplicate-count"
-                className="text-right text-xs tabular-nums"
+                size="xs"
+                numeric
+                className="text-right"
               >
                 {description.length}/{DESCRIPTION_MAX}
               </FieldDescription>

@@ -324,7 +324,7 @@ const ToolRow = memo(function ToolRow({
               <Wrench />
             )}
           </TraceIcon>
-          <TraceTitle className="font-mono text-xs text-fg">{item.name}</TraceTitle>
+          <TraceTitle variant="mono">{item.name}</TraceTitle>
           <TraceDescription>
             {status}
             {duration === undefined ? '' : ` · ${formatDuration(duration)}`}
@@ -333,36 +333,42 @@ const ToolRow = memo(function ToolRow({
           </TraceDescription>
         </TraceLine>
       </TraceCollapsibleTrigger>
-      <TraceCollapsibleContent className="flex flex-col gap-2">
-        {childCount > 0 ? (
-          <p className="text-xs text-muted-foreground">子智能体 · {childCount} 次调用</p>
-        ) : null}
-        <div className="min-w-0">
-          <div className="mb-1 text-2xs uppercase tracking-label text-muted-foreground">参数</div>
-          {item.input !== undefined ? (
-            <JsonBlock value={item.input} maxHeight="16rem" />
-          ) : (
-            <p className="text-2xs text-muted-foreground">{running ? '等待参数…' : '未收到参数'}</p>
-          )}
-        </div>
-        <div className="min-w-0">
-          <div className="mb-1 text-2xs uppercase tracking-label text-muted-foreground">结果</div>
-          {item.result !== undefined ? (
-            dataDomainResult === null ? (
-              <>
-                <JsonBlock value={item.result} maxHeight="20rem" />
-                <div className="mt-2">
-                  <KnowledgeCitations name={item.name} result={item.result} />
-                </div>
-              </>
+      <TraceCollapsibleContent>
+        <div className="flex flex-col gap-2">
+          {childCount > 0 ? (
+            <p className="text-xs text-muted-foreground">子智能体 · {childCount} 次调用</p>
+          ) : null}
+          <div className="min-w-0">
+            <div className="mb-1 text-2xs uppercase tracking-label text-muted-foreground">参数</div>
+            {item.input !== undefined ? (
+              <JsonBlock value={item.input} maxHeight="16rem" />
             ) : (
-              <Suspense fallback={<Skeleton className="h-16 w-full" />}>
-                <DataDomainResultView result={dataDomainResult} />
-              </Suspense>
-            )
-          ) : (
-            <p className="text-2xs text-muted-foreground">{running ? '等待结果…' : '未收到结果'}</p>
-          )}
+              <p className="text-2xs text-muted-foreground">
+                {running ? '等待参数…' : '未收到参数'}
+              </p>
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="mb-1 text-2xs uppercase tracking-label text-muted-foreground">结果</div>
+            {item.result !== undefined ? (
+              dataDomainResult === null ? (
+                <>
+                  <JsonBlock value={item.result} maxHeight="20rem" />
+                  <div className="mt-2">
+                    <KnowledgeCitations name={item.name} result={item.result} />
+                  </div>
+                </>
+              ) : (
+                <Suspense fallback={<Skeleton className="h-16 w-full" />}>
+                  <DataDomainResultView result={dataDomainResult} />
+                </Suspense>
+              )
+            ) : (
+              <p className="text-2xs text-muted-foreground">
+                {running ? '等待结果…' : '未收到结果'}
+              </p>
+            )}
+          </div>
         </div>
       </TraceCollapsibleContent>
     </TraceCollapsible>

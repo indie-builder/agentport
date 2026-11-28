@@ -11,6 +11,7 @@ import {
   formatFileSize,
   relativePath,
 } from '@ui-sdk/react/file-input';
+import { cva, type VariantProps } from 'class-variance-authority';
 import type { ComponentProps } from 'react';
 import { type Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
@@ -19,17 +20,34 @@ type WithOptionalClassName<T extends { className?: unknown }> = Omit<T, 'classNa
   className?: T['className'] | undefined;
 };
 
+const fileInputVariants = cva('', {
+  variants: {
+    variant: {
+      default: '',
+      inline: 'flex flex-wrap items-center gap-2',
+    },
+  },
+  defaultVariants: {
+    variant: 'default',
+  },
+});
+
 function FileInput({
   className,
+  variant = 'default',
   ...props
-}: WithOptionalClassName<ComponentProps<typeof FileInputPrimitive>>) {
+}: WithOptionalClassName<ComponentProps<typeof FileInputPrimitive>> &
+  VariantProps<typeof fileInputVariants>) {
+  const baseClassName = fileInputVariants({ variant });
   return (
     <FileInputPrimitive
-      {...(className === undefined
+      {...(baseClassName === '' && className === undefined
         ? {}
         : {
             className:
-              typeof className === 'function' ? (state) => cn(className(state)) : cn(className),
+              typeof className === 'function'
+                ? (state) => cn(baseClassName, className(state))
+                : cn(baseClassName, className),
           })}
       {...props}
     />

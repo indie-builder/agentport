@@ -151,6 +151,7 @@ export function EvalCompareTab({
         </div>
 
         <SegmentedControl<EvalDiffFilter>
+          size="sm"
           aria-label="筛选对比结果"
           value={optimisticDiff}
           onValueChange={(next) => {
@@ -161,11 +162,7 @@ export function EvalCompareTab({
         >
           <SegmentedControlIndicator />
           {diffOptions.map((option) => (
-            <SegmentedControlItem
-              key={option.value}
-              value={option.value}
-              className="h-6 px-2.5 text-xs"
-            >
+            <SegmentedControlItem key={option.value} value={option.value}>
               {option.label}
             </SegmentedControlItem>
           ))}
@@ -244,7 +241,7 @@ export function EvalCompareTab({
           {visibleRows.map((row) => (
             <li key={`${effectiveBaseId}:${effectiveHeadId}:${row.key}`}>
               <Card hover="static" size="sm">
-                <CardHeader className="border-b">
+                <CardHeader bordered>
                   <CardTitle className="flex flex-wrap items-center gap-2">
                     <StatusBadge tone={evalComparisonStatusVariant[row.status]}>
                       {evalComparisonStatusLabel[row.status]}

@@ -51,7 +51,6 @@ import {
 } from '../../components/ui/select.js';
 import { Switch } from '../../components/ui/switch.js';
 import { errorMessage } from '../../lib/api.js';
-import { cn } from '../../lib/cn.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { formatCost, formatDateTime, formatPercent } from '../../lib/format.js';
 import {
@@ -181,13 +180,11 @@ export function BudgetsSection({
               </div>
               <Progress
                 value={percent}
+                gap="none"
                 aria-label={`${budget.scopeName} 用量 ${percent}%`}
-                className="gap-0"
               >
                 <ProgressTrack>
-                  <ProgressIndicator
-                    className={cn(exceeded ? 'bg-danger' : near ? 'bg-warning' : 'bg-fg')}
-                  />
+                  <ProgressIndicator tone={exceeded ? 'danger' : near ? 'warning' : 'default'} />
                 </ProgressTrack>
               </Progress>
             </div>

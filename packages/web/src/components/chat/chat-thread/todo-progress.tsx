@@ -1,7 +1,6 @@
 import type { ProgressTodo } from '@agentport/shared';
 import { Circle, CircleCheck, ListChecks, LoaderCircle } from 'lucide-react';
 import { memo } from 'react';
-import { cn } from '../../../lib/cn.js';
 import { Timeline, TimelineItem, TimelineMarker, TimelineTitle } from '../../ui/timeline.js';
 
 export const TodoProgress = memo(function TodoProgress({ todos }: { todos: ProgressTodo[] }) {
@@ -24,7 +23,7 @@ export const TodoProgress = memo(function TodoProgress({ todos }: { todos: Progr
           已完成 {completed} 项，共 {todos.length} 项
         </span>
       </div>
-      <Timeline aria-label="任务清单" className="gap-1">
+      <Timeline aria-label="任务清单" density="compact">
         {entries.map(({ todo, key }) => {
           const status =
             todo.status === 'completed'
@@ -42,9 +41,11 @@ export const TodoProgress = memo(function TodoProgress({ todos }: { todos: Progr
             <TimelineItem
               key={key}
               status={timelineStatus}
-              className="grid-cols-[auto_minmax(0,1fr)] items-start gap-x-1.5 pb-0 text-base"
+              density="flush"
+              size="base"
+              className="grid-cols-[auto_minmax(0,1fr)] items-start"
             >
-              <TimelineMarker className="mt-1 size-4 not-empty:bg-transparent not-empty:data-complete:bg-transparent not-empty:data-current:bg-transparent">
+              <TimelineMarker variant="bare" className="mt-1 size-4">
                 {todo.status === 'completed' ? (
                   <CircleCheck className="size-4 shrink-0 text-success" aria-hidden="true" />
                 ) : todo.status === 'in_progress' ? (
@@ -57,10 +58,10 @@ export const TodoProgress = memo(function TodoProgress({ todos }: { todos: Progr
                 )}
               </TimelineMarker>
               <TimelineTitle
-                className={cn(
-                  'min-w-0 text-base font-normal [overflow-wrap:anywhere]',
-                  todo.status === 'in_progress' ? 'text-fg' : 'text-muted-foreground',
-                )}
+                size="base"
+                weight="normal"
+                tone={todo.status === 'in_progress' ? 'default' : 'muted'}
+                className="min-w-0 [overflow-wrap:anywhere]"
               >
                 <span className="sr-only">{status}：</span>
                 {todo.status === 'in_progress' ? todo.activeForm : todo.content}

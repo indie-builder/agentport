@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  CarouselContent,
+  CarouselContent as CarouselContentPrimitive,
   CarouselItem as CarouselItemPrimitive,
   CarouselNext as CarouselNextPrimitive,
   CarouselPrevious as CarouselPreviousPrimitive,
@@ -41,6 +41,29 @@ function CarouselViewport({
   );
 }
 
+function CarouselContent({
+  className,
+  padding = 'default',
+  gap = 'default',
+  ...props
+}: ComponentProps<typeof CarouselContentPrimitive> & {
+  padding?: 'default' | 'y' | undefined;
+  gap?: 'default' | 'variable' | undefined;
+}) {
+  return (
+    <CarouselContentPrimitive
+      className={(state) =>
+        cn(
+          padding === 'y' && 'py-2',
+          gap === 'variable' && 'gap-(--carousel-gap)',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
+      {...props}
+    />
+  );
+}
+
 function CarouselItem({ className, ...props }: ComponentProps<typeof CarouselItemPrimitive>) {
   return (
     <CarouselItemPrimitive
@@ -58,14 +81,20 @@ function CarouselItem({ className, ...props }: ComponentProps<typeof CarouselIte
 function CarouselPrevious({
   className,
   children,
+  position = 'overlay',
   ...props
-}: ComponentProps<typeof CarouselPreviousPrimitive>) {
+}: ComponentProps<typeof CarouselPreviousPrimitive> & {
+  position?: 'overlay' | 'inline' | undefined;
+}) {
   return (
     <CarouselPreviousPrimitive
       className={(state) =>
         cn(
           buttonVariants({ variant: 'outline', size: 'icon-sm' }),
-          'absolute inset-y-0 -start-12 my-auto touch-manipulation rounded-icon',
+          'touch-manipulation rounded-icon',
+          position === 'overlay'
+            ? 'absolute inset-y-0 -start-12 my-auto'
+            : 'static inset-auto translate-y-0',
           typeof className === 'function' ? className(state) : className,
         )
       }
@@ -84,14 +113,20 @@ function CarouselPrevious({
 function CarouselNext({
   className,
   children,
+  position = 'overlay',
   ...props
-}: ComponentProps<typeof CarouselNextPrimitive>) {
+}: ComponentProps<typeof CarouselNextPrimitive> & {
+  position?: 'overlay' | 'inline' | undefined;
+}) {
   return (
     <CarouselNextPrimitive
       className={(state) =>
         cn(
           buttonVariants({ variant: 'outline', size: 'icon-sm' }),
-          'absolute inset-y-0 -end-12 my-auto touch-manipulation rounded-icon',
+          'touch-manipulation rounded-icon',
+          position === 'overlay'
+            ? 'absolute inset-y-0 -end-12 my-auto'
+            : 'static inset-auto translate-y-0',
           typeof className === 'function' ? className(state) : className,
         )
       }

@@ -133,11 +133,12 @@ export function EvalFromRunDialog({
               <FieldLabel htmlFor={`${formId}-prompt`}>输入</FieldLabel>
               <Textarea
                 id={`${formId}-prompt`}
+                variant="sunken"
                 value={prompt}
                 readOnly
                 rows={3}
                 aria-readonly="true"
-                className="max-h-40 overflow-y-auto bg-sunken text-muted-foreground"
+                className="max-h-40 overflow-y-auto"
               />
             </Field>
             <Field className="gap-1.5" data-disabled={pending}>
@@ -218,7 +219,7 @@ export function EvalFromRunDialog({
                 }
               />
               <div className="flex min-w-0 flex-col gap-1">
-                <FieldLabel htmlFor={`${formId}-confirmed`} className="text-sm font-normal">
+                <FieldLabel htmlFor={`${formId}-confirmed`} variant="plain">
                   我已人工核对期望答案，不使用原回答作为正确答案
                 </FieldLabel>
                 <FieldError id={`${formId}-confirmed-error`}>

@@ -138,9 +138,11 @@ function ChannelRunSheetContent({
     <SheetContent className="w-full gap-0 p-0 sm:max-w-xl!">
       <div className="min-w-0 border-b px-5 py-3.5 pr-12">
         <SheetTitle>运行详情</SheetTitle>
-        <SheetDescription className="mt-1 flex flex-wrap items-center gap-2">
-          <span className="font-mono">运行 {shortId(runId)}</span>
-          {run ? <RunStatusBadge status={run.status} /> : null}
+        <SheetDescription className="mt-1">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="font-mono">运行 {shortId(runId)}</span>
+            {run ? <RunStatusBadge status={run.status} /> : null}
+          </span>
         </SheetDescription>
       </div>
 
@@ -242,7 +244,7 @@ function ChannelRunSheetContent({
                       const itemKey = count === 1 ? baseKey : `${baseKey}-${count}`;
                       return (
                         <AccordionItem key={itemKey} value={itemKey}>
-                          <AccordionTrigger className="min-w-0 gap-2">
+                          <AccordionTrigger gap="sm" className="min-w-0">
                             <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
                               <span className="w-5 shrink-0 text-right font-mono text-2xs tabular-nums text-muted-foreground">
                                 {index + 1}
@@ -308,13 +310,15 @@ function ChannelRunSheetContent({
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 min-w-0 flex-1 justify-start gap-1.5 px-1.5 font-normal"
+                          className="min-w-0 flex-1"
                           title={file.path}
                           aria-current={selected === file.path ? 'true' : undefined}
                           onClick={() => setSelected(file.path)}
                         >
-                          <FileText className="size-3.5 shrink-0" aria-hidden="true" />
-                          <span className="truncate">{file.path}</span>
+                          <span className="flex min-w-0 flex-1 items-center justify-start gap-1.5 font-normal">
+                            <FileText className="size-3.5 shrink-0" aria-hidden="true" />
+                            <span className="truncate">{file.path}</span>
+                          </span>
                         </Button>
                         <span className="shrink-0 font-mono text-2xs text-muted-foreground">
                           {formatBytes(file.size)}
@@ -333,9 +337,9 @@ function ChannelRunSheetContent({
                   </ul>
                   {outputs.data?.nextCursor ? (
                     <Button
-                      variant="ghost"
+                      variant="muted"
                       size="sm"
-                      className="self-start text-muted-foreground"
+                      className="self-start"
                       disabled={outputs.isFetchingNextPage}
                       onClick={() => void outputs.fetchNextPage()}
                     >

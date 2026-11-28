@@ -25,48 +25,83 @@ function toFlag(value: DataFlag): true | undefined {
   return value === true || value === '' || value === 'true' ? true : undefined;
 }
 
-const fieldSetClassName =
-  'flex flex-col gap-4 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3';
+const fieldSetVariants = cva(
+  'flex flex-col gap-4 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3',
+  {
+    variants: {
+      variant: {
+        default: '',
+        aside: '@min-[800px]:border-l @min-[800px]:border-line @min-[800px]:pl-6',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+    },
+  },
+);
 
 function FieldSet({
   className,
+  variant = 'default',
   disabled,
   'data-disabled': dataDisabled,
   ...props
-}: WithOptionalClassName<ComponentProps<typeof FieldSetPrimitive>> & {
-  'data-disabled'?: DataFlag;
-}) {
+}: WithOptionalClassName<ComponentProps<typeof FieldSetPrimitive>> &
+  VariantProps<typeof fieldSetVariants> & {
+    'data-disabled'?: DataFlag;
+  }) {
   const resolvedDisabled = disabled ?? toFlag(dataDisabled);
   return (
     <FieldSetPrimitive
       {...(resolvedDisabled === undefined ? {} : { disabled: resolvedDisabled })}
       className={
         typeof className === 'function'
-          ? (state: FieldSetState) => cn(fieldSetClassName, className(state))
-          : cn(fieldSetClassName, className)
+          ? (state: FieldSetState) => cn(fieldSetVariants({ variant }), className(state))
+          : cn(fieldSetVariants({ variant }), className)
       }
       {...props}
     />
   );
 }
 
-const fieldLegendClassName =
-  'mb-1.5 font-medium data-[variant=label]:text-sm data-[variant=legend]:text-base';
+const fieldLegendVariants = cva(
+  'mb-1.5 font-medium data-[variant=label]:text-sm data-[variant=legend]:text-base data-disabled:opacity-50',
+  {
+    variants: {
+      tone: {
+        default: '',
+        danger: 'text-destructive',
+        muted: 'text-muted-foreground',
+      },
+      inline: {
+        false: '',
+        true: 'flex items-center gap-2 select-none',
+      },
+    },
+    defaultVariants: {
+      tone: 'default',
+      inline: false,
+    },
+  },
+);
 
 function FieldLegend({
   className,
   variant = 'legend',
+  tone = 'default',
+  inline = false,
   ...props
-}: WithOptionalClassName<ComponentProps<typeof FieldLegendPrimitive>> & {
-  variant?: 'legend' | 'label' | undefined;
-}) {
+}: WithOptionalClassName<ComponentProps<typeof FieldLegendPrimitive>> &
+  VariantProps<typeof fieldLegendVariants> & {
+    variant?: 'legend' | 'label' | undefined;
+  }) {
   return (
     <FieldLegendPrimitive
       data-variant={variant}
       className={
         typeof className === 'function'
-          ? (state: FieldSetState) => cn(fieldLegendClassName, className(state))
-          : cn(fieldLegendClassName, className)
+          ? (state: FieldSetState) => cn(fieldLegendVariants({ tone, inline }), className(state))
+          : cn(fieldLegendVariants({ tone, inline }), className)
       }
       {...props}
     />
@@ -147,15 +182,38 @@ function FieldContent({ className, ...props }: ComponentProps<'div'>) {
   );
 }
 
-const fieldLabelClassName =
-  'group/field-label peer/field-label flex w-fit items-center gap-2 text-sm font-medium select-none data-disabled:pointer-events-none data-disabled:opacity-50 group-data-disabled/field:pointer-events-none group-data-disabled/field:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 has-data-checked:border-primary/30 has-data-checked:bg-primary/5 has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col has-[>[data-slot=field]]:rounded-lg has-[>[data-slot=field]]:border has-[>[data-slot=field]]:not-has-[:disabled,[data-disabled]]:hover:bg-muted/50 has-[>[data-slot=field]]:has-[:focus-visible]:ring-2 has-[>[data-slot=field]]:has-[:focus-visible]:ring-ring *:data-[slot=field]:p-2.5';
+const fieldLabelVariants = cva(
+  'group/field-label peer/field-label flex text-sm select-none data-disabled:pointer-events-none data-disabled:opacity-50 group-data-disabled/field:pointer-events-none group-data-disabled/field:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 has-data-checked:border-primary/30 has-data-checked:bg-primary/5 has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col has-[>[data-slot=field]]:rounded-lg has-[>[data-slot=field]]:border has-[>[data-slot=field]]:not-has-[:disabled,[data-disabled]]:hover:bg-muted/50 has-[>[data-slot=field]]:has-[:focus-visible]:ring-2 has-[>[data-slot=field]]:has-[:focus-visible]:ring-ring *:data-[slot=field]:p-2.5',
+  {
+    variants: {
+      variant: {
+        default: 'w-fit items-center gap-2 font-medium',
+        plain: 'w-fit items-center gap-2 font-normal',
+        option:
+          'w-full cursor-pointer items-start gap-2 rounded-item border border-line px-3 py-2.5 font-normal',
+      },
+      tone: {
+        default: '',
+        fg: 'text-fg',
+        muted: 'text-muted-foreground',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+      tone: 'default',
+    },
+  },
+);
 
 function FieldLabel({
   className,
+  variant = 'default',
+  tone = 'default',
   htmlFor,
   render,
   ...props
-}: WithOptionalClassName<ComponentProps<typeof FieldLabelPrimitive>>) {
+}: WithOptionalClassName<ComponentProps<typeof FieldLabelPrimitive>> &
+  VariantProps<typeof fieldLabelVariants>) {
   const resolvedRender: ComponentProps<typeof FieldLabelPrimitive>['render'] =
     htmlFor === undefined
       ? render
@@ -176,59 +234,108 @@ function FieldLabel({
       {...(resolvedRender === undefined ? {} : { render: resolvedRender })}
       className={
         typeof className === 'function'
-          ? (state: FieldState) => cn(fieldLabelClassName, className(state))
-          : cn(fieldLabelClassName, className)
+          ? (state: FieldState) => cn(fieldLabelVariants({ variant, tone }), className(state))
+          : cn(fieldLabelVariants({ variant, tone }), className)
       }
       {...props}
     />
   );
 }
 
-function FieldTitle({ className, ...props }: ComponentProps<'div'>) {
+const fieldTitleVariants = cva(
+  'flex w-fit items-center gap-2 text-sm font-medium group-data-disabled/field:opacity-50',
+  {
+    variants: {
+      tone: {
+        default: '',
+        fg: 'text-fg',
+        muted: 'text-muted-foreground',
+      },
+    },
+    defaultVariants: {
+      tone: 'default',
+    },
+  },
+);
+
+function FieldTitle({
+  className,
+  tone = 'default',
+  ...props
+}: ComponentProps<'div'> & VariantProps<typeof fieldTitleVariants>) {
   return (
     <div
       data-slot="field-label"
-      className={cn(
-        'flex w-fit items-center gap-2 text-sm font-medium group-data-disabled/field:opacity-50',
-        className,
-      )}
+      className={cn(fieldTitleVariants({ tone }), className)}
       {...props}
     />
   );
 }
 
-const fieldDescriptionClassName =
-  'text-start text-sm font-normal text-muted-foreground group-data-[orientation=horizontal]/field:text-balance [[data-variant=legend]+&]:-mt-1.5 last:mt-0 nth-last-2:-mt-1 [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary';
+const fieldDescriptionVariants = cva(
+  'text-start font-normal text-muted-foreground group-data-[orientation=horizontal]/field:text-balance [[data-variant=legend]+&]:-mt-1.5 last:mt-0 nth-last-2:-mt-1 [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary',
+  {
+    variants: {
+      size: {
+        default: 'text-sm',
+        xs: 'text-xs',
+      },
+      numeric: {
+        false: '',
+        true: 'tabular-nums',
+      },
+    },
+    defaultVariants: {
+      size: 'default',
+      numeric: false,
+    },
+  },
+);
 
 function FieldDescription({
   className,
+  size = 'default',
+  numeric = false,
   ...props
-}: WithOptionalClassName<ComponentProps<typeof FieldDescriptionPrimitive>>) {
+}: WithOptionalClassName<ComponentProps<typeof FieldDescriptionPrimitive>> &
+  VariantProps<typeof fieldDescriptionVariants>) {
   return (
     <FieldDescriptionPrimitive
       className={
         typeof className === 'function'
-          ? (state: FieldDescriptionState) => cn(fieldDescriptionClassName, className(state))
-          : cn(fieldDescriptionClassName, className)
+          ? (state: FieldDescriptionState) =>
+              cn(fieldDescriptionVariants({ size, numeric }), className(state))
+          : cn(fieldDescriptionVariants({ size, numeric }), className)
       }
       {...props}
     />
   );
 }
 
-const fieldErrorClassName = 'text-sm font-normal text-destructive';
+const fieldErrorVariants = cva('text-sm font-normal text-destructive', {
+  variants: {
+    inline: {
+      false: '',
+      true: 'flex items-center gap-1',
+    },
+  },
+  defaultVariants: {
+    inline: false,
+  },
+});
 
-type FieldErrorProps = WithOptionalClassName<ComponentProps<typeof FieldErrorPrimitive>> & {
-  errors?: Array<{ message?: string } | undefined> | undefined;
-};
+type FieldErrorProps = WithOptionalClassName<ComponentProps<typeof FieldErrorPrimitive>> &
+  VariantProps<typeof fieldErrorVariants> & {
+    errors?: Array<{ message?: string } | undefined> | undefined;
+  };
 
 function FieldError(rawProps: FieldErrorProps) {
   const hasExplicitContent = 'children' in rawProps || 'errors' in rawProps;
-  const { className, children, errors, match, role = 'alert', ...props } = rawProps;
+  const { className, inline = false, children, errors, match, role = 'alert', ...props } = rawProps;
   const resolvedClassName =
     typeof className === 'function'
-      ? (state: FieldErrorState) => cn(fieldErrorClassName, className(state))
-      : cn(fieldErrorClassName, className);
+      ? (state: FieldErrorState) => cn(fieldErrorVariants({ inline }), className(state))
+      : cn(fieldErrorVariants({ inline }), className);
 
   const content = useMemo(() => {
     if (typeof children === 'function') {

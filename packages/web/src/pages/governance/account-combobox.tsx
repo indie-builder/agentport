@@ -139,11 +139,12 @@ export function AccountCombobox({
             aria-label={label}
             aria-invalid={invalid}
             placeholder={placeholder}
-            className="pr-8"
+            withTrigger
           />
           <ComboboxTrigger
+            variant="ghost"
             aria-label={`展开${label}列表`}
-            className="absolute right-1.5 inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-40"
+            className="absolute right-1.5"
           />
         </div>
         <ComboboxContent anchor={anchor}>

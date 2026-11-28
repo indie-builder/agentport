@@ -1025,9 +1025,10 @@ function ScheduleDialog({
                   {...register('name')}
                   value={watched.name}
                   id="schedule-name"
+                  variant="ghost"
                   disabled={pending}
                   placeholder="任务名称"
-                  className="-mx-2.5 w-[calc(100%+1.25rem)]! border-transparent text-base font-medium md:text-base"
+                  className="-mx-2.5 w-[calc(100%+1.25rem)]! text-base font-medium md:text-base"
                   aria-required="true"
                   aria-invalid={Boolean(errors.name)}
                   aria-describedby={errors.name ? 'schedule-name-error' : undefined}
@@ -1048,9 +1049,10 @@ function ScheduleDialog({
                     {...register('prompt')}
                     value={watched.prompt}
                     id="schedule-prompt"
+                    variant="ghost"
                     disabled={pending}
                     rows={8}
-                    className="-mx-2.5 min-h-40 w-[calc(100%+1.25rem)]! border-transparent"
+                    className="-mx-2.5 min-h-40 w-[calc(100%+1.25rem)]!"
                     placeholder="希望专家定期完成什么？"
                     aria-required="true"
                     aria-invalid={Boolean(errors.prompt)}
@@ -1107,10 +1109,8 @@ function ScheduleDialog({
               </div>
             </FieldGroup>
 
-            <FieldSet className="w-full gap-5 @min-[800px]:self-start @min-[800px]:border-l @min-[800px]:border-line @min-[800px]:pl-6">
-              <FieldLegend className="mb-0 flex h-8 items-center text-base font-medium">
-                执行计划
-              </FieldLegend>
+            <FieldSet variant="aside" className="w-full gap-5 @min-[800px]:self-start">
+              <FieldLegend className="mb-0 flex h-8 items-center">执行计划</FieldLegend>
               <FieldGroup className="gap-5">
                 <div
                   className={cn(

@@ -40,20 +40,22 @@ export function RunOutputs({
                   mode: outputSelectionMode(file.mediaType),
                 })
               }
-              className="max-w-full min-w-0 justify-start gap-1.5 px-1.5 font-normal"
+              className="max-w-full min-w-0 justify-start"
             >
-              <FileText className="size-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{file.path}</span>
-              {status ? (
-                <span
-                  className={cn(
-                    'shrink-0 text-xs',
-                    file.status === 'failed' ? 'text-danger' : 'text-muted-foreground',
-                  )}
-                >
-                  {status}
-                </span>
-              ) : null}
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 font-normal">
+                <FileText className="size-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{file.path}</span>
+                {status ? (
+                  <span
+                    className={cn(
+                      'shrink-0 text-xs',
+                      file.status === 'failed' ? 'text-danger' : 'text-muted-foreground',
+                    )}
+                  >
+                    {status}
+                  </span>
+                ) : null}
+              </span>
             </Button>
           </li>
         );

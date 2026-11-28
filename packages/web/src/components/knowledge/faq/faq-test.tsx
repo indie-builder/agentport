@@ -57,9 +57,7 @@ export function FaqTest({ baseId }: { baseId: string }) {
           <Switch checked={rerank} onCheckedChange={setRerank} aria-label="启用重排" /> 重排
         </span>
         <Field className="w-32 gap-1">
-          <FieldLabel htmlFor="faq-test-threshold" className="text-sm">
-            向量门槛
-          </FieldLabel>
+          <FieldLabel htmlFor="faq-test-threshold">向量门槛</FieldLabel>
           <NumberInput
             min={-1}
             max={1}

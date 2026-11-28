@@ -342,22 +342,19 @@ export function PersonalMemoryPanel({
         <Collapsible open={versionsOpen} onOpenChange={setVersionsOpen}>
           <CollapsibleTrigger
             render={
-              <Button
-                variant="ghost"
-                size="sm"
-                className="justify-start px-0"
-                aria-label="版本历史"
-              />
+              <Button variant="plain" size="none" className="justify-start" aria-label="版本历史" />
             }
           >
-            <ChevronRight
-              className={cn(
-                'transition-transform duration-150 ease-out-soft',
-                versionsOpen && 'rotate-90',
-              )}
-              aria-hidden="true"
-            />
-            版本历史{versionCount > 0 ? `（${versionCount}）` : ''}
+            <span className="inline-flex h-7 items-center gap-1 rounded-lg text-sm text-fg group-hover/button:bg-hover">
+              <ChevronRight
+                className={cn(
+                  'size-3.5 transition-transform duration-150 ease-out-soft',
+                  versionsOpen && 'rotate-90',
+                )}
+                aria-hidden="true"
+              />
+              版本历史{versionCount > 0 ? `（${versionCount}）` : ''}
+            </span>
           </CollapsibleTrigger>
           <CollapsibleContent animated>
             <aside aria-label="个人记忆版本" className="flex min-w-0 flex-col gap-2 pt-2">

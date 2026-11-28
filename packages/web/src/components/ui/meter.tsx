@@ -13,7 +13,16 @@ const meterLabelClassName = 'text-sm font-medium text-fg';
 const meterValueClassName = 'text-xs tabular-nums text-muted-foreground';
 const meterTrackClassName =
   'relative col-span-full h-1.5 w-full overflow-hidden rounded-pill bg-sunken';
-const meterIndicatorClassName = 'h-full rounded-pill bg-fg transition-[width] duration-150';
+const meterIndicatorClassName = 'h-full rounded-pill transition-[width] duration-150';
+
+const meterIndicatorTone = {
+  default: 'bg-fg',
+  primary: 'bg-primary',
+  success: 'bg-success',
+  warning: 'bg-warning',
+  danger: 'bg-danger',
+  muted: 'bg-subtle',
+} as const;
 
 type MeterProps = Omit<ComponentProps<typeof MeterPrimitive>, 'className'> & {
   className?: ComponentProps<typeof MeterPrimitive>['className'] | undefined;
@@ -33,6 +42,7 @@ type MeterTrackProps = Omit<ComponentProps<typeof MeterTrackPrimitive>, 'classNa
 
 type MeterIndicatorProps = Omit<ComponentProps<typeof MeterIndicatorPrimitive>, 'className'> & {
   className?: ComponentProps<typeof MeterIndicatorPrimitive>['className'] | undefined;
+  tone?: keyof typeof meterIndicatorTone | undefined;
 };
 
 function Meter({ className, ...props }: MeterProps) {
@@ -87,13 +97,15 @@ function MeterTrack({ className, ...props }: MeterTrackProps) {
   );
 }
 
-function MeterIndicator({ className, ...props }: MeterIndicatorProps) {
+function MeterIndicator({ className, tone = 'default', ...props }: MeterIndicatorProps) {
+  const baseClassName = cn(meterIndicatorClassName, meterIndicatorTone[tone]);
   return (
     <MeterIndicatorPrimitive
+      data-tone={tone}
       className={
         typeof className === 'function'
-          ? (state) => cn(meterIndicatorClassName, className(state))
-          : cn(meterIndicatorClassName, className)
+          ? (state) => cn(baseClassName, className(state))
+          : cn(baseClassName, className)
       }
       {...props}
     />

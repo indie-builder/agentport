@@ -196,14 +196,14 @@ export function EvalRunsTab({
                 <span className="text-xs text-muted-foreground">通过率走势</span>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="xs"
                   disabled={terminalRuns.length < 2}
                   title={terminalRuns.length < 2 ? '至少需要两次已结束的运行' : undefined}
                   onClick={onCompareLatest}
-                  className="-mr-2.5 h-6 px-2 text-xs"
+                  className="-mr-2.5"
                 >
                   <GitCompare data-icon="inline-start" aria-hidden="true" />
-                  对比最近两次
+                  <span className="text-xs">对比最近两次</span>
                 </Button>
               </div>
               {chartPoints.length >= 2 ? (
@@ -283,12 +283,12 @@ export function EvalRunsTab({
                         >
                           <MeterTrack>
                             <MeterIndicator
-                              className={
+                              tone={
                                 run.status === 'failed'
-                                  ? 'bg-danger'
+                                  ? 'danger'
                                   : run.status === 'running'
-                                    ? 'bg-fg'
-                                    : 'bg-success'
+                                    ? 'default'
+                                    : 'success'
                               }
                             />
                           </MeterTrack>

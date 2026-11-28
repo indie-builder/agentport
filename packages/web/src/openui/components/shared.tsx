@@ -159,13 +159,12 @@ export function CardBlockGrid({
   const gapValue = gap === undefined ? undefined : typeof gap === 'number' ? `${gap}px` : gap;
   if (layout === 'carousel') {
     const carouselGap = gapValue ?? 'calc(var(--spacing) * 3)';
-    const trackStyle = { '--openui-card-gap': carouselGap } as CSSProperties;
+    const trackStyle = { '--carousel-gap': carouselGap } as CSSProperties;
     const itemClass = cn(
-      'pl-0',
       size === 'overview'
         ? 'basis-60 @max-[30rem]:basis-50'
         : responsive
-          ? 'basis-4/5 @min-[481px]:basis-[calc((100%_-_var(--openui-card-gap))/2)]'
+          ? 'basis-4/5 @min-[481px]:basis-[calc((100%_-_var(--carousel-gap))/2)]'
           : size === 'medium'
             ? 'basis-80'
             : 'basis-70',
@@ -180,7 +179,7 @@ export function CardBlockGrid({
     return (
       <Carousel aria-label="卡片轮播" align="start" className="@container min-w-0">
         <CarouselViewport>
-          <CarouselContent style={trackStyle} className="ml-0 gap-(--openui-card-gap)">
+          <CarouselContent gap="variable" style={trackStyle} className="ml-0">
             {slideItems.map(({ child, key }) => (
               <CarouselItem key={key} className={itemClass}>
                 {child}
@@ -189,8 +188,8 @@ export function CardBlockGrid({
           </CarouselContent>
         </CarouselViewport>
         <div className="mt-2 flex items-center justify-end gap-1">
-          <CarouselPrevious className="static inset-auto translate-y-0 rounded-icon" />
-          <CarouselNext className="static inset-auto translate-y-0 rounded-icon" />
+          <CarouselPrevious position="inline" />
+          <CarouselNext position="inline" />
         </div>
       </Carousel>
     );

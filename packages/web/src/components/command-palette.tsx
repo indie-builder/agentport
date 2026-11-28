@@ -92,8 +92,9 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent
         showCloseButton={false}
+        animated={false}
         aria-describedby={undefined}
-        className="top-[12%] flex max-h-[min(72vh,36rem)] w-full max-w-[calc(100%-2rem)] translate-y-0 flex-col gap-0 overflow-hidden p-0 transition-none sm:max-w-[36rem]"
+        className="top-[12%] flex max-h-[min(72vh,36rem)] w-full max-w-[calc(100%-2rem)] translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-[36rem]"
       >
         <DialogTitle className="sr-only">命令面板</DialogTitle>
         <Command
@@ -131,9 +132,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
                 event.preventDefault();
                 changeOpen(false);
               }}
-              render={
-                <Input className="h-11 flex-1 rounded-none border-0 bg-transparent px-0 shadow-none focus-visible:border-0" />
-              }
+              render={<Input variant="bare" className="h-11 flex-1" />}
             />
             <span
               aria-hidden="true"
@@ -303,11 +302,13 @@ export function CommandPaletteTrigger() {
       aria-label={`搜索（${hint.text}）`}
       aria-keyshortcuts={hint.ariaKeyshortcuts}
       onClick={openCommandPalette}
-      className="w-full gap-2.5"
+      className="w-full"
     >
-      <Search aria-hidden="true" className="shrink-0" />
-      <span className="truncate">搜索…</span>
-      <span className="ml-auto shrink-0 text-xs text-muted-foreground">{hint.text}</span>
+      <span className="flex w-full min-w-0 items-center gap-2.5">
+        <Search aria-hidden="true" className="shrink-0" />
+        <span className="truncate">搜索…</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">{hint.text}</span>
+      </span>
     </Button>
   );
 }

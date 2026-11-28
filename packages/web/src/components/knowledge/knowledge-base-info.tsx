@@ -129,7 +129,9 @@ export function BaseInfoDialog({
               />
               <FieldDescription
                 id="knowledge-base-info-count"
-                className="text-right text-xs tabular-nums"
+                size="xs"
+                numeric
+                className="text-right"
               >
                 {description.length}/{DESCRIPTION_MAX}
               </FieldDescription>

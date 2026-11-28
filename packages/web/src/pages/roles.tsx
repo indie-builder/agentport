@@ -838,7 +838,7 @@ const PermissionMatrix = memo(function PermissionMatrix({
       <Table aria-label="角色权限矩阵">
         <TableHeader className="sticky top-0 z-20">
           <TableRow>
-            <TableHead scope="col" className="sticky left-0 z-20 border-r border-line bg-sunken">
+            <TableHead scope="col" bordered className="sticky left-0 z-20 bg-sunken">
               功能
             </TableHead>
             {fields.map((role, index) => (
@@ -867,10 +867,11 @@ const PermissionMatrix = memo(function PermissionMatrix({
               >
                 <TableHead
                   scope="row"
+                  bordered
                   className={
                     data.kind === 'group'
-                      ? 'sticky left-0 z-10 h-10 border-r border-line bg-surface text-sm font-medium text-fg'
-                      : 'sticky left-0 z-10 h-10 border-r border-line bg-surface text-sm font-normal text-fg'
+                      ? 'sticky left-0 z-10 h-10 bg-surface text-sm font-medium text-fg'
+                      : 'sticky left-0 z-10 h-10 bg-surface text-sm font-normal text-fg'
                   }
                 >
                   {data.kind === 'group' ? (
@@ -1240,10 +1241,7 @@ function RoleSettings({
             data-disabled={disabled ? true : undefined}
             className="gap-3"
           >
-            <FieldLabel
-              htmlFor={`role-name-${key}`}
-              className="w-20 shrink-0 text-muted-foreground"
-            >
+            <FieldLabel htmlFor={`role-name-${key}`} tone="muted" className="w-20 shrink-0">
               角色名称
             </FieldLabel>
             <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -1268,9 +1266,10 @@ function RoleSettings({
                   title={`删除角色 ${displayName}`}
                   disabled={pending}
                   onClick={() => onDelete(key)}
-                  className="text-muted-foreground hover:text-danger"
                 >
-                  <Trash2 />
+                  <span className="inline-flex text-muted-foreground group-hover/button:text-danger">
+                    <Trash2 />
+                  </span>
                 </Button>
               ) : null}
             </div>

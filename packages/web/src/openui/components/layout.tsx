@@ -355,7 +355,7 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
         className="w-full justify-start gap-1 overflow-x-auto px-0.75 [&_[role=tab]]:after:bottom-[-4.5px]"
       >
         {entries.map(({ itemProps, value }) => (
-          <TabsTrigger key={value} value={value} className="flex-none px-2">
+          <TabsTrigger key={value} value={value} padding="sm" className="flex-none">
             {String(itemProps?.trigger ?? '')}
           </TabsTrigger>
         ))}
@@ -406,8 +406,8 @@ export function AccordionRenderer({ props, renderNode }: RenderProps<{ items: un
       {entries.map(({ itemProps, value }) => (
         <AccordionItem key={value} value={value}>
           <AccordionTrigger>{String(itemProps?.trigger ?? '')}</AccordionTrigger>
-          <AccordionContent className="flex flex-col gap-3">
-            {renderNode(itemProps?.content)}
+          <AccordionContent>
+            <div className="flex flex-col gap-3">{renderNode(itemProps?.content)}</div>
           </AccordionContent>
         </AccordionItem>
       ))}
@@ -490,8 +490,8 @@ export function SectionBlockRenderer({
       {entries.map(({ itemProps, value }) => (
         <AccordionItem key={value} value={value}>
           <AccordionTrigger>{String(itemProps?.trigger ?? '')}</AccordionTrigger>
-          <AccordionContent className="flex flex-col gap-3">
-            {renderNode(itemProps?.content)}
+          <AccordionContent>
+            <div className="flex flex-col gap-3">{renderNode(itemProps?.content)}</div>
           </AccordionContent>
         </AccordionItem>
       ))}
@@ -528,9 +528,9 @@ export function StepsRenderer({ props, renderNode }: RenderProps<{ items: unknow
         <TimelineItem key={key} value={key} {...(status === undefined ? {} : { status })}>
           <TimelineMarker>{index + 1}</TimelineMarker>
           <TimelineConnector />
-          <TimelineTitle className="text-base">{title}</TimelineTitle>
+          <TimelineTitle size="base">{title}</TimelineTitle>
           {details != null && details !== '' ? (
-            <TimelineDescription className="text-base">
+            <TimelineDescription size="base">
               {typeof details === 'string' ? (
                 <Markdown text={details} streaming={streaming} presentation="inherit" />
               ) : (
@@ -578,26 +578,28 @@ export function CarouselRenderer({
   return (
     <Carousel aria-label="内容轮播" align="start" className="@container min-w-0">
       <CarouselViewport>
-        <CarouselContent className="ml-0 py-2">
+        <CarouselContent padding="y" className="ml-0">
           {slideEntries.map(({ slide, key }) => (
-            <CarouselItem key={key} className="basis-4/5 px-2 @min-[481px]:basis-1/2">
-              <div
-                className={cn(
-                  'flex h-full flex-col gap-3 rounded-card p-3',
-                  props.variant === 'sunk'
-                    ? 'bg-sunken'
-                    : 'cds-card-surface bg-surface has-[.cds-card-surface]:transform-none has-[.cds-card-surface]:bg-transparent has-[.cds-card-surface]:p-0 has-[.cds-card-surface]:shadow-none',
-                )}
-              >
-                {renderNode(slide)}
+            <CarouselItem key={key} className="basis-4/5 @min-[481px]:basis-1/2">
+              <div className="h-full px-2">
+                <div
+                  className={cn(
+                    'flex h-full flex-col gap-3 rounded-card p-3',
+                    props.variant === 'sunk'
+                      ? 'bg-sunken'
+                      : 'cds-card-surface bg-surface has-[.cds-card-surface]:transform-none has-[.cds-card-surface]:bg-transparent has-[.cds-card-surface]:p-0 has-[.cds-card-surface]:shadow-none',
+                  )}
+                >
+                  {renderNode(slide)}
+                </div>
               </div>
             </CarouselItem>
           ))}
         </CarouselContent>
       </CarouselViewport>
       <div className="mt-2 flex items-center justify-end gap-1">
-        <CarouselPrevious className="static inset-auto translate-y-0 rounded-icon" />
-        <CarouselNext className="static inset-auto translate-y-0 rounded-icon" />
+        <CarouselPrevious position="inline" />
+        <CarouselNext position="inline" />
       </div>
     </Carousel>
   );
@@ -692,12 +694,12 @@ export function FollowUpBlockRenderer({ props }: RenderProps<{ items: unknown[] 
             key={index}
             type="button"
             variant="outline"
-            size="sm"
+            size="none"
             disabled={streaming}
-            className="h-auto rounded-full px-3 py-1.5 font-normal whitespace-normal"
+            className="whitespace-normal"
             onClick={() => void trigger(text)}
           >
-            {text}
+            <span className="px-3 py-1.5 font-normal">{text}</span>
           </Button>
         );
       })}

@@ -93,14 +93,35 @@ function MessageScrollerViewport({
   );
 }
 
+const messageScrollerContentGap = {
+  default: 'gap-6',
+  sm: 'gap-4',
+} as const;
+
+const messageScrollerContentPadding = {
+  none: '',
+  x: 'px-6',
+  xy: 'px-6 py-4',
+} as const;
+
 function MessageScrollerContent({
   className,
+  gap = 'default',
+  padding = 'none',
   ...props
-}: React.ComponentProps<typeof MessageScrollerPrimitive.Content>) {
+}: React.ComponentProps<typeof MessageScrollerPrimitive.Content> & {
+  gap?: keyof typeof messageScrollerContentGap | undefined;
+  padding?: keyof typeof messageScrollerContentPadding | undefined;
+}) {
   return (
     <MessageScrollerPrimitive.Content
       data-slot="message-scroller-content"
-      className={cn('flex h-max min-h-full flex-col gap-6', className)}
+      className={cn(
+        'flex h-max min-h-full flex-col',
+        messageScrollerContentGap[gap],
+        messageScrollerContentPadding[padding],
+        className,
+      )}
       {...props}
     />
   );
@@ -139,7 +160,7 @@ function MessageScrollerButton({
       data-size={size}
       direction={direction}
       className={cn(
-        'absolute inset-s-1/2 -translate-x-1/2 border-border bg-background text-foreground hover:bg-hover hover:text-foreground data-[active=false]:pointer-events-none data-[active=false]:opacity-0 data-[direction=end]:bottom-4 data-[direction=start]:top-4 rtl:translate-x-1/2 data-[direction=start]:[&_svg]:rotate-180',
+        'absolute inset-s-1/2 -translate-x-1/2 border-border bg-background text-foreground hover:bg-hover hover:text-foreground motion-reduce:transition-none data-[active=false]:pointer-events-none data-[active=false]:opacity-0 data-[direction=end]:bottom-4 data-[direction=start]:top-4 rtl:translate-x-1/2 data-[direction=start]:[&_svg]:rotate-180',
         className,
       )}
       render={render ?? <Button variant={variant} size={size} />}

@@ -314,21 +314,23 @@ function CitationList({
             <Button
               variant="ghost"
               size="sm"
-              className="h-auto w-full min-w-0 justify-start gap-2 py-1 text-left whitespace-normal"
+              className="h-auto w-full min-w-0 justify-start text-left whitespace-normal"
               onClick={() => onOpen(citation)}
             >
-              <span className="min-w-0 flex-1 truncate text-xs text-fg" title={citation.title}>
-                {citation.title}
-                {citation.heading ? (
-                  <span className="text-muted-foreground"> · {citation.heading}</span>
-                ) : null}
+              <span className="flex min-w-0 flex-1 items-center gap-2 py-1">
+                <span className="min-w-0 flex-1 truncate text-xs text-fg" title={citation.title}>
+                  {citation.title}
+                  {citation.heading ? (
+                    <span className="text-muted-foreground"> · {citation.heading}</span>
+                  ) : null}
+                </span>
+                <span className="shrink-0 text-2xs text-muted-foreground">
+                  {contentKindLabel[citation.target.kind]}
+                </span>
+                {page === null ? null : (
+                  <span className="shrink-0 text-2xs text-muted-foreground">{page}</span>
+                )}
               </span>
-              <span className="shrink-0 text-2xs text-muted-foreground">
-                {contentKindLabel[citation.target.kind]}
-              </span>
-              {page === null ? null : (
-                <span className="shrink-0 text-2xs text-muted-foreground">{page}</span>
-              )}
             </Button>
           </li>
         );

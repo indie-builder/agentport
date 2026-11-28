@@ -666,7 +666,7 @@ export function FaqImportDialog({
                 <FileInput
                   accept=".json,.csv,.xlsx,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   disabled={locked}
-                  className="flex flex-wrap items-center gap-2"
+                  variant="inline"
                   onValueChange={(files, details) => {
                     details.cancel();
                     const file = files[0];

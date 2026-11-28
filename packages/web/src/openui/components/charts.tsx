@@ -404,7 +404,7 @@ function ChartDataView({
         数据视图
       </CollapsibleTrigger>
       <CollapsibleContent animated className="pt-2">
-        <Table className="text-sm">
+        <Table>
           <TableHeader>
             <TableRow>
               <TableHead className="text-muted-foreground">{label}</TableHead>

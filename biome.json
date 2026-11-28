@@ -34,10 +34,10 @@
         "noExplicitAny": "error"
       },
       "style": {
-        "noNonNullAssertion": "warn"
+        "noNonNullAssertion": "error"
       },
       "correctness": {
-        "useExhaustiveDependencies": "warn"
+        "useExhaustiveDependencies": "error"
       }
     }
   },
@@ -62,6 +62,9 @@
         "rules": {
           "correctness": {
             "noComponentHookFactories": "off"
+          },
+          "style": {
+            "noNonNullAssertion": "off"
           }
         }
       }

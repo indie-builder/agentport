@@ -204,6 +204,7 @@ export function EvalCasesTab({
           className="w-full sm:w-56"
         />
         <SegmentedControl<CaseFilter>
+          size="sm"
           aria-label="筛选用例类型"
           value={filter}
           onValueChange={(next) => {
@@ -212,11 +213,7 @@ export function EvalCasesTab({
         >
           <SegmentedControlIndicator />
           {filterOptions.map((option) => (
-            <SegmentedControlItem
-              key={option.value}
-              value={option.value}
-              className="h-6 px-2.5 text-xs"
-            >
+            <SegmentedControlItem key={option.value} value={option.value}>
               {option.label}
             </SegmentedControlItem>
           ))}

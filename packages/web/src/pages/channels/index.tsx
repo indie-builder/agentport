@@ -39,7 +39,6 @@ import { Textarea } from '../../components/ui/textarea.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { errorMessage } from '../../lib/api.js';
-import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { formatRelative } from '../../lib/format.js';
 import { meQuery, useChannels, useCreateChannel } from '../../lib/queries.js';
@@ -238,10 +237,7 @@ function ChannelCard({ channel }: { channel: ChannelListItem }) {
       params={{ channelId: channel.id }}
       className="group block h-full rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <Card
-        hover="lift"
-        className={cn('h-full min-h-44 gap-3', channel.archivedAt && 'opacity-70')}
-      >
+      <Card hover="lift" gap="sm" muted={Boolean(channel.archivedAt)} className="h-full min-h-44">
         <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]! items-start gap-3">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-item bg-sunken text-muted-foreground">
             <Hash aria-hidden="true" />
@@ -271,11 +267,13 @@ function ChannelCard({ channel }: { channel: ChannelListItem }) {
             {last === null ? '尚未发起讨论' : last.body}
           </p>
         </CardContent>
-        <CardContent className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span className="min-w-0 truncate">
-            {channel.memberCount} 成员 · {channel.agentCount} 智能体
-          </span>
-          <span className="shrink-0 whitespace-nowrap">{formatRelative(channel.updatedAt)}</span>
+        <CardContent>
+          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span className="min-w-0 truncate">
+              {channel.memberCount} 成员 · {channel.agentCount} 智能体
+            </span>
+            <span className="shrink-0 whitespace-nowrap">{formatRelative(channel.updatedAt)}</span>
+          </div>
         </CardContent>
       </Card>
     </Link>

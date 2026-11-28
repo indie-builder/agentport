@@ -8,6 +8,7 @@ import {
   NumberInputScrubArea,
   NumberInputScrubAreaCursor,
 } from '@ui-sdk/react/number-input';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { Minus, Plus } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { buttonVariants } from '@/components/ui/button';
@@ -20,11 +21,35 @@ const defaultNumberFormat: Intl.NumberFormatOptions = {
 
 const numberInputClassName = 'flex w-full min-w-0 flex-col gap-1.5';
 
-const numberInputGroupClassName =
-  'group/number-input-group relative flex h-8 w-full min-w-0 items-center gap-1 rounded-item border border-input bg-transparent ps-1 pe-1 transition-colors outline-none has-[>[data-slot=number-input-control]:first-child]:ps-2.5 has-[>[data-slot=number-input-control]:last-child]:pe-2.5 data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-35 has-[[data-slot=number-input-control]:focus-visible]:border-input-focus has-[[data-slot=number-input-control][aria-invalid=true]]:border-destructive has-[[data-slot=number-input-control][aria-invalid=true]:focus-visible]:border-destructive';
+const numberInputGroupVariants = cva(
+  'group/number-input-group relative flex h-8 w-full min-w-0 items-center gap-1 rounded-item border ps-1 pe-1 transition-colors outline-none has-[>[data-slot=number-input-control]:first-child]:ps-2.5 has-[>[data-slot=number-input-control]:last-child]:pe-2.5 data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:bg-sunken data-disabled:opacity-35 has-[[data-slot=number-input-control]:focus-visible]:border-input-focus has-[[data-slot=number-input-control][aria-invalid=true]]:border-destructive has-[[data-slot=number-input-control][aria-invalid=true]:focus-visible]:border-destructive',
+  {
+    variants: {
+      variant: {
+        default: 'border-input bg-transparent',
+        bare: 'border-transparent bg-transparent',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+    },
+  },
+);
 
-const numberInputControlClassName =
-  'h-full w-full min-w-0 flex-1 rounded-item border-0 bg-transparent py-1 text-sm text-fg tabular-nums outline-none not-first:ps-1 not-last:pe-1 placeholder:text-muted-foreground disabled:cursor-not-allowed';
+const numberInputControlVariants = cva(
+  'h-full w-full min-w-0 flex-1 rounded-item border-0 bg-transparent py-1 text-sm text-fg tabular-nums outline-none not-first:ps-1 not-last:pe-1 placeholder:text-muted-foreground disabled:cursor-not-allowed',
+  {
+    variants: {
+      mono: {
+        false: '',
+        true: 'font-mono',
+      },
+    },
+    defaultVariants: {
+      mono: false,
+    },
+  },
+);
 
 const numberInputStepButtonClassName = buttonVariants({
   variant: 'ghost',
@@ -48,11 +73,13 @@ type NumberInputProps = Omit<
 
 type NumberInputGroupProps = WithOptionalClassName<
   ComponentProps<typeof NumberInputGroupPrimitive>
->;
+> &
+  VariantProps<typeof numberInputGroupVariants>;
 
 type NumberInputControlProps = WithOptionalClassName<
   ComponentProps<typeof NumberInputControlPrimitive>
->;
+> &
+  VariantProps<typeof numberInputControlVariants>;
 
 type NumberInputDecrementProps = WithOptionalClassName<
   ComponentProps<typeof NumberInputDecrementPrimitive>
@@ -89,19 +116,19 @@ function NumberInput({
   );
 }
 
-function NumberInputGroup({ className, ...props }: NumberInputGroupProps) {
+function NumberInputGroup({ className, variant = 'default', ...props }: NumberInputGroupProps) {
   return (
     <NumberInputGroupPrimitive
-      className={mergeClassName(numberInputGroupClassName, className)}
+      className={mergeClassName(numberInputGroupVariants({ variant }), className)}
       {...props}
     />
   );
 }
 
-function NumberInputControl({ className, ...props }: NumberInputControlProps) {
+function NumberInputControl({ className, mono = false, ...props }: NumberInputControlProps) {
   return (
     <NumberInputControlPrimitive
-      className={mergeClassName(numberInputControlClassName, className)}
+      className={mergeClassName(numberInputControlVariants({ mono }), className)}
       {...props}
     />
   );

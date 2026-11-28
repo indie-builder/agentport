@@ -33,7 +33,6 @@ import {
 import { can } from '../../lib/access.js';
 import type { DataDomainIdentity } from '../../lib/api.js';
 import { errorMessage } from '../../lib/api.js';
-import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { useFormBlocker } from '../../lib/form.js';
 import { formatRelative } from '../../lib/format.js';
@@ -146,7 +145,7 @@ function BusinessUserPicker({
               key={account.businessId}
               value={account.businessId}
               label={account.name || account.businessId}
-              className="py-2"
+              size="md"
             >
               <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-start">
                 <span className="truncate">{account.name || account.businessId}</span>
@@ -270,7 +269,8 @@ function IdentityDialog({
             <FieldSet data-disabled={pending} className="gap-2">
               <FieldLegend
                 variant="label"
-                className={cn('mb-0', Boolean(errors.businessId) && 'text-destructive')}
+                tone={errors.businessId ? 'danger' : 'default'}
+                className="mb-0"
               >
                 业务用户
                 <RequiredMark />

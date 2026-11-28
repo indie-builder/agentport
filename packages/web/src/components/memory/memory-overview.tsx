@@ -89,11 +89,7 @@ function AssemblySection({ agentId }: { agentId: string }) {
               {assembly.data.blocks.map((block) => {
                 const skipped = block.trigger === 'skipped';
                 return (
-                  <TableRow
-                    key={`${block.kind}-${block.path}`}
-                    hover="none"
-                    className={skipped ? 'opacity-60' : undefined}
-                  >
+                  <TableRow key={`${block.kind}-${block.path}`} hover="none" muted={skipped}>
                     <TableCell className="whitespace-normal">
                       <div className="break-all font-mono text-xs" title={block.path}>
                         {block.name}

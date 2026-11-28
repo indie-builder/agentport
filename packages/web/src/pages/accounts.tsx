@@ -342,7 +342,7 @@ export function AccountsPage() {
           const isSelf = selfBusinessId !== null && row.businessId === selfBusinessId;
           return (
             <div className="flex min-w-0 items-center gap-2.5">
-              <Avatar aria-hidden="true" className="size-7 shrink-0 text-xs">
+              <Avatar aria-hidden="true" className="size-7 shrink-0">
                 <AvatarFallback>{accountInitial(row.name, row.username)}</AvatarFallback>
               </Avatar>
               <div className="flex min-w-0 flex-col">
@@ -1442,7 +1442,7 @@ function AccountInspectorSheet({
               >
                 <FieldGroup className="gap-5">
                   <FieldSet className="gap-2" disabled={pending}>
-                    <FieldLegend variant="label" className="mb-2 data-disabled:opacity-50">
+                    <FieldLegend variant="label" className="mb-2">
                       角色
                     </FieldLegend>
                     <RoleChecks
@@ -1793,7 +1793,7 @@ function CreateAccountDialog({
             </Field>
             {canAssignRoles ? (
               <FieldSet className="gap-2" disabled={pending}>
-                <FieldLegend variant="label" className="mb-2 data-disabled:opacity-50">
+                <FieldLegend variant="label" className="mb-2">
                   角色
                 </FieldLegend>
                 <RoleChecks

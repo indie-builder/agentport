@@ -8,12 +8,18 @@ function Breadcrumb({ className, ...props }: React.ComponentProps<'nav'>) {
   );
 }
 
-function BreadcrumbList({ className, ...props }: React.ComponentProps<'ol'>) {
+function BreadcrumbList({
+  className,
+  size = 'default',
+  ...props
+}: React.ComponentProps<'ol'> & { size?: 'default' | 'sm' }) {
   return (
     <ol
       data-slot="breadcrumb-list"
+      data-size={size}
       className={cn(
-        'flex flex-wrap items-center gap-1.5 text-sm wrap-break-word text-muted-foreground',
+        'flex flex-wrap items-center wrap-break-word text-muted-foreground',
+        size === 'sm' ? 'gap-1 text-xs' : 'gap-1.5 text-sm',
         className,
       )}
       {...props}

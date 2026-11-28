@@ -56,26 +56,26 @@ export const ApprovalCard = memo(function ApprovalCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-auto min-h-7 max-w-full whitespace-normal py-1"
+              className="h-auto min-h-7 max-w-full whitespace-normal"
               disabled={deciding}
               aria-busy={denyingThis}
               aria-label={`拒绝 ${item.serverName ?? item.serverId} / ${item.toolName}`}
               data-agent-confirm={`拒绝 ${item.serverName ?? item.serverId} / ${item.toolName} 的工具调用`}
               onClick={() => onDeny(item)}
             >
-              {denyingThis ? '拒绝中…' : '拒绝'}
+              <span className="py-1">{denyingThis ? '拒绝中…' : '拒绝'}</span>
             </Button>
           ) : null}
           <Button
             size="sm"
-            className="h-auto min-h-7 max-w-full whitespace-normal py-1"
+            className="h-auto min-h-7 max-w-full whitespace-normal"
             disabled={deciding}
             aria-busy={busy}
             aria-label={`批准 ${item.serverName ?? item.serverId} / ${item.toolName}`}
             data-agent-confirm={`批准 ${item.serverName ?? item.serverId} / ${item.toolName} 的工具调用`}
             onClick={() => onApprove(item)}
           >
-            {busy ? '批准中…' : '批准本次调用'}
+            <span className="py-1">{busy ? '批准中…' : '批准本次调用'}</span>
           </Button>
         </div>
       ) : null}

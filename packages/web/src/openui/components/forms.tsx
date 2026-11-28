@@ -640,7 +640,9 @@ export function CheckBoxGroupRenderer({
             className="mt-0.5"
           />
           <FieldContent className="gap-0">
-            <FieldLabel className="font-normal text-fg">{item.label}</FieldLabel>
+            <FieldLabel variant="plain" tone="fg">
+              {item.label}
+            </FieldLabel>
             {item.description ? <FieldDescription>{item.description}</FieldDescription> : null}
           </FieldContent>
         </Field>
@@ -785,7 +787,9 @@ export function SwitchGroupRenderer({
           className="items-start justify-between gap-3"
         >
           <FieldContent className="gap-0">
-            <FieldLabel className="font-normal text-fg">{item.label ?? item.name}</FieldLabel>
+            <FieldLabel variant="plain" tone="fg">
+              {item.label ?? item.name}
+            </FieldLabel>
             {item.description ? <FieldDescription>{item.description}</FieldDescription> : null}
           </FieldContent>
           <Switch
@@ -1058,11 +1062,7 @@ export function FormControlRenderer({
       data-disabled={streaming ? 'true' : undefined}
     >
       {labelable ? (
-        <FieldLabel
-          id={labelId}
-          {...(isSingleSlider ? {} : { htmlFor: controlId })}
-          className="text-fg"
-        >
+        <FieldLabel id={labelId} {...(isSingleSlider ? {} : { htmlFor: controlId })} tone="fg">
           {props.label}
           {required ? (
             <span className="ml-0.5 text-danger" aria-hidden="true">
@@ -1071,7 +1071,7 @@ export function FormControlRenderer({
           ) : null}
         </FieldLabel>
       ) : (
-        <FieldTitle id={labelId} className="text-fg">
+        <FieldTitle id={labelId} tone="fg">
           {props.label}
           {required ? (
             <span className="ml-0.5 text-danger" aria-hidden="true">
@@ -1084,7 +1084,7 @@ export function FormControlRenderer({
         {renderNode(props.input)}
       </FieldWiringContext.Provider>
       {props.hint ? <FieldDescription id={hintId}>{props.hint}</FieldDescription> : null}
-      <FieldControlError id={errorId} className="flex items-center gap-1">
+      <FieldControlError id={errorId} inline>
         {error ? (
           <>
             <CircleAlert aria-hidden="true" />

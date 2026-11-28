@@ -481,13 +481,7 @@ function SessionGroup({
                     {session.current ? <StatusBadge tone="brand">当前设备</StatusBadge> : null}
                   </div>
                   <CollapsibleTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="group shrink-0 text-muted-foreground"
-                      />
-                    }
+                    render={<Button variant="muted" size="sm" className="group shrink-0" />}
                   >
                     <ChevronRight
                       data-icon="inline-start"
@@ -556,13 +550,7 @@ function SessionCard({
             </span>
           </div>
           <CollapsibleTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="sm"
-                className="group -ml-2 self-start text-muted-foreground"
-              />
-            }
+            render={<Button variant="muted" size="sm" className="group -ml-2 self-start" />}
           >
             <ChevronRight
               data-icon="inline-start"

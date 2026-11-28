@@ -92,10 +92,25 @@ export function agentAvatar(agent: AgentDisplay): string {
   return avatars[hash(slug) % avatars.length] ?? frontendEngineer;
 }
 
-export function AgentAvatar({ agent, className }: { agent: AgentDisplay; className?: string }) {
+export function AgentAvatar({
+  agent,
+  className,
+  variant,
+  bordered,
+}: {
+  agent: AgentDisplay;
+  className?: string | undefined;
+  variant?: 'default' | 'badge' | undefined;
+  bordered?: boolean | undefined;
+}) {
   const initial = agent.name.trim().slice(0, 1).toUpperCase() || '?';
   return (
-    <Avatar aria-hidden="true" className={cn('size-10', className)}>
+    <Avatar
+      aria-hidden="true"
+      variant={variant}
+      bordered={bordered}
+      className={cn('size-10', className)}
+    >
       <AvatarImage src={agentAvatar(agent)} alt="" />
       <AvatarFallback>{initial}</AvatarFallback>
     </Avatar>

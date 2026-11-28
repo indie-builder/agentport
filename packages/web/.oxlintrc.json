@@ -21,7 +21,7 @@
     ],
     "shadcn/no-inline-styles": "error",
     "shadcn/no-restyle": [
-      "warn",
+      "error",
       {
         "allow": ["layout"],
         "contracts": [

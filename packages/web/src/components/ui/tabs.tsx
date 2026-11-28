@@ -11,8 +11,8 @@ import { cn } from '@/lib/cn';
 const tabsClassName = 'group/tabs flex gap-2 data-[orientation=horizontal]:flex-col';
 
 const tabsTriggerClassName = cn(
-  "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border-y border-transparent px-0 py-0.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-[color,background-color,border-color,box-shadow] duration-150 ease-out-soft group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-50 has-data-[icon=inline-end]:pe-1 has-data-[icon=inline-start]:ps-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 group-data-[variant=default]/tabs-list:data-selected:border-line [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-  'group-data-[variant=default]/tabs-list:border-x group-data-[variant=default]/tabs-list:px-1.5 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-selected:bg-transparent',
+  "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border-y border-transparent py-0.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-[color,background-color,border-color,box-shadow] duration-150 ease-out-soft group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start not-aria-disabled:not-data-disabled:hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-50 has-data-[icon=inline-end]:pe-1 has-data-[icon=inline-start]:ps-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 group-data-[variant=default]/tabs-list:data-selected:border-line [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  'group-data-[variant=default]/tabs-list:border-x group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-selected:bg-transparent',
   'data-selected:bg-selected data-selected:text-selected-foreground',
   'after:absolute after:bg-primary after:opacity-0 after:transition-opacity group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:bottom-[-5px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-end-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-selected:after:opacity-100',
 );
@@ -95,16 +95,18 @@ const tabsListVariants = cva(
 type TabsListProps = Omit<ComponentProps<typeof TabsListPrimitive>, 'className'> &
   VariantProps<typeof tabsListVariants> & {
     className?: ComponentProps<typeof TabsListPrimitive>['className'] | undefined;
+    bordered?: boolean | undefined;
   };
 
-function TabsList({ className, variant = 'default', ...props }: TabsListProps) {
+function TabsList({ className, variant = 'default', bordered = false, ...props }: TabsListProps) {
+  const baseClassName = cn(tabsListVariants({ variant }), bordered && 'border-b');
   return (
     <TabsListPrimitive
       data-variant={variant}
       className={
         typeof className === 'function'
-          ? (state) => cn(tabsListVariants({ variant }), className(state))
-          : cn(tabsListVariants({ variant }), className)
+          ? (state) => cn(baseClassName, className(state))
+          : cn(baseClassName, className)
       }
       {...props}
     />
@@ -113,15 +115,20 @@ function TabsList({ className, variant = 'default', ...props }: TabsListProps) {
 
 type TabsTriggerProps = Omit<ComponentProps<typeof TabsTab>, 'className'> & {
   className?: ComponentProps<typeof TabsTab>['className'] | undefined;
+  padding?: 'default' | 'sm' | undefined;
 };
 
-function TabsTrigger({ className, ...props }: TabsTriggerProps) {
+function TabsTrigger({ className, padding = 'default', ...props }: TabsTriggerProps) {
+  const baseClassName = cn(
+    tabsTriggerClassName,
+    padding === 'default' ? 'px-0 group-data-[variant=default]/tabs-list:px-1.5' : 'px-2',
+  );
   return (
     <TabsTab
       className={
         typeof className === 'function'
-          ? (state) => cn(tabsTriggerClassName, className(state))
-          : cn(tabsTriggerClassName, className)
+          ? (state) => cn(baseClassName, className(state))
+          : cn(baseClassName, className)
       }
       {...props}
     />

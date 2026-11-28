@@ -250,14 +250,14 @@ export function DocumentViewer({
             <div className="flex min-w-0 flex-col gap-4">
               <div className="flex min-w-0 items-start gap-1">
                 <Button
-                  variant="ghost"
+                  variant="muted"
                   size="icon"
                   aria-label={sidebarOpen ? '收起文件列表' : '展开文件列表'}
                   title={sidebarOpen ? '收起文件列表' : '展开文件列表'}
                   aria-expanded={sidebarOpen}
                   aria-controls="knowledge-document-files"
                   onClick={() => setSidebarOpen((open) => !open)}
-                  className="hidden shrink-0 text-muted-foreground hover:text-fg md:inline-flex"
+                  className="hidden shrink-0 md:inline-flex"
                 >
                   <PanelLeftDashed />
                 </Button>

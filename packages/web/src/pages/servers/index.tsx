@@ -336,13 +336,8 @@ export function ServersPage() {
         <PopoverTrigger
           onClick={(event) => event.stopPropagation()}
           render={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-auto px-1.5 font-normal tabular-nums"
-              aria-label={`查看使用该连接器的 ${count} 个专家`}
-            >
-              {count}
+            <Button variant="ghost" size="none" aria-label={`查看使用该连接器的 ${count} 个专家`}>
+              <span className="px-1.5 font-normal tabular-nums">{count}</span>
             </Button>
           }
         />
@@ -410,10 +405,10 @@ export function ServersPage() {
                 variant="ghost"
                 size="none"
                 aria-label={`查看连接器 ${displayName}`}
-                className="w-full min-w-0 justify-start text-left text-base whitespace-normal"
+                className="w-full min-w-0 justify-start text-left whitespace-normal"
                 onClick={(event) => openEdit(server, event.currentTarget)}
               >
-                <span className="break-words" title={displayName}>
+                <span className="break-words text-base" title={displayName}>
                   {displayName}
                 </span>
               </Button>

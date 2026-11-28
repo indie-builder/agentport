@@ -111,7 +111,8 @@ export function ConversationSearch({
                 render={
                   <InputGroupInput
                     type="search"
-                    className="px-0 [&::-webkit-search-cancel-button]:hidden"
+                    variant="flush"
+                    className="[&::-webkit-search-cancel-button]:hidden"
                   />
                 }
               />

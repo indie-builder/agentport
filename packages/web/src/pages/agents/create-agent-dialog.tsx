@@ -337,14 +337,14 @@ export function CreateAgentDialog({
                       id="new-agent-model"
                       onBlur={modelField.onBlur}
                       aria-invalid={Boolean(errors.model)}
-                      className="font-mono"
+                      mono
                     />
                     <AutocompleteContent>
                       <AutocompleteEmpty>无匹配预设，可直接保留输入</AutocompleteEmpty>
                       <AutocompleteList>
                         {models.map((model) => (
                           <AutocompleteItem key={model} value={model}>
-                            <AutocompleteItemText className="font-mono" />
+                            <AutocompleteItemText mono />
                           </AutocompleteItem>
                         ))}
                       </AutocompleteList>

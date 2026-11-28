@@ -5,10 +5,14 @@ function Card({
   className,
   size = 'default',
   hover = 'shadow',
+  gap = 'default',
+  muted = false,
   ...props
 }: React.ComponentProps<'div'> & {
   size?: 'default' | 'sm';
   hover?: 'static' | 'shadow' | 'lift';
+  gap?: 'default' | 'sm';
+  muted?: boolean;
 }) {
   return (
     <div
@@ -16,7 +20,9 @@ function Card({
       data-size={size}
       data-hover={hover}
       className={cn(
-        'group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl',
+        'group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl',
+        gap === 'sm' ? 'gap-3' : 'gap-(--card-spacing)',
+        muted && 'opacity-70',
         'cds-card-surface',
         className,
       )}
@@ -25,12 +31,17 @@ function Card({
   );
 }
 
-function CardHeader({ className, ...props }: React.ComponentProps<'div'>) {
+function CardHeader({
+  className,
+  bordered = false,
+  ...props
+}: React.ComponentProps<'div'> & { bordered?: boolean }) {
   return (
     <div
       data-slot="card-header"
       className={cn(
         'group/card-header @container/card-header grid auto-rows-min items-center gap-1 rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] has-data-[slot=card-description]:items-start [.border-b]:pb-(--card-spacing)',
+        bordered && 'border-b pb-(--card-spacing)',
         className,
       )}
       {...props}

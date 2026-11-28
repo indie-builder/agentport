@@ -87,14 +87,17 @@ function SidebarBrand({
     <div className="flex h-8 shrink-0 items-center gap-2">
       <Button
         ref={toggleRef}
+        type="button"
         variant="plain"
-        size="icon"
+        size="none"
         aria-label={expanded ? '收起为窄边' : '展开侧栏'}
         aria-expanded={!iconOnly}
         onClick={onToggle}
-        className="shrink-0 text-fg hover:bg-sidebar-hover"
+        className="shrink-0"
       >
-        <PanelLeftClose className="size-4" />
+        <span className="inline-flex size-8 items-center justify-center rounded-lg text-fg transition-colors group-hover/button:bg-sidebar-hover">
+          <PanelLeftClose className="size-4" />
+        </span>
       </Button>
       {!iconOnly ? (
         <Button
@@ -629,14 +632,24 @@ export function AppShell() {
           </Tooltip>
           {personalContext ? (
             <Button
-              variant="nav"
-              size={iconOnly ? 'icon' : 'nav'}
+              type="button"
+              variant="plain"
+              size="none"
               aria-label="退出登录"
               onClick={() => void logout()}
-              className={iconOnly ? 'justify-center rounded-tag' : 'gap-2.5'}
+              className={iconOnly ? 'self-start' : 'w-full justify-start'}
             >
-              <LogOut aria-hidden="true" />
-              {!iconOnly ? <span>退出登录</span> : null}
+              <span
+                className={cn(
+                  'flex h-8 items-center text-sm font-normal text-fg transition-colors duration-150 ease-out-soft group-hover/button:bg-sidebar-hover',
+                  iconOnly
+                    ? 'w-8 justify-center rounded-tag p-0'
+                    : 'w-full gap-2.5 rounded-item px-2',
+                )}
+              >
+                <LogOut aria-hidden="true" />
+                {!iconOnly ? <span>退出登录</span> : null}
+              </span>
             </Button>
           ) : null}
           <div
@@ -665,23 +678,38 @@ export function AppShell() {
                 <PopoverTrigger
                   render={
                     <Button
-                      variant="nav"
-                      size={iconOnly ? 'icon' : 'nav'}
+                      type="button"
+                      variant="plain"
+                      size="none"
                       aria-label="账户菜单"
                       aria-current={accountCurrent}
-                      className={
-                        iconOnly ? 'justify-center rounded-full' : 'min-w-0 flex-1 pl-1.5 pr-2'
-                      }
+                      className={iconOnly ? undefined : 'min-w-0 flex-1 justify-start'}
                     >
-                      {accountAvatar}
-                      {accountLabel}
-                      {!iconOnly ? (
-                        <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
-                      ) : null}
+                      <span
+                        className={cn(
+                          'inline-flex h-8 items-center text-sm font-normal text-fg transition-colors group-hover/button:bg-sidebar-hover group-aria-expanded/button:bg-sidebar-hover',
+                          iconOnly
+                            ? 'size-8 justify-center rounded-full p-0'
+                            : 'w-full min-w-0 justify-start gap-2 rounded-lg pl-1.5 pr-2',
+                        )}
+                      >
+                        {accountAvatar}
+                        {accountLabel}
+                        {!iconOnly ? (
+                          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+                        ) : null}
+                      </span>
                     </Button>
                   }
                 />
-                <PopoverContent side="top" align="start" sideOffset={8} className="w-72 gap-0 p-0">
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  sideOffset={8}
+                  padding="none"
+                  gap="none"
+                  className="w-72"
+                >
                   <div className="flex min-w-0 items-center gap-3 p-3">
                     <span
                       aria-hidden="true"
@@ -729,16 +757,19 @@ export function AppShell() {
                   <Separator />
                   <div className="p-2">
                     <Button
+                      type="button"
                       variant="ghost"
-                      size="lg"
+                      size="none"
                       onClick={() => {
                         setAccountOpen(false);
                         void logout();
                       }}
-                      className="w-full justify-start gap-2.5 px-3 text-danger hover:text-danger"
+                      className="w-full justify-start"
                     >
-                      <LogOut aria-hidden="true" className="shrink-0" />
-                      退出登录
+                      <span className="inline-flex h-9 w-full items-center justify-start gap-2.5 px-3 text-sm font-medium text-danger transition-colors group-hover/button:text-danger">
+                        <LogOut aria-hidden="true" className="shrink-0" />
+                        退出登录
+                      </span>
                     </Button>
                   </div>
                 </PopoverContent>
@@ -778,18 +809,18 @@ export function AppShell() {
           finalFocus={() => navigationTrigger.current}
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-73.5! max-w-none! gap-0 p-0 shadow-overlay sm:max-w-none! lg:hidden"
+          className="w-73.5! max-w-none! gap-0 p-0 sm:max-w-none! lg:hidden"
         >
           <SheetTitle className="sr-only">导航</SheetTitle>
           <SheetClose
             render={
               <Button
-                variant="muted"
+                variant="nav"
                 size="icon-sm"
                 aria-label="关闭导航"
-                className="absolute right-3 top-6 z-10 hover:bg-sidebar-hover"
+                className="absolute right-3 top-6 z-10 justify-center"
               >
-                <X className="size-3" />
+                <X className="size-3 text-muted-foreground" />
               </Button>
             }
           />

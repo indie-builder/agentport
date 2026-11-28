@@ -275,6 +275,7 @@ export function EvalPage() {
                 className="w-40"
               />
               <SegmentedControl<EvalTarget>
+                size="sm"
                 aria-label="评估目标"
                 value={target}
                 onValueChange={(next) => {
@@ -282,10 +283,8 @@ export function EvalPage() {
                 }}
               >
                 <SegmentedControlIndicator />
-                <SegmentedControlItem value="published" className="h-6 px-2.5 text-xs">
-                  线上版本
-                </SegmentedControlItem>
-                <SegmentedControlItem value="draft" className="h-6 px-2.5 text-xs">
+                <SegmentedControlItem value="published">线上版本</SegmentedControlItem>
+                <SegmentedControlItem value="draft">
                   当前草稿
                   {hasDraft ? <span className="ml-1 text-muted-foreground">· 有改动</span> : null}
                 </SegmentedControlItem>

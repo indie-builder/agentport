@@ -51,8 +51,23 @@ function TraceIcon({ className, ...props }: React.ComponentProps<'span'>) {
   );
 }
 
-function TraceTitle({ className, ...props }: React.ComponentProps<'span'>) {
-  return <span data-slot="trace-title" className={cn('min-w-0 truncate', className)} {...props} />;
+function TraceTitle({
+  className,
+  variant = 'default',
+  ...props
+}: React.ComponentProps<'span'> & { variant?: 'default' | 'mono' }) {
+  return (
+    <span
+      data-slot="trace-title"
+      data-variant={variant}
+      className={cn(
+        'min-w-0 truncate',
+        variant === 'mono' && 'font-mono text-xs text-fg',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 function TraceDescription({ className, ...props }: React.ComponentProps<'span'>) {
