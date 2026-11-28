@@ -2,12 +2,18 @@ import { fileURLToPath, URL } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
+import { cn } from 'cn/vite';
 import { defineConfig } from 'vite';
 
 const apiTarget = process.env.VITE_API_TARGET ?? 'http://localhost:3000';
 
 export default defineConfig({
-  plugins: [tanstackRouter({ target: 'react', autoCodeSplitting: true }), react(), tailwindcss()],
+  plugins: [
+    tanstackRouter({ target: 'react', autoCodeSplitting: true }),
+    react(),
+    tailwindcss(),
+    cn({ content: ['src/**/*.{ts,tsx}'], css: 'src/styles.css', out: 'src/lib/cn-tables.ts' }),
+  ],
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },

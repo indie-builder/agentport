@@ -48,8 +48,11 @@ const buttonVariantStyles = cva(
   },
 );
 
-const buttonVariants = (props?: Parameters<typeof buttonVariantStyles>[0]) =>
-  cn(buttonVariantStyles(props));
+const buttonVariants = (props?: Parameters<typeof buttonVariantStyles>[0]) => {
+  if (!props) return cn(buttonVariantStyles());
+  const { className, class: classProp, ...rest } = props;
+  return cn(buttonVariantStyles(rest), classProp, className);
+};
 
 type ButtonProps = Omit<ComponentProps<typeof ButtonPrimitive>, 'className'> &
   VariantProps<typeof buttonVariantStyles> & {
@@ -64,7 +67,7 @@ function Button({ className, variant = 'default', size = 'default', ...props }: 
       className={
         typeof className === 'function'
           ? (state) => cn(buttonVariantStyles({ variant, size }), className(state))
-          : buttonVariants({ variant, size, className })
+          : cn(buttonVariantStyles({ variant, size }), className)
       }
       {...props}
     />

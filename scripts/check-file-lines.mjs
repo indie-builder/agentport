@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 
 const LIMIT = 3000;
 const EXCLUDED_DIRS = ['packages/db/migrations/meta/', 'packages/core/src/generated/'];
-const EXCLUDED_FILES = ['packages/web/src/routeTree.gen.ts'];
+const EXCLUDED_FILES = ['packages/web/src/routeTree.gen.ts', 'packages/web/src/lib/cn-tables.ts'];
 
 const listedRun = Bun.spawnSync(
   [
