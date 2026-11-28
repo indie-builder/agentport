@@ -26,7 +26,6 @@ type FaqEntry = KnowledgeFaq;
 export type FaqTransferEntry = KnowledgeFaqTransferEntry;
 type FaqImportIssue = KnowledgeFaqImportIssue;
 type FaqImportRowStatus = KnowledgeFaqImportResult['status'];
-type FaqImportOperation = KnowledgeFaqImportResult['operation'];
 
 export type FaqInput = z.infer<typeof knowledgeFaqInputSchema>;
 
@@ -58,15 +57,6 @@ export interface FaqExistingEntry {
   updatedAt: string;
 }
 
-interface FaqImportPlanRow {
-  row: number;
-  status: FaqImportRowStatus;
-  operation: FaqImportOperation;
-  documentId?: string;
-  expectedVersionId?: string | null;
-  issues: FaqImportIssue[];
-}
-
 interface FaqImportDraft {
   operation: 'add' | 'merge';
   documentId: string;
@@ -84,7 +74,7 @@ interface FaqImportPlan {
     added: number;
     merged: number;
   };
-  results: FaqImportPlanRow[];
+  results: KnowledgeFaqImportResult[];
   drafts: FaqImportDraft[];
 }
 
@@ -909,7 +899,7 @@ export function planFaqImport(input: {
   existing: FaqExistingEntry[];
   newDocumentId: () => string;
 }): FaqImportPlan {
-  const results: FaqImportPlanRow[] = [];
+  const results: KnowledgeFaqImportResult[] = [];
   const drafts: FaqImportDraft[] = [];
   const existingByHash = new Map<string, { entry: FaqExistingEntry; faq: FaqEntry }>();
   const existingPositives = new Set<string>();

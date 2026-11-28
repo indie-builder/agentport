@@ -28,8 +28,6 @@ export const outputRefSchema = z
 
 export type OutputRef = z.infer<typeof outputRefSchema>;
 
-export const createOutputShareInputSchema = outputRefSchema;
-
 export const outputShareSchema = z.object({
   id: z.string(),
   runId: z.string(),

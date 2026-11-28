@@ -1,7 +1,7 @@
 import {
-  createOutputShareInputSchema,
   outputOwnerIdSchema,
   outputPathSchema,
+  outputRefSchema,
   outputShareSchema,
   publicOutputShareSchema,
 } from '@agentport/shared';
@@ -30,7 +30,7 @@ export const outputSharesContract = {
   create: contractProcedure
     .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/conversations/{id}/output-shares', successStatus: 201 })
-    .input(z.object({ params: ownerParams, body: createOutputShareInputSchema }))
+    .input(z.object({ params: ownerParams, body: outputRefSchema }))
     .output(outputShareSchema)
     .meta({ access: { kind: 'permission', permissionId: 'conversations.share' } }),
   list: contractProcedure

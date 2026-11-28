@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
+import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
 import { probeTestDb } from './db-probe.js';
@@ -35,13 +36,17 @@ async function seedDocument(): Promise<{ documentId: string }> {
     enabled: true,
   });
   profileId = profile.id;
-  const server = await servers.createServer(db, {
-    name: `versions-${suffix}`,
-    kind: 'knowledge' as never,
-    description: '',
-    config: {},
-    secretsEncrypted: null,
-  });
+  const server = await servers.createServer(
+    db,
+    {
+      name: `versions-${suffix}`,
+      kind: 'knowledge' as never,
+      description: '',
+      config: {},
+      secretsEncrypted: null,
+    },
+    null,
+  );
   serverId = server.id;
   const base = await knowledge.createBase(db, {
     slug: `versions-${suffix}`,
@@ -50,7 +55,11 @@ async function seedDocument(): Promise<{ documentId: string }> {
     serverId: server.id,
     embeddingProfileId: profile.id,
     rerankProfileId: null,
-    settings: { chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false },
+    settings: knowledgeBaseSettingsSchema.parse({
+      chunkTokens: 800,
+      chunkOverlap: 120,
+      wikiAutoUpdate: false,
+    }),
   });
   baseId = base.id;
   const document = await knowledge.createDocument(db, {
@@ -184,6 +193,7 @@ describe.skipIf(!ready)('knowledge document versions', () => {
     const document = await knowledge.getDocument(db, documentId);
     expect(document?.currentVersionId).toBe(first.id);
     const versions = await knowledge.listVersions(db, documentId);
+    if (!versions) throw new Error('expected versions page');
     expect(versions.items.map((row) => row.version)).toEqual([1]);
   });
 
@@ -214,6 +224,7 @@ describe.skipIf(!ready)('knowledge document versions', () => {
     }
 
     const versions = await knowledge.listVersions(db, documentId);
+    if (!versions) throw new Error('expected versions page');
     expect(versions.items).toHaveLength(ok.length);
     expect(new Set(versions.items.map((row) => row.version))).toEqual(
       new Set(

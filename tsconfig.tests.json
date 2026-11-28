@@ -12,6 +12,7 @@
     "packages/shared/test/**/*.ts",
     "packages/contract/test/**/*.ts",
     "packages/core/test/**/*.ts",
+    "packages/db/test/**/*.ts",
     "packages/sandbox/test/**/*.ts"
   ]
 }

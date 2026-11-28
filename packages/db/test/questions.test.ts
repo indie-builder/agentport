@@ -13,16 +13,18 @@ const { db, client, ready } = await probeTestDb();
 const agentIds: string[] = [];
 const businessId = 'questions-owner';
 
-const questionSet = (text = '你希望用什么语言？') => [
-  {
-    question: text,
-    header: '选择',
-    options: [
-      { label: 'TypeScript', description: '类型安全' },
-      { label: 'Python', description: '生态丰富' },
-    ],
-    multiSelect: false,
-  },
+const baseQuestion = (text = '你希望用什么语言？') => ({
+  question: text,
+  header: '选择',
+  options: [
+    { label: 'TypeScript', description: '类型安全' },
+    { label: 'Python', description: '生态丰富' },
+  ],
+  multiSelect: false,
+});
+
+const questionSet = (text = '你希望用什么语言？'): [ReturnType<typeof baseQuestion>] => [
+  baseQuestion(text),
 ];
 
 async function seedRun(status: 'queued' | 'running' | 'succeeded' = 'running'): Promise<string> {

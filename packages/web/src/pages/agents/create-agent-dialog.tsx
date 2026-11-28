@@ -2,7 +2,7 @@ import type { Agent, AgentInput } from '@agentport/shared';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronRight } from 'lucide-react';
 import { type ComponentProps, useEffect, useState } from 'react';
-import { type Control, useController } from 'react-hook-form';
+import { useController } from 'react-hook-form';
 import digitalTwinPortrait from '../../assets/agents/digital-twin.png';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
@@ -49,7 +49,6 @@ import { slugFromName } from '../../lib/slug.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 import {
-  type AgentDraft,
   agentCreateFormSchema,
   draftFromInput,
   duplicateFormSchema,
@@ -79,7 +78,7 @@ export function CreateAgentDialog({
       name: initialRole === '数字分身' ? '我的分身' : '',
     }),
   });
-  const control = rhf.control as unknown as Control<AgentDraft, unknown, AgentDraft>;
+  const control = rhf.control;
   const errors = rhf.formState.errors;
   const roleField = useController({ control, name: 'role' }).field;
   const visibilityField = useController({ control, name: 'visibility' }).field;

@@ -237,11 +237,7 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     }),
     createSource: os.bases.createSource.handler(async ({ input, context }) => {
       await authorizeBase(context, input.params.id, 'knowledge.sources.manage', 'manage');
-      return createSource(
-        depsOf(context),
-        input.params.id,
-        input.body as unknown as Parameters<typeof createSource>[2],
-      );
+      return createSource(depsOf(context), input.params.id, input.body);
     }),
     wikiPages: os.bases.wikiPages.handler(async ({ input, context }) => {
       await authorizeBase(context, input.params.id, 'knowledge.read', 'read');

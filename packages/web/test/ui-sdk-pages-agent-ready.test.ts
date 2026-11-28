@@ -23,7 +23,6 @@ vi.mock('../src/lib/toast.js', () => {
     promise: vi.fn(),
   });
   return {
-    toaster: toast,
     toast,
     toastError: vi.fn(),
     toastSuccess: vi.fn(),

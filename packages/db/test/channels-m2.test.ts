@@ -515,6 +515,7 @@ describe.skipIf(!ready)('channel system messages', () => {
       agentId,
       body: 'busy',
     });
+    if (!row) throw new Error('expected system message row');
 
     expect(row.kind).toBe('system');
     expect(row.agentId).toBe(agentId);

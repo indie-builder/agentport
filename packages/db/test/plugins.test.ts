@@ -48,7 +48,7 @@ describe.skipIf(!ready)('plugin repo', () => {
 
     expect((await pluginsRepo.getPlugin(db, pluginId))?.slug).toBe(slug);
     expect(
-      (await pluginsRepo.listPlugins(db, { limit: 100 })).items.find((row) => row.id === pluginId)
+      (await pluginsRepo.listPlugins(db, { limit: 100 }))?.items.find((row) => row.id === pluginId)
         ?.agentCount,
     ).toBe(0);
 
@@ -64,7 +64,7 @@ describe.skipIf(!ready)('plugin repo', () => {
       { plugin: expect.objectContaining({ id: pluginId }), allowHooks: true, allowMcp: false },
     ]);
     expect(
-      (await pluginsRepo.listPlugins(db, { limit: 100 })).items.find((row) => row.id === pluginId)
+      (await pluginsRepo.listPlugins(db, { limit: 100 }))?.items.find((row) => row.id === pluginId)
         ?.agentCount,
     ).toBe(1);
 
@@ -85,7 +85,7 @@ describe.skipIf(!ready)('plugin repo', () => {
     expect((await pluginsRepo.getPluginBySourceId(db, sourceId))?.id).toBe(pluginId);
     expect(await pluginsRepo.getPluginBySourceId(db, `${slug}@other`)).toBeNull();
     expect(
-      (await pluginsRepo.listPlugins(db, { limit: 100 })).items.find((row) => row.id === pluginId)
+      (await pluginsRepo.listPlugins(db, { limit: 100 }))?.items.find((row) => row.id === pluginId)
         ?.sourceId,
     ).toBe(sourceId);
 

@@ -32,7 +32,7 @@ import {
   X,
 } from 'lucide-react';
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { type Control, type Path, type PathValue, useController, useWatch } from 'react-hook-form';
+import { type Path, type PathValue, useController, useWatch } from 'react-hook-form';
 import { AgentOverview } from '../../components/agent/agent-overview.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
@@ -376,7 +376,7 @@ export function AgentEditor({
   const fileGroups = [...new Set(fileEntries.map((entry) => entry.group))];
   const [exporting, setExporting] = useState(false);
   const rhf = useZodForm(agentFormSchema, { defaultValues: draftFromInput(toInput(agent)) });
-  const control = rhf.control as unknown as Control<AgentDraft, unknown, AgentDraft>;
+  const control = rhf.control;
   const errors = rhf.formState.errors;
   const allowedInvalid = Boolean(errors.allowedTools);
   const roleField = useController({ control, name: 'role' }).field;

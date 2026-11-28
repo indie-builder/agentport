@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
+import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
 import { probeTestDb } from './db-probe.js';
@@ -46,13 +47,17 @@ async function seedBase(): Promise<string> {
     enabled: true,
   });
   profileIds.push(profile.id);
-  const server = await servers.createServer(db, {
-    name: `tags-batch-${suffix}`,
-    kind: 'knowledge' as never,
-    description: '',
-    config: {},
-    secretsEncrypted: null,
-  });
+  const server = await servers.createServer(
+    db,
+    {
+      name: `tags-batch-${suffix}`,
+      kind: 'knowledge' as never,
+      description: '',
+      config: {},
+      secretsEncrypted: null,
+    },
+    null,
+  );
   serverIds.push(server.id);
   const base = await knowledge.createBase(db, {
     slug: `tags-batch-${suffix}`,
@@ -61,7 +66,11 @@ async function seedBase(): Promise<string> {
     serverId: server.id,
     embeddingProfileId: profile.id,
     rerankProfileId: null,
-    settings: { chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false },
+    settings: knowledgeBaseSettingsSchema.parse({
+      chunkTokens: 800,
+      chunkOverlap: 120,
+      wikiAutoUpdate: false,
+    }),
   });
   baseIds.push(base.id);
   return base.id;
@@ -106,7 +115,12 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
     const byName = new Map(created.map((row) => [row.name, row.id]));
     const rows = await knowledge.upsertTags(db, baseId, ['c', 'a', 'b']);
     expect(rows.map((row) => row.name)).toEqual(['c', 'a', 'b']);
-    expect(rows.map((row) => row.id)).toEqual(['c', 'a', 'b'].map((name) => byName.get(name)));
+    const expectedIds = ['c', 'a', 'b'].map((name) => {
+      const id = byName.get(name);
+      if (!id) throw new Error(`missing tag ${name}`);
+      return id;
+    });
+    expect(rows.map((row) => row.id)).toEqual(expectedIds);
     expect(await tagNames(baseId)).toEqual(['a', 'b', 'c']);
   });
 
@@ -130,7 +144,7 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
       'select name, count(*)::int as n from knowledge_tags where base_id = $1 group by name order by name',
       [baseId],
     );
-    expect(counts).toEqual([
+    expect([...counts]).toEqual([
       { name: 'dup', n: 1 },
       { name: 'one', n: 1 },
       { name: 'other', n: 1 },

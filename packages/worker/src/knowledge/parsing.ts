@@ -221,15 +221,13 @@ function jsonDocument(text: string): ParsedDocument {
   };
 }
 
-type DomLike = {
-  nodeType: number;
-  nodeName: string;
-  textContent: string | null;
-  childNodes: ArrayLike<DomLike>;
-  getElementsByTagName(tag: string): ArrayLike<DomLike>;
+type TableNodeLike = {
+  getElementsByTagName(tag: string): ArrayLike<{
+    childNodes: ArrayLike<{ nodeType: number; nodeName: string; textContent: string | null }>;
+  }>;
 };
 
-function htmlTableToMarkdown(table: DomLike): string {
+function htmlTableToMarkdown(table: TableNodeLike): string {
   const rows: string[][] = [];
   const rowNodes = table.getElementsByTagName('tr');
   for (let i = 0; i < rowNodes.length; i += 1) {
@@ -276,7 +274,7 @@ function htmlToMarkdown(html: string): string {
   ]);
   service.addRule('gfmTable', {
     filter: 'table',
-    replacement: (_content, node) => htmlTableToMarkdown(node as unknown as DomLike),
+    replacement: (_content, node) => htmlTableToMarkdown(node),
   });
   return service
     .turndown(html)

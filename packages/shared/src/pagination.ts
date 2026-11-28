@@ -42,14 +42,10 @@ export function offsetPageSchema<T extends z.ZodType>(itemSchema: T) {
 
 export type CursorPage<T> = z.infer<ReturnType<typeof cursorPageSchema<z.ZodType<T>>>>;
 
-type WebGlobals = {
-  TextEncoder: new () => { encode: (input: string) => Uint8Array };
-  TextDecoder: new () => { decode: (input: Uint8Array) => string };
-  btoa: (input: string) => string;
-  atob: (input: string) => string;
-};
-
-const { TextEncoder, TextDecoder, btoa, atob } = globalThis as unknown as WebGlobals;
+declare const TextEncoder: new () => { encode: (input: string) => Uint8Array };
+declare const TextDecoder: new () => { decode: (input: Uint8Array) => string };
+declare function btoa(input: string): string;
+declare function atob(input: string): string;
 
 function toBase64Url(text: string): string {
   const binary = Array.from(new TextEncoder().encode(text), (byte) =>

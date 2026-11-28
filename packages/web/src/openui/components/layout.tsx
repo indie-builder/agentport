@@ -98,12 +98,21 @@ const CATEGORY_FALLBACKS: Record<string, string> = {
 
 const DEFAULT_FALLBACK_ICON = 'CircleDot';
 
+function isIconName(name: string): name is keyof typeof icons {
+  return Object.hasOwn(icons, name);
+}
+
+function lookupIcon(name: string): LucideIcon | undefined {
+  return isIconName(name) ? icons[name] : undefined;
+}
+
 function resolveIcon(name: string, category?: string): LucideIcon {
-  const catalog = icons as unknown as Record<string, LucideIcon | undefined>;
-  const direct = catalog[toPascalCase(name)] ?? catalog[name];
+  const direct = lookupIcon(toPascalCase(name)) ?? lookupIcon(name);
   if (direct) return direct;
   const fallback = category ? CATEGORY_FALLBACKS[category.trim().toLowerCase()] : undefined;
-  return (fallback ? catalog[fallback] : undefined) ?? catalog[DEFAULT_FALLBACK_ICON] ?? CircleDot;
+  return (
+    (fallback ? lookupIcon(fallback) : undefined) ?? lookupIcon(DEFAULT_FALLBACK_ICON) ?? CircleDot
+  );
 }
 
 export function IconRenderer({ props }: RenderProps<{ name: string; category?: string }>) {
