@@ -143,7 +143,7 @@ const components: Components = {
       <a
         {...props}
         href={href}
-        className="break-words font-medium text-[var(--color-link)] underline decoration-line-strong underline-offset-2 hover:decoration-primary"
+        className="break-words font-medium text-link underline decoration-line-strong underline-offset-2 hover:decoration-primary"
         {...(external ? { target: '_blank', rel: 'noreferrer noopener' } : {})}
       >
         {children}
@@ -153,7 +153,7 @@ const components: Components = {
 };
 
 const CODE_BLOCK_CLASS =
-  '[&_[data-streamdown=inline-code]]:bg-code [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-white/10 [&_[data-streamdown=code-block]]:bg-[var(--color-code-block)] [&_[data-streamdown=code-block]]:text-[var(--color-code-block-fg)] [&_[data-streamdown=code-block-body]]:border-white/10 [&_[data-streamdown=code-block-body]]:bg-transparent';
+  '[&_[data-streamdown=inline-code]]:bg-code [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-white/10 [&_[data-streamdown=code-block]]:bg-code-block [&_[data-streamdown=code-block]]:text-code-block-fg [&_[data-streamdown=code-block-body]]:border-white/10 [&_[data-streamdown=code-block-body]]:bg-transparent';
 const PARAGRAPH_CLASS = '[&_p]:whitespace-pre-wrap';
 const BODY_CLASS = `min-w-0 text-base text-fg ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;
 const INHERIT_CLASS = `min-w-0 ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;
@@ -194,7 +194,7 @@ const STATIC_REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), htmlAsTex
 type RemarkPlugins = NonNullable<Parameters<typeof Streamdown>[0]['remarkPlugins']>;
 
 const LINK_CLASS =
-  'break-words font-medium text-[var(--color-link)] underline decoration-line-strong underline-offset-2';
+  'break-words font-medium text-link underline decoration-line-strong underline-offset-2';
 
 /** 本地文件链接的 fragment 前缀；harden 放行纯 fragment，且不会改写其中的路径。 */
 const PLUGIN_FILE_PREFIX = '#plugin-file=';

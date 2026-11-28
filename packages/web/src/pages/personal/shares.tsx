@@ -52,7 +52,7 @@ function ShareSourceCell({
         <Link
           to="/chat"
           search={{ agent: share.agentId, conversation: share.conversationId }}
-          className="break-words text-sm text-[var(--color-link)] underline underline-offset-4"
+          className="break-words text-sm text-link underline underline-offset-4"
         >
           {sourceTitle}
         </Link>

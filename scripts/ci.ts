@@ -50,6 +50,7 @@ const withE2e = process.argv.includes('--e2e');
 const lintPromise = run('lint', [
   ['run', 'lint'],
   ['run', 'lint:focus'],
+  ['run', 'lint:design'],
   ['run', 'lint:contract'],
   ['run', 'lint:contract:test'],
   ['run', 'lint:lines'],

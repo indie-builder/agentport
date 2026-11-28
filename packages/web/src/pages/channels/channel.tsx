@@ -587,7 +587,7 @@ function ChannelWorkspace({
             to="/channels"
             aria-label="返回频道列表"
             title="返回频道列表"
-            className="inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-icon)] text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-hover hover:text-fg lg:hidden"
+            className="inline-flex size-7 shrink-0 items-center justify-center rounded-icon text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-hover hover:text-fg lg:hidden"
           >
             <ArrowLeft aria-hidden="true" />
           </Link>

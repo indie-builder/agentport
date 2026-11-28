@@ -90,7 +90,7 @@ function ComboboxList({ className, ...props }: ComponentProps<typeof ComboboxLis
     <ComboboxListPrimitive
       className={(state) =>
         cn(
-          'no-scrollbar max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--combobox-list-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1',
+          'scrollbar-none max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--combobox-list-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1',
           typeof className === 'function' ? className(state) : className,
         )
       }

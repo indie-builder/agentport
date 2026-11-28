@@ -138,6 +138,7 @@
 | 禁硬编码 hex、禁逐个传 `strokeWidth`/`size`、禁直接拼接 `buttonVariants` | 架构 + Lint + CI | `packages/web/src/styles.css`、`packages/web/src/App.tsx`、`packages/web/src/components/ui/button.tsx` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 前端本地存储走统一封装，禁直接访问 `localStorage` | 架构 + Lint + CI | `packages/web/src/lib/storage.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 焦点与边框单层契约（禁叠环、`outline-none`、slider 焦点态） | Lint + CI | `scripts/check-focus-contract.mjs`（`bun run lint:focus`） |
+| Tailwind 设计令牌、类名有效性与组件样式契约（禁原始调色板、未知类、非布局任意值） | Lint + CI | `packages/web/.oxlintrc.json`（`bun run lint:design`，已接入 `scripts/ci.ts`） |
 | 8 包跨包分层边界（`shared` / `contract` / `core` / `db` / `api` / `worker` / `web` / `sandbox` 单向依赖与纯子路径白名单） | 架构 + Lint + CI | `package.json`、`packages/*/package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | 文件级、API 模块级与 Worker 子域级循环依赖禁止 | 架构 + Lint + CI | `packages/api/src/modules/`、`packages/worker/src/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
 | API 内部单向分层（`http`/`lib`/`queue` 不反向依赖 `modules/*`、禁跨模块 `router` 导入、禁散落 `process.env` 与裸 `bodyLimit`） | 架构 + Lint + CI | `packages/api/src/config.ts`、`packages/api/src/http/body-limit.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |

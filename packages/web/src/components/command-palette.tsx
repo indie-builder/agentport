@@ -106,7 +106,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
           }}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 transition-colors focus-within:border-[var(--color-subtle)]">
+          <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 transition-colors focus-within:border-subtle">
             <Search aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
             <CommandInput
               autoFocus

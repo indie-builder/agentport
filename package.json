@@ -57,6 +57,7 @@
     "lint:fix": "biome check --write .",
     "audit": "bun audit --registry https://registry.npmjs.org",
     "lint:focus": "bun scripts/check-focus-contract.mjs",
+    "lint:design": "bun run --filter @agentport/web lint:design",
     "lint:contract": "bun scripts/check-project-contract.mjs",
     "lint:contract:test": "bun test --cwd scripts ./check-project-contract.test.ts",
     "lint:lines": "bun scripts/check-file-lines.mjs",

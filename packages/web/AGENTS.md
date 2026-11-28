@@ -44,7 +44,7 @@
 
 ## 验证
 
-- 按改动范围从根 `package.json` 选现有命令，不固定全套、不加新门禁：`bun run --filter @agentport/web typecheck`、`bun run --filter @agentport/web build`、`bun run test:web`（有 web 测试时）、`bun run lint:focus` / `bun run lint:contract`；OpenUI 改动加 `bun run openui:audit`。机械检查与门禁策略见 [DEV-WORKFLOW](../../docs/DEV-WORKFLOW.md) §5（不装钩子、不阻塞）。
+- 按改动范围从根 `package.json` 选现有命令，不固定全套、不加新门禁：`bun run --filter @agentport/web typecheck`、`bun run --filter @agentport/web build`、`bun run test:web`（有 web 测试时）、`bun run lint:focus` / `bun run lint:design` / `bun run lint:contract`；可按需运行 `bun --cwd packages/web oxlint <文件>` 检查改动文件的 `shadcn/no-restyle` 提示；OpenUI 改动加 `bun run openui:audit`。机械检查与门禁策略见 [DEV-WORKFLOW](../../docs/DEV-WORKFLOW.md) §5（不装钩子、不阻塞）。
 - 视觉、几何、焦点与 AX 结论以真实渲染证据为准：读 `getBoundingClientRect()`/计算样式或实际 AX 树，类名与截图不能替代。窄桌面检查无页面横向溢出、单一 `h1`、焦点与键盘可用。
 
 ## UI 验收（硬性）
